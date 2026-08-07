@@ -1,0 +1,2 @@
+# Trivy ignore list for the Python backend image/filesystem scan.
+# Populate with false positives / non-applicable CVEs as CI surfaces them.
