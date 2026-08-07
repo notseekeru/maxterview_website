@@ -12,7 +12,7 @@ User-stated philosophy: **Robustness & quality first** (security, testing, clean
 |---|---|
 | **Robust & secure** | Non-trivial logic gets tests; credentials never in code; Clerk guardrail fails closed; owner-scoped queries everywhere; provider-agnostic AI layer (no vendor lock). |
 | **Isolated** | One container per service; non-root users; Postgres on an `internal` network (no host ingress); secrets only via env / SealedSecrets, never committed; Node lives in the frontend container. |
-| **Declarative** | `docker-compose.yml` (dev) + k3s manifests (prod) declare everything. Typed config via `pydantic-settings`. SQLAlchemy declarative models. Alembic for schema. Makefile = named idempotent targets. |
+| **Declarative** | `compose.yml` + dev/prod overlays (dev) + `deploy/` manifests (prod) declare everything. Typed config via `pydantic-settings`. SQLAlchemy declarative models. Alembic for schema. Makefile = named idempotent targets. |
 | **DevOps / GitOps** | GitHub Actions (lint → test → build → push image). **We ship `deploy/` manifests + CI; the production infrastructure is external and out of scope here.** One-shot migration service. Health/readiness endpoints. structlog + Sentry. |
 
 ## 2. Stack
@@ -26,7 +26,7 @@ User-stated philosophy: **Robustness & quality first** (security, testing, clean
 - **Observability**: structlog (JSON in prod) + **Sentry** (error tracking)
 - **Frontend**: React + **TypeScript** + Vite + **shadcn/ui** (component library on Radix + Tailwind); nginx reverse proxy (prod), same-origin `/api`
 - **Packaging**: **uv** + `pyproject.toml` + committed `uv.lock`, dev deps in `[dependency-groups]`
-- **Quality**: ruff (lint+format), pytest + httpx ASGI (**unit + integration against Postgres**), pre-commit
+- **Quality**: ruff (lint+format), pytest + httpx ASGI (**unit + integration against Postgres**), pre-commit, **Trivy** scans (filesystem in CI + image in CD), **Biome** (frontend TS)
 - **Dev runtime**: Docker Compose v2, `python:3.13-slim` (3.14 now stable & FastAPI-supported; 3.13 is the conservative pin)
 
 ## 3. Topology
@@ -63,7 +63,7 @@ graph LR
 
 ## 4. Config — single source of truth
 
-- Dev: `docker-compose.yml` builds `DATABASE_URL` from `POSTGRES_USER/PASSWORD/DB`; never set in `.env`
+- Dev: compose dev/prod overlays build `DATABASE_URL` from `POSTGRES_USER/PASSWORD/DB`; never set in `.env`
 - Prod: Secret (from SealedSecret) supplies `DATABASE_URL` etc.; **same `Settings` class, same env var contract**
 - `Settings` fails fast on missing required values; `.env.example` is the canonical shape
 
@@ -94,12 +94,8 @@ graph LR
 | `make ci` | lint + test (local CI approximation) |
 | `make render-deploy` | Validate `deploy/` (kustomize build) — deploying itself is handled externally |
 
-CI (GitHub Actions, `.github/workflows/ci.yml`):
-1. `astral-sh/setup-uv` + `uv sync --frozen` (runtime + `[dependency-groups].dev`) on `python:3.13`
-2. `uv run ruff check` + `uv run ruff format --check`
-3. `uv run pytest` against a `postgres:17` service container (unit + integration)
-4. `docker buildx build` backend & frontend → push to **GHCR** (tagged `git-sha`)
-5. (Optional) commit manifest image tag bump in `deploy/` → Argo CD auto-syncs
+CI (`.github/workflows/ci-pipeline.yml`): matrix over backend / frontend — backend = `setup-uv` + `uv sync --frozen` + ruff + pytest (against `postgres:17` service) + Trivy fs scan; frontend = `npm ci` + Biome + tsc + build + Trivy fs scan.
+CD (`.github/workflows/cd-pipeline.yml`): buildx multi-arch → registry → **Trivy image scan** → smoke-test container on health endpoint → push `git-sha` + `latest`.
 
 ## 8. Security checklist
 
@@ -116,7 +112,7 @@ CI (GitHub Actions, `.github/workflows/ci.yml`):
 
 | # | Milestone | Key deliverables |
 |---|---|---|
-| 1 | Root infra | `docker-compose.yml`, `docker-compose.dev.yml`, `Makefile`, `.gitignore`, `.env.example`, `.env` *(drafted, approved)* |
+| 1 | Root infra | `compose.yml` + `compose.dev.yml` + `compose.prod.yml`, `Makefile`, `scripts/port-claimer.sh`, `.gitignore`, `.env.example`, `.env`, CI/CD workflows, frontend Dockerfile/nginx/biome/trivy *(drafted; imports from diagram_website, no lgtm)* |
 | 2 | Backend core | `app/core/`: `config.py`, `database.py`, `logging.py` (structlog + Sentry), `security.py` (Clerk) |
 | 3 | Backend API | `main.py`, `api/v1/`: health, `interviews` CRUD, SSE stream endpoint (stub); models/schemas/services; `api/deps.py` |
 | 4 | LLM layer | `app/services/llm/`: provider interface (OpenAI/Anthropic/Ollama), prompt registry, structured output, **test stub provider** |
@@ -133,7 +129,7 @@ CI (GitHub Actions, `.github/workflows/ci.yml`):
 | D2 | Clerk fallback only in `development` | Prevent silent unauthenticated prod |
 | D3 | `migrate` one-shot service | Declarative, idempotent, no startup races |
 | D4 | Domain = `interviews`/`messages`/`feedback`, all owned by Clerk `sub`, queries scoped | Auth is load-bearing; matches the product |
-| D5 | `DATABASE_URL` built only in compose/k8s secret | Single source of truth, no drift |
+| D5 | `DATABASE_URL` built only in compose / prod Secret | Single source of truth, no drift |
 | D6 | **uv** + `pyproject.toml` + committed `uv.lock` | 2026 standard (FastAPI docs default to uv); universal lockfile |
 | D7 | LLM provider abstraction + stub for tests | Robustness: deterministic tests, no vendor lock, swap providers via env |
 | D8 | Prod = git-driven `deploy/` Kustomize manifests + CI push to registry; **infrastructure is external, out of scope** | We ship exactly what the GitOps controller consumes; nothing else |
@@ -153,3 +149,16 @@ Checked live against current ecosystem docs (2026-08-07):
 | Clerk | Backend SDK is **JS/TS only**; Python path = Bearer/`__session` + manual JWT/JWKS verification | clerk.com/docs |
 
 **Result**: architecture verified as current best practice. Updated for user answers: AI-core domain (LLM layer + SSE + interview domain model), git-driven prod (`deploy/` manifests), React **TS + shadcn/ui**, **Sentry**, unit + integration testing, robustness-first philosophy.
+
+## 12. Imported from diagram_website
+
+Reused infra/config from the sibling `diagram_website` repo (adapted; **no `lgtm/` observability stack**):
+
+- `frontend/Dockerfile` (multi-stage base/dev/builder/prod, non-root node + nginx-unprivileged)
+- `frontend/nginx.conf` (+ `/api` reverse proxy with SSE: `proxy_buffering off`)
+- `frontend/.dockerignore`, `frontend/.trivyignore`, `frontend/biome.json`, `frontend/.env.example`
+- `backend/.dockerignore` (Python-adapted), `backend/.trivyignore`
+- `scripts/port-claimer.sh` (port-conflict resolver wired into `make up` / `make dev`)
+- Compose 3-file split: `compose.yml` (shared) + `compose.dev.yml` + `compose.prod.yml`
+- `.github/workflows/ci-pipeline.yml` + `cd-pipeline.yml` (adapted for uv/Python + Trivy + smoke tests)
+- Version reference for the frontend toolchain: React 19.2, Vite 8.1, TypeScript 7.0, Tailwind 4.3
