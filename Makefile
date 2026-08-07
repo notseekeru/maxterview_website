@@ -1,7 +1,9 @@
-# Declarative task runner. Every common operation is a named, idempotent target.
+# maxterview — declarative task runner.
 # Usage: `make up`, `make test`, `make ci` etc.
-COMPOSE      := docker compose
-COMPOSE_DEV  := $(COMPOSE) -f docker-compose.yml -f docker-compose.dev.yml
+COMPOSE   := docker compose
+DEV_CMD   := $(COMPOSE) -p maxterview-dev -f compose.yml -f compose.dev.yml
+PROD_CMD  := $(COMPOSE) -p maxterview-prod -f compose.yml -f compose.prod.yml
+PORTS     := 8000 5173 5432
 
 .DEFAULT_GOAL := help
 
@@ -9,57 +11,69 @@ COMPOSE_DEV  := $(COMPOSE) -f docker-compose.yml -f docker-compose.dev.yml
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2}'
 
+.PHONY: check-ports
+check-ports: ## Ensure dev ports are free (frees ports held by other compose projects)
+	@scripts/port-claimer.sh --self maxterview-dev $(PORTS)
+
 .PHONY: up
-up: ## Start the full stack (prod-style images)
-	$(COMPOSE) up -d --build
+up: check-ports ## Start the dev stack (postgres + backend + frontend)
+	$(DEV_CMD) up -d --build
 
 .PHONY: dev
-dev: ## Start with hot reload (backend + vite + postgres)
-	$(COMPOSE_DEV) up --build
+dev: check-ports ## Dev with hot reload, attached logs
+	$(DEV_CMD) up --build
+
+.PHONY: prod
+prod: ## Build + start prod-style images
+	$(PROD_CMD) up -d --build
 
 .PHONY: down
-down: ## Stop and remove containers
-	$(COMPOSE) down
+down: ## Stop the dev stack
+	$(DEV_CMD) down
 
 .PHONY: clean
-clean: ## Stop containers and remove the database volume (DESTRUCTIVE)
-	$(COMPOSE) down -v
+clean: ## Stop dev stack and remove the database volume (DESTRUCTIVE)
+	$(DEV_CMD) down -v
+
+.PHONY: prod-down
+prod-down: ## Stop the prod-style stack
+	$(PROD_CMD) down -v
 
 .PHONY: logs
-logs: ## Tail logs from all services
-	$(COMPOSE) logs -f --tail=100
+logs: ## Tail dev logs
+	$(DEV_CMD) logs -f --tail=100
 
 .PHONY: ps
-ps: ## Show service status
-	$(COMPOSE) ps
+ps: ## Show dev service status
+	$(DEV_CMD) ps
 
 .PHONY: migrate
 migrate: ## Apply pending Alembic migrations
-	$(COMPOSE) exec backend alembic upgrade head
+	$(DEV_CMD) exec backend alembic upgrade head
 
 .PHONY: revision
 revision: ## Autogenerate a new migration (m=<message>)
-	$(COMPOSE) exec backend alembic revision --autogenerate -m "$(m)"
+	$(DEV_CMD) exec backend alembic revision --autogenerate -m "$(m)"
 
 .PHONY: lint
-lint: ## Run ruff linter + formatter check
-	$(COMPOSE) exec backend ruff check app tests
+lint: ## Run ruff linter
+	$(DEV_CMD) exec backend ruff check app tests
 
 .PHONY: format
 format: ## Auto-format with ruff
-	$(COMPOSE) exec backend ruff format app tests && ruff check --fix app tests
+	$(DEV_CMD) exec backend ruff format app tests && ruff check --fix app tests
 
 .PHONY: test
 test: ## Run the pytest suite
-	$(COMPOSE) exec backend pytest -q
+	$(DEV_CMD) exec backend pytest -q
 
 .PHONY: shell
 shell: ## Open a shell in the backend container
-	$(COMPOSE) exec backend /bin/bash
+	$(DEV_CMD) exec backend /bin/bash
 
 .PHONY: psql
 psql: ## Open a psql prompt against the database
-	$(COMPOSE_DEV) run --rm psql
+	$(DEV_CMD) run --rm psql
 
 .PHONY: ci
 ci: lint test ## Local approximation of the CI pipeline
