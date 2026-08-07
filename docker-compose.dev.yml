@@ -1,0 +1,35 @@
+# Dev overlay: hot-reload for the backend, Vite dev server for the frontend,
+# and a psql helper. Overlay on top of docker-compose.yml:
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up
+services:
+  backend:
+    build:
+      target: builder
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    volumes:
+      - ./backend:/app
+    environment:
+      APP_ENV: development
+
+  frontend:
+    build:
+      target: dev
+    command: npm run dev -- --host 0.0.0.0 --port 5173
+    environment:
+      - VITE_API_BASE=/api
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    ports:
+      - "${FRONTEND_PORT:-5173}:5173"
+
+  # Throwaway helper to poke the database from your host shell:
+  #   docker compose -f docker-compose.yml -f docker-compose.dev.yml run --rm psql
+  psql:
+    image: postgres:17-alpine
+    profiles: ["tools"]
+    environment:
+      PGPASSWORD: ${POSTGRES_PASSWORD:-maxterview}
+    command: ["psql", "-h", "postgres", "-U", "${POSTGRES_USER:-maxterview}", "-d", "${POSTGRES_DB:-maxterview}"]
+    networks:
+      - db
