@@ -1,0 +1,51 @@
+# Dev overlay: hot-reload backend, Vite dev server, psql helper.
+#   docker compose -p maxterview-dev -f compose.yml -f compose.dev.yml up
+services:
+  backend:
+    build:
+      context: ./backend
+      target: dev
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-maxterview}:${POSTGRES_PASSWORD:-maxterview}@postgres:5432/${POSTGRES_DB:-maxterview}
+      APP_ENV: development
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"
+    volumes:
+      - ./backend:/app
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - db
+      - backend
+
+  frontend:
+    build:
+      context: ./frontend
+      target: dev
+    environment:
+      - VITE_API_BASE=/api
+    command: npm run dev -- --host 0.0.0.0
+    ports:
+      - "${FRONTEND_PORT:-5173}:5173"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    depends_on:
+      - backend
+    networks:
+      - backend
+
+  # Throwaway helper to poke the database from your host shell:
+  #   make psql
+  psql:
+    image: postgres:17-alpine
+    profiles: ["tools"]
+    environment:
+      PGPASSWORD: ${POSTGRES_PASSWORD:-maxterview}
+    command: ["psql", "-h", "postgres", "-U", "${POSTGRES_USER:-maxterview}", "-d", "${POSTGRES_DB:-maxterview}"]
+    networks:
+      - db
