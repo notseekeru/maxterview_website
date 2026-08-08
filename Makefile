@@ -48,11 +48,18 @@ ps: ## Show dev service status
 	$(DEV_CMD) ps
 
 .PHONY: migrate
-migrate: ## Apply pending .sql migrations in order
-	@for f in $$(ls backend/migrations/*.sql | sort); do \
-		echo "==> $${f}"; \
-		$(DEV_CMD) run --rm -T psql -v ON_ERROR_STOP=1 -f /migrations/$$(basename $${f}); \
-	done
+migrate: ## Apply pending yoyo Migrations
+	$(DEV_CMD) exec backend sh -c 'yoyo apply --database "$$DATABASE_URL" /app/migrations'
+
+.PHONY: rollback
+rollback: ## Roll back the last applied migration
+	$(DEV_CMD) exec backend sh -c 'yoyo rollback --database "$$DATABASE_URL" /app/migrations'
+
+.PHONY: new-migration
+new-migration: ## Create a new migration (name=<name>)
+	@test -n "$(name)" || (echo "usage: make new-migration name=<name>" && exit 1)
+	touch backend/migrations/$$(date +%s)_$(name).sql
+	@echo "Created backend/migrations with placeholder. Add -- migrate:up / -- migrate:down sections."
 
 .PHONY: lint
 lint: ## Run ruff linter
