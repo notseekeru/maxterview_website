@@ -1,72 +1,61 @@
-COMPOSE   := docker compose
-DEV_CMD   := $(COMPOSE) -p maxterview-dev -f compose.yml -f compose.dev.yml
-PROD_CMD  := $(COMPOSE) -p maxterview-prod -f compose.yml -f compose.prod.yml
-PORTS     := 8000 5173 5432
+DEV_CMD     = docker compose -p maxterview-dev -f compose.yml -f compose.dev.yml
+PROD_CMD    = docker compose -p maxterview-prod -f compose.yml -f compose.prod.yml
+DEV_PROJECT = maxterview-dev
+PROD_PROJECT = maxterview-prod
+FRONTEND_DEV = maxterview-dev-frontend-1
+BACKEND_DEV  = maxterview-dev-backend-1
+PORTS        = 8000 5173 5432
 
-.PHONY: check-ports
+exec:
+	@echo "**---------Checking Frontend...-----------**"
+	docker exec -t $(FRONTEND_DEV) sh -c "npm ci && npx biome check . && npm run typecheck && npm run build && (npm audit --audit-level=moderate || true)"
+
+	@echo "**---------Checking Backend...-----------**"
+	docker exec -t $(BACKEND_DEV) sh -c "uv sync --frozen && uv run ruff check app tests && uv run ruff format --check app tests && uv run pytest -q"
+
+lint:
+	docker exec -t $(FRONTEND_DEV) sh -c "npx biome check ."
+	docker exec -t $(BACKEND_DEV) sh -c "uv run ruff check app tests"
+
+# DEV
 check-ports:
-	@scripts/port-claimer.sh --self maxterview-dev $(PORTS)
+	@scripts/port-claimer.sh --self $(DEV_PROJECT) $(PORTS)
 
-.PHONY: up
 up: check-ports
 	$(DEV_CMD) up -d
-
-.PHONY: build
 build:
-	$(PROD_CMD) up -d --build
-
-.PHONY: down
+	$(DEV_CMD) build
+buildcache:
+	$(DEV_CMD) build --no-cache
 down:
 	$(DEV_CMD) down
-
-.PHONY: clean
 clean:
 	$(DEV_CMD) down -v
-
-.PHONY: prod-down
-prod-down:
-	$(PROD_CMD) down -v
-
-.PHONY: logs
 logs:
 	$(DEV_CMD) logs -f --tail=100
-
-.PHONY: ps
 ps:
 	$(DEV_CMD) ps
+shell:
+	docker exec -it $(BACKEND_DEV) /bin/bash
+psql:
+	$(DEV_CMD) run --rm psql
 
-.PHONY: migrate
 migrate:
-	$(DEV_CMD) exec backend sh -c 'uv run yoyo apply --database "$$DATABASE_URL" /app/migrations'
-
-.PHONY: rollback
+	docker exec -t $(BACKEND_DEV) sh -c "uv run yoyo apply --database \"$$DATABASE_URL\" /app/migrations"
 rollback:
-	$(DEV_CMD) exec backend sh -c 'uv run yoyo rollback --database "$$DATABASE_URL" /app/migrations'
-
-.PHONY: new-migration
+	docker exec -t $(BACKEND_DEV) sh -c "uv run yoyo rollback --database \"$$DATABASE_URL\" /app/migrations"
 new-migration:
 	@test -n "$(name)" || (echo "usage: make new-migration name=<name>" && exit 1)
 	touch backend/migrations/$$(date +%s)_$(name).sql
 
-.PHONY: lint
-lint:
-	$(DEV_CMD) exec backend ruff check app tests
-
-.PHONY: format
-format:
-	$(DEV_CMD) exec backend ruff format app tests && ruff check --fix app tests
-
-.PHONY: test
-test:
-	$(DEV_CMD) exec backend pytest -q
-
-.PHONY: shell
-shell:
-	$(DEV_CMD) exec backend /bin/bash
-
-.PHONY: psql
-psql:
-	$(DEV_CMD) run --rm psql
-
-.PHONY: ci
-ci: lint test
+# PROD
+prod-build:
+	$(PROD_CMD) build
+prod-buildcache:
+	$(PROD_CMD) build --no-cache
+prod-up:
+	$(PROD_CMD) up -d
+prod-logs:
+	$(PROD_CMD) logs -f
+prod-down:
+	$(PROD_CMD) down -v
