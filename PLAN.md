@@ -14,21 +14,21 @@ Stack: FastAPI + React/TS + Postgres. Dev: Docker Compose (3-file split).
 |---|---|---|
 | D1 | `python:3.13-slim` in containers only; host Python irrelevant | Reproducible env; 3.13 mature (EOL 2029-10); 3.14 stable — valid upgrade path |
 | D2 | Clerk fallback (`CLERK_ENABLED=false`) only in `development`/`test`; else refuse to boot | No silent unauthenticated prod; tests boot without Clerk |
-| D3 | Migrations via `make migrate` = `alembic upgrade head` in the backend container; idempotent | No startup races; prod handled by external infra |
+| D3 | Migrations via `make migrate` = pipe `backend/migrations/*.sql` in order through the psql service; idempotent (`IF NOT EXISTS`)| No SQLAlchemy/Alembic; plain raw DDL, matches diagram_website |
 | D4 | Domain owned by Clerk `sub`; every query scoped | Auth is load-bearing |
 | D5 | `DATABASE_URL` built only in compose / prod Secret; never in `.env` | Single source of truth |
 | D6 | **uv** + `pyproject.toml` + committed `uv.lock`; `uv sync --frozen` in CI/Dockerfile | 2026 standard; universal lockfile |
 | D7 | LLM = OpenAI-compatible client via env (`LLM_BASE_URL`/`LLM_API_KEY`/`LLM_MODEL`): **local model on dev, DeepSeek on prod**; stub for tests | One interface, no vendor lock; DeepSeek is OpenAI-compatible |
 | D8 | Frontend React + TS + Vite + **shadcn/ui**; backend structlog | User choices; TS matches API schemas |
-| D9 | **Monolithic backend**: routes + validation + handlers inline in `app/main.py` (mirrors `diagram_website`'s `server.ts`); single `app/db.py` for the engine/session | MVP simplicity; no premature package layering; matches an existing, proven codebase shape |
+| D9 | **Monolithic backend**: routes + validation + handlers inline in `app/main.py` (mirrors `diagram_website`'s `server.ts`); **raw SQL via asyncpg**, single `app/db.py` (lazy pool) | MVP simplicity; no ORM, no premature layering; matches an existing, proven codebase shape |
 
 ## 2. Stack
 
 | Layer | Choice |
 |---|---|
 | API | FastAPI ≥0.141 + Uvicorn, Pydantic v2 |
-| DB | PostgreSQL 17, SQLAlchemy 2 async + asyncpg (0.31: Python 3.9–3.14 ✓, Postgres ≤18 ✓) |
-| Migrations | Alembic (sync `psycopg` via URL rewrite `+asyncpg`→`+psycopg`) |
+| DB | PostgreSQL 17, **asyncpg direct + raw SQL** (no SQLAlchemy; mirrors diagram_website's pg pool) |
+| Migrations | Plain `.sql` files in `backend/migrations/`, run in order via `make migrate` (psql service); idempotent DDL |
 | AI (core) | `app/llm.py` (D9): OpenAI-compatible client driven by env (`LLM_BASE_URL`/`LLM_API_KEY`/`LLM_MODEL`) — local model on dev, DeepSeek on prod; async **SSE** streaming; Pydantic structured output; test stub |
 | Auth | Clerk — manual JWT/JWKS verification (PyJWT + cryptography); no official Python SDK exists |
 | Config | plain env reads via `os.getenv` in `app/main.py`/`app/db.py`; fail fast on missing required; `.env` (git-ignored) / `.env.example` (committed) |
@@ -98,7 +98,7 @@ graph TD
 |---|---|---|---|
 | 1 | Root infra | `compose.yml`/`compose.dev.yml`/`compose.prod.yml`, Makefile, `scripts/port-claimer.sh`, env/gitignore, CI/CD workflows, frontend Dockerfile/nginx/biome | [x] |
 | 2 | Backend core | Monolith: `app/main.py` (FastAPI app + lifespan + `/health` + graceful shutdown + D2 guard), `app/db.py` (engine/session), `pyproject.toml`/`uv.lock`, backend Dockerfile (dev/prod targets, uv recipe) | [x] |
-| 3 | Data foundations | `app/models.py` (Interview/Message/Feedback, single module per D9), Alembic env + initial migration, `get_db` dependency in `app/db.py`; `make migrate` becomes real | [ ] |
+| 3 | Data foundations | `backend/migrations/*.sql` (raw DDL: interviews/messages/feedback), asyncpg pool + query helpers in `app/db.py`; `make migrate` becomes real | [ ] |
 | 4 | Auth seam | `get_current_user` dependency: dev-fallback user when `CLERK_ENABLED=false`; Clerk JWKS verification stubbed (`NotImplementedError`) until pre-ship. Every handler depends on it (D4) | [ ] |
 | 5 | Backend API | Routes inline in `app/main.py` (D9): interviews CRUD + messages + SSE stub, all scoped to `owner_id` via `get_current_user` | [ ] |
 | 6 | LLM layer | `app/llm.py` (OpenAI-compatible client, prompt registry, structured output, test stub); wire real streaming into the SSE endpoint | [ ] |
