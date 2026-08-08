@@ -103,7 +103,7 @@ graph TD
 | 5 | Backend API | Routes inline in `app/main.py` (D9): interviews CRUD + messages + SSE stub, all scoped to `owner_id` via `get_current_user` | [ ] |
 | 6 | LLM layer | `app/llm.py` (OpenAI-compatible client, prompt registry, structured output, test stub); wire real streaming into the SSE endpoint | [ ] |
 | 7 | Tests | pytest suite: `/health`, CRUD, owner-scoping (integration vs Postgres); CI goes green | [ ] |
-| 8 | Frontend | React+TS+Vite+shadcn/ui, `package.json`, API wiring | [ ] |
+| 8 | Frontend | React+TS+Vite scaffold with **minimal stub** (tsconfig, vite.config, index.html, `src/App.tsx`) to keep CI green; full shadcn/ui app + API wiring later | [~] |
 | 9 | Verify + README | `compose config`, build, up, `make test`/`make lint`; README | [ ] |
 
 > **Next action:** milestone 3 is done (data foundations: `backend/migrations/0001_init.sql` + asyncpg helpers in `app/db.py`). Next: milestone 4 — auth seam. Start here.<br>
