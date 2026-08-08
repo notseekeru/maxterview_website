@@ -2,7 +2,7 @@
 #   docker compose -p maxterview-dev -f compose.yml -f compose.dev.yml up
 services:
   backend:
-    container_name: maxterview-backend
+    container_name: maxterview_backend_dev
     build:
       context: ./backend
       target: dev
@@ -26,7 +26,7 @@ services:
       - backend
 
   frontend:
-    container_name: maxterview-frontend
+    container_name: maxterview_frontend_dev
     build:
       context: ./frontend
       target: dev
@@ -45,6 +45,7 @@ services:
 
   psql:
     image: postgres:17-alpine
+    container_name: maxterview_psql_dev
     profiles: ["tools"]
     environment:
       PGPASSWORD: ${POSTGRES_PASSWORD:-maxterview}

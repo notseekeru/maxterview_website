@@ -2,6 +2,7 @@
 #   docker compose -p maxterview-prod -f compose.yml -f compose.prod.yml up
 services:
   backend:
+    container_name: maxterview_backend_prod
     build:
       context: ./backend
       target: prod
@@ -27,6 +28,7 @@ services:
     restart: unless-stopped
 
   frontend:
+    container_name: maxterview_frontend_prod
     build:
       context: ./frontend
       target: prod
