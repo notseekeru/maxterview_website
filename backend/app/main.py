@@ -3,7 +3,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
-from app.db import engine
+from app.db import close_pool, init_pool
 
 APP_ENV = os.getenv("APP_ENV", "development")
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
@@ -19,10 +19,11 @@ if os.getenv("CLERK_ENABLED", "false").lower() == "false" and APP_ENV not in (
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
-    # Startup: init structlog here.
+    # Startup: init structlog here, create the asyncpg pool.
+    await init_pool()
     yield
-    # Shutdown: dispose the DB engine.
-    await engine.dispose()
+    # Shutdown: close the pool.
+    await close_pool()
 
 
 app = FastAPI(title="maxterview", lifespan=lifespan)
