@@ -5,6 +5,9 @@ services:
     build:
       context: ./backend
       target: dev
+    # Root in dev: image venv is masked by the anonymous /app/.venv volume, so
+    # the non-root appuser can't re-sync dev deps into it (Permission denied).
+    user: root
     env_file:
       - .env
     environment:
