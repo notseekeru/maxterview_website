@@ -49,7 +49,7 @@ graph TD
     H -->|:5173| F[frontend vite]
     F -->|/api proxy| B
     B -->|db, internal only| P[(postgres 17)]
-    M[make migrate via backend] -->|db| P
+    M[make migrate via psql service] -->|db| P
     N[psql helper - dev only] -->|db| P
 ```
 
@@ -57,6 +57,7 @@ graph TD
 
 - **`DATABASE_URL`**: composed only from `POSTGRES_*` in compose overlays / prod Secret (D5). Never in `.env`.
 - **Config**: plain `os.getenv` reads resolved at module top in `app/main.py` / `app/db.py`; fail fast (raise) on missing required values (e.g. `DATABASE_URL`). `.env.example` = canonical shape. (D9)
+- **DB access**: raw SQL via the asyncpg pool helpers in `app/db.py` (`fetch`/`fetchrow`/`execute`). Handlers call these directly — no session-per-request, no ORM (D9).
 - **Clerk**: same-origin `__session` cookie (primary, Clerk-managed); `Authorization: Bearer` also accepted for API clients/tests. Backend verifies JWT against Clerk JWKS (`RS256`, validate `iss`/`aud`/`exp`) → `ClerkUser` (`sub`, email, name, session_id) via `get_current_user` (D2/D4).
 - **LLM**: `LLM_BASE_URL`/`LLM_API_KEY`/`LLM_MODEL` via env (keys in secrets in prod); dev = local model (no key), prod = DeepSeek. Prompts typed + versioned in the service layer, never inlined in routers (D7).
 
@@ -65,7 +66,7 @@ graph TD
 - `interviews` — `id` (UUID pk), `owner_id` (Clerk `sub`, FK+index), `role/topic`, `status` (pending\|in_progress\|completed), timestamps
 - `messages` — `id`, `interview_id` (FK, cascade), `role` (user\|assistant\|system), `content`, `created_at`
 - `feedback` — `id`, `interview_id` (FK), per-dimension scores (Pydantic/JSONB), overall verdict, actionable tips, `created_at`
-- All queries scoped to `owner_id`. Migrations: hand-written initial; later via `make revision m="..."`.
+- All queries scoped to `owner_id`. Migrations: plain `.sql` files in `backend/migrations/`, applied in order via `make migrate` (idempotent `IF NOT EXISTS`).
 
 ## 6. Workflows
 
@@ -73,7 +74,7 @@ graph TD
 |---|---|
 | `make up` / `make dev` | Start dev stack (postgres + backend + frontend); hot reload on `dev` |
 | `make prod` | Build + start prod-style images |
-| `make migrate` / `make revision m=...` | Apply / autogenerate migrations |
+| `make migrate` | Apply pending `.sql` migrations in order (psql service) |
 | `make lint` / `make format` | ruff in container |
 | `make test` | pytest unit + integration (vs Postgres service) |
 | `make psql` / `make shell` / `make logs` / `make down` / `make clean` | ops |
@@ -98,7 +99,7 @@ graph TD
 |---|---|---|---|
 | 1 | Root infra | `compose.yml`/`compose.dev.yml`/`compose.prod.yml`, Makefile, `scripts/port-claimer.sh`, env/gitignore, CI/CD workflows, frontend Dockerfile/nginx/biome | [x] |
 | 2 | Backend core | Monolith: `app/main.py` (FastAPI app + lifespan + `/health` + graceful shutdown + D2 guard), `app/db.py` (engine/session), `pyproject.toml`/`uv.lock`, backend Dockerfile (dev/prod targets, uv recipe) | [x] |
-| 3 | Data foundations | `backend/migrations/*.sql` (raw DDL: interviews/messages/feedback), asyncpg pool + query helpers in `app/db.py`; `make migrate` becomes real | [ ] |
+| 3 | Data foundations | `backend/migrations/*.sql` (raw DDL: interviews/messages/feedback), asyncpg pool + query helpers in `app/db.py`; `make migrate` becomes real | [x] |
 | 4 | Auth seam | `get_current_user` dependency: dev-fallback user when `CLERK_ENABLED=false`; Clerk JWKS verification stubbed (`NotImplementedError`) until pre-ship. Every handler depends on it (D4) | [ ] |
 | 5 | Backend API | Routes inline in `app/main.py` (D9): interviews CRUD + messages + SSE stub, all scoped to `owner_id` via `get_current_user` | [ ] |
 | 6 | LLM layer | `app/llm.py` (OpenAI-compatible client, prompt registry, structured output, test stub); wire real streaming into the SSE endpoint | [ ] |
@@ -106,5 +107,5 @@ graph TD
 | 8 | Frontend | React+TS+Vite+shadcn/ui, `package.json`, API wiring | [ ] |
 | 9 | Verify + README | `compose config`, build, up, `make test`/`make lint`; README | [ ] |
 
-> **Next action:** milestone 3 — data foundations (`app/models.py` + Alembic initial migration + `get_db`). Start here.<br>
-> **Status:** M1 + M2 done. Foundations-first sequence locked (2026-08-08).
+> **Next action:** milestone 3 is done (data foundations: `backend/migrations/0001_init.sql` + asyncpg helpers in `app/db.py`). Next: milestone 4 — auth seam. Start here.<br>
+> **Status:** M1 + M2 done (M3 data foundations also complete, 2026-08-08). Foundations-first sequence locked.
