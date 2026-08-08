@@ -2,8 +2,8 @@ DEV_CMD     = docker compose -p maxterview-dev -f compose.yml -f compose.dev.yml
 PROD_CMD    = docker compose -p maxterview-prod -f compose.yml -f compose.prod.yml
 DEV_PROJECT = maxterview-dev
 PROD_PROJECT = maxterview-prod
-FRONTEND_DEV = maxterview-dev-frontend-1
-BACKEND_DEV  = maxterview-dev-backend-1
+FRONTEND_DEV = maxterview-frontend
+BACKEND_DEV  = maxterview-backend
 PORTS        = 8000 5173 5432
 
 exec:
