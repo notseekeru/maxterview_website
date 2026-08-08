@@ -98,12 +98,13 @@ graph TD
 |---|---|---|---|
 | 1 | Root infra | `compose.yml`/`compose.dev.yml`/`compose.prod.yml`, Makefile, `scripts/port-claimer.sh`, env/gitignore, CI/CD workflows, frontend Dockerfile/nginx/biome | [x] |
 | 2 | Backend core | Monolith: `app/main.py` (FastAPI app + lifespan + `/health` + graceful shutdown + D2 guard), `app/db.py` (engine/session), `pyproject.toml`/`uv.lock`, backend Dockerfile (dev/prod targets, uv recipe) | [x] |
-| 3 | Backend API | Routes added inline in `app/main.py` (interviews CRUD, SSE stub) — no `api/v1/` tree (D9); models stay in `app/main.py` | [ ] |
-| 4 | LLM layer | `app/llm.py` (OpenAI-compatible client, prompt registry, structured output, stub) — single module (D9) | [ ] |
-| 5 | Migrations + tests | Alembic env + initial migration (interviews/messages/feedback) + migrate service; pytest suite | [ ] |
-| 6 | Frontend | React+TS+Vite+shadcn/ui, `package.json`, API wiring | [ ] |
-| 7 | CI + deploy manifests | CI verified; CD commented out (enable when needed); README | [ ] |
-| 8 | Verify | `compose config`, build, up, `make test`/`make lint` | [ ] |
+| 3 | Data foundations | `app/models.py` (Interview/Message/Feedback, single module per D9), Alembic env + initial migration, `get_db` dependency in `app/db.py`; `make migrate` becomes real | [ ] |
+| 4 | Auth seam | `get_current_user` dependency: dev-fallback user when `CLERK_ENABLED=false`; Clerk JWKS verification stubbed (`NotImplementedError`) until pre-ship. Every handler depends on it (D4) | [ ] |
+| 5 | Backend API | Routes inline in `app/main.py` (D9): interviews CRUD + messages + SSE stub, all scoped to `owner_id` via `get_current_user` | [ ] |
+| 6 | LLM layer | `app/llm.py` (OpenAI-compatible client, prompt registry, structured output, test stub); wire real streaming into the SSE endpoint | [ ] |
+| 7 | Tests | pytest suite: `/health`, CRUD, owner-scoping (integration vs Postgres); CI goes green | [ ] |
+| 8 | Frontend | React+TS+Vite+shadcn/ui, `package.json`, API wiring | [ ] |
+| 9 | Verify + README | `compose config`, build, up, `make test`/`make lint`; README | [ ] |
 
-> **Next action:** milestone 3 — routes inline in `app/main.py` (interviews CRUD, SSE stub) + `get_db` dependency + Clerk auth. Start here.<br>
-> **Status:** M1 + M2 done. Rally on M3 (2026-08-08).
+> **Next action:** milestone 3 — data foundations (`app/models.py` + Alembic initial migration + `get_db`). Start here.<br>
+> **Status:** M1 + M2 done. Foundations-first sequence locked (2026-08-08).
