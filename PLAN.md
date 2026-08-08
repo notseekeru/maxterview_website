@@ -6,9 +6,9 @@ Stack: FastAPI + React/TS + Postgres. Dev: Docker Compose (3-file split). Prod: 
 > **How to use this file** — the *stable contract*: reload at session start for decisions,
 > guardrails, milestone status. Transient build state lives in session memory.
 >
-> **Change policy:** edit only when a decision, milestone, or guardrail changes. `Last updated: 2026-08-07`
+> **Change policy:** edit only when a decision, milestone, or guardrail changes. `Last updated: 2026-08-08`
 
-## 1. Decisions (D1–D10) — read first
+## 1. Decisions (D1–D11) — read first
 
 | # | Decision | Rationale |
 |---|---|---|
@@ -22,6 +22,7 @@ Stack: FastAPI + React/TS + Postgres. Dev: Docker Compose (3-file split). Prod: 
 | D8 | Prod = `deploy/` Kustomize manifests + CI push to registry; infra external | Ship exactly what the controller consumes |
 | D9 | Secrets via **SealedSecrets** (encrypted in git) | No plaintext secrets; no extra infra |
 | D10 | Frontend React + TS + Vite + **shadcn/ui**; backend structlog + **Sentry** | User choices; TS matches API schemas |
+| D11 | **Monolithic backend**: routes + validation + handlers inline in `app/main.py` (mirrors `diagram_website`'s `server.ts`); single `app/db.py` for the engine/session | MVP simplicity; no premature package layering; matches an existing, proven codebase shape |
 
 ## 2. Stack
 
@@ -32,7 +33,7 @@ Stack: FastAPI + React/TS + Postgres. Dev: Docker Compose (3-file split). Prod: 
 | Migrations | Alembic (sync `psycopg` via URL rewrite `+asyncpg`→`+psycopg`) |
 | AI (core) | `app/services/llm/`: OpenAI-compatible client driven by env (`LLM_BASE_URL`/`LLM_API_KEY`/`LLM_MODEL`) — local model on dev, DeepSeek on prod; async **SSE** streaming; Pydantic structured output; test stub |
 | Auth | Clerk — manual JWT/JWKS verification (PyJWT + cryptography); no official Python SDK exists |
-| Config | `pydantic-settings`; `.env` (git-ignored) / `.env.example` (committed) |
+| Config | plain env reads via `os.getenv` in `app/main.py`/`app/db.py`; fail fast on missing required; `.env` (git-ignored) / `.env.example` (committed) |
 | Observability | structlog (JSON in prod) + Sentry |
 | Frontend | React + TS + Vite + shadcn/ui; nginx reverse proxy, same-origin `/api` |
 | Packaging | uv + `pyproject.toml` + `uv.lock`; dev deps in `[dependency-groups]` |
@@ -59,7 +60,7 @@ graph TD
 ## 4. Config & auth contract (guardrails)
 
 - **`DATABASE_URL`**: composed only from `POSTGRES_*` in compose overlays / prod Secret (D5). Never in `.env`.
-- **`Settings`**: reads env only, fails fast on missing required values. `.env.example` = canonical shape.
+- **Config**: plain `os.getenv` reads resolved at module top in `app/main.py` / `app/db.py`; fail fast (raise) on missing required values (e.g. `DATABASE_URL`). `.env.example` = canonical shape. (D11)
 - **Clerk**: same-origin `__session` cookie (primary, Clerk-managed); `Authorization: Bearer` also accepted for API clients/tests. Backend verifies JWT against Clerk JWKS (`RS256`, validate `iss`/`aud`/`exp`) → `ClerkUser` (`sub`, email, name, session_id) via `get_current_user` (D2/D4).
 - **LLM**: `LLM_BASE_URL`/`LLM_API_KEY`/`LLM_MODEL` via env (keys in secrets in prod); dev = local model (no key), prod = DeepSeek. Prompts typed + versioned in the service layer, never inlined in routers (D7).
 
@@ -99,13 +100,13 @@ graph TD
 | # | Milestone | Deliverables | Status |
 |---|---|---|---|
 | 1 | Root infra | `compose.yml`/`compose.dev.yml`/`compose.prod.yml`, Makefile, `scripts/port-claimer.sh`, env/gitignore, CI/CD workflows, frontend Dockerfile/nginx/biome/trivy (imported, no lgtm) | [x] |
-| 2 | Backend core | `app/core/` (config, database, logging+Sentry, security/Clerk) + backend Dockerfile (dev/prod targets) | [ ] |
-| 3 | Backend API | `main.py`, `api/v1/` (health, interviews CRUD, SSE stub), models/schemas/services, `deps.py` | [ ] |
-| 4 | LLM layer | `app/services/llm/` (provider interface, prompt registry, structured output, stub) | [ ] |
+| 2 | Backend core | Monolith: `app/main.py` (FastAPI app + lifespan + `/health` + graceful shutdown), `app/db.py` (engine/session + `get_db`), `pyproject.toml`/`uv.lock`, backend Dockerfile (dev/prod targets, uv recipe) | [ ] |
+| 3 | Backend API | Routes added inline in `app/main.py` (interviews CRUD, SSE stub) — no `api/v1/` tree (D11); models stay in `app/main.py` | [ ] |
+| 4 | LLM layer | `app/llm.py` (OpenAI-compatible client, prompt registry, structured output, stub) — single module (D11) | [ ] |
 | 5 | Migrations + tests | Alembic env + initial migration (interviews/messages/feedback) + migrate service; pytest suite | [ ] |
 | 6 | Frontend | React+TS+Vite+shadcn/ui, `package.json`, API wiring | [ ] |
 | 7 | CI + deploy manifests | Workflows verified; `deploy/` Kustomize (backend/frontend/postgres, SealedSecrets, ingress); README | [ ] |
 | 8 | Verify | `compose config`, build, up, `make test`/`make lint`, `kustomize build deploy/` | [ ] |
 
-> **Next action:** milestone 2 — `app/core/` (config, database, logging+Sentry, security/Clerk) + `backend/Dockerfile` (uv recipe, verified 2026-08-07). Awaiting GO. Start here.<br>
+> **Next action:** milestone 2 — monolith `app/main.py` + `app/db.py` + `pyproject.toml`/`uv.lock` + backend Dockerfile (uv recipe). Awaiting GO. Start here.<br>
 > **Status:** M1 done; no blockers; the plan has been planned/verified extensively — begin building at the next opportunity.
