@@ -40,16 +40,11 @@ services:
     networks:
       - backend
 
-  # Throwaway helper to poke the database from your host shell:
-  #   make psql
-  # Also used by `make migrate` to run backend/migrations/*.sql in order.
   psql:
     image: postgres:17-alpine
     profiles: ["tools"]
     environment:
       PGPASSWORD: ${POSTGRES_PASSWORD:-maxterview}
-    volumes:
-      - ./backend/migrations:/migrations:ro
-    command: ["psql", "-h", "postgres", "-U", "${POSTGRES_USER:-maxterview}", "-d", "${POSTGRES_DB:-maxterview}"]
+    entrypoint: ["psql", "-h", "postgres", "-U", "${POSTGRES_USER:-maxterview}", "-d", "${POSTGRES_DB:-maxterview}"]
     networks:
       - db
