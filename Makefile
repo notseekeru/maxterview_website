@@ -11,12 +11,8 @@ check-ports:
 up: check-ports
 	$(DEV_CMD) up -d
 
-.PHONY: dev
-dev: check-ports
-	$(DEV_CMD) up --build
-
-.PHONY: prod
-prod:
+.PHONY: build
+build:
 	$(PROD_CMD) up -d --build
 
 .PHONY: down
