@@ -14,7 +14,7 @@ Stack: FastAPI + React/TS + Postgres. Dev: Docker Compose (3-file split).
 |---|---|---|
 | D1 | `python:3.13-slim` in containers only; host Python irrelevant | Reproducible env; 3.13 mature (EOL 2029-10); 3.14 stable — valid upgrade path |
 | D2 | Clerk fallback (`CLERK_ENABLED=false`) only in `development`/`test`; else refuse to boot | No silent unauthenticated prod; tests boot without Clerk |
-| D3 | Migrations via `make migrate` = pipe `backend/migrations/*.sql` in order through the psql service; idempotent (`IF NOT EXISTS`)| No SQLAlchemy/Alembic; plain raw DDL, matches diagram_website |
+| D3 | Migrations via `make migrate` = `yoyo apply` (backend container, `yoyo-migrations` CLI); `.sql` files with `-- migrate:up/-- migrate:down`; tracks applied state in `_yoyo_migrations` table | Lightweight Python analogue of node-pg-migrate (diagram_website reference); no SQLAlchemy/Alembic; per-version tracking |
 | D4 | Domain owned by Clerk `sub`; every query scoped | Auth is load-bearing |
 | D5 | `DATABASE_URL` built only in compose / prod Secret; never in `.env` | Single source of truth |
 | D6 | **uv** + `pyproject.toml` + committed `uv.lock`; `uv sync --frozen` in CI/Dockerfile | 2026 standard; universal lockfile |
@@ -28,7 +28,7 @@ Stack: FastAPI + React/TS + Postgres. Dev: Docker Compose (3-file split).
 |---|---|
 | API | FastAPI ≥0.141 + Uvicorn, Pydantic v2 |
 | DB | PostgreSQL 17, **asyncpg direct + raw SQL** (no SQLAlchemy; mirrors diagram_website's pg pool) |
-| Migrations | Plain `.sql` files in `backend/migrations/`, run in order via `make migrate` (psql service); idempotent DDL |
+| Migrations | **yoyo-migrations** (Python node-pg-migrate analogue): `.sql` files in `backend/migrations/` with `-- migrate:up` / `-- migrate:down`; `make migrate` / `make rollback` / `make new-migration`; tracks applied state |
 | AI (core) | `app/llm.py` (D9): OpenAI-compatible client driven by env (`LLM_BASE_URL`/`LLM_API_KEY`/`LLM_MODEL`) — local model on dev, DeepSeek on prod; async **SSE** streaming; Pydantic structured output; test stub |
 | Auth | Clerk — manual JWT/JWKS verification (PyJWT + cryptography); no official Python SDK exists |
 | Config | plain env reads via `os.getenv` in `app/main.py`/`app/db.py`; fail fast on missing required; `.env` (git-ignored) / `.env.example` (committed) |
@@ -49,7 +49,7 @@ graph TD
     H -->|:5173| F[frontend vite]
     F -->|/api proxy| B
     B -->|db, internal only| P[(postgres 17)]
-    M[make migrate via psql service] -->|db| P
+    M[make migrate via yoyo in backend] -->|db| P
     N[psql helper - dev only] -->|db| P
 ```
 
@@ -66,7 +66,7 @@ graph TD
 - `interviews` — `id` (UUID pk), `owner_id` (Clerk `sub`, FK+index), `role/topic`, `status` (pending\|in_progress\|completed), timestamps
 - `messages` — `id`, `interview_id` (FK, cascade), `role` (user\|assistant\|system), `content`, `created_at`
 - `feedback` — `id`, `interview_id` (FK), per-dimension scores (Pydantic/JSONB), overall verdict, actionable tips, `created_at`
-- All queries scoped to `owner_id`. Migrations: plain `.sql` files in `backend/migrations/`, applied in order via `make migrate` (idempotent `IF NOT EXISTS`).
+- All queries scoped to `owner_id`. Migrations: yoyo-migrations (`.sql` with up/down markers) via `make migrate`; apply/rollback/new-migration targets.
 
 ## 6. Workflows
 
@@ -74,7 +74,7 @@ graph TD
 |---|---|
 | `make up` / `make dev` | Start dev stack (postgres + backend + frontend); hot reload on `dev` |
 | `make prod` | Build + start prod-style images |
-| `make migrate` | Apply pending `.sql` migrations in order (psql service) |
+| `make migrate` / `make rollback` / `make new-migration name=...` | Apply / roll back / create yoyo migrations |
 | `make lint` / `make format` | ruff in container |
 | `make test` | pytest unit + integration (vs Postgres service) |
 | `make psql` / `make shell` / `make logs` / `make down` / `make clean` | ops |
@@ -99,7 +99,7 @@ graph TD
 |---|---|---|---|
 | 1 | Root infra | `compose.yml`/`compose.dev.yml`/`compose.prod.yml`, Makefile, `scripts/port-claimer.sh`, env/gitignore, CI/CD workflows, frontend Dockerfile/nginx/biome | [x] |
 | 2 | Backend core | Monolith: `app/main.py` (FastAPI app + lifespan + `/health` + graceful shutdown + D2 guard), `app/db.py` (engine/session), `pyproject.toml`/`uv.lock`, backend Dockerfile (dev/prod targets, uv recipe) | [x] |
-| 3 | Data foundations | `backend/migrations/*.sql` (raw DDL: interviews/messages/feedback), asyncpg pool + query helpers in `app/db.py`; `make migrate` becomes real | [x] |
+| 3 | Data foundations | `backend/migrations/*.sql` (yoyo format: interviews/messages/feedback), asyncpg pool + query helpers in `app/db.py`; `make migrate` via yoyo | [x] |
 | 4 | Auth seam | `get_current_user` dependency: dev-fallback user when `CLERK_ENABLED=false`; Clerk JWKS verification stubbed (`NotImplementedError`) until pre-ship. Every handler depends on it (D4) | [ ] |
 | 5 | Backend API | Routes inline in `app/main.py` (D9): interviews CRUD + messages + SSE stub, all scoped to `owner_id` via `get_current_user` | [ ] |
 | 6 | LLM layer | `app/llm.py` (OpenAI-compatible client, prompt registry, structured output, test stub); wire real streaming into the SSE endpoint | [ ] |
