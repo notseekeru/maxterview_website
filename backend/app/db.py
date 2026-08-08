@@ -14,10 +14,15 @@ _pool: asyncpg.Pool | None = None
 
 
 async def init_pool() -> None:
-    """Create the asyncpg pool. Idempotent; call once in lifespan startup."""
+    """Create the asyncpg pool. Idempotent; call once in lifespan startup.
+
+    min_size=0 keeps the pool lazy: no connection is established until the
+    first actual query. This lets /health (no DB call) succeed even when
+    Postgres is down, which the CD smoke container depends on.
+    """
     global _pool
     if _pool is None:
-        _pool = await asyncpg.create_pool(DATABASE_URL, min_size=1, max_size=10)
+        _pool = await asyncpg.create_pool(DATABASE_URL, min_size=0, max_size=10)
 
 
 async def close_pool() -> None:
