@@ -77,7 +77,6 @@ graph TD
 | `make migrate` / `make rollback` / `make new-migration name=...` | Apply / roll back / create yoyo migrations |
 | `make lint` / `make format` | ruff in container |
 | `make test` | pytest unit + integration (vs Postgres service) |
-| `make psql` / `make shell` / `make logs` / `make down` / `make clean` | ops |
 
 - CI/CD: `.github/workflows/` — CI lints + tests. CD pipeline commented out for now; re-enable when needed. Trivy noted for later.
 
