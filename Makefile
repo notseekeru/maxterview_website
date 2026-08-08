@@ -11,11 +11,11 @@ exec:
 	docker exec -t $(FRONTEND_DEV) sh -c "npm ci && npx biome check . && npm run typecheck && npm run build && (npm audit --audit-level=moderate || true)"
 
 	@echo "**---------Checking Backend...-----------**"
-	docker exec -t $(BACKEND_DEV) sh -c "uv sync --frozen && uv run ruff check app tests && uv run ruff format --check app tests && uv run pytest -q"
+	docker exec -t $(BACKEND_DEV) sh -c "uv sync --frozen && uv run ruff check src tests && uv run ruff format --check src tests && uv run pytest -q"
 
 lint:
 	docker exec -t $(FRONTEND_DEV) sh -c "npx biome check . --write --unsafe"
-	docker exec -t $(BACKEND_DEV) sh -c "uv run ruff check app tests"
+	docker exec -t $(BACKEND_DEV) sh -c "uv run ruff check src tests"
 
 # DEV
 check-ports:
