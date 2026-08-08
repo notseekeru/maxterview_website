@@ -37,11 +37,11 @@ ps:
 
 .PHONY: migrate
 migrate:
-	$(DEV_CMD) exec backend sh -c 'yoyo apply --database "$$DATABASE_URL" /app/migrations'
+	$(DEV_CMD) exec backend sh -c 'DB=$$(echo "$$DATABASE_URL" | sed "s#^postgresql://#postgresql+psycopg://#"); uv run yoyo apply --database "$$DB" /app/migrations'
 
 .PHONY: rollback
 rollback:
-	$(DEV_CMD) exec backend sh -c 'yoyo rollback --database "$$DATABASE_URL" /app/migrations'
+	$(DEV_CMD) exec backend sh -c 'DB=$$(echo "$$DATABASE_URL" | sed "s#^postgresql://#postgresql+psycopg://#"); uv run yoyo rollback --database "$$DB" /app/migrations'
 
 .PHONY: new-migration
 new-migration:
