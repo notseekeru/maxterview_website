@@ -43,7 +43,7 @@ jobs:
           --health-timeout 5s
           --health-retries 10
     env:
-      DATABASE_URL: postgresql+asyncpg://maxterview:maxterview@localhost:5432/maxterview
+      DATABASE_URL: postgresql://maxterview:maxterview@localhost:5432/maxterview
       APP_ENV: test
       CLERK_ENABLED: "false"
     steps:
