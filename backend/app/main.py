@@ -6,7 +6,6 @@ from fastapi import FastAPI
 from app.db import close_pool, init_pool
 
 APP_ENV = os.getenv("APP_ENV", "development")
-LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
 
 # D2: no unauthenticated boot outside development/test.
 if os.getenv("CLERK_ENABLED", "false").lower() == "false" and APP_ENV not in (
