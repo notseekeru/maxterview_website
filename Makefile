@@ -48,12 +48,11 @@ ps: ## Show dev service status
 	$(DEV_CMD) ps
 
 .PHONY: migrate
-migrate: ## Apply pending Alembic migrations
-	$(DEV_CMD) exec backend alembic upgrade head
-
-.PHONY: revision
-revision: ## Autogenerate a new migration (m=<message>)
-	$(DEV_CMD) exec backend alembic revision --autogenerate -m "$(m)"
+migrate: ## Apply pending .sql migrations in order
+	@for f in $$(ls backend/migrations/*.sql | sort); do \
+		echo "==> $${f}"; \
+		$(DEV_CMD) run --rm -T psql -v ON_ERROR_STOP=1 -f /migrations/$$(basename $${f}); \
+	done
 
 .PHONY: lint
 lint: ## Run ruff linter
