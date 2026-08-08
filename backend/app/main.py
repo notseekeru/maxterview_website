@@ -7,7 +7,6 @@ from app.db import close_pool, init_pool
 
 APP_ENV = os.getenv("APP_ENV", "development")
 
-# D2: no unauthenticated boot outside development/test.
 if os.getenv("CLERK_ENABLED", "false").lower() == "false" and APP_ENV not in (
     "development",
     "test",

@@ -1,4 +1,3 @@
-# --- BASE IMAGE FOR FRONTEND
 FROM node:lts-alpine3.24 AS base
 
 WORKDIR /app
@@ -13,19 +12,16 @@ RUN npm ci
 
 COPY --chown=node:node . .
 
-# --- DEV AS NODE USER
 FROM base AS dev
 
 EXPOSE 5173
 
 CMD ["npm", "run", "dev", "--", "--host"]
 
-# --- BUILDER AS NODE USER
 FROM base AS builder
 
 RUN npm run build
 
-# --- PROD AS NGINX UNPRIVILEGED
 FROM nginxinc/nginx-unprivileged:1.31.3-alpine AS prod
 
 COPY --from=builder /app/dist /usr/share/nginx/html

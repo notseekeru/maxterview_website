@@ -1,5 +1,3 @@
-# Shared services/network/volume definitions. Dev and prod overlays
-# (compose.dev.yml / compose.prod.yml) add build targets, ports and mounts.
 name: maxterview
 
 services:
@@ -17,17 +15,13 @@ services:
       timeout: 5s
       retries: 10
       start_period: 5s
-    # Internal network: NOT reachable from the host or the frontend — only
-    # from the backend (plus migrate/psql helpers in the dev overlay).
     networks:
       - db
     restart: unless-stopped
 
 networks:
-  # Private DB segment, internal only (no host ingress).
   db:
     internal: true
-  # Public segment shared by backend + frontend.
   backend:
 
 volumes:

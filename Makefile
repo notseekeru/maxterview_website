@@ -1,85 +1,76 @@
-# maxterview — declarative task runner.
-# Usage: `make up`, `make test`, `make ci` etc.
 COMPOSE   := docker compose
 DEV_CMD   := $(COMPOSE) -p maxterview-dev -f compose.yml -f compose.dev.yml
 PROD_CMD  := $(COMPOSE) -p maxterview-prod -f compose.yml -f compose.prod.yml
 PORTS     := 8000 5173 5432
 
-.DEFAULT_GOAL := help
-
-.PHONY: help
-help: ## Show available targets
-	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2}'
-
 .PHONY: check-ports
-check-ports: ## Ensure dev ports are free (frees ports held by other compose projects)
+check-ports:
 	@scripts/port-claimer.sh --self maxterview-dev $(PORTS)
 
 .PHONY: up
-up: check-ports ## Start the dev stack (postgres + backend + frontend)
-	$(DEV_CMD) up -d --build
+up: check-ports
+	$(DEV_CMD) up -d
 
 .PHONY: dev
-dev: check-ports ## Dev with hot reload, attached logs
+dev: check-ports
 	$(DEV_CMD) up --build
 
 .PHONY: prod
-prod: ## Build + start prod-style images
+prod:
 	$(PROD_CMD) up -d --build
 
 .PHONY: down
-down: ## Stop the dev stack
+down:
 	$(DEV_CMD) down
 
 .PHONY: clean
-clean: ## Stop dev stack and remove the database volume (DESTRUCTIVE)
+clean:
 	$(DEV_CMD) down -v
 
 .PHONY: prod-down
-prod-down: ## Stop the prod-style stack
+prod-down:
 	$(PROD_CMD) down -v
 
 .PHONY: logs
-logs: ## Tail dev logs
+logs:
 	$(DEV_CMD) logs -f --tail=100
 
 .PHONY: ps
-ps: ## Show dev service status
+ps:
 	$(DEV_CMD) ps
 
 .PHONY: migrate
-migrate: ## Apply pending yoyo Migrations
+migrate:
 	$(DEV_CMD) exec backend sh -c 'yoyo apply --database "$$DATABASE_URL" /app/migrations'
 
 .PHONY: rollback
-rollback: ## Roll back the last applied migration
+rollback:
 	$(DEV_CMD) exec backend sh -c 'yoyo rollback --database "$$DATABASE_URL" /app/migrations'
 
 .PHONY: new-migration
-new-migration: ## Create a new migration (name=<name>)
+new-migration:
 	@test -n "$(name)" || (echo "usage: make new-migration name=<name>" && exit 1)
 	touch backend/migrations/$$(date +%s)_$(name).sql
-	@echo "Created backend/migrations with placeholder. Add -- migrate:up / -- migrate:down sections."
 
 .PHONY: lint
-lint: ## Run ruff linter
+lint:
 	$(DEV_CMD) exec backend ruff check app tests
 
 .PHONY: format
-format: ## Auto-format with ruff
+format:
 	$(DEV_CMD) exec backend ruff format app tests && ruff check --fix app tests
 
 .PHONY: test
-test: ## Run the pytest suite
+test:
 	$(DEV_CMD) exec backend pytest -q
 
 .PHONY: shell
-shell: ## Open a shell in the backend container
+shell:
 	$(DEV_CMD) exec backend /bin/bash
 
 .PHONY: psql
-psql: ## Open a psql prompt against the database
+psql:
 	$(DEV_CMD) run --rm psql
 
 .PHONY: ci
-ci: lint test ## Local approximation of the CI pipeline
+ci: lint test
