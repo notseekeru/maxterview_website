@@ -3,14 +3,12 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
+from app.auth import CLERK_ENABLED
 from app.db import close_pool, init_pool
 
 APP_ENV = os.getenv("APP_ENV", "development")
 
-if os.getenv("CLERK_ENABLED", "false").lower() == "false" and APP_ENV not in (
-    "development",
-    "test",
-):
+if not CLERK_ENABLED and APP_ENV not in ("development", "test"):
     raise RuntimeError("CLERK_ENABLED=false is only allowed when APP_ENV is development or test; refusing to boot.")
 
 

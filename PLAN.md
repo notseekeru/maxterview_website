@@ -99,12 +99,12 @@ graph TD
 | 1 | Root infra | `compose.yml`/`compose.dev.yml`/`compose.prod.yml`, Makefile, `scripts/port-claimer.sh`, env/gitignore, CI/CD workflows, frontend Dockerfile/nginx/biome | [x] |
 | 2 | Backend core | Monolith: `app/main.py` (FastAPI app + lifespan + `/health` + graceful shutdown + D2 guard), `app/db.py` (engine/session), `pyproject.toml`/`uv.lock`, backend Dockerfile (dev/prod targets, uv recipe) | [x] |
 | 3 | Data foundations | `backend/migrations/*.sql` (yoyo format: interviews/messages/feedback), asyncpg pool + query helpers in `app/db.py`; `make migrate` via yoyo | [x] |
-| 4 | Auth seam | `get_current_user` dependency: dev-fallback user when `CLERK_ENABLED=false`; Clerk JWKS verification stubbed (`NotImplementedError`) until pre-ship. Every handler depends on it (D4) | [ ] |
+| 4 | Auth seam | `get_current_user` dependency: dev-fallback user when `CLERK_ENABLED=false`; Clerk JWKS verification stubbed (`NotImplementedError`) until pre-ship. Every handler depends on it (D4) | [x] |
 | 5 | Backend API | Routes inline in `app/main.py` (D9): interviews CRUD + messages + SSE stub, all scoped to `owner_id` via `get_current_user` | [ ] |
 | 6 | LLM layer | `app/llm.py` (OpenAI-compatible client, prompt registry, structured output, test stub); wire real streaming into the SSE endpoint | [ ] |
 | 7 | Tests | pytest suite: `/health`, CRUD, owner-scoping (integration vs Postgres); CI goes green | [ ] |
 | 8 | Frontend | React+TS+Vite scaffold with **minimal stub** (tsconfig, vite.config, index.html, `src/App.tsx`) to keep CI green; full shadcn/ui app + API wiring later | [~] |
 | 9 | Verify + README | `compose config`, build, up, `make test`/`make lint`; README | [ ] |
 
-> **Next action:** milestone 3 is done (data foundations: `backend/migrations/0001_init.sql` + asyncpg helpers in `app/db.py`). Next: milestone 4 — auth seam. Start here.<br>
-> **Status:** M1 + M2 done (M3 data foundations also complete, 2026-08-08). Foundations-first sequence locked.
+> **Next action:** milestone 4 is done (auth seam: `app/auth.py` + `ClerkUser` in `app/models.py`, dev fallback + JWKS stub, one test). Next: milestone 5 — backend API (CRUD + messages + SSE stub, all owner-scoped via `get_current_user`). Start here.<br>
+> **Status:** M1–M4 done (M4 auth seam complete, 2026-08-09). Foundations-first sequence locked.
