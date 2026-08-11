@@ -1,14 +1,24 @@
+import { ClerkProvider } from "@clerk/react";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
-import App from "./App";
+import App from "./App.tsx";
 
-const root = document.getElementById("root");
-if (!root) {
-    throw new Error("root element not found");
+const clerkKey = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY;
+
+if (!clerkKey) {
+    throw new Error("VITE_CLERK_PUBLISHABLE_KEY is required in frontend/.env");
 }
 
-createRoot(root).render(
+const rootElement = document.getElementById("root");
+
+if (!rootElement) {
+    throw new Error("Failed to find the root element");
+}
+
+createRoot(rootElement).render(
     <StrictMode>
-        <App />
+        <ClerkProvider publishableKey={clerkKey}>
+            <App />
+        </ClerkProvider>
     </StrictMode>,
 );

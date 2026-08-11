@@ -1,8 +1,17 @@
-export default function App() {
+import { Show, SignInButton, SignUpButton, UserButton } from "@clerk/react";
+
+function App() {
     return (
-        <main>
-            <h1>maxterview</h1>
-            <p>AI mock-interview coach</p>
-        </main>
+        <header>
+            <Show when="signed-out">
+                <SignInButton />
+                <SignUpButton />
+            </Show>
+            <Show when="signed-in">
+                <UserButton />
+            </Show>
+        </header>
     );
 }
+
+export default App;
