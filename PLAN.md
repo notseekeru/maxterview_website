@@ -6,7 +6,7 @@ Stack: FastAPI + React/TS + Postgres. Dev: Docker Compose (3-file split).
 > **How to use this file** — the *stable contract*: reload at session start for decisions,
 > guardrails, milestone status. Transient build state lives in session memory.
 >
-> **Change policy:** edit only when a decision, milestone, or guardrail changes. `Last updated: 2026-08-08`
+> **Change policy:** edit only when a decision, milestone, or guardrail changes. `Last updated: 2026-08-11`
 
 ## 1. Decisions (D1–D9) — read first
 
@@ -21,6 +21,7 @@ Stack: FastAPI + React/TS + Postgres. Dev: Docker Compose (3-file split).
 | D7 | LLM = OpenAI-compatible client via env (`LLM_BASE_URL`/`LLM_API_KEY`/`LLM_MODEL`): **local model on dev, DeepSeek on prod**; stub for tests | One interface, no vendor lock; DeepSeek is OpenAI-compatible |
 | D8 | Frontend React + TS + Vite + **shadcn/ui**; backend structlog | User choices; TS matches API schemas |
 | D9 | **Monolithic backend**: routes + validation + handlers inline in `app/main.py` (mirrors `diagram_website`'s `server.ts`); **raw SQL via asyncpg**, single `app/db.py` (lazy pool) | MVP simplicity; no ORM, no premature layering; matches an existing, proven codebase shape |
+| D10 | **Monetization: simple two-tier free/premium, build billing post-MVP.** `ClerkUser.tier` claim (`free`/`premium`), **entitlement** stamped in the Clerk JWT. **Free = 1 interview/day (counts CREATED), premium = unlimited ($9.99/mo ref, monthly, MULTI-CURRENCY)**. **Features IDENTICAL across tiers** — only quota differs. **Consumption ≠ JWT:** token spend metered server-side (per-interview ceiling **cumulative incl. regens** — `interviews.tokens_used` — + daily `usage`); **meter = INPUT+OUTPUT**; **authoritative gate at EACH LLM call**. **Atomicity (races):** cap enforced via conditional `INSERT ... WHERE NOT EXISTS`; token meter via atomic **UPSERT** `INSERT ... ON CONFLICT (owner_id, day) DO UPDATE ... RETURNING` + reject (covers first-entry-of-day). **Idempotency (retries):** meter writes scoped to **`messages.id`** (already unique) so retries don't double-bill. **Ops kill-switch/global cap** at M10. **Caching:** counters DB-backed (accuracy>latency); `tier` in JWT + JWKS cached; **Redis deferred** (write-through if ever). No trial; overage = **lockout** (block new only, never touch existing); **cancel = access till end of paid period, no refunds**; **failed renewal = immediate downgrade, no grace**; **upgrade forces JWT refresh**; single user; no invoicing. Billing deferred to M10. Full plan in `MONETIZATION.md`. | `tier` is a one-field, non-breaking addition now; retrofitting gating later is costly. Simplest model that covers an AI-coach SaaS. Billing is phase 2, not MVP |
 
 ## 2. Stack
 
@@ -100,11 +101,12 @@ graph TD
 | 2 | Backend core | Monolith: `app/main.py` (FastAPI app + lifespan + `/health` + graceful shutdown + D2 guard), `app/db.py` (engine/session), `pyproject.toml`/`uv.lock`, backend Dockerfile (dev/prod targets, uv recipe) | [x] |
 | 3 | Data foundations | `backend/migrations/*.sql` (yoyo format: interviews/messages/feedback), asyncpg pool + query helpers in `app/db.py`; `make migrate` via yoyo | [x] |
 | 4 | Auth seam | `get_current_user` dependency: dev-fallback user when `CLERK_ENABLED=false`; real Clerk JWKS verification (`verify_jwt`/`_fetch_jwks` in `app/auth.py`) — RS256, kid, iss/aud/exp, JWKS cache. Frontend `@clerk/react` + `<ClerkProvider>` wired. Every handler depends on it (D4) | [x] |
-| 5 | Backend API | Routes inline in `app/main.py` (D9): interviews CRUD + messages + SSE stub, all scoped to `owner_id` via `get_current_user` | [ ] |
+| 5 | Backend API | Routes inline in `app/main.py` (D9): interviews CRUD + messages + SSE stub, all scoped to `owner_id` via `get_current_user`. **Tier-ready:** `ClerkUser.tier` available on every handler; a `require_tier`/limit check is stubbed until M10 (D10) | [ ] |
 | 6 | LLM layer | `app/llm.py` (OpenAI-compatible client, prompt registry, structured output, test stub); wire real streaming into the SSE endpoint | [ ] |
 | 7 | Tests | pytest suite: `/health`, CRUD, owner-scoping (integration vs Postgres); CI goes green | [ ] |
 | 8 | Frontend | React+TS+Vite scaffold with **minimal stub** (tsconfig, vite.config, index.html, `src/App.tsx`) to keep CI green; full shadcn/ui app + API wiring later | [~] |
 | 9 | Verify + README | `compose config`, build, up, `make test`/`make lint`; README | [ ] |
+| 10 | Billing/monetization (phase 2, NOT MVP) | Implement `MONETIZATION.md`: Clerk ↔ Stripe (or clerk-billing) integration, subscription/webhook, plans DB, interviews-per-month enforcement via `require_tier`. Built on the `tier` claim (D10/D4) | [ ] |
 
 > **Next action:** milestone 4 done — including **real** JWT/JWKS verification implemented and tested (9 tests green, self-generated keys; proven against live Clerk pending a real sign-in token). `CLERK_ENABLED` still `false` (dev fallback); flip to `true` with real Clerk env pre-ship. Next: milestone 5 — backend API (CRUD + messages + SSE stub, all owner-scoped via `get_current_user`). Start here.<br>
-> **Status:** M1–M4 done (M4 real auth complete, 2026-08-11). Foundations-first sequence locked.
+> **Status:** M1–M4 done (M4 real auth complete, 2026-08-11). M10 (billing) is phase 2, designed-for via `tier` (D10) but not built. Detailed payment design: **`MONETIZATION.md`**. Foundations-first sequence locked.
