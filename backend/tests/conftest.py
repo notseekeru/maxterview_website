@@ -1,6 +1,8 @@
-# Set env before importing app modules (db.py reads DATABASE_URL at import).
+# Force test values (override any empty/loaded value from the host .env).
 import os
 
-os.environ.setdefault("APP_ENV", "test")
-os.environ.setdefault("CLERK_ENABLED", "false")
+os.environ["APP_ENV"] = "test"
+os.environ["CLERK_ENABLED"] = "false"
+os.environ["CLERK_DOMAIN"] = "https://test.clerk.accounts"
+os.environ["CLERK_JWKS_URL"] = ""
 os.environ.setdefault("DATABASE_URL", "postgresql://x:x@localhost:5432/x")
