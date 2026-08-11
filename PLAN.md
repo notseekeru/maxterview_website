@@ -58,7 +58,7 @@ graph TD
 - **`DATABASE_URL`**: composed only from `POSTGRES_*` in compose overlays / prod Secret (D5). Never in `.env`.
 - **Config**: plain `os.getenv` reads resolved at module top in `app/main.py` / `app/db.py`; fail fast (raise) on missing required values (e.g. `DATABASE_URL`). `.env.example` = canonical shape. (D9)
 - **DB access**: raw SQL via the asyncpg pool helpers in `app/db.py` (`fetch`/`fetchrow`/`execute`). Handlers call these directly — no session-per-request, no ORM (D9).
-- **Clerk**: same-origin `__session` cookie (primary, Clerk-managed); `Authorization: Bearer` also accepted for API clients/tests. Backend verifies JWT against Clerk JWKS (`RS256`, validate `iss`/`aud`/`exp`) → `ClerkUser` (`sub`, email, name, session_id) via `get_current_user` (D2/D4).
+- **Clerk**: same-origin `__session` cookie (primary, Clerk-managed); `Authorization: Bearer` also accepted for API clients/tests. Backend verifies JWT against Clerk JWKS. **Implemented (2026-08-11, `app/auth.py`):** RS256-pinned (reject `none`/HS256), JWKS key selected by `kid`, RSA pubkey reconstructed from JWKS `n`/`e`, validate `iss` (=`CLERK_DOMAIN`) + `exp`; `aud` validated **ONLY if `CLERK_AUDIENCE` set** (empty default in `.env.example` → aud-gate off). JWKS fetched via httpx and cached (TTL ~1h; `kid`-miss re-fetch once). Any failure → `HTTPException(401)`, fixed message, no token details leaked. → `ClerkUser` (`sub`, email, name, `sid`→session_id) via `get_current_user` (D2/D4). Frontend: `@clerk/react`, `<ClerkProvider publishableKey>` + sign-in/user buttons wired.
 - **LLM**: `LLM_BASE_URL`/`LLM_API_KEY`/`LLM_MODEL` via env (keys in secrets in prod); dev = local model (no key), prod = DeepSeek. Prompts typed + versioned in the service layer, never inlined in routers (D7).
 
 ## 5. Data model
@@ -99,12 +99,12 @@ graph TD
 | 1 | Root infra | `compose.yml`/`compose.dev.yml`/`compose.prod.yml`, Makefile, `scripts/port-claimer.sh`, env/gitignore, CI/CD workflows, frontend Dockerfile/nginx/biome | [x] |
 | 2 | Backend core | Monolith: `app/main.py` (FastAPI app + lifespan + `/health` + graceful shutdown + D2 guard), `app/db.py` (engine/session), `pyproject.toml`/`uv.lock`, backend Dockerfile (dev/prod targets, uv recipe) | [x] |
 | 3 | Data foundations | `backend/migrations/*.sql` (yoyo format: interviews/messages/feedback), asyncpg pool + query helpers in `app/db.py`; `make migrate` via yoyo | [x] |
-| 4 | Auth seam | `get_current_user` dependency: dev-fallback user when `CLERK_ENABLED=false`; Clerk JWKS verification stubbed (`NotImplementedError`) until pre-ship. Every handler depends on it (D4) | [x] |
+| 4 | Auth seam | `get_current_user` dependency: dev-fallback user when `CLERK_ENABLED=false`; real Clerk JWKS verification (`verify_jwt`/`_fetch_jwks` in `app/auth.py`) — RS256, kid, iss/aud/exp, JWKS cache. Frontend `@clerk/react` + `<ClerkProvider>` wired. Every handler depends on it (D4) | [x] |
 | 5 | Backend API | Routes inline in `app/main.py` (D9): interviews CRUD + messages + SSE stub, all scoped to `owner_id` via `get_current_user` | [ ] |
 | 6 | LLM layer | `app/llm.py` (OpenAI-compatible client, prompt registry, structured output, test stub); wire real streaming into the SSE endpoint | [ ] |
 | 7 | Tests | pytest suite: `/health`, CRUD, owner-scoping (integration vs Postgres); CI goes green | [ ] |
 | 8 | Frontend | React+TS+Vite scaffold with **minimal stub** (tsconfig, vite.config, index.html, `src/App.tsx`) to keep CI green; full shadcn/ui app + API wiring later | [~] |
 | 9 | Verify + README | `compose config`, build, up, `make test`/`make lint`; README | [ ] |
 
-> **Next action:** milestone 4 is done (auth seam: `app/auth.py` + `ClerkUser` in `app/models.py`, dev fallback + JWKS stub, one test). Next: milestone 5 — backend API (CRUD + messages + SSE stub, all owner-scoped via `get_current_user`). Start here.<br>
-> **Status:** M1–M4 done (M4 auth seam complete, 2026-08-09). Foundations-first sequence locked.
+> **Next action:** milestone 4 done — including **real** JWT/JWKS verification implemented and tested (9 tests green, self-generated keys; proven against live Clerk pending a real sign-in token). `CLERK_ENABLED` still `false` (dev fallback); flip to `true` with real Clerk env pre-ship. Next: milestone 5 — backend API (CRUD + messages + SSE stub, all owner-scoped via `get_current_user`). Start here.<br>
+> **Status:** M1–M4 done (M4 real auth complete, 2026-08-11). Foundations-first sequence locked.
