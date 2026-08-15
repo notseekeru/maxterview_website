@@ -1,4 +1,6 @@
-from pydantic import BaseModel
+from datetime import datetime
+
+from pydantic import BaseModel, Field
 
 
 class ClerkUser(BaseModel):
@@ -13,3 +15,58 @@ class ClerkUser(BaseModel):
     name: str | None = None
     session_id: str | None = None
     tier: str = "free"
+
+
+# --- interviews ---
+
+
+class InterviewCreate(BaseModel):
+    role: str = Field(min_length=1, max_length=200)
+    topic: str = Field(default="", max_length=500)
+
+
+class Interview(BaseModel):
+    id: str
+    owner_id: str
+    role: str
+    topic: str = ""
+    status: str
+    created_at: datetime
+    updated_at: datetime
+
+
+# --- messages ---
+
+
+class MessageCreate(BaseModel):
+    content: str = Field(min_length=1, max_length=10000)
+
+
+class Message(BaseModel):
+    id: str
+    interview_id: str
+    role: str  # user | assistant | system
+    content: str
+    created_at: datetime
+
+
+# --- feedback ---
+
+
+class Feedback(BaseModel):
+    id: str
+    interview_id: str
+    scores: dict
+    verdict: str
+    tips: list
+    created_at: datetime
+
+
+# --- SSE stub payload (M6 wires the real LLM stream) ---
+
+
+class ChatTurn(BaseModel):
+    """One user turn in a simulated interview; the SSE endpoint streams the assistant reply."""
+
+    interview_id: str
+    content: str
