@@ -15,7 +15,7 @@ Stack: FastAPI + React/TS + Postgres. Dev: Docker Compose (3-file split).
 |---|---|---|
 | D1 | `python:3.13-slim` in containers only; host Python irrelevant | Reproducible env; 3.13 mature (EOL 2029-10); 3.14 stable — valid upgrade path |
 | D2 | Clerk fallback (`CLERK_ENABLED=false`) only in `development`/`test`; else refuse to boot | No silent unauthenticated prod; tests boot without Clerk |
-| D3 | Migrations via `make migrate` = `yoyo apply` (backend container, `yoyo-migrations` CLI); `.sql` files with `-- migrate:up/-- migrate:down`; tracks applied state in `_yoyo_migrations` table | Lightweight Python analogue of node-pg-migrate (diagram_website reference); no SQLAlchemy/Alembic; per-version tracking |
+| D3 | Migrations via `make migrate` = `yoyo apply` (backend container, `yoyo-migrations` CLI); `.sql` files **whose entire body is the "up" step**, with a **separate `<name>.rollback.sql`** for rollback; tracks applied state in `_yoyo_migration` | **Correction (2026-08-16):** yoyo does **NOT** use in-file `-- migrate:up/-- migrate:down` markers — it treats the whole `.sql` as up and reads rollback from a separate `.rollback.sql`. An in-file `-- migrate:down` block gets executed as UP (created-and-dropped the tables). Lightweight Python analogue of node-pg-migrate (diagram_website reference); per-version tracking |
 | D4 | Domain owned by Clerk `sub`; every query scoped | Auth is load-bearing |
 | D5 | `DATABASE_URL` built only in compose / prod Secret; never in `.env` | Single source of truth |
 | D6 | **uv** + `pyproject.toml` + committed `uv.lock`; `uv sync --frozen` in CI/Dockerfile | 2026 standard; universal lockfile |
@@ -102,12 +102,12 @@ graph TD
 | 2 | Backend core | Monolith: `app/main.py` (FastAPI app + lifespan + `/health` + graceful shutdown + D2 guard), `app/db.py` (engine/session), `pyproject.toml`/`uv.lock`, backend Dockerfile (dev/prod targets, uv recipe) | [x] |
 | 3 | Data foundations | `backend/migrations/*.sql` (yoyo format: interviews/messages/feedback), asyncpg pool + query helpers in `app/db.py`; `make migrate` via yoyo | [x] |
 | 4 | Auth seam | `get_current_user` dependency: dev-fallback user when `CLERK_ENABLED=false`; real Clerk JWKS verification (`verify_jwt`/`_fetch_jwks` in `app/auth.py`) — RS256, kid, iss/aud/exp, JWKS cache. Frontend `@clerk/react` + `<ClerkProvider>` wired. Every handler depends on it (D4) | [x] |
-| 5 | Backend API | Routes inline in `app/main.py` (D9): interviews CRUD + messages + SSE stub, all scoped to `owner_id` via `get_current_user`. **Tier-ready:** `ClerkUser.tier` available on every handler; a `require_tier`/limit check is stubbed until M10 (D10) | [ ] |
+| 5 | Backend API | Routes inline in `app/main.py` (D9): interviews CRUD + messages + feedback + SSE stub, all scoped to `owner_id` via `get_current_user`. **Tier-ready:** `ClerkUser.tier` available on every handler; a `require_tier`/limit check is stubbed until M10 (D10) | [x] |
 | 6 | LLM layer | `app/llm.py` (OpenAI-compatible client, prompt registry, structured output, test stub); wire real streaming into the SSE endpoint | [ ] |
 | 7 | Tests | pytest suite: `/health`, CRUD, owner-scoping (integration vs Postgres); CI goes green | [ ] |
 | 8 | Frontend | React+TS+Vite scaffold with **minimal stub** (tsconfig, vite.config, index.html, `src/App.tsx`) to keep CI green; full shadcn/ui app + API wiring later | [~] |
 | 9 | Verify + README | `compose config`, build, up, `make test`/`make lint`; README | [ ] |
 | 10 | Billing/monetization (phase 2, NOT MVP) | Implement `MONETIZATION.md`: Clerk ↔ Stripe (or clerk-billing) integration, subscription/webhook, plans DB, interviews-per-month enforcement via `require_tier`. Built on the `tier` claim (D10/D4) | [ ] |
 
-> **Next action:** milestone 4 done — including **real** JWT/JWKS verification implemented and tested (9 tests green, self-generated keys; proven against live Clerk pending a real sign-in token). `CLERK_ENABLED` still `false` (dev fallback); flip to `true` with real Clerk env pre-ship. Next: milestone 5 — backend API (CRUD + messages + SSE stub, all owner-scoped via `get_current_user`). Start here.<br>
-> **Status:** M1–M4 done (M4 real auth complete, 2026-08-11). M10 (billing) is phase 2, designed-for via `tier` (D10) but not built. Detailed payment design: **`MONETIZATION.md`**. Foundations-first sequence locked.
+> **Next action:** milestone 5 done (backend API: interviews CRUD + messages + feedback + SSE stub, owner-scoped via `get_current_user`, 11 tests green incl. 2 integration). Also fixed the yoyo migration convention + Makefile (see D3). Next: milestone 6 — LLM layer (`app/llm.py`), wire real streaming into the SSE endpoint. Start here.<br>
+> **Status:** M1–M5 done (M4 real auth, M5 API complete, 2026-08-16). M10 (billing) is phase 2, designed-for via `tier` (D10) but not built. Detailed payment design: **`MONETIZATION.md`**; product: **`PRD.md`**. Foundations-first sequence locked.

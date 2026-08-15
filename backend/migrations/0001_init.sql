@@ -1,4 +1,5 @@
--- migrate:up
+-- yoyo up migration: the ENTIRE file body is the "up" step.
+-- (yoyo reads rollback from a separate 0001_init.rollback.sql, NOT a -- migrate:down block.)
 CREATE TABLE IF NOT EXISTS interviews (
     id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     owner_id    TEXT        NOT NULL,
@@ -32,8 +33,3 @@ CREATE TABLE IF NOT EXISTS feedback (
     tips          JSONB       NOT NULL DEFAULT '[]'::jsonb,
     created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
-
--- migrate:down
-DROP TABLE IF EXISTS feedback;
-DROP TABLE IF EXISTS messages;
-DROP TABLE IF EXISTS interviews;
