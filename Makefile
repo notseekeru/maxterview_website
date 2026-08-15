@@ -41,9 +41,9 @@ psql:
 	$(DEV_CMD) run --rm psql
 
 migrate:
-	docker exec -t $(BACKEND_DEV) sh -c "uv run yoyo apply --database \"$$DATABASE_URL\" /app/migrations"
+	docker exec -t $(BACKEND_DEV) bash -c 'uv run yoyo apply --no-config-file --batch --database "$$DATABASE_URL" /app/migrations'
 rollback:
-	docker exec -t $(BACKEND_DEV) sh -c "uv run yoyo rollback --database \"$$DATABASE_URL\" /app/migrations"
+	docker exec -t $(BACKEND_DEV) bash -c 'uv run yoyo rollback --no-config-file --batch --database "$$DATABASE_URL" /app/migrations'
 new-migration:
 	@test -n "$(name)" || (echo "usage: make new-migration name=<name>" && exit 1)
 	touch backend/migrations/$$(date +%s)_$(name).sql
