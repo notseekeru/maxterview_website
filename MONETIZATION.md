@@ -5,6 +5,22 @@
 > `ClerkUser.tier` (default `"free"`). Everything here is designed-for, built later.
 > **Source of truth for decisions:** PLAN.md D10 (and D4 for owner-scoping).
 
+## 0. Budget numbers (placeholders — REVISE after M6 LLM cost data)
+
+These are **placeholder defaults** chosen 2026-08-16 so the plan has concrete values. **Revisit and
+retune once the M6 LLM layer lets us measure real per-interview cost.** Actual values live as env/config
+at M10, not hardcoded.
+
+| Metric | Free | Premium |
+|---|---|---|
+| Daily interview cap | 1 | unlimited |
+| Daily LLM token budget | **20,000** (tight) | **100,000** (generous) |
+| Per-interview ceiling | **5,000** | **50,000** |
+
+- **Meter unit = total tokens (input + output)** across all LLM calls for an interview (incl. regens).
+- If LLM cost confirms these are off (e.g. an average premium interview routinely exceeds 50k), adjust
+  the numbers before enabling billing.
+
 ## 1. Model: Free vs. Premium
 
 | | Free | Premium |
@@ -83,6 +99,10 @@
 - **Counter source:** count `interviews` where `owner_id` (D4) and `created_at::date = CURRENT_DATE`.
   Uses existing columns. The token budget needs a NEW `usage` table at M10 (§5).
 - **Frontend (UX only):** show a "lock"/upsell on premium. Never the actual gate.
+- **Usage status (2026-08-16):** expose a cheap **`GET /usage`** endpoint returning remaining daily
+  interviews + remaining tokens for the current user (scoped by `owner_id`, D4). Frontend shows a
+  small badge/notice (e.g. "2 of 3 free interviews left today"). Prevents silent lockout. Lands with
+  M10 (no quota/entitlement distinction to display during the dev-fallback MVP).
 - **MVP scope (Nit 3, 2026-08-11):** during MVP (M5–M9) the backend runs on the dev-fallback
   `DEV_USER`, so there's no real free/premium distinction and **no premium upsell/lock UX is built
   in the MVP**. Upsell UI lands with M10 billing.
@@ -97,6 +117,8 @@ Preferred: **Stripe** via **Clerk's billing integration** (`clerk-billing` / Cle
 - **Monthly billing only** (one premium plan at $9.99/mo; no annual, no tiers of premium products).
 - **Currency (2026-08-11): MULTI-CURRENCY.** $9.99 is the reference price; Stripe handles conversion/
   local pricing. Adds per-currency price config at M10 (not a blocker — settled at billing setup).
+- **Tax (2026-08-16):** Stripe **calculates** tax, but **we remit** it (our legal responsibility).
+  No merchant-of-record (Lemon Squeezy/Paddle) at MVP scale.
 - **No invoice/tax/product features in scope** — Stripe's built-in tax handling is sufficient; no
   merchant-of-record (Lemon Squeezy/Paddle) needed at MVP scale.
 - Requires: Stripe account, a Clerk plan with the billing integration enabled, publishable/secret
@@ -165,6 +187,12 @@ CREATE TABLE IF NOT EXISTS usage (
 
 - **Cancellation → access till end of the current paid period, no refunds.** (Cancel honors the paid
   period — the user keeps premium access + token budget until `current_period_end`.)
+- **Refund (2026-08-16): 3-day refund policy.** A customer can request a voluntary refund within
+  3 days of purchase. After 3 days, no voluntary refunds (cancel still honors remaining paid period).
+- **Chargebacks/disputes (2026-08-16):** separate from refunds — a chargeback goes through the
+  customer's bank, not us. On a chargeback/dispute: **downgrade the user to free immediately** and
+  respond via Stripe's dispute flow (evidence = subscription started + access granted). A "no refunds"
+  or "3-day refund" policy does NOT stop chargebacks — it only governs *our* voluntary refunds.
 - **Failed renewal / card declined (2026-08-11): IMMEDIATE downgrade — no grace period.** On failed
   payment, premium access (and its token budget) is revoked; account drops to free and daily-cap
   lockout applies at once. **Why the contrast:** a *cancel* has a paid period to honor; a *failed
