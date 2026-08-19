@@ -113,11 +113,47 @@ async def generate_feedback(history: list[ChatMessage]) -> FeedbackSummary:
         resp.raise_for_status()
         data = resp.json()
         content = data["choices"][0]["message"]["content"]
-        import json
-
-        obj = json.loads(content)
+        obj = _extract_json_object(content)
         return FeedbackSummary(
             scores=obj.get("scores", {}),
             verdict=obj.get("verdict", ""),
             tips=obj.get("tips", []),
         )
+
+
+def _extract_json_object(text: str) -> dict:
+    """Robustly pull the first JSON object out of a model response.
+
+    Some OpenAI-compatible backends (e.g. llama.cpp) may wrap the JSON in prose or
+    markdown fencing, so a strict json.loads can fail. Find the first '{' .. matching '}'.
+    """
+    import json
+
+    start = text.find("{")
+    if start == -1:
+        return {}
+    depth = 0
+    in_str = False
+    escape = False
+    for i in range(start, len(text)):
+        ch = text[i]
+        if in_str:
+            if escape:
+                escape = False
+            elif ch == "\\":
+                escape = True
+            elif ch == '"':
+                in_str = False
+        else:
+            if ch == '"':
+                in_str = True
+            elif ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    try:
+                        return json.loads(text[start : i + 1])
+                    except (ValueError, json.JSONDecodeError):
+                        return {}
+    return {}

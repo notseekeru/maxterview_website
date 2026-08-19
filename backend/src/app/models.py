@@ -41,10 +41,6 @@ class Interview(BaseModel):
 # --- messages ---
 
 
-class MessageCreate(BaseModel):
-    content: str = Field(min_length=1, max_length=10000)
-
-
 class Message(BaseModel):
     id: str
     interview_id: str

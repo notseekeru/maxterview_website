@@ -8,7 +8,7 @@ from fastapi.responses import StreamingResponse
 from app import llm
 from app.auth import CLERK_ENABLED, get_current_user
 from app.db import close_pool, fetch, fetchrow, init_pool
-from app.models import ChatMessage, ChatTurn, ClerkUser, Feedback, FeedbackCreate, Interview, InterviewCreate, Message, MessageCreate
+from app.models import ChatMessage, ChatTurn, ClerkUser, Feedback, FeedbackCreate, Interview, InterviewCreate, Message
 
 APP_ENV = os.getenv("APP_ENV", "development")
 
@@ -154,31 +154,6 @@ async def list_messages(
         interview_id,
     )
     return [dict(r) for r in rows]
-
-
-@app.post("/interviews/{interview_id}/messages", response_model=Message, status_code=status.HTTP_201_CREATED)
-async def create_message(
-    interview_id: str,
-    body: MessageCreate,
-    user: CurrentUser,
-) -> dict:
-    await _require_interview_owned(interview_id, user.sub)
-    # Messages only make sense mid-interview (Gap 4): reject if not in_progress.
-    status_row = await fetchrow(
-        "SELECT status FROM interviews WHERE id = $1 AND owner_id = $2",
-        interview_id,
-        user.sub,
-    )
-    if status_row is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Interview not found")
-    if status_row["status"] != "in_progress":
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Interview is not in progress")
-    row = await fetchrow(
-        "INSERT INTO messages (interview_id, role, content) VALUES ($1, 'user', $2) RETURNING id::text, interview_id::text, role, content, created_at",
-        interview_id,
-        body.content,
-    )
-    return dict(row)
 
 
 # --- feedback ---
