@@ -84,7 +84,7 @@ stateDiagram-v2
 | PRD story | HTTP | Purpose |
 |---|---|---|
 | US1 | `POST /interviews` | Create interview (role required, topic optional) → `pending` |
-| US5 | `GET /interviews` | List own interviews (newest first) |
+| US5 | `GET /interviews` | List own interviews (newest first), each with optional avg `score` + `verdict` (LEFT JOIN feedback) |
 | US1/5 | `GET /interviews/{id}` | Get one own interview |
 | — | `DELETE /interviews/{id}` | Delete own interview |
 | US2 | `POST /interviews/{id}/start` | `pending` → `in_progress` |
