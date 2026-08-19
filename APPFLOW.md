@@ -240,8 +240,14 @@ data: {}
 **Event types:**
 | Event | Payload | Meaning |
 |---|---|---|
-| `message` | `data: <string>` | A chunk/turn of the assistant reply (delta token or full turn). |
+| `message` | `data: <string>` | A delta chunk of the assistant reply. |
+| `error` | `data: <string>` | Streaming failed — no `done` will follow; the orphaned user message is rolled back. |
 | `done` | `data: {}` | Stream finished; no further events. |
+
+> **Ownership (2026-08-19):** `POST /interviews/{id}/chat/stream` **owns the user turn** — it persists
+> the user answer, streams the assistant reply (deltas), persists the assistant turn, then emits `done`.
+> On LLM failure it emits `error` and deletes the orphaned user message. `POST /interviews/{id}/messages`
+> is a separate manual/standalone path (do NOT call it for the same streaming turn).
 
 > **M6 note (2026-08-19):** the stream now emits **incremental `message` deltas** (word/token chunks),
 > then a final `done`, and the assistant `messages` row is persisted server-side. Contract stable; a real

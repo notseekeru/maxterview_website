@@ -240,12 +240,13 @@ async def chat_stream(
     if interview["status"] != "in_progress":
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Interview is not in progress")
 
-    # Persist the user turn (same contract as POST /messages).
-    await fetchrow(
-        "INSERT INTO messages (interview_id, role, content) VALUES ($1, 'user', $2) RETURNING id",
+    # Persist the user turn (chat_stream owns the user answer per decision).
+    user_msg = await fetchrow(
+        "INSERT INTO messages (interview_id, role, content) VALUES ($1, 'user', $2) RETURNING id::text",
         interview_id,
         body.content,
     )
+    user_msg_id = user_msg["id"] if user_msg else None
 
     # Build the LLM context: system prompt + prior transcript (owner's interview, ordered).
     prior_rows = await fetch(
@@ -259,11 +260,23 @@ async def chat_stream(
 
     async def _stream_events():
         # M6: real LLM streaming (llm.py). Streams increment deltas, then emits a done event.
+        # On LLM failure: emit an SSE error event and roll back the orphaned user message.
         collected: list[str] = []
-        async for delta in llm.stream_chat(history):
-            if delta:
-                collected.append(delta)
-                yield f"event: message\ndata: {delta}\n\n"
+        try:
+            async for delta in llm.stream_chat(history):
+                if delta:
+                    collected.append(delta)
+                    yield f"event: message\ndata: {delta}\n\n"
+        except Exception as exc:  # LLM/network failure mid-stream
+            # Remove the just-inserted user message so no orphan transcript remains.
+            if user_msg_id:
+                await fetchrow(
+                    "DELETE FROM messages WHERE id = $1 AND interview_id = $2",
+                    user_msg_id,
+                    interview_id,
+                )
+            yield f"event: error\ndata: {str(exc)}\n\n"
+            return
         # Persist the completed assistant turn so the transcript is complete.
         reply = "".join(collected).strip()
         await fetchrow(
