@@ -41,11 +41,7 @@ def test_interview_lifecycle_owner_scoped():
         assert r.status_code == 200
         assert r.json()["role"] == "Software Engineer"
 
-        # messages blocked while pending (Gap 4)
-        r = c.post(f"/interviews/{iid}/messages", json={"content": "early"})
-        assert r.status_code == 409
-
-        # chat stream also blocked while pending (Gap C)
+        # chat stream blocked while pending (Gap C)
         r = c.post(f"/interviews/{iid}/chat/stream", json={"interview_id": iid, "content": "hi"})
         assert r.status_code == 409
 
@@ -54,15 +50,8 @@ def test_interview_lifecycle_owner_scoped():
         assert r.status_code == 200
         assert r.json()["status"] == "in_progress"
 
-        # messages allowed once in_progress
-        r = c.post(f"/interviews/{iid}/messages", json={"content": "I have 5 years of experience."})
-        assert r.status_code == 201
-        r = c.get(f"/interviews/{iid}/messages")
-        assert r.status_code == 200
-        assert r.json()[0]["role"] == "user"
-
-        # SSE chat (M6: real LLM stub streams + persists assistant message)
-        r = c.post(f"/interviews/{iid}/chat/stream", json={"interview_id": iid, "content": "hi"})
+        # SSE chat (M6: real LLM stub streams + persists both turns)
+        r = c.post(f"/interviews/{iid}/chat/stream", json={"interview_id": iid, "content": "I have 5 years of experience."})
         assert r.status_code == 200
         assert "text/event-stream" in r.headers["content-type"]
         # Both the user turn and the streamed assistant reply are persisted (transcript complete).
@@ -100,9 +89,7 @@ def test_interview_lifecycle_owner_scoped():
         assert r.status_code == 200
         assert r.json()["verdict"] == "Better"
 
-        # messages/chat blocked once completed
-        r = c.post(f"/interviews/{iid}/messages", json={"content": "too late"})
-        assert r.status_code == 409
+        # chat blocked once completed
         r = c.post(f"/interviews/{iid}/chat/stream", json={"interview_id": iid, "content": "late"})
         assert r.status_code == 409
 

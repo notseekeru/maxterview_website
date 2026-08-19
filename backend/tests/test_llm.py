@@ -25,3 +25,16 @@ async def test_stub_feedback_is_deterministic():
     assert set(f.scores.keys()) == {"clarity", "relevance", "structure", "confidence"}
     assert f.verdict
     assert isinstance(f.tips, list) and len(f.tips) >= 1
+
+
+def test_extract_json_object_handles_prose_wrap():
+    # llama.cpp-style: prose around the JSON object.
+    text = 'Here is your feedback:\n```json\n{"scores": {"clarity": 8}, "verdict": "Nice", "tips": ["a"]}\n```\nGood job!'
+    obj = llm._extract_json_object(text)
+    assert obj["verdict"] == "Nice"
+    assert obj["scores"]["clarity"] == 8
+    assert obj["tips"] == ["a"]
+
+
+def test_extract_json_object_no_json_returns_empty():
+    assert llm._extract_json_object("no json here") == {}
