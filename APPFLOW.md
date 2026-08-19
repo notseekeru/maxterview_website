@@ -88,8 +88,7 @@ stateDiagram-v2
 | US1/5 | `GET /interviews/{id}` | Get one own interview |
 | — | `DELETE /interviews/{id}` | Delete own interview |
 | US2 | `POST /interviews/{id}/start` | `pending` → `in_progress` |
-| US3 | `POST /interviews/{id}/messages` | Add a user message (only while `in_progress`) |
-| US2/3 | `POST /interviews/{id}/chat/stream` | **SSE** — stream assistant turn (M6 replaces stub) |
+| US3 | `POST /interviews/{id}/chat/stream` | **SSE** — send a user answer + stream the assistant reply (owns the user turn) |
 | US4 | `POST /interviews/{id}/complete` | `in_progress` → `completed` |
 | US4 | `POST /interviews/{id}/feedback` | **M6** writes feedback (idempotent UPSERT) |
 | US6 | `GET /interviews/{id}/messages` | View past conversation |
@@ -111,7 +110,7 @@ sequenceDiagram
     S-->>F: 200 interview (in_progress)
 
     loop each turn
-        F->>S: POST /interviews/{id}/messages (user answer)
+        F->>S: POST /interviews/{id}/chat/stream (user answer + SSE)
         S->>D: INSERT message (role=user)
         S-->>F: 201 message
 
@@ -212,7 +211,7 @@ Numbered walkthrough of the primary experience, with expected responses (dev/tes
 1. **Create** — `POST /interviews` `{role, topic?}` → `201` interview, `status: "pending"`.
 2. **List** — `GET /interviews` → array including the new interview.
 3. **Start** — `POST /interviews/{id}/start` → `200`, `status: "in_progress"`.
-4. **Answer** — `POST /interviews/{id}/messages` `{content}` → `201` message (role `user`). *(Any attempt before `start` → `409`.)*
+4. **Answer** — `POST /interviews/{id}/chat/stream` `{interview_id, content}` → `200` SSE; the stream endpoint persists the user turn and streams the assistant reply. *(Any attempt before `start` → `409`.)*
 5. **AI turn** — `POST /interviews/{id}/chat/stream` `{interview_id, content}` → `200` SSE; consume events (M6 streams real assistant reply).
 6. **Loop** — repeat steps 4–5 until the user ends.
 7. **Complete** — `POST /interviews/{id}/complete` → `200`, `status: "completed"`. *(Requires `in_progress`; else `409`.)*
@@ -246,7 +245,7 @@ data: {}
 
 > **Ownership (2026-08-19):** `POST /interviews/{id}/chat/stream` **owns the user turn** — it persists
 > the user answer, streams the assistant reply (deltas), persists the assistant turn, then emits `done`.
-> On LLM failure it emits `error` and deletes the orphaned user message. `POST /interviews/{id}/messages`
+> On LLM failure it emits `error` and deletes the orphaned user message. `POST /interviews/{id}/messages` was removed (2026-08-19) — the stream endpoint is the single canonical path for user turns.
 > is a separate manual/standalone path (do NOT call it for the same streaming turn).
 
 > **M6 note (2026-08-19):** the stream now emits **incremental `message` deltas** (word/token chunks),
