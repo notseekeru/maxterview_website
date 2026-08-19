@@ -61,17 +61,26 @@ def test_interview_lifecycle_owner_scoped():
         assert r.status_code == 200
         assert r.json()[0]["role"] == "user"
 
-        # SSE stub
+        # SSE chat (M6: real LLM stub streams + persists assistant message)
         r = c.post(f"/interviews/{iid}/chat/stream", json={"interview_id": iid, "content": "hi"})
         assert r.status_code == 200
         assert "text/event-stream" in r.headers["content-type"]
+        # Both the user turn and the streamed assistant reply are persisted (transcript complete).
+        r = c.get(f"/interviews/{iid}/messages")
+        assert r.status_code == 200
+        roles = [m["role"] for m in r.json()]
+        assert "user" in roles and "assistant" in roles
 
-        # complete -> completed
+        # complete -> completed (M6 auto-generates feedback in stub mode)
         r = c.post(f"/interviews/{iid}/complete")
         assert r.status_code == 200
         assert r.json()["status"] == "completed"
+        # Auto-generated feedback exists (stub deterministic scores).
+        r = c.get(f"/interviews/{iid}/feedback")
+        assert r.status_code == 200
+        assert r.json()["verdict"]
 
-        # write + read feedback
+        # write + read feedback (UPSERT over the auto-generated one)
         r = c.post(
             f"/interviews/{iid}/feedback",
             json={"scores": {"clarity": 4}, "verdict": "Good", "tips": ["be concise"]},

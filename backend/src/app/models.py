@@ -76,6 +76,21 @@ class Feedback(BaseModel):
 # --- SSE stub payload (M6 wires the real LLM stream) ---
 
 
+class ChatMessage(BaseModel):
+    """One message in the conversation context sent to the LLM."""
+
+    role: str  # user | assistant | system
+    content: str
+
+
+class FeedbackSummary(BaseModel):
+    """Structured LLM output for interview feedback (PRD §4.4)."""
+
+    scores: dict = Field(default_factory=dict)
+    verdict: str
+    tips: list = Field(default_factory=list)
+
+
 class ChatTurn(BaseModel):
     """One user turn in a simulated interview; the SSE endpoint streams the assistant reply."""
 

@@ -5,9 +5,10 @@ from typing import Annotated
 from fastapi import Depends, FastAPI, HTTPException, status
 from fastapi.responses import StreamingResponse
 
+from app import llm
 from app.auth import CLERK_ENABLED, get_current_user
 from app.db import close_pool, fetch, fetchrow, init_pool
-from app.models import ChatTurn, ClerkUser, Feedback, FeedbackCreate, Interview, InterviewCreate, Message, MessageCreate
+from app.models import ChatMessage, ChatTurn, ClerkUser, Feedback, FeedbackCreate, Interview, InterviewCreate, Message, MessageCreate
 
 APP_ENV = os.getenv("APP_ENV", "development")
 
@@ -130,7 +131,12 @@ async def complete_interview(
     )
     if row is None:
         await _raise_complete_error(interview_id, user.sub)
-    return dict(row)
+    interview = dict(row)
+
+    # M6: auto-generate + persist feedback from the transcript (decision: in `complete`).
+    await _generate_and_persist_feedback(interview_id)
+
+    return interview
 
 
 # --- messages ---
@@ -213,7 +219,7 @@ async def create_feedback(
     return dict(row)
 
 
-# --- SSE stub (M6 wires the real LLM stream) ---
+# --- SSE: interview chat (M6 wires real LLM streaming) ---
 
 
 @app.post("/interviews/{interview_id}/chat/stream")
@@ -223,24 +229,51 @@ async def chat_stream(
     user: CurrentUser,
 ) -> StreamingResponse:
     await _require_interview_owned(interview_id, user.sub)
-    # Consistent with create_message: chatting only makes sense mid-interview (Gap C).
-    status_row = await fetchrow(
-        "SELECT status FROM interviews WHERE id = $1 AND owner_id = $2",
+    # Consistent with create_message: chatting only makes sense mid-interview.
+    interview = await fetchrow(
+        "SELECT id::text, role, topic, status FROM interviews WHERE id = $1 AND owner_id = $2",
         interview_id,
         user.sub,
     )
-    if status_row is None:
+    if interview is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Interview not found")
-    if status_row["status"] != "in_progress":
+    if interview["status"] != "in_progress":
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Interview is not in progress")
 
-    async def _stub_events():
-        # AI HERE: M6 replaces this stub with the real LLM SSE stream (app/llm.py).
-        # MVP stub emits an immediate assistant placeholder so the frontend can wire up.
-        yield f"event: message\ndata: {body.content}\n\n"
+    # Persist the user turn (same contract as POST /messages).
+    await fetchrow(
+        "INSERT INTO messages (interview_id, role, content) VALUES ($1, 'user', $2) RETURNING id",
+        interview_id,
+        body.content,
+    )
+
+    # Build the LLM context: system prompt + prior transcript (owner's interview, ordered).
+    prior_rows = await fetch(
+        "SELECT role, content FROM messages WHERE interview_id = $1 ORDER BY created_at",
+        interview_id,
+    )
+    history = [
+        ChatMessage(role="system", content=llm.system_prompt(interview["role"], interview["topic"])),
+        *[ChatMessage(role=r["role"], content=r["content"]) for r in prior_rows],
+    ]
+
+    async def _stream_events():
+        # M6: real LLM streaming (llm.py). Streams increment deltas, then emits a done event.
+        collected: list[str] = []
+        async for delta in llm.stream_chat(history):
+            if delta:
+                collected.append(delta)
+                yield f"event: message\ndata: {delta}\n\n"
+        # Persist the completed assistant turn so the transcript is complete.
+        reply = "".join(collected).strip()
+        await fetchrow(
+            "INSERT INTO messages (interview_id, role, content) VALUES ($1, 'assistant', $2) RETURNING id",
+            interview_id,
+            reply,
+        )
         yield "event: done\ndata: {}\n\n"
 
-    return StreamingResponse(_stub_events(), media_type="text/event-stream")
+    return StreamingResponse(_stream_events(), media_type="text/event-stream")
 
 
 # --- helper ---
@@ -250,6 +283,23 @@ async def _require_interview_owned(interview_id: str, owner_id: str) -> None:
     row = await fetchrow("SELECT 1 FROM interviews WHERE id = $1 AND owner_id = $2", interview_id, owner_id)
     if row is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Interview not found")
+
+
+async def _generate_and_persist_feedback(interview_id: str) -> None:
+    """M6: generate feedback from the transcript and write it (idempotent UPSERT)."""
+    history_rows = await fetch(
+        "SELECT role, content FROM messages WHERE interview_id = $1 ORDER BY created_at",
+        interview_id,
+    )
+    history = [ChatMessage(role=r["role"], content=r["content"]) for r in history_rows]
+    summary = await llm.generate_feedback(history)
+    await fetchrow(
+        "INSERT INTO feedback (interview_id, scores, verdict, tips) VALUES ($1, $2, $3, $4) ON CONFLICT (interview_id) DO UPDATE SET scores = EXCLUDED.scores, verdict = EXCLUDED.verdict, tips = EXCLUDED.tips, created_at = now() RETURNING id",
+        interview_id,
+        summary.scores,
+        summary.verdict,
+        summary.tips,
+    )
 
 
 async def _raise_start_error(interview_id: str, owner_id: str) -> None:
