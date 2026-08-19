@@ -53,6 +53,14 @@ class Message(BaseModel):
 # --- feedback ---
 
 
+class FeedbackCreate(BaseModel):
+    """Payload to write a feedback row (M6 LLM handler calls this after generating scores)."""
+
+    scores: dict = Field(default_factory=dict)
+    verdict: str = Field(min_length=1, max_length=2000)
+    tips: list = Field(default_factory=list)
+
+
 class Feedback(BaseModel):
     id: str
     interview_id: str

@@ -21,13 +21,14 @@ def _client():
     return TestClient(app)
 
 
-def test_interview_crud_owner_scoped():
+def test_interview_lifecycle_owner_scoped():
     with _client() as c:
-        # create
+        # create (pending)
         r = c.post("/interviews", json={"role": "Software Engineer", "topic": "system design"})
         assert r.status_code == 201
         interview = r.json()
         assert interview["owner_id"] == "dev-user"  # D4: scoped to the current dev user
+        assert interview["status"] == "pending"
         iid = interview["id"]
 
         # list
@@ -40,7 +41,20 @@ def test_interview_crud_owner_scoped():
         assert r.status_code == 200
         assert r.json()["role"] == "Software Engineer"
 
-        # messages
+        # messages blocked while pending (Gap 4)
+        r = c.post(f"/interviews/{iid}/messages", json={"content": "early"})
+        assert r.status_code == 409
+
+        # chat stream also blocked while pending (Gap C)
+        r = c.post(f"/interviews/{iid}/chat/stream", json={"interview_id": iid, "content": "hi"})
+        assert r.status_code == 409
+
+        # start -> in_progress
+        r = c.post(f"/interviews/{iid}/start")
+        assert r.status_code == 200
+        assert r.json()["status"] == "in_progress"
+
+        # messages allowed once in_progress
         r = c.post(f"/interviews/{iid}/messages", json={"content": "I have 5 years of experience."})
         assert r.status_code == 201
         r = c.get(f"/interviews/{iid}/messages")
@@ -51,6 +65,37 @@ def test_interview_crud_owner_scoped():
         r = c.post(f"/interviews/{iid}/chat/stream", json={"interview_id": iid, "content": "hi"})
         assert r.status_code == 200
         assert "text/event-stream" in r.headers["content-type"]
+
+        # complete -> completed
+        r = c.post(f"/interviews/{iid}/complete")
+        assert r.status_code == 200
+        assert r.json()["status"] == "completed"
+
+        # write + read feedback
+        r = c.post(
+            f"/interviews/{iid}/feedback",
+            json={"scores": {"clarity": 4}, "verdict": "Good", "tips": ["be concise"]},
+        )
+        assert r.status_code == 201
+        r = c.get(f"/interviews/{iid}/feedback")
+        assert r.status_code == 200
+        assert r.json()["verdict"] == "Good"
+
+        # feedback UPSERT: second write updates (not 500) (Gap B)
+        r = c.post(
+            f"/interviews/{iid}/feedback",
+            json={"scores": {"clarity": 5}, "verdict": "Better", "tips": ["shorter"]},
+        )
+        assert r.status_code == 201
+        r = c.get(f"/interviews/{iid}/feedback")
+        assert r.status_code == 200
+        assert r.json()["verdict"] == "Better"
+
+        # messages/chat blocked once completed
+        r = c.post(f"/interviews/{iid}/messages", json={"content": "too late"})
+        assert r.status_code == 409
+        r = c.post(f"/interviews/{iid}/chat/stream", json={"interview_id": iid, "content": "late"})
+        assert r.status_code == 409
 
         # foreign user sees nothing (different owner scopes everything out)
         r = c.get(f"/interviews/{iid}")
