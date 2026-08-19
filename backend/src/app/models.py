@@ -33,6 +33,9 @@ class Interview(BaseModel):
     status: str
     created_at: datetime
     updated_at: datetime
+    # Optional score/verdict for the interview-list view (US5): null if no feedback yet.
+    score: float | None = None
+    verdict: str | None = None
 
 
 # --- messages ---
