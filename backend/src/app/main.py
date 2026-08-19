@@ -38,8 +38,19 @@ async def health() -> dict:
 
 @app.get("/interviews", response_model=list[Interview])
 async def list_interviews(user: CurrentUser) -> list[dict]:
+    # Include optional score/verdict by LEFT JOIN feedback (US5: history shows a score; avoids N+1).
     rows = await fetch(
-        "SELECT id::text, owner_id, role, topic, status, created_at, updated_at FROM interviews WHERE owner_id = $1 ORDER BY created_at DESC",
+        """
+        SELECT i.id::text, i.owner_id, i.role, i.topic, i.status, i.created_at, i.updated_at,
+               f.verdict AS verdict,
+               CASE WHEN jsonb_typeof(f.scores) = 'object' THEN
+                 (SELECT round(avg(v.value::numeric)::numeric, 1) FROM jsonb_each_text(f.scores) AS v)
+               ELSE NULL END AS score
+        FROM interviews i
+        LEFT JOIN feedback f ON f.interview_id = i.id
+        WHERE i.owner_id = $1
+        ORDER BY i.created_at DESC
+        """,
         user.sub,
     )
     return [dict(r) for r in rows]
@@ -96,9 +107,7 @@ async def start_interview(
 ) -> dict:
     # pending -> in_progress (PRD US2: the AI begins asking questions).
     row = await fetchrow(
-        "UPDATE interviews SET status = 'in_progress', updated_at = now() "
-        "WHERE id = $1 AND owner_id = $2 AND status = 'pending' "
-        "RETURNING id::text, owner_id, role, topic, status, created_at, updated_at",
+        "UPDATE interviews SET status = 'in_progress', updated_at = now() WHERE id = $1 AND owner_id = $2 AND status = 'pending' RETURNING id::text, owner_id, role, topic, status, created_at, updated_at",
         interview_id,
         user.sub,
     )
@@ -115,9 +124,7 @@ async def complete_interview(
 ) -> dict:
     # in_progress -> completed (PRD US4: end -> feedback + score).
     row = await fetchrow(
-        "UPDATE interviews SET status = 'completed', updated_at = now() "
-        "WHERE id = $1 AND owner_id = $2 AND status = 'in_progress' "
-        "RETURNING id::text, owner_id, role, topic, status, created_at, updated_at",
+        "UPDATE interviews SET status = 'completed', updated_at = now() WHERE id = $1 AND owner_id = $2 AND status = 'in_progress' RETURNING id::text, owner_id, role, topic, status, created_at, updated_at",
         interview_id,
         user.sub,
     )
@@ -196,10 +203,7 @@ async def create_feedback(
     # M6's LLM handler calls this to write/update scores (may retry, idempotent).
     await _require_interview_owned(interview_id, user.sub)
     row = await fetchrow(
-        "INSERT INTO feedback (interview_id, scores, verdict, tips) VALUES ($1, $2, $3, $4) "
-        "ON CONFLICT (interview_id) DO UPDATE SET scores = EXCLUDED.scores, verdict = EXCLUDED.verdict, tips = EXCLUDED.tips, "
-        "created_at = now() "
-        "RETURNING id::text, interview_id::text, scores, verdict, tips, created_at",
+        "INSERT INTO feedback (interview_id, scores, verdict, tips) VALUES ($1, $2, $3, $4) ON CONFLICT (interview_id) DO UPDATE SET scores = EXCLUDED.scores, verdict = EXCLUDED.verdict, tips = EXCLUDED.tips, created_at = now() RETURNING id::text, interview_id::text, scores, verdict, tips, created_at",
         interview_id,
         body.scores,
         body.verdict,
