@@ -1,3 +1,4 @@
+import json
 import os
 
 import asyncpg
@@ -9,11 +10,22 @@ if not DATABASE_URL:
 _pool: asyncpg.Pool | None = None
 
 
+async def _init_pool_on_connect(conn: asyncpg.Connection) -> None:
+    # Make JSONB/JSON round-trip as native Python objects (dict/list), not JSON strings.
+    await conn.set_type_codec("jsonb", encoder=json.dumps, decoder=json.loads, schema="pg_catalog")
+    await conn.set_type_codec("json", encoder=json.dumps, decoder=json.loads, schema="pg_catalog")
+
+
 async def init_pool() -> None:
     global _pool
     if _pool is None:
         # min_size=0 keeps the pool lazy so /health works even when Postgres is down (CD smoke).
-        _pool = await asyncpg.create_pool(DATABASE_URL, min_size=0, max_size=10)
+        _pool = await asyncpg.create_pool(
+            DATABASE_URL,
+            min_size=0,
+            max_size=10,
+            init=_init_pool_on_connect,
+        )
 
 
 async def close_pool() -> None:

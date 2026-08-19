@@ -1,4 +1,3 @@
-import json
 import os
 from contextlib import asynccontextmanager
 from typing import Annotated
@@ -203,13 +202,13 @@ async def create_feedback(
     # Gap B: UPSERT — feedback.interview_id is UNIQUE; a plain INSERT would 500 on a second write.
     # M6's LLM handler calls this to write/update scores (may retry, idempotent).
     await _require_interview_owned(interview_id, user.sub)
-    # JSONB columns need a JSON-encoded string, not a raw dict/list (asyncpg).
+    # JSONB round-trips natively via the pool codec (db.py init), so pass dict/list directly.
     row = await fetchrow(
         "INSERT INTO feedback (interview_id, scores, verdict, tips) VALUES ($1, $2, $3, $4) ON CONFLICT (interview_id) DO UPDATE SET scores = EXCLUDED.scores, verdict = EXCLUDED.verdict, tips = EXCLUDED.tips, created_at = now() RETURNING id::text, interview_id::text, scores, verdict, tips, created_at",
         interview_id,
-        json.dumps(body.scores),
+        body.scores,
         body.verdict,
-        json.dumps(body.tips),
+        body.tips,
     )
     return dict(row)
 
