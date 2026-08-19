@@ -116,21 +116,22 @@ sequenceDiagram
         S-->>F: 201 message
 
         F->>S: POST /interviews/{id}/chat/stream (SSE)
-        S->>D: fetch interview (role/topic + prior msgs)
-        S->>L: LLM generate next question (M6)
-        L-->>S: stream tokens
-        S-->>F: SSE events (assistant turn)
-        S->>D: INSERT assistant message (M6)
-    end
+    S->>D: INSERT user message
+    S->>D: fetch interview (role/topic + prior msgs)
+    S->>L: LLM generate next question (M6)
+    L-->>S: stream tokens (deltas)
+    S-->>F: SSE message deltas
+    S->>D: INSERT assistant message
+    S-->>F: SSE done
+end
 
     F->>S: POST /interviews/{id}/complete
     S->>D: status in_progress → completed
+    S->>L: LLM generate feedback (M6)
+    S->>D: UPSERT feedback (scores/verdict/tips)
     S-->>F: 200 interview (completed)
 ```
-> **M6 note (Gap 5/3):** the real loop will (a) send role/topic + conversation history to the LLM,
-> (b) stream the assistant reply, and (c) persist the assistant `messages` row. The current stub echoes
-> the user input and does not persist an assistant message.
-
+> **M6 note (2026-08-19):** the loop now streams **delta tokens** (`event: message` per delta, then `event: done`), persists **both** the user and assistant turns, and `complete` **auto-generates + writes feedback**. In dev without an LLM (`LLM_BASE_URL` empty), `app/llm.py` runs in deterministic **STUB_MODE** so the flow works model-free.
 ---
 
 ## 5. Feedback & scoring flow (M6)
@@ -242,9 +243,9 @@ data: {}
 | `message` | `data: <string>` | A chunk/turn of the assistant reply (delta token or full turn). |
 | `done` | `data: {}` | Stream finished; no further events. |
 
-> **M6 note:** the real stream may emit incremental `message` deltas followed by a final `done`
-> (and the assistant `messages` row gets persisted server-side). The event *names* above are the
-> contract to build against — M6 fills in the real token deltas.
+> **M6 note (2026-08-19):** the stream now emits **incremental `message` deltas** (word/token chunks),
+> then a final `done`, and the assistant `messages` row is persisted server-side. Contract stable; a real
+> model at M6+ supplies the actual deltas (dev STUB_MODE emits the echoed user reply tokenized).
 
 ---
 
