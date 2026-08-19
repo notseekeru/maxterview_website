@@ -57,7 +57,7 @@ sequenceDiagram
 stateDiagram-v2
     [*] --> pending: POST /interviews (create)
     pending --> in_progress: POST /start
-    in_progress --> in_progress: POST /messages<br/>POST /chat/stream (chat)
+    in_progress --> in_progress: POST /chat/stream (chat)
     in_progress --> completed: POST /complete
     completed --> [*]
     pending --> [*]: DELETE /interviews
@@ -68,13 +68,13 @@ stateDiagram-v2
 | Status | Entered by | Allowed next |
 |---|---|---|
 | `pending` | `POST /interviews` | `start` (or `delete`) |
-| `in_progress` | `POST /interviews/{id}/start` | messages, chat/stream, `complete`, `delete` |
+| `in_progress` | `POST /interviews/{id}/start` | chat/stream, `complete`, `delete` |
 | `completed` | `POST /interviews/{id}/complete` | (read-only, `delete`) |
 
 **Guards (all owner-scoped, D4):**
 - `start` requires `pending` → else 409; foreign → 404.
 - `complete` requires `in_progress` → else 409; foreign → 404.
-- `POST /messages` and `POST /chat/stream` require `in_progress` → else 409; foreign → 404.
+- `POST /chat/stream` requires `in_progress` → else 409; foreign → 404.
 - **Messages become read-only after `completed`** (no new turns).
 
 ---
@@ -169,7 +169,7 @@ flowchart TD
     end
     subgraph messages
         IM[POST /messages] --> D4[(messages INSERT role=user)]
-        ISES[POST /chat/stream] --> D5[(messages INSERT role=assistant — M6)]
+        ISES[POST /chat/stream] --> D5[(messages INSERT role=assistant)]
     end
     subgraph feedback
         IF[POST /feedback] --> D6[(feedback UPSERT on interview_id)]
