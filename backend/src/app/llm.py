@@ -10,6 +10,21 @@ LLM_BASE_URL = os.getenv("LLM_BASE_URL", "").rstrip("/")
 LLM_MODEL = os.getenv("LLM_MODEL", "")
 LLM_API_KEY = os.getenv("LLM_API_KEY", "")
 
+# Token ceilings to bound runaway local thinking models (Qwen emits long reasoning).
+# Env-overridable: LLM_MAX_TOKENS caps streaming replies; LLM_MAX_FEEDBACK_TOKENS caps feedback.
+LLM_MAX_TOKENS = int(os.getenv("LLM_MAX_TOKENS", "512"))
+LLM_MAX_FEEDBACK_TOKENS = int(os.getenv("LLM_MAX_FEEDBACK_TOKENS", "1024"))
+LLM_DISABLE_THINKING = os.getenv("LLM_DISABLE_THINKING", "true").lower() == "true"
+
+
+def _chat_extras() -> dict:
+    # Qwen-family models emit a long reasoning pass before content, which can exceed
+    # max_tokens and yield no answer. Disable thinking by default (safe: non-thinking
+    # models ignore chat_template_kwargs).
+    if LLM_DISABLE_THINKING:
+        return {"chat_template_kwargs": {"enable_thinking": False}}
+    return {}
+
 # If no base URL is configured, the LLM runs in STUB mode (deterministic, no network).
 # This lets MVP dev and tests run without a model (D7 / MONETIZATION).
 STUB_MODE = not LLM_BASE_URL
@@ -56,6 +71,8 @@ async def stream_chat(messages: list[ChatMessage]) -> AsyncIterator[str]:
         "model": LLM_MODEL,
         "messages": [m.model_dump() for m in messages],
         "stream": True,
+        "max_tokens": LLM_MAX_TOKENS,
+        **_chat_extras(),
     }
     headers = {"Authorization": f"Bearer {LLM_API_KEY}"} if LLM_API_KEY else {}
     async with httpx.AsyncClient(base_url=LLM_BASE_URL, timeout=httpx.Timeout(300.0, read=120.0)) as client:
@@ -109,6 +126,8 @@ async def generate_feedback(history: list[ChatMessage]) -> FeedbackSummary:
         ],
         "stream": False,
         "response_format": {"type": "json_object"},
+        "max_tokens": LLM_MAX_FEEDBACK_TOKENS,
+        **_chat_extras(),
     }
     headers = {"Authorization": f"Bearer {LLM_API_KEY}"} if LLM_API_KEY else {}
     async with httpx.AsyncClient(base_url=LLM_BASE_URL, timeout=httpx.Timeout(300.0)) as client:

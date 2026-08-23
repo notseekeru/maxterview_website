@@ -20,6 +20,20 @@ async def test_stub_stream_echoes_user():
     assert "Tell me about yourself." in out
 
 
+
+def test_max_tokens_config_defaults():
+    # Bounds runaway local thinking models; defaults fixed unless env-overridden.
+    assert llm.LLM_MAX_TOKENS == 512
+    assert llm.LLM_MAX_FEEDBACK_TOKENS == 1024
+
+
+def test_chat_extras_disable_thinking_by_default():
+    # Qwen-family models emit a long reasoning pass that can swallow max_tokens;
+    # disable thinking by default. Non-thinking models ignore chat_template_kwargs.
+    assert llm.LLM_DISABLE_THINKING is True
+    assert llm._chat_extras() == {"chat_template_kwargs": {"enable_thinking": False}}
+
+
 async def test_stub_feedback_is_deterministic():
     f: FeedbackSummary = await llm.generate_feedback([ChatMessage(role="user", content="hi")])
     assert set(f.scores.keys()) == {"clarity", "relevance", "structure", "confidence"}
