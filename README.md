@@ -1,0 +1,131 @@
+# maxterview
+
+**AI mock-interview coach** — practice interviews with an LLM that asks questions, gives
+per-question and end-of-interview feedback, and scores your performance. **MVP is text-based.**
+
+Stack: **FastAPI** (backend) + **React + TypeScript + Vite** frontend (SPA) + **PostgreSQL 17**,
+run with Docker Compose. Frontend: Tailwind 4 + shadcn/ui + react-router.
+
+Docs:
+- `PRD.md` — product requirements (user stories, acceptance criteria)
+- `PLAN.md` — technical decisions (D1–D10) and milestones (M1–M10)
+- `APPFLOW.md` — application flow, state machine, SSE wire contract
+- `MONETIZATION.md` — phase-2 billing design (not built in MVP)
+
+---
+
+## Architecture
+
+```
+Browser (React SPA) ── /api ──► nginx/Vite proxy ──► FastAPI ──► PostgreSQL 17
+                                      (strips /api)      │
+                                                         └──► LLM (OpenAI-compatible)
+```
+
+- **Backend** (`backend/`): monolith FastAPI in `app/main.py`, raw SQL via asyncpg (`app/db.py`),
+  manual Clerk JWT/JWKS verification (`app/auth.py`), OpenAI-compatible LLM client (`app/llm.py`).
+  Migrations via **yoyo** (`backend/migrations/*.sql`).
+- **Frontend** (`frontend/`): React 19 + Vite 8 + TypeScript 7, Tailwind 4 + shadcn/ui + react-router.
+  Serves the interview UI and consumes the SSE `chat/stream` endpoint with native fetch streaming.
+
+### Key flow (the interview loop)
+
+```
+create → start → chat/stream (SSE) → … → complete → feedback
+```
+
+- `POST /interviews` (create, role required) → `pending`
+- `POST /interviews/{id}/start` → `in_progress`
+- `POST /interviews/{id}/chat/stream` — **SSE**: user answer in, assistant reply streamed out
+  (`event: message` / `done` / `error`). Persists both turns.
+- `POST /interviews/{id}/complete` → `completed` + auto-generated feedback
+- `GET /interviews/{id}/feedback` → scores / verdict / tips
+- Every query is scoped to the owner (`ClerkUser.sub` / dev `DEV_USER`).
+
+---
+
+## Quickstart (dev)
+
+Requires Docker + Docker Compose v2. Copy the example env and (optionally) fill in real values:
+
+```bash
+cp .env.example .env        # defaults: APP_ENV=development, CLERK_ENABLED=false (dev fallback)
+cp frontend/.env.example frontend/.env
+make up                     # builds + starts postgres, backend, frontend
+```
+
+- Backend API: http://localhost:8000 (`/health`)
+- Frontend UI: http://localhost:5173
+
+Then open the frontend, create an interview (role + optional topic), answer the AI's questions,
+and click **Complete** to see feedback.
+
+### LLM / auth config
+
+By default the backend runs in **STUB_MODE** (no `LLM_BASE_URL`) for model-free development/tests,
+and **no-auth dev mode** (`CLERK_ENABLED=false` → `DEV_USER`). See `.env.example`.
+
+| Var | Purpose | Dev default |
+|---|---|---|
+| `LLM_BASE_URL` / `LLM_MODEL` / `LLM_API_KEY` | OpenAI-compatible LLM endpoint | empty (STUB_MODE) |
+| `LLM_MAX_TOKENS` / `LLM_MAX_FEEDBACK_TOKENS` | bounds for runaway local thinking models | 512 / 1024 |
+| `LLM_DISABLE_THINKING` | disable Qwen reasoning pass (env) | true |
+| `CLERK_ENABLED` / `CLERK_DOMAIN` / `CLERK_JWKS_URL` | real auth (pre-ship) | false |
+
+Frontend `VITE_CLERK_PUBLISHABLE_KEY`: set to enable real Clerk auth UI; leave blank for
+dev/no-auth mode.
+
+> **Local llama.cpp caveat:** some llama.cpp builds return HTTP 500 to **non-streaming**
+> `/chat/completions` when called via httpx, so auto-feedback can come back empty against a local
+> llama.cpp (the streaming chat path is unaffected). Use a chat/OpenAI-compatible provider
+> (e.g. DeepSeek) for structured feedback output. See `.env.example`.
+
+---
+
+## Common commands (`make`)
+
+```
+make up          # start dev stack (postgres + backend + frontend)
+make logs        # tail all service logs
+make shell       # exec bash in the backend container
+make psql        # interactive psql helper (tools profile)
+make migrate     # apply yoyo migrations
+make rollback    # roll back last yoyo migration
+make new-migration name=<name>
+make lint        # ruff (backend) + biome (frontend)
+make test        # backend pytest suite (self-migrates vs Postgres)
+make test-llm    # end-to-end LLM smoke test (single turn) — needs a live model + running stack
+scripts/llm-smoke.sh         # single-turn LLM smoke
+scripts/llm-smoke-full.sh    # full multi-turn lifecycle smoke
+make build / buildcache / down / clean  (dev)
+make prod-build / prod-up / prod-logs / prod-down  (prod-style)
+```
+
+---
+
+## Testing
+
+- **Backend** (pytest): `make test`. Integration tests hit a real Postgres, self-migrate via yoyo,
+  and force LLM STUB_MODE (model-free). `19` tests cover auth (JWT/JWKS negative cases), interview
+  lifecycle, owner-scoping, LLM streaming/extraction.
+- **Frontend**: `npm run typecheck`, `npm run build`, `npx biome check .` (in the frontend container).
+- **LLM smoke**: `scripts/llm-smoke-full.sh` walks the whole lifecycle against a live model.
+
+CI (`.github/workflows/ci-pipeline.yml`) runs backend (ruff + format + pytest vs Postgres service) and
+frontend (biome + typecheck + build + audit). CD is disabled for MVP.
+
+---
+
+## Security & credentials
+
+- `.env` files are git-ignored; only `.env.example` is committed.
+- Never commit secrets. Backend refuses to boot in prod with `CLERK_ENABLED=false`.
+- Clerk publishable keys are public; secret keys are admin-only (never in client code).
+
+---
+
+## Status
+
+- **M1–M8 done** (infra, backend, auth, API, LLM layer, tests, frontend app).
+- **M9** (this README + verify) — in progress.
+- **M10** (billing/monetization) — phase 2, designed but not built (`MONETIZATION.md`).
