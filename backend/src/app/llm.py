@@ -69,7 +69,9 @@ async def stream_chat(messages: list[ChatMessage]) -> AsyncIterator[str]:
                 if data == "[DONE]":
                     return
                 # heuristically strip the delta content; tolerate non-JSON fragments
-                yield _extract_delta(data)
+                delta = _extract_delta(data)
+                if delta:
+                    yield delta
 
 
 def _extract_delta(chunk: str) -> str:
