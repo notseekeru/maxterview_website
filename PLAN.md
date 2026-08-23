@@ -34,8 +34,8 @@ Stack: FastAPI + React/TS + Postgres. Dev: Docker Compose (3-file split).
 | AI (core) | `app/llm.py` (D9): OpenAI-compatible client driven by env (`LLM_BASE_URL`/`LLM_API_KEY`/`LLM_MODEL`) — local model on dev, DeepSeek on prod; async **SSE** streaming; Pydantic structured output; test stub |
 | Auth | Clerk — manual JWT/JWKS verification (PyJWT + cryptography); no official Python SDK exists |
 | Config | plain env reads via `os.getenv` in `app/main.py`/`app/db.py`; fail fast on missing required; `.env` (git-ignored) / `.env.example` (committed) |
-| Observability | structlog (JSON in prod). Sentry noted for later |
-| Frontend | React + TS + Vite; shadcn/ui + Tailwind **planned for M8** (not yet installed — current scaffold is the minimal M8 stub, see row 8). nginx reverse proxy, same-origin `/api` |
+| Observability | structlog (JSON in prod) + Grafana Cloud (Loki/Prometheus/Grafana). No Sentry (decision, M13) |
+| Frontend | React + TS + Vite + Tailwind 4 + shadcn/ui + react-router (installed, M8 done). nginx reverse proxy, same-origin `/api` |
 | Packaging | uv + `pyproject.toml` + `uv.lock`; dev deps in `[dependency-groups]` |
 | Quality | ruff, pytest (unit + integration vs Postgres), Biome (TS). Trivy noted for later (deps scan) |
 | Runtime | Docker Compose v2 (dev), `python:3.13-slim` |
@@ -92,7 +92,7 @@ graph TD
 - [ ] **CORS:** no `CORSMiddleware` in the backend — currently relies on same-origin nginx/Vite proxy. Add an explicit origin allow-list only if the API is ever opened cross-origin
 - [ ] **LLM prompt-injection:** no explicit sanitization; relies on the system prompt. Streaming rate-limited at the ingress (gitops `limit-rps`); usage/token caps deferred to M10
 - [x] Health/readiness endpoints don't leak internals (`/health` = `{status:ok}` only)
-- [ ] (Later) Trivy deps scan + Sentry — noted, not MVP
+- [ ] (Later) Trivy deps scan — noted, not MVP; observability (structlog/Grafana) tracked in M13/`OBSERVABILITY.md`
 
 > **M11 (security, docs)** — full threat model and accepted-risks summary in `SECURITY.md`.
 ## 8. Milestones
@@ -109,9 +109,9 @@ graph TD
 | 8 | Frontend | React+TS+Vite + Tailwind 4 + shadcn/ui + @/* alias. **App built (2026-08-23):** create-interview form, history list, SSE chat screen (create→start→chat/stream→complete→feedback), native fetch SSE, **react-router** URLs (`/`, `/interviews/:id`), Clerk dev/no-auth fallback. Verified green (typecheck/build/biome) and in-browser. Caveat: local llama.cpp auto-feedback may be empty (documented in `.env.example`); DeepSeek validated | [x] |
 | 9 | Verify + README | **Done (2026-08-23):** `compose config` (dev+prod) valid; backend ruff check/format + pytest 19 passed; frontend biome/typecheck/build green; `README.md` added | [x] |
 | 10 | Billing/monetization (phase 2, NOT MVP) | Implement `MONETIZATION.md`: Clerk ↔ Stripe (or clerk-billing) integration, subscription/webhook, plans DB, interviews-per-month enforcement via `require_tier`. Built on the `tier` claim (D10/D4) | [ ] |
-| 11 | Security hardening | **Docs-first (2026-08-23):** verified security checklist (§7), threat model + accepted risks + rate-limiting/abuse-prevention plan + penetration-test plan in `SECURITY.md`. Later (code): app-level rate limiter (slowapi/limits), CORS allow-list, LLM prompt-injection guardrails, dependency audit (uv/npm + Trivy), Sentry | [~] |
+| 11 | Security hardening | **Docs-first (2026-08-23):** verified security checklist (§7), threat model + accepted risks + rate-limiting/abuse-prevention plan + penetration-test plan in `SECURITY.md`. Later (code): app-level rate limiter (slowapi/limits), CORS allow-list, LLM prompt-injection guardrails, dependency audit (uv/npm + Trivy) | [~] |
 | 12 | Frontend polish | Landing page, dashboard/home with interview stats + score charts, empty states, loading skeletons, mobile responsiveness (react-router SPA routes: `/`, `/app`, `/interviews/:id`) | [~] |
-| 13 | Observability | **Docs-first (2026-08-23):** `OBSERVABILITY.md` — structlog JSON logging (foundation, prod-JSON/dev-human), Sentry error tracking/APM (do now, `SENTRY_DSN` via secret), Grafana Cloud (Loki+Prometheus+Grafana) later. No code yet | [~] |
+| 13 | Observability | **Docs-first (2026-08-23):** `OBSERVABILITY.md` — structlog JSON logging (foundation, prod-JSON/dev-human) + **Grafana Cloud** (Loki ingests JSON logs, Prometheus `/metrics`, Grafana dashboards/alerts). **Decision: no Sentry** (overlaps with Loki error logs for MVP). No code yet | [~] |
 
 > **Next action:** M1–M9 done (MVP built) + M11 security docs + M13 observability docs (docs-first phases complete). M10 (billing, phase 2), M12 (frontend polish), and M11/M13 **code** passes pending. **Deploy path: k3s + GitOps** (Argo CD App-of-Apps in `notseekeru/gitops`; CD pipeline here scaffolded but disabled). To ship: (1) re-enable CD (GHCR build/push + kustomize SHA bump), (2) add `apps/maxterview` + `infra` manifests + `maxterview-secrets` (Terraform/Infisical) in the gitops repo, (3) pre-ship Clerk domain/DNS + `CLERK_ENABLED=true`. See README **Deployment**.<br>
 > **Status:** M1–M9 done; M11 (security) and M13 (observability) docs-first phases done (2026-08-23). M10 (billing, phase 2), M12 (frontend polish), and the M11/M13 code passes pending. Deploy target is k3s + GitOps (see README **Deployment**); pre-ship Clerk/prod config pending. Detailed payment design: **`MONETIZATION.md`**; product: **`PRD.md`**.

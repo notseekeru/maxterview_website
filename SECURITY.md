@@ -21,7 +21,7 @@ Threat model, control status, and accepted risks for the MVP. Companion to `PLAN
 | CORS | ⚠️ | **no** `CORSMiddleware` — safe only because prod frontend/API are same-origin behind nginx. Must add an allow-list if the API is ever cross-origin |
 | LLM prompt-injection | ⚠️ | relies on the system prompt; no explicit sanitization. Streaming rate-limited at the ingress (gitops `limit-rps` 30/s). Token/usage caps deferred to M10 |
 | Dependency vulnerability scan | ⚠️ | `npm audit` runs (informational) in CI; **Trivy not yet wired** for backend/image |
-| Observability | ⚠️ | structlog dependency present but not fully wired as JSON-in-prod; Sentry not set up |
+| Observability | ⚠️ | structlog dependency present but not fully wired as JSON-in-prod; Grafana Cloud (Loki/Prometheus/Grafana) not set up. See `OBSERVABILITY.md` |
 
 ---
 
@@ -74,7 +74,7 @@ Browser (React SPA) → nginx/Vite `/api` proxy → FastAPI → Postgres, and Fa
    the LLM gains tools or fed sensitive user data.
 2. **CORS relies on same-origin proxy** — safe behind nginx/Vite, but future cross-origin clients would need
    an explicit allow-list (currently no `CORSMiddleware`).
-3. **Trivy + Sentry not wired** — dependency/binary scanning and runtime error tracking deferred.
+3. **Trivy + observability not wired** — dependency/binary scanning and error/uptime observability (Grafana) deferred.
 4. **Local llama.cpp caveat** — no auth or isolation hardening on a local model server; dev-only, not a
    deployment target.
 
@@ -87,7 +87,7 @@ Browser (React SPA) → nginx/Vite `/api` proxy → FastAPI → Postgres, and Fa
 - [ ] Resolve the Clerk domain/DNS (`clerk.seekeru.tech` Pending → approve Cloudflare records)
 - [ ] `DATABASE_URL` (and `LLM_API_KEY`/Clerk keys) only in k8s secrets via Terraform/Infisical
 - [ ] Keep Postgres on a private network; rest of the gitops ingress annotations (CSP/CORS/rate-limit) as-is
-- [ ] Enable Trivy in the CD pipeline; wire Sentry
+- [ ] Enable Trivy in the CD pipeline; wire Grafana observability (`OBSERVABILITY.md`)
 - [ ] Dependency audits (`uv pip audit` / `npm audit`) non-informational after initial clean
 - [ ] **Run a penetration test** against the deployed app before broad public traffic (see below)
 
