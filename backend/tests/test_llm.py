@@ -20,7 +20,6 @@ async def test_stub_stream_echoes_user():
     assert "Tell me about yourself." in out
 
 
-
 def test_max_tokens_config_defaults():
     # Bounds runaway local thinking models; defaults fixed unless env-overridden.
     assert llm.LLM_MAX_TOKENS == 512

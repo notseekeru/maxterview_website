@@ -25,6 +25,7 @@ def _chat_extras() -> dict:
         return {"chat_template_kwargs": {"enable_thinking": False}}
     return {}
 
+
 # If no base URL is configured, the LLM runs in STUB mode (deterministic, no network).
 # This lets MVP dev and tests run without a model (D7 / MONETIZATION).
 STUB_MODE = not LLM_BASE_URL
