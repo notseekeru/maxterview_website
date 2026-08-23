@@ -17,6 +17,8 @@ lint:
 	docker exec -t $(FRONTEND_DEV) sh -c "npx biome check . --write --unsafe"
 	docker exec -t $(BACKEND_DEV) sh -c "uv run ruff check src tests"
 
+test-llm: ## End-to-end LLM smoke test (needs live model + running stack). See scripts/llm-smoke.sh.
+	@scripts/llm-smoke.sh
 # DEV
 check-ports:
 	@scripts/port-claimer.sh --self $(DEV_PROJECT) $(PORTS)
