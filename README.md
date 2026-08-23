@@ -161,4 +161,4 @@ backend **has a `/health` route**, so its pods can use `httpGet` probes instead 
 - **M10** (billing/monetization) — phase 2, designed but not built (`MONETIZATION.md`).
 - **M11** (security) — docs-first phase done (`SECURITY.md`); code hardening (rate limiter, CORS) pending.
 - **M12** (frontend polish) — landing page, dashboards, charts — not started.
-- **M13** (observability) — docs-first done (`OBSERVABILITY.md`); structlog + Grafana Cloud (Loki/Prometheus/Grafana) wiring pending.
+- **M13** (observability) — docs-first done (`OBSERVABILITY.md`); structlog + Grafana Cloud (Loki for logs, **pure OTLP** metrics/traces → Prometheus) wiring pending.

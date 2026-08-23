@@ -21,7 +21,7 @@ Threat model, control status, and accepted risks for the MVP. Companion to `PLAN
 | CORS | ⚠️ | **no** `CORSMiddleware` — safe only because prod frontend/API are same-origin behind nginx. Must add an allow-list if the API is ever cross-origin |
 | LLM prompt-injection | ⚠️ | relies on the system prompt; no explicit sanitization. Streaming rate-limited at the ingress (gitops `limit-rps` 30/s). Token/usage caps deferred to M10 |
 | Dependency vulnerability scan | ⚠️ | `npm audit` runs (informational) in CI; **Trivy not yet wired** for backend/image |
-| Observability | ⚠️ | structlog dependency present but not fully wired as JSON-in-prod; Grafana Cloud (Loki/Prometheus/Grafana) not set up. See `OBSERVABILITY.md` |
+| Observability | ⚠️ | structlog dependency present but not fully wired as JSON-in-prod; Grafana Cloud (Loki logs, pure OTLP metrics → Prometheus) not set up. See `OBSERVABILITY.md` |
 
 ---
 
