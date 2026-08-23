@@ -35,12 +35,12 @@ Stack: FastAPI + React/TS + Postgres. Dev: Docker Compose (3-file split).
 | Auth | Clerk — manual JWT/JWKS verification (PyJWT + cryptography); no official Python SDK exists |
 | Config | plain env reads via `os.getenv` in `app/main.py`/`app/db.py`; fail fast on missing required; `.env` (git-ignored) / `.env.example` (committed) |
 | Observability | structlog (JSON in prod). Sentry noted for later |
-| Frontend | React + TS + Vite + shadcn/ui; nginx reverse proxy, same-origin `/api` |
+| Frontend | React + TS + Vite; shadcn/ui + Tailwind **planned for M8** (not yet installed — current scaffold is the minimal M8 stub, see row 8). nginx reverse proxy, same-origin `/api` |
 | Packaging | uv + `pyproject.toml` + `uv.lock`; dev deps in `[dependency-groups]` |
 | Quality | ruff, pytest (unit + integration vs Postgres), Biome (TS). Trivy noted for later (deps scan) |
 | Runtime | Docker Compose v2 (dev), `python:3.13-slim` |
 
-> Frontend toolchain pins: React 19.2 · Vite 8.1 · TypeScript 7.0 · Tailwind 4.3 · Biome 2.4 · node:lts-alpine · nginx-unprivileged 1.31-alpine. Scaffold with shadcn/ui's official Vite setup (`tailwindcss` + `@tailwindcss/vite`, `@/*` alias).
+> Frontend toolchain pins (target for M8): React 19.2 · Vite 8.1 · TypeScript 7.0 · Tailwind 4.3 · Biome 2.4 · node:lts-alpine · nginx-unprivileged 1.31-alpine. M8 will scaffold with shadcn/ui's official Vite setup (`tailwindcss` + `@tailwindcss/vite`, `@/*` alias). None of these Tailwind/shadcn deps are installed yet (see milestone 8).
 
 ## 3. Topology
 
@@ -110,4 +110,4 @@ graph TD
 | 10 | Billing/monetization (phase 2, NOT MVP) | Implement `MONETIZATION.md`: Clerk ↔ Stripe (or clerk-billing) integration, subscription/webhook, plans DB, interviews-per-month enforcement via `require_tier`. Built on the `tier` claim (D10/D4) | [ ] |
 
 > **Next action:** milestone 7 done (2026-08-19) — test suite self-migrates + runs against real DB; backend & frontend CI steps verified green locally. Next: milestone 8 — frontend (full shadcn/ui app + API wiring; scaffold already present, currently `[~]`). Start here.<br>
-> **Status:** M1–M5 done (M4 real auth, M5 API complete, 2026-08-16). M10 (billing) is phase 2, designed-for via `tier` (D10) but not built. Detailed payment design: **`MONETIZATION.md`**; product: **`PRD.md`**. Foundations-first sequence locked.
+> **Status:** M1–M7 done — M6 (LLM layer, `app/llm.py`, real streaming, STUB_MODE) and M7 (self-migrating pytest integration suite) complete 2026-08-19; M8 (full frontend app, currently `[~]` mock-sign-in scaffold) is next. M10 (billing) is phase 2, designed-for via `tier` (D10) but not built. Detailed payment design: **`MONETIZATION.md`**; product: **`PRD.md`**. Foundations-first sequence locked.
