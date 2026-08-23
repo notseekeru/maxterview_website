@@ -1,7 +1,26 @@
 import { Show, SignInButton, SignUpButton, UserButton } from "@clerk/react";
 import { Button } from "@/components/ui/button";
+import { clerkEnabled } from "@/lib/config";
+
+function DevBanner() {
+    return <div className="mb-4 rounded border border-dashed p-3 text-sm text-muted-foreground">Dev mode (no Clerk key) — requests run against the backend&#39;s DEV_USER. Set VITE_CLERK_PUBLISHABLE_KEY to enable real Clerk auth.</div>;
+}
 
 function App() {
+    if (!clerkEnabled) {
+        return (
+            <div className="flex min-h-screen flex-col items-center justify-center gap-6 bg-background p-6 text-foreground">
+                <header className="w-full max-w-lg">
+                    <h1 className="text-2xl font-semibold">maxterview</h1>
+                </header>
+                <main className="w-full max-w-lg rounded-lg border bg-card p-8 text-card-foreground shadow-sm">
+                    <DevBanner />
+                    <Button disabled>Continue</Button>
+                </main>
+            </div>
+        );
+    }
+
     return (
         <div className="flex min-h-screen flex-col items-center justify-center gap-6 bg-background p-6 text-foreground">
             <header className="flex w-full max-w-lg items-center justify-between">
