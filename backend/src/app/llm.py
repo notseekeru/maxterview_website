@@ -80,7 +80,8 @@ def _extract_delta(chunk: str) -> str:
         obj = json.loads(chunk)
         choices = obj.get("choices", [])
         if choices:
-            return choices[0].get("delta", {}).get("content", "")
+            # content may be null on role/tool/thinking chunks; never yield None (TypeError later)
+            return choices[0].get("delta", {}).get("content") or ""
     except (ValueError, KeyError, TypeError):
         return ""
     return ""
