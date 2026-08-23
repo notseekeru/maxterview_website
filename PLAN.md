@@ -80,7 +80,7 @@ graph TD
 | `make lint` / `make format` | ruff in container |
 | `make test` | pytest unit + integration (vs Postgres service) |
 
-- CI/CD: `.github/workflows/` — CI lints + tests. CD pipeline commented out for now; re-enable when needed. Trivy noted for later.
+- CI/CD: `.github/workflows/` — CI lints + tests. **Deploy target: k3s + GitOps** (Argo CD App-of-Apps in the separate `notseekeru/gitops` repo, Terraform-installed). CD pipeline scaffolded but disabled — re-enable (GHCR build/push + `kustomize edit set image` bump) once `apps/maxterview` manifests exist. See README **Deployment**. Trivy noted for later.
 
 ## 7. Security checklist
 
@@ -109,5 +109,5 @@ graph TD
 | 9 | Verify + README | **Done (2026-08-23):** `compose config` (dev+prod) valid; backend ruff check/format + pytest 19 passed; frontend biome/typecheck/build green; `README.md` added | [x] |
 | 10 | Billing/monetization (phase 2, NOT MVP) | Implement `MONETIZATION.md`: Clerk ↔ Stripe (or clerk-billing) integration, subscription/webhook, plans DB, interviews-per-month enforcement via `require_tier`. Built on the `tier` claim (D10/D4) | [ ] |
 
-> **Next action:** M1–M9 done — backend (with LLM smoke scripts) + frontend app (Tailwind/shadcn/react-router) + verify/README all complete 2026-08-23. MVP is functionally built. Remaining: pre-ship configuration (Clerk domain/DNS + `CLERK_ENABLED=true`, prod compose) and M10 billing (phase 2). Start pre-ship or M10 next.<br>
-> **Status:** M1–M9 done (back-end + frontend + verify/README, 2026-08-23). MVP functionally complete. M10 (billing) is phase 2, designed-for via `tier` (D10) but not built; pre-ship Clerk/prod config still pending. Detailed payment design: **`MONETIZATION.md`**; product: **`PRD.md`**.
+> **Next action:** M1–M9 done — MVP functionally built. **Deploy path: k3s + GitOps** (Argo CD App-of-Apps in `notseekeru/gitops`; CD pipeline here scaffolded but disabled). To ship: (1) re-enable CD (GHCR build/push + kustomize SHA bump), (2) add `apps/maxterview` + `infra` manifests + `maxterview-secrets` (Terraform/Infisical) in the gitops repo, (3) pre-ship Clerk domain/DNS + `CLERK_ENABLED=true`. M10 billing is phase 2. See README **Deployment**.<br>
+> **Status:** M1–M9 done (back-end + frontend + verify/README, 2026-08-23). MVP functionally complete. Deploy target is k3s + GitOps (see README **Deployment**); pre-ship Clerk/prod config pending. M10 (billing) is phase 2, designed-for via `tier` (D10) but not built. Detailed payment design: **`MONETIZATION.md`**; product: **`PRD.md`**.

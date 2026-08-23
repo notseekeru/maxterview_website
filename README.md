@@ -112,7 +112,36 @@ make prod-build / prod-up / prod-logs / prod-down  (prod-style)
 - **LLM smoke**: `scripts/llm-smoke-full.sh` walks the whole lifecycle against a live model.
 
 CI (`.github/workflows/ci-pipeline.yml`) runs backend (ruff + format + pytest vs Postgres service) and
-frontend (biome + typecheck + build + audit). CD is disabled for MVP.
+frontend (biome + typecheck + build + audit). A CD pipeline (`.github/workflows/cd-pipeline.yml`) is scaffolded
+but **disabled** — it would build/push GHCR images and bump the GitOps kustomize SHAs (see Deployment).
+
+---
+
+## Deployment (k3s + GitOps)
+
+The production target is a **k3s cluster managed by GitOps** in the separate
+[`gitops` repo](https://github.com/notseekeru/gitops) (Argo CD App-of-Apps, Terraform-installed).
+This repo is the **app source**; the gitops repo holds the Kubernetes manifests.
+
+**How an app ships here (per the gitops repo's existing `portfolio` / `diagram` convention):**
+
+1. **Build & push images** to GHCR as immutable SHAs — `ghcr.io/notseekeru/maxterview_backend` and
+   `ghcr.io/notseekeru/maxterview_frontend`. The disabled CD pipeline already scaffolds this.
+2. **Add the GitOps manifests** (in the gitops repo, not here):
+   - `apps/maxterview/backend.yaml` + `frontend.yaml` + `kustomization.yaml` (Deployment + Service).
+   - `apps-of-apps/maxterview.yaml` (child Application, `prune` + `selfHeal`).
+   - `infra/maxterview-ingress.yaml` + a Cloudflare-tunnel DNS/route so a hostname reaches the cluster.
+   - `kustomization.yaml` pins the immutable image SHAs; CD auto-bumps them via `kustomize edit set image`.
+3. **Secrets** (`maxterview-secrets`, e.g. `DATABASE_URL`, `LLM_API_KEY`, Clerk keys) are created by the
+   Terraform installer from Infisical — same as the existing `diagram-secrets`/`ghcr-login` pattern.
+
+**Ports/roles:** backend serves `:8000` (FastAPI), frontend serves `:8080` (nginx, static SPA). The frontend's
+`nginx.conf` proxies `/api` → `backend:8000` internally, so ingress can route `/` → frontend only (or
+`/api` → backend directly, mirroring the `diagram` ingress). Unlike `diagram`'s backend, maxterview's
+backend **has a `/health` route**, so its pods can use `httpGet` probes instead of `tcpSocket`.
+
+> The disabled `cd-pipeline.yml` in this repo is the jump-off point: re-enable it (GHCR login + rebuild +
+> push + `kustomize edit set image` bump) once the gitops `apps/maxterview` manifests exist.
 
 ---
 

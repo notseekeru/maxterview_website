@@ -1,6 +1,7 @@
-# CD pipeline is DISABLED (commented out) for MVP — no production deploy target yet.
-# Kustomize / registry push deferred (see PLAN.md). Re-enable when a real deploy
-# path exists. NOTE: enable CI-completion trigger, registry, and image push then.
+# CD pipeline is DISABLED (commented out) — deploy target is k3s + GitOps (Argo CD App-of-Apps in the
+# `notseekeru/gitops` repo). Re-enable when the `apps/maxterview` manifests exist there.
+# NOTE: uncomment CI-completion trigger, GHCR registry login, image build/push, and the
+# `kustomize edit set image` SHA bump on the gitops kustomization then (see README Deployment).
 
 # name: CD
 #
