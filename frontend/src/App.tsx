@@ -1,5 +1,5 @@
 import { Show, SignInButton, SignUpButton, UserButton } from "@clerk/react";
-import { useCallback, useState } from "react";
+import { BrowserRouter, Route, Routes, useNavigate, useParams } from "react-router-dom";
 import { CreateInterviewForm } from "@/components/CreateInterviewForm";
 import { InterviewChat } from "@/components/InterviewChat";
 import { InterviewList } from "@/components/InterviewList";
@@ -16,42 +16,83 @@ function Shell({ children }: { children: React.ReactNode }) {
             <header className="flex w-full max-w-2xl items-center justify-between">
                 <h1 className="text-2xl font-semibold">maxterview</h1>
                 {clerkEnabled ? (
-                    <Show when="signed-in">
-                        <UserButton />
-                    </Show>
-                ) : null}
+                    <nav className="flex items-center gap-2">
+                        <HomeLink />
+                        <Show when="signed-in">
+                            <UserButton />
+                        </Show>
+                    </nav>
+                ) : (
+                    <HomeLink />
+                )}
             </header>
             <main className="w-full max-w-2xl">{children}</main>
         </div>
     );
 }
 
-type View = { kind: "home" } | { kind: "interview"; id: string };
+function HomeLink() {
+    const navigate = useNavigate();
+    return (
+        <Button variant="ghost" size="sm" onClick={() => navigate("/")}>
+            Home
+        </Button>
+    );
+}
 
 function Dashboard() {
-    const [view, setView] = useState<View>({ kind: "home" });
-    const goHome = useCallback(() => setView({ kind: "home" }), []);
-    const open = useCallback((id: string) => setView({ kind: "interview", id }), []);
-
+    const navigate = useNavigate();
     return (
         <Shell>
-            {view.kind === "home" ? (
-                <div className="space-y-6">
-                    {!clerkEnabled && <DevBanner />}
-                    <CreateInterviewForm onCreated={open} />
-                    <InterviewList onOpen={open} />
-                </div>
-            ) : (
-                <InterviewChat interviewId={view.id} onExit={goHome} />
-            )}
+            <div className="space-y-6">
+                {!clerkEnabled && <DevBanner />}
+                <CreateInterviewForm onCreated={(id) => navigate(`/interviews/${id}`)} />
+                <InterviewList onOpen={(id) => navigate(`/interviews/${id}`)} />
+            </div>
         </Shell>
     );
 }
 
+function InterviewRoute() {
+    const navigate = useNavigate();
+    return (
+        <Shell>
+            <InterviewChat interviewId={useParamsId()} onExit={() => navigate("/")} />
+        </Shell>
+    );
+}
+
+function useParamsId(): string {
+    const { id } = useParams<{ id: string }>();
+    if (!id) throw new Error("missing interview id in route");
+    return id;
+}
+
 function App() {
     if (!clerkEnabled) {
-        return <Dashboard />;
+        return (
+            <BrowserRouter>
+                <Routes>
+                    <Route path="/" element={<Dashboard />} />
+                    <Route path="/interviews/:id" element={<InterviewRoute />} />
+                </Routes>
+            </BrowserRouter>
+        );
     }
+    return (
+        <ClerkGate>
+            <BrowserRouter>
+                <Routes>
+                    <Route path="/" element={<Dashboard />} />
+                    <Route path="/interviews/:id" element={<InterviewRoute />} />
+                </Routes>
+            </BrowserRouter>
+        </ClerkGate>
+    );
+}
+
+// In Clerk mode, show sign-in until authenticated; then render children.
+function ClerkGate({ children }: { children: React.ReactNode }) {
     return (
         <>
             <Show when="signed-out">
@@ -64,9 +105,7 @@ function App() {
                     </Button>
                 </div>
             </Show>
-            <Show when="signed-in">
-                <Dashboard />
-            </Show>
+            <Show when="signed-in">{children}</Show>
         </>
     );
 }
