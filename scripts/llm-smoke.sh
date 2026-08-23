@@ -133,6 +133,14 @@ if [ -z "$STUB_HINT" ]; then
     log "WARN: LLM_BASE_URL is empty in the backend container — this will exercise STUB_MODE, not a real model."
     log "      Set LLM_BASE_URL/LLM_MODEL in .env and restart to test a live model."
 fi
+# Idempotent cleanup: remove leftover test interviews so a mid-stream timeout doesn't
+# leave orphan in_progress rows in the real history.
+cleanup_test_data() {
+    docker exec maxterview_postgres psql -U maxterview -d maxterview -q \
+        -c "DELETE FROM interviews WHERE role IN ('LLM Smoke','LLM Full Smoke');" >/dev/null 2>&1 || true
+    log "cleaned leftover test interviews"
+}
+trap cleanup_test_data EXIT
 
 log "running LLM smoke test against $BACKEND_URL (stream=${STREAM_TIMEOUT}s, complete=${COMPLETE_TIMEOUT}s)"
 if run_backend; then
