@@ -84,16 +84,17 @@ graph TD
 
 ## 7. Security checklist
 
-- [ ] No credentials in code/compose; `.env` git-ignored
-- [ ] Postgres on internal network (dev)
-- [ ] Non-root users in images; no curl/bash injection surfaces
-- [ ] Deps pinned: `uv.lock` committed; `uv sync --frozen` in CI and Dockerfile
-- [ ] Clerk fallback refuses to boot outside `development`
-- [ ] CORS locked to frontend origin (prod same-origin via nginx; dev via Vite proxy)
-- [ ] LLM: no raw prompt-injection surface via API; provider keys in secrets; rate/usage limits on streaming
-- [ ] Health/readiness endpoints don't leak internals
+- [x] No credentials in code/compose; `.env` git-ignored (verified via `git check-ignore`)
+- [x] Postgres on internal network (dev — `compose.yml` `internal: true`); prod must keep this guarantee
+- [x] Non-root users in images (`appuser` backend, `node` frontend); no curl/bash injection surfaces
+- [x] Deps pinned: committed `uv.lock` + `package-lock.json`; `uv sync --frozen` / `npm ci` in CI + Dockerfile
+- [x] Clerk fallback refuses to boot outside `development`/`test` (D2 guard in `main.py`)
+- [ ] **CORS:** no `CORSMiddleware` in the backend — currently relies on same-origin nginx/Vite proxy. Add an explicit origin allow-list only if the API is ever opened cross-origin
+- [ ] **LLM prompt-injection:** no explicit sanitization; relies on the system prompt. Streaming rate-limited at the ingress (gitops `limit-rps`); usage/token caps deferred to M10
+- [x] Health/readiness endpoints don't leak internals (`/health` = `{status:ok}` only)
 - [ ] (Later) Trivy deps scan + Sentry — noted, not MVP
 
+> **M11 (security, docs)** — full threat model and accepted-risks summary in `SECURITY.md`.
 ## 8. Milestones
 
 | # | Milestone | Deliverables | Status |
@@ -108,6 +109,8 @@ graph TD
 | 8 | Frontend | React+TS+Vite + Tailwind 4 + shadcn/ui + @/* alias. **App built (2026-08-23):** create-interview form, history list, SSE chat screen (create→start→chat/stream→complete→feedback), native fetch SSE, **react-router** URLs (`/`, `/interviews/:id`), Clerk dev/no-auth fallback. Verified green (typecheck/build/biome) and in-browser. Caveat: local llama.cpp auto-feedback may be empty (documented in `.env.example`); DeepSeek validated | [x] |
 | 9 | Verify + README | **Done (2026-08-23):** `compose config` (dev+prod) valid; backend ruff check/format + pytest 19 passed; frontend biome/typecheck/build green; `README.md` added | [x] |
 | 10 | Billing/monetization (phase 2, NOT MVP) | Implement `MONETIZATION.md`: Clerk ↔ Stripe (or clerk-billing) integration, subscription/webhook, plans DB, interviews-per-month enforcement via `require_tier`. Built on the `tier` claim (D10/D4) | [ ] |
+| 11 | Security hardening | **Docs-first (2026-08-23):** verified security checklist (§7), threat model + accepted risks in `SECURITY.md`. Later: CORS allow-list, LLM prompt-injection guardrails, dependency audit (uv/npm + Trivy), Sentry | [~] |
+| 12 | Frontend polish | Landing page, dashboard/home with interview stats + score charts, empty states, loading skeletons, mobile responsiveness (react-router SPA routes: `/`, `/app`, `/interviews/:id`) | [~] |
 
 > **Next action:** M1–M9 done — MVP functionally built. **Deploy path: k3s + GitOps** (Argo CD App-of-Apps in `notseekeru/gitops`; CD pipeline here scaffolded but disabled). To ship: (1) re-enable CD (GHCR build/push + kustomize SHA bump), (2) add `apps/maxterview` + `infra` manifests + `maxterview-secrets` (Terraform/Infisical) in the gitops repo, (3) pre-ship Clerk domain/DNS + `CLERK_ENABLED=true`. M10 billing is phase 2. See README **Deployment**.<br>
 > **Status:** M1–M9 done (back-end + frontend + verify/README, 2026-08-23). MVP functionally complete. Deploy target is k3s + GitOps (see README **Deployment**); pre-ship Clerk/prod config pending. M10 (billing) is phase 2, designed-for via `tier` (D10) but not built. Detailed payment design: **`MONETIZATION.md`**; product: **`PRD.md`**.

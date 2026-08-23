@@ -11,6 +11,7 @@ Docs:
 - `PLAN.md` — technical decisions (D1–D10) and milestones (M1–M10)
 - `APPFLOW.md` — application flow, state machine, SSE wire contract
 - `MONETIZATION.md` — phase-2 billing design (not built in MVP)
+- `SECURITY.md` — threat model, verified control status, accepted risks
 
 ---
 
