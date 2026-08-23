@@ -45,27 +45,29 @@ Wiring intent (future code pass):
 ### 2. Log aggregation + metrics — Grafana Cloud (Loki + Prometheus + Grafana)
 
 Single-vendor observability layer:
-- **Loki** ingests the JSON structlog output. In the k3s cluster, scrape/forward via a log agent
-  (Grafana **Alloy** or **promtail**) that ships pod stdout to Loki; label by `app`, `pod`, `env`.
-- **Prometheus** (or Grafana Cloud's managed metrics) scrapes a backend metrics endpoint
-  (`/metrics`) plus the node/pod targets. Add the FastAPI metrics endpoint in a code pass
-  (`prometheus-client` fastapi instrumentation). Grafana Cloud also offers an agent that can scrape
-  and remote-write.
+- **Loki** ingests the JSON structlog output. In the k3s cluster, a single **Alloy** agent (DaemonSet)
+  ships pod stdout to Loki; label by `app`, `pod`, `env`.
+- **Prometheus (Grafana Cloud managed metrics)** receives **metrics via pure OTLP** from the backend
+  (no HTTP `/metrics` scrape path).
 - **Grafana dashboards:** request rate / latency / error rate over time, panel filters by
   `status`/`user`/`role`. Alerts on e.g. `status>=500` or error-rate thresholds — driven **from Loki
   queries** so we do not need a separate APM for error visibility.
 - Logs and metrics share the same structlog fields (`duration_ms`, `status`, `user`), so a metric
   trace links back to the raw JSON log line in Loki.
 
+> **Transport decision: OTLP-only for metrics/traces.** The OpenTelemetry Python SDK exports metrics and
+> spans over OTLP to Alloy, which forwards to Grafana Cloud. There is **no Prometheus `/metrics` scrape
+> endpoint** in the pipeline — one protocol (OTLP), one agent (Alloy), one data plane.
+
 > **Error tracking without Sentry:** errors surface as `status>=500` log lines in Loki. Query
 > `{app="backend"} |= "error"` for triage; alert on rate. This covers MVP needs without a second
 > vendor. Defer Sentry unless exception grouping/source-maps become a bottleneck.
 
-### 3. Concrete metrics + `/metrics` endpoint (Gap A)
+### 3. Concrete metrics (Gap A)
 
-Add a FastAPI metrics endpoint (`/metrics`, OpenMetrics format via `prometheus-client` or the OpenTelemetry
-Python SDK prometheus exporter) exposing counters/histograms. Instrument in the same request middleware, so
-every signal carries the same labels (`method`, `path`, `status`, `user`).
+Expose the metric set via the **OpenTelemetry Python SDK** (counters/histograms), exported over **OTLP**
+to Alloy. Instrument in the same request middleware, so every signal carries the same labels
+(`method`, `path`, `status`, `user`). No `/metrics` HTTP endpoint is needed for ingestion.
 
 **Metric set (MVP):**
 
@@ -78,8 +80,8 @@ every signal carries the same labels (`method`, `path`, `status`, `user`).
 | `db_query_duration_seconds` | Histogram | asyncpg query latency (if instrumenting db.py) |
 | `interviews_created_total` / `interviews_completed_total` | Counter | product counters |
 
-**Transport:** OTLP for traces/metrics (see Rollout), and/or Prometheus scrape of `/metrics`. For Grafana Cloud
-managed metrics, use the OTLP endpoint or remote-write from the agent.
+**Transport:** pure **OTLP** for metrics/traces — the OpenTelemetry SDK exports to Alloy, which forwards
+to Grafana Cloud managed metrics. No Prometheus scrape; no `/metrics` endpoint.
 
 ### 4. Probes + infrastructure metrics (Gap B)
 
@@ -121,13 +123,13 @@ managed metrics, use the OTLP endpoint or remote-write from the agent.
 1. **structlog JSON logging (foundation)** — cheap, unblocks everything (Design §1).
 2. **Probes** — add readiness + startup probes; use `httpGet` in the gitops deployments (Design §4).
 3. **Grafana Cloud connect** — provision the tenant + secret; deploy **Alloy** as a k8s DaemonSet
-   (OTLP forward + stdout→Loki); wire the backend OTel/OTLP exporter + `/metrics` (Design §2-3).
+   (OTLP forward + stdout→Loki); wire the backend OpenTelemetry **OTLP exporter** (Design §2-3).
 4. **Dashboards + infra integration** — app request/latency/error panels + k8s resource dashboards (Design §4).
 5. **Alerts + log shaping** — alert rules + contact points; enforce free-tier retention/volume caps (Design §5).
 
 ```mermaid
 flowchart LR
-  B[FastAPI backend] -->|OTLP: traces/metrics| A[Alloy DaemonSet]
+  B[FastAPI backend - OTel/OTLP] -->|OTLP: traces + metrics (pure)| A[Alloy DaemonSet]
   B -->|structlog JSON stdout| A
   A -->|Loki| L[(Loki)]
   A -->|OTLP| P[(Prometheus)]
@@ -135,7 +137,6 @@ flowchart LR
   L --> G[Grafana dashboards + alerts]
   P --> G
   K[Grafana Cloud k8s integration] -->|infra metrics| G
-```
 
 ---
 
@@ -169,8 +170,8 @@ grows to real traffic or multiple services.
 - [ ] No secrets appear in logs.
 - [ ] Loki stores backend logs (via agent); labels `app`/`pod`/`env` populated.
 - [ ] Grafana shows request rate/latency/error dashboards + an alert on `status>=500`.
-- [ ] `/metrics` exposes the concrete metrics (Gap A) — HTTP/LLM/DB latency & counts.
+- [ ] Metrics reach Grafana Cloud Prometheus via **pure OTLP** (no `/metrics` scrape endpoint) (Gap A).
 - [ ] Backend has readiness + startup probes (Gap B); k8s infra dashboards enabled.
 - [ ] Alert rules + contact points exist; log shaping keeps under free-tier retention (Gap C).
 - [ ] Grafana Cloud credentials come only from a k8s Secret (no committed tokens) (Gap D).
-- [ ] (Deferred) Prometheus `/metrics` if not via OTLP; frontend Faro RUM not in MVP.
+- [ ] (Deferred) Tempo traces; frontend Faro RUM not in MVP.
