@@ -58,7 +58,7 @@ async def stream_chat(messages: list[ChatMessage]) -> AsyncIterator[str]:
         "stream": True,
     }
     headers = {"Authorization": f"Bearer {LLM_API_KEY}"} if LLM_API_KEY else {}
-    async with httpx.AsyncClient(base_url=LLM_BASE_URL, timeout=httpx.Timeout(60.0, read=30.0)) as client:
+    async with httpx.AsyncClient(base_url=LLM_BASE_URL, timeout=httpx.Timeout(300.0, read=120.0)) as client:
         async with client.stream("POST", "/chat/completions", json=payload, headers=headers) as resp:
             resp.raise_for_status()
             # Server-Sent-Event line format: data: {json}\n\n
@@ -109,7 +109,7 @@ async def generate_feedback(history: list[ChatMessage]) -> FeedbackSummary:
         "response_format": {"type": "json_object"},
     }
     headers = {"Authorization": f"Bearer {LLM_API_KEY}"} if LLM_API_KEY else {}
-    async with httpx.AsyncClient(base_url=LLM_BASE_URL, timeout=httpx.Timeout(120.0)) as client:
+    async with httpx.AsyncClient(base_url=LLM_BASE_URL, timeout=httpx.Timeout(300.0)) as client:
         resp = await client.post("/chat/completions", json=payload, headers=headers)
         resp.raise_for_status()
         data = resp.json()
