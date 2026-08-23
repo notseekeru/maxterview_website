@@ -139,6 +139,29 @@ flowchart LR
 
 ---
 
+## Out of scope (deliberately deferred — hobby, app-scoped)
+
+These are real observability opportunities but are **not** worth the complexity for a personal,
+single-service app. They are recorded so the decision is explicit, not accidental. Revisit if the app
+grows to real traffic or multiple services.
+
+- **Edge / ingress observability** — nginx-ingress + Cloudflare Tunnel + Cloudflare edge (WAF/4xx/5xx)
+  dashboards. The app is reached through `Cloudflare → nginx → pod`; observing only the pod is fine at
+  this scale. Site-down is noticed in Cloudflare's built-in analytics long before we need dedicated edge
+  dashboards.
+- **Request-id / trace correlation across layers** — the app is effectively a single service (one
+  backend, one DB, one LLM), so multi-service trace/correlation plumbing has little payoff until that
+  changes.
+- **Synthetic / uptime probes** — a Grafana Cloud synthetic check on `/health` is cheap but optional
+  for a personal app; drop if you rely on Cloudflare's uptime/health checks instead.
+- **Dashboards/alerts as code (GitOps drift-fighting)** — hand-built Grafana dashboards are fine for
+  personal use; converting to provisioning-as-code is cosmetic value, not a risk, until the k3s repo's
+  everything-as-git philosophy demands it.
+
+**Tempo (distributed tracing) remains deferred** (already noted) for the same scoped reason.
+---
+
+
 ## Acceptance criteria (when implemented)
 
 - [ ] Production logs are JSON; dev logs are human-readable.
