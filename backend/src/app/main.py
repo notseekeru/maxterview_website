@@ -199,17 +199,10 @@ async def create_feedback(
     body: FeedbackCreate,
     user: CurrentUser,
 ) -> dict:
-    # Gap B: UPSERT — feedback.interview_id is UNIQUE; a plain INSERT would 500 on a second write.
-    # M6's LLM handler calls this to write/update scores (may retry, idempotent).
+    # M6's LLM handler calls this to write/update scores (may retry, idempotent UPSERT).
+    # Shared with `complete` -> `_generate_and_persist_feedback` (single write path).
     await _require_interview_owned(interview_id, user.sub)
-    # JSONB round-trips natively via the pool codec (db.py init), so pass dict/list directly.
-    row = await fetchrow(
-        "INSERT INTO feedback (interview_id, scores, verdict, tips) VALUES ($1, $2, $3, $4) ON CONFLICT (interview_id) DO UPDATE SET scores = EXCLUDED.scores, verdict = EXCLUDED.verdict, tips = EXCLUDED.tips, created_at = now() RETURNING id::text, interview_id::text, scores, verdict, tips, created_at",
-        interview_id,
-        body.scores,
-        body.verdict,
-        body.tips,
-    )
+    row = await _upsert_feedback(interview_id, body.scores, body.verdict, body.tips)
     return dict(row)
 
 
@@ -348,6 +341,18 @@ async def _require_interview_owned(interview_id: str, owner_id: str) -> None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Interview not found")
 
 
+async def _upsert_feedback(interview_id: str, scores: dict, verdict: str, tips: list):
+    # Single write path for feedback: idempotent UPSERT on the UNIQUE interview_id.
+    # JSONB round-trips natively via the pool codec (db.py init).
+    return await fetchrow(
+        "INSERT INTO feedback (interview_id, scores, verdict, tips) VALUES ($1, $2, $3, $4) ON CONFLICT (interview_id) DO UPDATE SET scores = EXCLUDED.scores, verdict = EXCLUDED.verdict, tips = EXCLUDED.tips, created_at = now() RETURNING id::text, interview_id::text, scores, verdict, tips, created_at",
+        interview_id,
+        scores,
+        verdict,
+        tips,
+    )
+
+
 async def _generate_and_persist_feedback(interview_id: str) -> None:
     """M6: generate feedback from the transcript and write it (idempotent UPSERT)."""
     history_rows = await fetch(
@@ -356,13 +361,7 @@ async def _generate_and_persist_feedback(interview_id: str) -> None:
     )
     history = [ChatMessage(role=r["role"], content=r["content"]) for r in history_rows]
     summary = await llm.generate_feedback(history)
-    await fetchrow(
-        "INSERT INTO feedback (interview_id, scores, verdict, tips) VALUES ($1, $2, $3, $4) ON CONFLICT (interview_id) DO UPDATE SET scores = EXCLUDED.scores, verdict = EXCLUDED.verdict, tips = EXCLUDED.tips, created_at = now() RETURNING id",
-        interview_id,
-        summary.scores,
-        summary.verdict,
-        summary.tips,
-    )
+    await _upsert_feedback(interview_id, summary.scores, summary.verdict, summary.tips)
 
 
 async def _raise_start_error(interview_id: str, owner_id: str) -> None:
