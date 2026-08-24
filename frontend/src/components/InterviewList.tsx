@@ -1,9 +1,13 @@
-import { useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { type Interview, listInterviews } from "@/lib/api";
+import { Skeleton } from "@/components/ui/skeleton";
+import type { Interview } from "@/lib/api";
 
 interface Props {
+    interviews: Interview[];
+    loading: boolean;
+    error: string | null;
+    onRefresh: () => void;
     onOpen: (id: string) => void;
 }
 
@@ -11,34 +15,19 @@ function formatDate(iso: string) {
     return new Date(iso).toLocaleString();
 }
 
-export function InterviewList({ onOpen }: Props) {
-    const [interviews, setInterviews] = useState<Interview[]>([]);
-    const [error, setError] = useState<string | null>(null);
-
-    const load = useCallback(async () => {
-        try {
-            setInterviews(await listInterviews());
-            setError(null);
-        } catch {
-            setError("Could not load interviews.");
-        }
-    }, []);
-
-    useEffect(() => {
-        void load();
-    }, [load]);
-
+export function InterviewList({ interviews, loading, error, onRefresh, onOpen }: Props) {
     return (
-        <Card className="w-full max-w-lg">
+        <Card className="w-full">
             <CardHeader className="flex-row items-center justify-between space-y-0">
                 <CardTitle>History</CardTitle>
-                <Button variant="ghost" size="sm" onClick={() => void load()}>
+                <Button variant="ghost" size="sm" onClick={onRefresh} disabled={loading}>
                     Refresh
                 </Button>
             </CardHeader>
             <CardContent className="space-y-2">
                 {error && <p className="text-sm text-destructive">{error}</p>}
-                {interviews.length === 0 && !error && <p className="text-sm text-muted-foreground">No interviews yet. Create one to begin.</p>}
+                {loading && <Skeleton className="h-16" />}
+                {!loading && interviews.length === 0 && !error && <p className="text-sm text-muted-foreground">No interviews yet. Create one to begin.</p>}
                 {interviews.map((i) => (
                     <div key={i.id} className="flex items-center justify-between gap-3 rounded-md border p-3">
                         <div className="min-w-0">
