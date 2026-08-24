@@ -55,7 +55,7 @@ Browser (React SPA) → nginx/Vite `/api` proxy → FastAPI → Postgres, and Fa
 | Backend | **no rate limiter** | — | ⚠️ gap — nothing throttles per-client at the app layer |
 | Backend | per-LLM-call `max_tokens` ceiling | `app/llm.py` `LLM_MAX_TOKENS` | ✅ bounds each request |
 | Auth | required on every request (`get_current_user`) | `main.py` | ✅ (but `DEV_USER` in dev) |
-| Usage/quota | per-user caps | — | ❌ deferred to **M10** (`require_tier`, daily interview + token budget) |
+| Usage/quota | per-user caps | `app/billing.py` (M10) | ✅ shipped 2026-08-24 (daily interview + chat-turn) |
 
 **Abuse vectors to guard (docs plan — no code yet):**
 

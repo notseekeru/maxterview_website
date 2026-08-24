@@ -108,8 +108,8 @@ make prod-build / prod-up / prod-logs / prod-down  (prod-style)
 ## Testing
 
 - **Backend** (pytest): `make test`. Integration tests hit a real Postgres, self-migrate via yoyo,
-  and force LLM STUB_MODE (model-free). `19` tests cover auth (JWT/JWKS negative cases), interview
-  lifecycle, owner-scoping, LLM streaming/extraction.
+  and force LLM STUB_MODE (model-free). Tests cover auth (JWT/JWKS negative cases), interview
+  lifecycle, owner-scoping, LLM streaming/extraction, and M10 billing (quotas + Stripe webhooks).
 - **Frontend**: `npm run typecheck`, `npm run build`, `npx biome check .` (in the frontend container).
 - **LLM smoke**: `scripts/llm-smoke-full.sh` walks the whole lifecycle against a live model.
 
