@@ -77,8 +77,3 @@ async def bump_chat_turn(interview_id: str) -> None:
         "UPDATE interviews SET chat_turns = chat_turns + 1 WHERE id = $1 RETURNING id",
         interview_id,
     )
-
-
-def require_tier(tier: str, required: str = "free") -> None:
-    if tier != required and not (required == "free" and tier in ("free", "premium")):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Upgrade required")
