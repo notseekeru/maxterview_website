@@ -2,10 +2,10 @@ import os
 from contextlib import asynccontextmanager
 from typing import Annotated
 
-from fastapi import Depends, FastAPI, HTTPException, status
-from fastapi.responses import StreamingResponse
+from fastapi import Depends, FastAPI, HTTPException, Request, status
+from fastapi.responses import PlainTextResponse, StreamingResponse
 
-from app import billing, llm
+from app import billing, llm, payments
 from app.auth import CLERK_ENABLED, get_current_user
 from app.db import close_pool, fetch, fetchrow, init_pool
 from app.models import ChatMessage, ChatTurn, ClerkUser, Feedback, FeedbackCreate, Interview, InterviewCreate, Message
@@ -228,6 +228,36 @@ async def get_usage(user: CurrentUser) -> dict:
         "daily_interviews_unlimited": daily == -1,
         f"chat_turns_per_interview_{tier}": free_chat,
     }
+
+
+# --- billing (M10: raw Stripe — checkout / portal / webhook) ---
+
+
+@app.post("/billing/checkout")
+async def billing_checkout(user: CurrentUser) -> dict:
+    """Create a Stripe checkout session and return its hosted URL."""
+    return {"url": payments.create_checkout_session(user)}
+
+
+@app.post("/billing/portal", response_model=dict)
+async def billing_portal(user: CurrentUser) -> dict:
+    """Return a Stripe billing-portal URL for the user's subscription."""
+    return {"url": await payments.create_portal_session(user)}
+
+
+@app.post("/billing/webhook")
+async def billing_webhook(request: Request) -> PlainTextResponse:
+    """Verify a Stripe webhook signature, upsert the subscription, return 200."""
+    import stripe
+
+    payload = await request.body()
+    sig = request.headers.get("stripe-signature", "")
+    try:
+        event = stripe.Webhook.construct_event(payload, sig, payments.STRIPE_WEBHOOK_SECRET)
+    except (ValueError, stripe.SignatureVerificationError):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid signature") from None
+    await payments.handle_webhook_event(dict(event))
+    return PlainTextResponse("ok")
 
 
 # --- SSE: interview chat (M6 wires real LLM streaming) ---

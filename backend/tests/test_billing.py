@@ -63,3 +63,78 @@ def test_invalid_quota_key_raises_500():
         _quota("free", "nonexistent")
     assert exc.type.__name__ == "HTTPException"
     assert exc.value.status_code == 500
+
+
+# --- Stripe webhook -> subscriptions upsert (M10 raw Stripe) ---
+
+
+async def test_webhook_checkout_completed_writes_subscription(monkeypatch):
+    """checkout.session.completed upserts a premium subscriptions row."""
+    from app import payments
+
+    calls = []  # (query, args)
+
+    async def fake_fetchrow(q, *a, **k):
+        calls.append((q, a))
+        return {"id": "row"}
+
+    monkeypatch.setattr("app.db.fetchrow", fake_fetchrow)
+    event = {
+        "type": "checkout.session.completed",
+        "data": {
+            "object": {
+                "id": "cs_123",
+                "customer": "cus_123",
+                "status": "complete",
+                "metadata": {"owner_id": "paying-user"},
+            }
+        },
+    }
+    await payments.handle_webhook_event(event)
+    assert calls, "expected an upsert call"
+    q, args = calls[0]
+    assert "INSERT INTO subscriptions" in q
+    assert args[0] == "paying-user"  # owner_id
+    assert args[1] == "cus_123"  # stripe_id / customer
+    assert args[2] == "active"  # normalized status (complete -> active)
+
+
+async def test_webhook_subscription_deleted_downgrades(monkeypatch):
+    """customer.subscription.deleted drops premium (owner set free)."""
+    from app import payments
+
+    calls = []
+
+    async def fake_fetchrow(q, *a, **k):
+        calls.append((q, a))
+        return {"id": "row"}
+
+    monkeypatch.setattr("app.db.fetchrow", fake_fetchrow)
+    event = {
+        "type": "customer.subscription.deleted",
+        "data": {
+            "object": {
+                "id": "sub_123",
+                "metadata": {"owner_id": "cancelling-user"},
+            }
+        },
+    }
+    await payments.handle_webhook_event(event)
+    assert calls, "expected a downgrade call"
+    q, args = calls[0]
+    assert "plan='free'" in q and "status='canceled'" in q
+    assert args[0] == "cancelling-user"
+
+
+async def test_webhook_unknown_type_is_ignored(monkeypatch):
+    from app import payments
+
+    calls = []
+
+    async def fake_fetchrow(q, *a, **k):
+        calls.append((q, a))
+        return {"id": "row"}
+
+    monkeypatch.setattr("app.db.fetchrow", fake_fetchrow)
+    await payments.handle_webhook_event({"type": "invoice.paid", "data": {"object": {}}})
+    assert calls == []  # no DB write for unrelated events
