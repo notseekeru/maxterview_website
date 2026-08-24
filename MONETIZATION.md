@@ -61,17 +61,25 @@ Implemented in `app/billing.py` + `app/main.py`.
   `daily_interviews_unlimited`, and the tier's `chat_turns` limit. Frontend shows a badge/notice
   (e.g. "1 free interview left today"). Lands with M10.
 
-## 4. Billing provider (deferred)
+## 4. Billing provider — raw Stripe (backend shipped 2026-08-24)
 
-Preferred: **Stripe** via **Clerk's billing integration** (`clerk-billing` / Clerk ↔ Stripe).
+Implementation: **raw Stripe** (chosen over Clerk-billing for ownership, learning, and scale).
 
-- Clerk manages checkout/subscription/billing-portal UX and stamps `tier` (+ plan) into the JWT.
-- **Monthly only** (one premium plan at $9.99/mo; no annual, no tiers).
-- **Multi-currency:** $9.99 reference; Stripe handles local pricing (per-currency price config at setup).
-- **Tax:** Stripe calculates, we remit. No merchant-of-record.
-- Requires Stripe account + Clerk billing plan + keys in prod Secret (zero-touch on credentials).
-- **Deferred:** wired when Stripe test keys are provided. Until then, `subscriptions` rows can be
-  created directly (e.g. for testing/promo) and `resolve_tier` honors them.
+**Shipped (backend):**
+- `app/payments.py` — Stripe client, hosted Checkout Session, billing portal, and the webhook handler.
+- `POST /billing/checkout` — creates a monthly subscription Checkout Session (metadata `owner_id`), returns its URL.
+- `POST /billing/portal` — returns the Stripe billing portal URL for the user's customer.
+- `POST /billing/webhook` — verifies `stripe-signature`, then idempotently upserts `subscriptions` on
+  `checkout.session.completed` / `customer.subscription.created|updated|deleted`.
+- Env: `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRICE_ID`, `FRONTEND_BASE_URL` (no secrets committed).
+
+**Business rules:** monthly only, $9.99/mo, no annual, no tiers; multi-currency via Stripe local pricing;
+Stripe calculates tax, we remit; no merchant-of-record. Requires Stripe account + keys in prod Secret
+(zero-touch on credentials).
+
+**Deferred (needs keys / live Clerk):** actual payment testing (Stripe CLI `listen` for local webhooks),
+and the frontend upsell/portal UX. Until then, `subscriptions` rows can be created directly for
+testing/promo and `resolve_tier` honors them.
 
 ## 5. Phase-2 schema (shipped with M10 backend)
 
@@ -101,10 +109,11 @@ ALTER TABLE interviews ADD COLUMN IF NOT EXISTS chat_turns INTEGER NOT NULL DEFA
 
 | Shipped (2026-08-24) | Deferred |
 |---|---|
-| `app/billing.py` — tiers, quotas, `resolve_tier` | Stripe/Clerk-billing integration + keys |
+| `app/billing.py` — tiers, quotas, `resolve_tier` | Stripe keys / Stripe CLI local webhook testing |
 | Daily interview cap (atomic) + chat-turn cap | Frontend upsell / lock UX + usage badge |
-| `GET /usage` endpoint | `require_tier` on the LLM/token path (n/a — no token metering) |
-| `subscriptions` + `chat_turns` migration | JWT template that stamps `tier`; real provider config |
+| `GET /usage` endpoint | Live Clerk billing (`CLERK_ENABLED=true`) + JWT `tier` template |
+| `app/payments.py` — raw Stripe checkout / portal / webhook | Real payment testing (needs `sk_test_`/`whsec_`) |
+| `subscriptions` + `chat_turns` migration | — |
 | `ClerkUser.tier` seam + `resolve_tier` | — |
 
 ## 7. Cancellation & billing terms (M10, deferred with Stripe)
