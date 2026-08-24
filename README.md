@@ -8,7 +8,7 @@ run with Docker Compose. Frontend: Tailwind 4 + shadcn/ui + react-router.
 
 Docs:
 - `PRD.md` — product requirements (user stories, acceptance criteria)
-- `PLAN.md` — technical decisions (D1–D10) and milestones (M1–M13)
+- `PLAN.md` — technical decisions (D1–D10) and milestones (M1–M14)
 - `APPFLOW.md` — application flow, state machine, SSE wire contract
 - `MONETIZATION.md` — phase-2 billing design (not built in MVP)
 - `SECURITY.md` — threat model, verified control status, accepted risks
@@ -162,3 +162,4 @@ backend **has a `/health` route**, so its pods can use `httpGet` probes instead 
 - **M11** (security) — docs-first phase done (`SECURITY.md`); code hardening (rate limiter, CORS) pending.
 - **M12** (frontend polish) — landing page, dashboards, charts — not started.
 - **M13** (observability) — docs-first done (`OBSERVABILITY.md`); structlog + Grafana Cloud (Loki for logs, **pure OTLP** metrics/traces → Prometheus) wiring pending.
+- **M14** (RAG / retrieval-augmented interviewing) — future enhancement, not started (`PLAN.md`).
