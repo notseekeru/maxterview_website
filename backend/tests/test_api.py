@@ -116,3 +116,18 @@ def test_interview_lifecycle_owner_scoped(client):
 def test_get_interview_missing_returns_404(client):
     r = client.get("/interviews/00000000-0000-0000-0000-000000000000")
     assert r.status_code == 404
+
+
+def test_free_daily_interview_cap_blocks_second(client):
+    # M10: free tier = 1 interview/day; the 2nd create today returns 402 (atomic cap).
+    r1 = client.post("/interviews", json={"role": "Quota Probe"})
+    assert r1.status_code == 201
+    iid = r1.json()["id"]
+    r2 = client.post("/interviews", json={"role": "Quota Probe 2"})
+    assert r2.status_code == 402
+    # usage reports 0 remaining
+    u = client.get("/usage")
+    assert u.status_code == 200
+    assert u.json()["daily_interviews_remaining"] == 0
+    # clean up so later tests aren't blocked by this day's cap
+    assert client.delete(f"/interviews/{iid}").status_code == 204

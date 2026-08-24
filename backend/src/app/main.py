@@ -5,7 +5,7 @@ from typing import Annotated
 from fastapi import Depends, FastAPI, HTTPException, status
 from fastapi.responses import StreamingResponse
 
-from app import llm
+from app import billing, llm
 from app.auth import CLERK_ENABLED, get_current_user
 from app.db import close_pool, fetch, fetchrow, init_pool
 from app.models import ChatMessage, ChatTurn, ClerkUser, Feedback, FeedbackCreate, Interview, InterviewCreate, Message
@@ -62,13 +62,32 @@ async def create_interview(
     body: InterviewCreate,
     user: CurrentUser,
 ) -> dict:
-    # M10 (MONETIZATION): free daily cap enforced here (conditional INSERT). Stubbed in MVP.
+    # M10 (MONETIZATION): free tier daily-interview cap via atomic conditional INSERT
+    # (race-safe: only proceeds if the owner hasn't hit today's cap).
+    tier = await billing.resolve_tier(user)
     row = await fetchrow(
-        "INSERT INTO interviews (owner_id, role, topic) VALUES ($1, $2, $3) RETURNING id::text, owner_id, role, topic, status, created_at, updated_at",
+        """
+        INSERT INTO interviews (owner_id, role, topic)
+        SELECT $1, $2, $3
+        WHERE NOT EXISTS (
+            -- premium: no cap; free: only when under the daily limit
+            SELECT 1 FROM interviews
+            WHERE owner_id = $1
+              AND created_at::date = CURRENT_DATE
+            HAVING count(*) >= $4
+        )
+        RETURNING id::text, owner_id, role, topic, status, created_at, updated_at
+        """,
         user.sub,
         body.role,
         body.topic,
+        billing._quota(tier, "daily_interviews"),
     )
+    if row is None:
+        raise HTTPException(
+            status_code=status.HTTP_402_PAYMENT_REQUIRED,
+            detail="Daily interview limit reached. Upgrade to premium for unlimited interviews.",
+        )
     return dict(row)
 
 
@@ -194,6 +213,23 @@ async def create_feedback(
     return dict(row)
 
 
+# --- usage (M10: MONETIZATION §3 GET /usage) ---
+
+
+@app.get("/usage")
+async def get_usage(user: CurrentUser) -> dict:
+    """Cheap quota status: daily interviews left + per-interview chat turns left."""
+    tier = await billing.resolve_tier(user)
+    daily = await billing.daily_interview_remaining(tier, user.sub)
+    free_chat = "unlimited" if tier == "premium" else int(billing._quota(tier, "chat_turns"))
+    return {
+        "tier": tier,
+        "daily_interviews_remaining": -1 if daily == -1 else daily,
+        "daily_interviews_unlimited": daily == -1,
+        f"chat_turns_per_interview_{tier}": free_chat,
+    }
+
+
 # --- SSE: interview chat (M6 wires real LLM streaming) ---
 
 
@@ -215,7 +251,16 @@ async def chat_stream(
     if interview["status"] != "in_progress":
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Interview is not in progress")
 
+    # M10 (MONETIZATION): per-interview chat-turn cap (no token metering).
+    tier = await billing.resolve_tier(user)
+    if await billing.chat_turn_remaining(tier, interview_id) == 0:
+        raise HTTPException(
+            status_code=status.HTTP_402_PAYMENT_REQUIRED,
+            detail="Chat turn limit reached for this interview. Complete it or upgrade to premium.",
+        )
+
     # Persist the user turn (chat_stream owns the user answer per decision).
+    await billing.bump_chat_turn(interview_id)
     user_msg = await fetchrow(
         "INSERT INTO messages (interview_id, role, content) VALUES ($1, 'user', $2) RETURNING id::text",
         interview_id,
