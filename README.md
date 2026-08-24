@@ -10,7 +10,7 @@ Docs:
 - `PRD.md` — product requirements (user stories, acceptance criteria)
 - `PLAN.md` — technical decisions (D1–D10) and milestones (M1–M14)
 - `APPFLOW.md` — application flow, state machine, SSE wire contract
-- `MONETIZATION.md` — phase-2 billing design (not built in MVP)
+- `MONETIZATION.md` — billing spec (backend quotas shipped; Stripe + frontend UX deferred)
 - `SECURITY.md` — threat model, verified control status, accepted risks
 - `OBSERVABILITY.md` — logging/error-tracking/metrics plan (doc-first M13)
 
@@ -158,7 +158,7 @@ backend **has a `/health` route**, so its pods can use `httpGet` probes instead 
 ## Status
 
 - **M1–M9 done** (infra, backend, auth, API, LLM layer, tests, frontend app, verify + README).
-- **M10** (billing/monetization) — phase 2, designed but not built (`MONETIZATION.md`).
+- **M10** (billing/monetization) — **backend shipped** (free/premium quotas, `GET /usage`); Stripe integration + frontend upsell UX deferred.
 - **M11** (security) — docs-first phase done (`SECURITY.md`); code hardening (rate limiter, CORS) pending.
 - **M12** (frontend polish) — landing page, dashboards, charts — not started.
 - **M13** (observability) — docs-first done (`OBSERVABILITY.md`); structlog + Grafana Cloud (Loki for logs, **pure OTLP** metrics/traces → Prometheus) wiring pending.
