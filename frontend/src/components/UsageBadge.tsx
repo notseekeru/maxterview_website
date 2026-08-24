@@ -1,0 +1,72 @@
+import { useCallback, useEffect, useState } from "react";
+
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { createCheckoutSession, getUsage, openBillingPortal, type Usage } from "@/lib/api";
+
+// M10: cheap quota-status badge (backed by GET /usage / MONETIZATION §3).
+export function UsageBadge() {
+    const [usage, setUsage] = useState<Usage | null>(null);
+    const [error, setError] = useState(false);
+
+    const load = useCallback(async () => {
+        try {
+            setUsage(await getUsage());
+            setError(false);
+        } catch {
+            setError(true);
+        }
+    }, []);
+
+    useEffect(() => {
+        void load();
+    }, [load]);
+
+    if (error) return null;
+    if (!usage) return <Badge variant="secondary">…</Badge>;
+
+    if (usage.tier === "premium") {
+        return <Badge>Premium</Badge>;
+    }
+
+    const remaining = usage.daily_interviews_remaining;
+    const label = remaining === -1 || remaining > 1 ? `${remaining} free interviews left today` : `${remaining} free interview left today`;
+    return <Badge variant="outline">{label}</Badge>;
+}
+
+// M10: lockout / upsell notice with an "Upgrade" CTA when quota is exhausted.
+export function UpgradeNotice({ reason }: { reason: string }) {
+    const [busy, setBusy] = useState(false);
+    const [error, setError] = useState(false);
+
+    async function upgrade() {
+        setBusy(true);
+        setError(false);
+        try {
+            const url = await createCheckoutSession();
+            window.location.assign(url);
+        } catch {
+            setError(true);
+        } finally {
+            setBusy(false);
+        }
+    }
+
+    return (
+        <div className="flex flex-col items-start gap-3 rounded-lg border border-dashed bg-muted/50 p-4 text-sm">
+            <div className="space-y-1">
+                <p className="font-medium">Free limit reached</p>
+                <p className="w-full max-w-sm text-muted-foreground">You can’t start another interview or send more turns right now. This round {reason}. Upgrade to premium for unlimited interviews and chats.</p>
+            </div>
+            <div className="flex items-center gap-3">
+                <Button size="sm" onClick={() => void upgrade()} disabled={busy}>
+                    {busy ? "Opening checkout…" : "Upgrade to Premium"}
+                </Button>
+                <button type="button" className="text-xs text-muted-foreground underline underline-offset-2" onClick={() => void openBillingPortal()}>
+                    Manage billing
+                </button>
+            </div>
+            {error && <p className="text-xs text-destructive">Checkout is unavailable right now. Try again in a moment.</p>}
+        </div>
+    );
+}

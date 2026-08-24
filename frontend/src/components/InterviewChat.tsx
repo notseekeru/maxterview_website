@@ -4,6 +4,7 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Textarea } from "@/components/ui/textarea";
 import { completeInterview, type Feedback, getFeedback, getMessages, type Message, startInterview, streamChat } from "@/lib/api";
 import { FeedbackView } from "./FeedbackView";
+import { UpgradeNotice } from "./UsageBadge";
 
 interface Props {
     interviewId: string;
@@ -17,6 +18,7 @@ export function InterviewChat({ interviewId, onExit }: Props) {
     const [assistBuf, setAssistBuf] = useState("");
     const [error, setError] = useState<string | null>(null);
     const [feedback, setFeedback] = useState<Feedback | null>(null);
+    const [quotaLocked, setQuotaLocked] = useState(false);
     const abortRef = useRef<AbortController | null>(null);
     const scrollRef = useRef<HTMLDivElement | null>(null);
 
@@ -108,7 +110,8 @@ export function InterviewChat({ interviewId, onExit }: Props) {
             );
         } catch (e: unknown) {
             if ((e as { name?: string })?.name !== "AbortError") {
-                setError("Connection lost while streaming.");
+                if ((e as { status?: number }).status === 402) setQuotaLocked(true);
+                else setError("Connection lost while streaming.");
             }
             setStatus("ready");
         }
@@ -149,6 +152,7 @@ export function InterviewChat({ interviewId, onExit }: Props) {
                 <>
                     <CardContent className="flex-1 overflow-y-auto space-y-3" ref={scrollRef}>
                         {error && <p className="text-sm text-destructive">{error}</p>}
+                        {quotaLocked && <UpgradeNotice reason="your free chat turns ran out." />}
                         {status === "loading" && <p className="text-sm text-muted-foreground">Starting…</p>}
                         {messages.map((m) => (
                             <Bubble key={m.id} from={m.role} content={m.content} />

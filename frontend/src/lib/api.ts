@@ -1,4 +1,4 @@
-import axios from "axios";
+import axios, { type AxiosError } from "axios";
 
 // The Vite dev proxy (and prod nginx) forward /api/... to the backend, stripping the
 // /api prefix so backend routes at root (/interviews) are hit.
@@ -8,6 +8,11 @@ export const api = axios.create({
     baseURL: BASE,
     withCredentials: true, // send __session cookie for Clerk auth
 });
+
+// M10: a 402 signals a quota lockout (daily interview cap or chat-turn cap).
+export function isQuotaError(e: unknown): boolean {
+    return (e as AxiosError)?.response?.status === 402;
+}
 
 // --- types (mirror backend app/models.py) ---
 
@@ -38,6 +43,14 @@ export interface Feedback {
     verdict: string;
     tips: string[];
     created_at: string;
+}
+
+// Mirror GET /usage (MONETIZATION §3).
+export interface Usage {
+    tier: "free" | "premium";
+    daily_interviews_remaining: number; // -1 when unlimited
+    daily_interviews_unlimited: boolean;
+    [key: string]: string | boolean | number;
 }
 
 // --- interviews ---
@@ -81,6 +94,23 @@ export async function getFeedback(id: string): Promise<Feedback> {
     return data;
 }
 
+// --- M10 usage + billing ---
+
+export async function getUsage(): Promise<Usage> {
+    const { data } = await api.get<Usage>("/usage");
+    return data;
+}
+
+export async function createCheckoutSession(): Promise<string> {
+    const { data } = await api.post<{ url: string }>("/billing/checkout");
+    return data.url;
+}
+
+export async function openBillingPortal(): Promise<string> {
+    const { data } = await api.post<{ url: string }>("/billing/portal");
+    return data.url;
+}
+
 // --- SSE chat stream ---
 // The backend streams SSE deltas; we consume them with native fetch streaming.
 
@@ -96,7 +126,9 @@ export async function streamChat(interviewId: string, content: string, onEvent: 
     });
 
     if (!res.ok || !res.body) {
-        throw new Error(`chat stream failed: HTTP ${res.status}`);
+        const err = new Error(`chat stream failed: HTTP ${res.status}`);
+        (err as Error & { status?: number }).status = res.status;
+        throw err;
     }
 
     const reader = res.body.getReader();

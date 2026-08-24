@@ -3,7 +3,8 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { createInterview } from "@/lib/api";
+import { createInterview, isQuotaError } from "@/lib/api";
+import { UpgradeNotice } from "./UsageBadge";
 
 interface Props {
     onCreated: (id: string) => void;
@@ -14,6 +15,7 @@ export function CreateInterviewForm({ onCreated }: Props) {
     const [topic, setTopic] = useState("");
     const [error, setError] = useState<string | null>(null);
     const [busy, setBusy] = useState(false);
+    const [quotaLocked, setQuotaLocked] = useState(false);
 
     async function submit(e: React.FormEvent) {
         e.preventDefault();
@@ -26,9 +28,9 @@ export function CreateInterviewForm({ onCreated }: Props) {
         try {
             const interview = await createInterview(role.trim(), topic.trim());
             onCreated(interview.id);
-        } catch {
-            setError("Failed to create interview. Is the backend running?");
-        } finally {
+        } catch (e) {
+            if (isQuotaError(e)) setQuotaLocked(true);
+            else setError("Failed to create interview. Is the backend running?");
             setBusy(false);
         }
     }
@@ -50,6 +52,7 @@ export function CreateInterviewForm({ onCreated }: Props) {
                         <Input id="topic" value={topic} onChange={(e) => setTopic(e.target.value)} placeholder="e.g. system design" />
                     </div>
                     {error && <p className="text-sm text-destructive">{error}</p>}
+                    {quotaLocked && <UpgradeNotice reason="your free daily interview quota ran out." />}
                 </CardContent>
                 <CardFooter>
                     <Button type="submit" disabled={busy}>
