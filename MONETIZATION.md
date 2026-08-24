@@ -1,9 +1,9 @@
 # MONETIZATION — Payment & Billing
 
 > **Simple two-tier model: Free / Premium.** This file is the billing spec for **M10**.
-> **Backend quota enforcement is built (2026-08-24).** Billing provider (Stripe) integration
-> and the frontend upsell UX are **deferred**.
-> **Source of truth for decisions:** PLAN.md D10 (and D4 for owner-scoping).
+> **Backend quota enforcement + raw Stripe shipped (2026-08-24).** Frontend M10 UX (usage badge +
+> lockout/upsell notices) shipped 2026-08-24 (UI). **Dedicated billing/plan page deferred** until
+> Stripe keys / live Clerk are verified. **Source of truth for decisions:** PLAN.md D10 (and D4 for owner-scoping).
 
 ## 0. Limits (env-configurable, not hardcoded)
 
@@ -77,10 +77,9 @@ Implementation: **raw Stripe** (chosen over Clerk-billing for ownership, learnin
 Stripe calculates tax, we remit; no merchant-of-record. Requires Stripe account + keys in prod Secret
 (zero-touch on credentials).
 
-**Deferred (needs keys / live Clerk):** actual payment testing (Stripe CLI `listen` for local webhooks),
-and the frontend upsell/portal UX. Until then, `subscriptions` rows can be created directly for
-testing/promo and `resolve_tier` honors them.
+**Frontend M10 UX (shipped 2026-08-24, UI only):** the usage badge (`UsageBadge`, `GET /usage`) and the lockout/upsell notice (`UpgradeNotice` on 402 — links to `POST /billing/checkout` and `POST /billing/portal`) are in the SPA. They are wired and correct, but **end-to-end payment cannot be exercised until the Stripe keys + live Clerk path exist.**
 
+**Deferred (needs Stripe keys / live Clerk):** a **dedicated billing/plan page** and real payment testing (Stripe CLI `listen` for local webhooks → subscribe → webhook → `resolve_tier` → tier flip → cancel/downgrade). Building the page before those are verified is speculative UI against an unverifiable contract (YAGNI) — the existing upsell/usage UX is enough until then. Until live, `subscriptions` rows can be created directly for testing/promo and `resolve_tier` honors them.
 ## 5. Phase-2 schema (shipped with M10 backend)
 
 Applied in `backend/migrations/0002_billing.sql`:
@@ -110,8 +109,9 @@ ALTER TABLE interviews ADD COLUMN IF NOT EXISTS chat_turns INTEGER NOT NULL DEFA
 | Shipped (2026-08-24) | Deferred |
 |---|---|
 | `app/billing.py` — tiers, quotas, `resolve_tier` | Stripe keys / Stripe CLI local webhook testing |
-| Daily interview cap (atomic) + chat-turn cap | Frontend upsell / lock UX + usage badge |
+| Daily interview cap (atomic) + chat-turn cap | Dedicated billing/plan page |
 | `GET /usage` endpoint | Live Clerk billing (`CLERK_ENABLED=true`) + JWT `tier` template |
+| Frontend upsell/lock UX + usage badge (`UsageBadge`/`UpgradeNotice`) — **shipped 2026-08-24** | — |
 | `app/payments.py` — raw Stripe checkout / portal / webhook | Real payment testing (needs `sk_test_`/`whsec_`) |
 | `subscriptions` + `chat_turns` migration | — |
 | `ClerkUser.tier` seam + `resolve_tier` | — |
