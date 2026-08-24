@@ -48,10 +48,6 @@ def system_prompt(role: str, topic: str = "") -> str:
 FEEDBACK_PROMPT_V1 = 'Review the full interview transcript. Return a JSON object ONLY, with keys: "scores" (object with numeric 1-10 values for keys clarity, relevance, structure, confidence), "verdict" (string, 2-3 sentences overall assessment), and "tips" (array of 2-4 short actionable strings).'
 
 
-def feedback_prompt() -> str:
-    return FEEDBACK_PROMPT_V1
-
-
 # --- HTTP / streaming helpers ---
 
 
@@ -122,7 +118,7 @@ async def generate_feedback(history: list[ChatMessage]) -> FeedbackSummary:
     payload = {
         "model": LLM_MODEL,
         "messages": [
-            {"role": "system", "content": feedback_prompt()},
+            {"role": "system", "content": FEEDBACK_PROMPT_V1},
             *[m.model_dump() for m in history],
         ],
         "stream": False,
