@@ -107,6 +107,9 @@ async def test_webhook_subscription_deleted_downgrades(monkeypatch):
 
     async def fake_fetchrow(q, *a, **k):
         calls.append((q, a))
+        # The owner-lookup query returns the row for the customer.
+        if "SELECT owner_id FROM subscriptions" in q:
+            return {"owner_id": "cancelling-user"}
         return {"id": "row"}
 
     monkeypatch.setattr("app.db.fetchrow", fake_fetchrow)
@@ -115,13 +118,13 @@ async def test_webhook_subscription_deleted_downgrades(monkeypatch):
         "data": {
             "object": {
                 "id": "sub_123",
-                "metadata": {"owner_id": "cancelling-user"},
+                "customer": "cus_999",
             }
         },
     }
     await payments.handle_webhook_event(event)
     assert calls, "expected a downgrade call"
-    q, args = calls[0]
+    q, args = calls[-1]  # the downgrade UPDATE follows the owner lookup
     assert "plan='free'" in q and "status='canceled'" in q
     assert args[0] == "cancelling-user"
 

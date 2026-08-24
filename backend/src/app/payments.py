@@ -2,6 +2,11 @@
 
 Checkout -> Stripe -> webhook -> subscriptions table -> resolve_tier upgrades the user.
 
+Entitlement is driven by SUBSCRIPTION events (customer.subscription.created/updated/deleted),
+which reliably follow checkout. Owner->subscription mapping:
+  - checkout.session.completed carries `owner_id` in metadata -> we record customer+owner.
+  - customer.subscription.* events are upserted onto the matching row.
+
 Config (env, zero-touch on credentials):
   STRIPE_SECRET_KEY     required for checkout/portal; used only server-side.
   STRIPE_WEBHOOK_SECRET required to verify webhook signatures.
@@ -50,9 +55,7 @@ async def create_portal_session(user: ClerkUser) -> str:
     row = await _subscription_row(user.sub)
     if row is None or not row["stripe_id"]:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No subscription found")
-    client = _client()
-    # The subscription's customer id is the source; find customer by subscription.
-    portal = client.billing_portal.sessions.create(params={"customer": row["stripe_id"], "return_url": f"{FRONTEND_BASE_URL}/app"})
+    portal = _client().billing_portal.sessions.create(params={"customer": row["stripe_id"], "return_url": f"{FRONTEND_BASE_URL}/app"})
     return portal["url"]
 
 
@@ -62,42 +65,10 @@ async def _subscription_row(owner_id: str):
     return await fetchrow("SELECT * FROM subscriptions WHERE owner_id = $1", owner_id)
 
 
-async def handle_webhook_event(event: dict) -> None:
-    """Upsert the subscriptions row from a verified Stripe event (idempotent)."""
+async def _upsert(owner_id: str, stripe_id: str, status_str: str, period_end) -> None:
+    """Idempotently upsert a subscription row."""
     from app.db import fetchrow
 
-    etype = event.get("type", "")
-    obj = event.get("data", {}).get("object", {})
-
-    if etype in ("checkout.session.completed", "customer.subscription.created", "customer.subscription.updated"):
-        await _upsert_from_subscription(obj, event)
-    elif etype == "customer.subscription.deleted":
-        owner_id = _owner_from_event(event)
-        if owner_id:
-            await fetchrow(
-                "UPDATE subscriptions SET plan='free', status='canceled' WHERE owner_id = $1 RETURNING id",
-                owner_id,
-            )
-
-
-def _owner_from_event(event: dict) -> str | None:
-    obj = event.get("data", {}).get("object", {})
-    meta = obj.get("metadata", {}) or {}
-    return meta.get("owner_id")
-
-
-async def _upsert_from_subscription(sub: dict, event: dict) -> None:
-    """Idempotently write/update the subscriptions row (owner_id from checkout metadata)."""
-    from app.db import fetchrow
-
-    stripe_id = sub.get("customer") or sub.get("id")
-    # checkout.session.completed objects carry status='complete'; map to 'active' for entitlement.
-    status_str = "active" if sub.get("status") in ("active", "trialing", "complete") else sub.get("status", "unknown")
-    owner_id = _owner_from_event(event) or (sub.get("metadata") or {}).get("owner_id")
-
-    # Without a mapped owner we can't grade entitlement; require checkout metadata.
-    if not owner_id:
-        return
     await fetchrow(
         """
         INSERT INTO subscriptions (owner_id, stripe_id, plan, status, current_period_end)
@@ -113,13 +84,48 @@ async def _upsert_from_subscription(sub: dict, event: dict) -> None:
         owner_id,
         stripe_id,
         status_str,
-        _period_end(sub),
+        period_end,
     )
+
+
+async def handle_webhook_event(event: dict) -> None:
+    """Apply a verified Stripe event to the subscriptions table (idempotent)."""
+    from app.db import fetchrow
+
+    etype = event.get("type", "")
+    obj = event.get("data", {}).get("object", {})
+
+    if etype == "checkout.session.completed":
+        # Record owner->customer so later subscription events can resolve the owner.
+        owner_id = (obj.get("metadata") or {}).get("owner_id")
+        customer = obj.get("customer")
+        if owner_id and customer:
+            await _upsert(owner_id, customer, "active", None)
+
+    elif etype in ("customer.subscription.created", "customer.subscription.updated"):
+        # The subscription object: status + periods authoritative.
+        customer = obj.get("customer")
+        status_str = "active" if obj.get("status") in ("active", "trialing") else obj.get("status", "unknown")
+        period_end = _period_end(obj)
+        # Resolve owner: prefer the owner already stored with this customer id.
+        row = await fetchrow("SELECT owner_id FROM subscriptions WHERE stripe_id = $1 LIMIT 1", customer)
+        owner_id = row["owner_id"] if row else (obj.get("metadata") or {}).get("owner_id")
+        if owner_id:
+            await _upsert(owner_id, customer, status_str, period_end)
+
+    elif etype == "customer.subscription.deleted":
+        customer = obj.get("customer")
+        row = await fetchrow("SELECT owner_id FROM subscriptions WHERE stripe_id = $1 LIMIT 1", customer)
+        if row:
+            await fetchrow(
+                "UPDATE subscriptions SET plan='free', status='canceled' WHERE owner_id = $1 RETURNING id",
+                row["owner_id"],
+            )
 
 
 def _period_end(sub: dict):
     items = sub.get("items", {}).get("data", [])
-    pe = None
+    pe = sub.get("current_period_end")
     for it in items:
         if it.get("current_period_end"):
             pe = it["current_period_end"]
