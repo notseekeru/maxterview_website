@@ -27,6 +27,10 @@
 | Free trial | **none** | — |
 
 - Two tiers only. Gated resources: **daily interview count + per-interview chat turns**.
+- **Planned (dev only): a third `dev` tier with caps above premium**, for development/testing.
+  Frontend currently shows a `DEV` label when no Clerk key is set (`CLERK_ENABLED=false`); wiring a
+  real `dev` tier into `app/billing.py` `LIMITS` + `resolve_tier` (higher caps than premium) is a
+  future backend task — the header label will reflect `dev` once `GET /usage` returns it.
 - **Feedback is NOT feature-gated by tier** — both tiers get the same feedback quality. The turn cap is
   the cost-control lever (free is tight, premium generous).
 - Billing: **monthly only** (no annual). Single-user only (no teams/orgs — D4 owner-scoping).
@@ -58,8 +62,9 @@ Implemented in `app/billing.py` + `app/main.py`.
 - **Cache decision:** no cache-aside for the counters (DB-backed, per-user, low-frequency). `tier`
   cached in the JWT; JWKS cached in `auth.py`.
 - **Usage status (`GET /usage`):** returns `tier`, `daily_interviews_remaining`,
-  `daily_interviews_unlimited`, and the tier's `chat_turns` limit. Frontend shows a badge/notice
-  (e.g. "1 free interview left today"). Lands with M10.
+  `daily_interviews_unlimited`, and the tier's `chat_turns` limit. The frontend `/app` header shows a
+  **Free / Premium tier label** (`UsageBadge`) plus a **`DEV` label** when no Clerk key is set.
+  Shipped 2026-08-24 (UI); full `dev` tier wiring deferred (see §1).
 
 ## 4. Billing provider — raw Stripe (backend shipped 2026-08-24)
 
@@ -77,7 +82,7 @@ Implementation: **raw Stripe** (chosen over Clerk-billing for ownership, learnin
 Stripe calculates tax, we remit; no merchant-of-record. Requires Stripe account + keys in prod Secret
 (zero-touch on credentials).
 
-**Frontend M10 UX (shipped 2026-08-24, UI only):** the usage badge (`UsageBadge`, `GET /usage`) and the lockout/upsell notice (`UpgradeNotice` on 402 — links to `POST /billing/checkout` and `POST /billing/portal`) are in the SPA. They are wired and correct, but **end-to-end payment cannot be exercised until the Stripe keys + live Clerk path exist.**
+**Frontend M10 UX (shipped 2026-08-24, UI only):** the header tier labels (`UsageBadge` → **Free / Premium** + **`DEV`** when no Clerk key; `GET /usage`) and the lockout/upsell notice (`UpgradeNotice` on 402 — links to `POST /billing/checkout` and `POST /billing/portal`) are in the SPA. They are wired and correct, but **end-to-end payment cannot be exercised until the Stripe keys + live Clerk path exist.**
 
 **Deferred (needs Stripe keys / live Clerk):** a **dedicated billing/plan page** and real payment testing (Stripe CLI `listen` for local webhooks → subscribe → webhook → `resolve_tier` → tier flip → cancel/downgrade). Building the page before those are verified is speculative UI against an unverifiable contract (YAGNI) — the existing upsell/usage UX is enough until then. Until live, `subscriptions` rows can be created directly for testing/promo and `resolve_tier` honors them.
 ## 5. Phase-2 schema (shipped with M10 backend)
