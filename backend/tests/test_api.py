@@ -118,16 +118,21 @@ def test_get_interview_missing_returns_404(client):
     assert r.status_code == 404
 
 
-def test_free_daily_interview_cap_blocks_second(client):
-    # M10: free tier = 1 interview/day; the 2nd create today returns 402 (atomic cap).
+def test_interviews_unlimited_at_creation(client):
+    # Daily-interview cap removed: creating multiple interviews the same day all succeed.
     r1 = client.post("/interviews", json={"role": "Quota Probe"})
     assert r1.status_code == 201
-    iid = r1.json()["id"]
+    iid1 = r1.json()["id"]
     r2 = client.post("/interviews", json={"role": "Quota Probe 2"})
-    assert r2.status_code == 402
-    # usage reports 0 remaining
+    assert r2.status_code == 201
+    iid2 = r2.json()["id"]
+    # /usage no longer reports a daily-interview field (removed); still reports tier + chat turns.
     u = client.get("/usage")
     assert u.status_code == 200
-    assert u.json()["daily_interviews_remaining"] == 0
-    # clean up so later tests aren't blocked by this day's cap
-    assert client.delete(f"/interviews/{iid}").status_code == 204
+    body = u.json()
+    assert "daily_interviews" not in body
+    assert body["tier"] == "free"  # no-Clerk dev-fallback, no active subscription -> free
+    assert body["chat_turns_per_interview_free"] == 8
+
+    assert client.delete(f"/interviews/{iid1}").status_code == 204
+    assert client.delete(f"/interviews/{iid2}").status_code == 204

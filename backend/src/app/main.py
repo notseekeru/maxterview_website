@@ -62,32 +62,18 @@ async def create_interview(
     body: InterviewCreate,
     user: CurrentUser,
 ) -> dict:
-    # M10 (MONETIZATION): free tier daily-interview cap via atomic conditional INSERT
-    # (race-safe: only proceeds if the owner hasn't hit today's cap).
-    tier = await billing.resolve_tier(user)
+    # No daily-interview cap (removed): interviews are unlimited at creation; the only
+    # gate is the per-interview chat-turn cap (checked in chat/stream).
     row = await fetchrow(
         """
         INSERT INTO interviews (owner_id, role, topic)
-        SELECT $1, $2, $3
-        WHERE NOT EXISTS (
-            -- premium: no cap; free: only when under the daily limit
-            SELECT 1 FROM interviews
-            WHERE owner_id = $1
-              AND created_at::date = CURRENT_DATE
-            HAVING count(*) >= $4
-        )
+        VALUES ($1, $2, $3)
         RETURNING id::text, owner_id, role, topic, status, created_at, updated_at
         """,
         user.sub,
         body.role,
         body.topic,
-        billing._quota(tier, "daily_interviews"),
     )
-    if row is None:
-        raise HTTPException(
-            status_code=status.HTTP_402_PAYMENT_REQUIRED,
-            detail="Daily interview limit reached. Upgrade to premium for unlimited interviews.",
-        )
     return dict(row)
 
 
@@ -211,15 +197,12 @@ async def create_feedback(
 
 @app.get("/usage")
 async def get_usage(user: CurrentUser) -> dict:
-    """Cheap quota status: daily interviews left + per-interview chat turns left."""
+    """Cheap quota status: tier + the per-interview chat-turn limit."""
     tier = await billing.resolve_tier(user)
-    daily = await billing.daily_interview_remaining(tier, user.sub)
-    free_chat = "unlimited" if tier == "premium" else int(billing._quota(tier, "chat_turns"))
+    chat = int(billing._quota(tier, "chat_turns"))
     return {
         "tier": tier,
-        "daily_interviews_remaining": -1 if daily == -1 else daily,
-        "daily_interviews_unlimited": daily == -1,
-        f"chat_turns_per_interview_{tier}": free_chat,
+        f"chat_turns_per_interview_{tier}": chat,
     }
 
 
