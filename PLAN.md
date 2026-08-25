@@ -6,8 +6,14 @@ Stack: FastAPI + React/TS + Postgres. Dev: Docker Compose (3-file split).
 > **How to use this file** — the *stable contract*: reload at session start for decisions,
 > guardrails, milestone status. Transient build state lives in session memory.
 > **Product requirements** live in `PRD.md`; **billing spec** in `MONETIZATION.md`.
+> **Docs hygiene (context = scarce):** one source of truth per topic — reference-only detail lives in the
+> owning file (PRD=product, MONETIZATION=billing, OBSERVABILITY=ops), never restated in PLAN. Decisions/status
+> are compact tables, not prose. When a milestone ships, **delete** the section that predicted it — don't add
+> a “shipped” note beside it. Docs-first-but-not-built files are debt: prune them once their code lands.
+> Before each session, `ls *.md` and drop anything whose header still claims an earlier milestone.
+> Last doc cleanup: 2026-08-25 — deleted APPFLOW (stale) + SECURITY (folded into §7), trimmed OBSERVABILITY/MONETIZATION.
 >
-> **Change policy:** edit only when a decision, milestone, or guardrail changes. `Last updated: 2026-08-11`
+> **Change policy:** edit only when a decision, milestone, or guardrail changes. `Last updated: 2026-08-25`
 
 ## 1. Decisions (D1–D9) — read first
 
