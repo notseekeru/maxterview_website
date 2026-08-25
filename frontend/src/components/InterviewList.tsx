@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -9,18 +10,37 @@ interface Props {
     error: string | null;
     onRefresh: () => void;
     onOpen: (id: string) => void;
+    onDelete: (id: string) => Promise<void> | void;
 }
 
 function formatDate(iso: string) {
     return new Date(iso).toLocaleString();
 }
 
-export function InterviewList({ interviews, loading, error, onRefresh, onOpen }: Props) {
+export function InterviewList({ interviews, loading, error, onRefresh, onOpen, onDelete }: Props) {
+    // Two-step confirm: first click arms the row for deletion, second confirms.
+    const [confirmingId, setConfirmingId] = useState<string | null>(null);
+    const [deleting, setDeleting] = useState(false);
+
+    async function handleDelete(id: string) {
+        if (confirmingId !== id) {
+            setConfirmingId(id);
+            return;
+        }
+        setDeleting(true);
+        try {
+            await onDelete(id);
+            setConfirmingId(null);
+        } finally {
+            setDeleting(false);
+        }
+    }
+
     return (
         <Card className="w-full">
             <CardHeader className="flex-row items-center justify-between space-y-0">
                 <CardTitle>History</CardTitle>
-                <Button variant="ghost" size="sm" onClick={onRefresh} disabled={loading}>
+                <Button variant="ghost" size="sm" onClick={onRefresh} disabled={loading || deleting}>
                     Refresh
                 </Button>
             </CardHeader>
@@ -39,9 +59,20 @@ export function InterviewList({ interviews, loading, error, onRefresh, onOpen }:
                             </p>
                             {typeof i.score === "number" && <p className="text-xs text-muted-foreground">Score: {i.score}</p>}
                         </div>
-                        <Button size="sm" variant="outline" onClick={() => onOpen(i.id)}>
-                            Open
-                        </Button>
+                        <div className="flex shrink-0 items-center gap-2">
+                            <Button size="sm" variant="outline" onClick={() => onOpen(i.id)}>
+                                Open
+                            </Button>
+                            {confirmingId === i.id ? (
+                                <Button size="sm" variant="destructive" onClick={() => void handleDelete(i.id)} disabled={deleting}>
+                                    {deleting ? "Deleting…" : "Confirm?"}
+                                </Button>
+                            ) : (
+                                <Button size="sm" variant="ghost" className="text-destructive" onClick={() => void handleDelete(i.id)} disabled={deleting}>
+                                    Delete
+                                </Button>
+                            )}
+                        </div>
                     </div>
                 ))}
             </CardContent>

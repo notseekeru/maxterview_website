@@ -6,6 +6,7 @@ import { InterviewList } from "@/components/InterviewList";
 import { UsageBadge } from "@/components/UsageBadge";
 import { Button } from "@/components/ui/button";
 import { useInterviewData } from "@/hooks/useInterviewData";
+import { deleteInterview } from "@/lib/api";
 import { clerkEnabled } from "@/lib/config";
 
 // /app — dashboard home (M12). One data source (useInterviewData) shared by
@@ -16,6 +17,11 @@ export function AppHome() {
 
     async function onCreated(id: string) {
         navigate(`/interviews/${id}`);
+    }
+
+    async function onDelete(id: string) {
+        await deleteInterview(id);
+        await refresh();
     }
 
     return (
@@ -45,7 +51,7 @@ export function AppHome() {
 
             <section className="space-y-2">
                 <h2 className="text-sm font-medium uppercase tracking-wide text-muted-foreground">History</h2>
-                <InterviewList interviews={interviews} loading={loading} error={error} onRefresh={() => void refresh()} onOpen={(id) => navigate(`/interviews/${id}`)} />
+                <InterviewList interviews={interviews} loading={loading} error={error} onRefresh={() => void refresh()} onOpen={(id) => navigate(`/interviews/${id}`)} onDelete={onDelete} />
             </section>
         </div>
     );
