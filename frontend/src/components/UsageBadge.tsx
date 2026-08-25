@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { createCheckoutSession, getUsage, openBillingPortal, type Usage } from "@/lib/api";
+import { clerkEnabled } from "@/lib/config";
 
 // M10: cheap quota-status badge (backed by GET /usage / MONETIZATION §3).
 export function UsageBadge() {
@@ -25,13 +26,15 @@ export function UsageBadge() {
     if (error) return null;
     if (!usage) return <Badge variant="secondary">…</Badge>;
 
-    if (usage.tier === "premium") {
-        return <Badge>Premium</Badge>;
-    }
+    // Explicit tier label (Free/Premium) + optional DEV marker when no Clerk key.
+    const tierBadge = usage.tier === "premium" ? <Badge>Premium</Badge> : <Badge variant="outline">Free</Badge>;
 
-    const remaining = usage.daily_interviews_remaining;
-    const label = remaining === -1 || remaining > 1 ? `${remaining} free interviews left today` : `${remaining} free interview left today`;
-    return <Badge variant="outline">{label}</Badge>;
+    return (
+        <div className="flex items-center gap-2">
+            {!clerkEnabled && <Badge className="bg-muted text-muted-foreground">DEV</Badge>}
+            {tierBadge}
+        </div>
+    );
 }
 
 // M10: lockout / upsell notice with an "Upgrade" CTA when quota is exhausted.
