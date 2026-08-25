@@ -49,8 +49,9 @@ create → start → chat/stream (SSE) → … → complete → feedback
 Requires Docker + Docker Compose v2. Copy the example env and (optionally) fill in real values:
 
 ```bash
-cp .env.example .env        # defaults: APP_ENV=development, CLERK_ENABLED=false (dev fallback)
-cp frontend/.env.example frontend/.env
+cp .env.example .env                  # compose/infra only: APP_ENV, POSTGRES_*, ports
+cp backend/.env.example backend/.env  # backend runtime: CLERK, LLM, quotas, STRIPE
+cp frontend/.env.example frontend/.env # VITE_* frontend vars
 make up                     # builds + starts postgres, backend, frontend
 ```
 
@@ -63,7 +64,7 @@ and click **Complete** to see feedback.
 ### LLM / auth config
 
 By default the backend runs in **STUB_MODE** (no `LLM_BASE_URL`) for model-free development/tests,
-and **no-auth dev mode** (`CLERK_ENABLED=false` → `DEV_USER`). See `.env.example`.
+and **no-auth dev mode** (`CLERK_ENABLED=false` → `DEV_USER`). Set these in `backend/.env` (see `backend/.env.example`).
 
 | Var | Purpose | Dev default |
 |---|---|---|
@@ -78,8 +79,7 @@ dev/no-auth mode.
 > **Local llama.cpp caveat:** some llama.cpp builds return HTTP 500 to **non-streaming**
 > `/chat/completions` when called via httpx, so auto-feedback can come back empty against a local
 > llama.cpp (the streaming chat path is unaffected). Use a chat/OpenAI-compatible provider
-> (e.g. DeepSeek) for structured feedback output. See `.env.example`.
-
+> (e.g. DeepSeek) for structured feedback output. See `backend/.env.example`.
 ---
 
 ## Common commands (`make`)

@@ -19,7 +19,7 @@
 
 - **No daily-interview cap** (removed 2026-08-25): creation is unlimited; the per-interview chat-turn
   cap is the only gate. No token counting (2026-08-23 decision) — count turns, not tokens.
-- Limits are env-overridable (`.env.example`). **`dev` tier** (only for developers, never prod): the
+- Limits are env-overridable (`backend/.env.example`). **`dev` tier** (only for developers, never prod): the
   no-Clerk dev-fallback identity (`CLERK_ENABLED=false`) resolves to `dev` with caps above premium;
   confines to dev/test and never persists in `subscriptions` (details in PLAN D10).
 - **Feedback not feature-gated** — same quality across tiers. Turn cap is the cost-control lever.
