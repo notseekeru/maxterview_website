@@ -3,10 +3,7 @@
 Observability plan for the MVP. **Docs-first milestone (M13)**: this file captures the design and
 current state; implementation follows in a later code pass. Companion to `PLAN.md` (security in §7) and `README.md`.
 
-> **Decided 2026-08-23:** Grafana-focused stack only (Loki + Prometheus + Grafana Cloud) — no Sentry.
-> For a personal MVP the two overlap on error logging; a single Grafana vendor keeps one auth, one
-> data plane, and leans on the structlog JSON logs we already plan. Sentry-style exception grouping
-> can be revisited later if error triage at scale ever demands it — not now.
+> **Decided 2026-08-23:** Grafana-only stack (Loki + Prometheus + Grafana Cloud) — **no Sentry.** For an MVP the two overlap on error logging; one vendor keeps one auth/data plane, leaning on structlog JSON. Revisit Sentry only if exception triage at scale demands it.
 
 ---
 
@@ -21,7 +18,6 @@ current state; implementation follows in a later code pass. Companion to `PLAN.m
 | Log aggregation / dashboards | ❌ none (no Loki/Grafana) |
 | Health/readiness | ✅ `/health` (liveness only; no readiness/deep-health) |
 
-**Conclusion:** observability is effectively absent. Everything below is a documented plan.
 
 ---
 
@@ -78,10 +74,6 @@ to Alloy. Instrument in the same request middleware, so every signal carries the
 | `feedback_generation_duration_seconds` | Histogram | auto-feedback latency |
 | `db_query_duration_seconds` | Histogram | asyncpg query latency (if instrumenting db.py) |
 | `interviews_created_total` / `interviews_completed_total` | Counter | product counters |
-
-**Transport:** pure **OTLP** for metrics/traces — the OpenTelemetry SDK exports to Alloy, which forwards
-to Grafana Cloud managed metrics. No Prometheus scrape; no `/metrics` endpoint.
-
 ### 4. Probes + infrastructure metrics (Gap B)
 
 - **Probes:** today only liveness `/health` exists. Add **readiness** (reports ready only when the
@@ -141,22 +133,12 @@ flowchart LR
 
 ## Out of scope (deliberately deferred — hobby, app-scoped)
 
-These are real observability opportunities but are **not** worth the complexity for a personal,
-single-service app. They are recorded so the decision is explicit, not accidental. Revisit if the app
-grows to real traffic or multiple services.
+Real but not worth it for a single-service hobby app; recorded so the deferral is explicit. Revisit at real traffic / multiple services.
 
-- **Edge / ingress observability** — nginx-ingress + Cloudflare Tunnel + Cloudflare edge (WAF/4xx/5xx)
-  dashboards. The app is reached through `Cloudflare → nginx → pod`; observing only the pod is fine at
-  this scale. Site-down is noticed in Cloudflare's built-in analytics long before we need dedicated edge
-  dashboards.
-- **Request-id / trace correlation across layers** — the app is effectively a single service (one
-  backend, one DB, one LLM), so multi-service trace/correlation plumbing has little payoff until that
-  changes.
-- **Synthetic / uptime probes** — a Grafana Cloud synthetic check on `/health` is cheap but optional
-  for a personal app; drop if you rely on Cloudflare's uptime/health checks instead.
-- **Dashboards/alerts as code (GitOps drift-fighting)** — hand-built Grafana dashboards are fine for
-  personal use; converting to provisioning-as-code is cosmetic value, not a risk, until the k3s repo's
-  everything-as-git philosophy demands it.
+- **Edge / ingress observability** — nginx + Cloudflare/WAF dashboards. Single pod scale; site-down is visible in Cloudflare analytics.
+- **Trace correlation across layers** — effectively single-service (one backend/DB/LLM); low payoff until that changes.
+- **Synthetic / uptime probes** — cheap but optional; rely on Cloudflare's uptime checks instead.
+- **Dashboards/alerts as code** — hand-built Grafana is fine for personal use; provisioning-as-code is cosmetic until the k3s repo's everything-as-git demands it.
 
 **Tempo (distributed tracing) remains deferred** (already noted) for the same scoped reason.
 ---
