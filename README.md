@@ -10,7 +10,6 @@ Docs:
 - `PRD.md` — product requirements (user stories, acceptance criteria)
 - `PLAN.md` — technical decisions (D1–D10) and milestones (M1–M15)
 - `MONETIZATION.md` — billing spec (quotas + raw Stripe backend shipped; frontend upsell UX + usage badge shipped; dedicated billing/plan page deferred)
-- `SECURITY.md` — threat model, verified control status, accepted risks
 - `OBSERVABILITY.md` — logging/error-tracking/metrics plan (doc-first M13)
 
 ---
@@ -158,7 +157,7 @@ backend **has a `/health` route**, so its pods can use `httpGet` probes instead 
 
 - **M1–M9 done** (infra, backend, auth, API, LLM layer, tests, frontend app, verify + README).
 - **M10** (billing/monetization) — **backend shipped**: chat-turn quotas (free 8 / premium 100) + `GET /usage` + raw Stripe checkout/portal/webhook; **no daily-interview cap** (interviews are unlimited at creation); **`dev` tier (500 turns, dev-only) wired 2026-08-25**; **frontend UX shipped** (header Free/Premium + DEV tier labels, upsell + lockout notices); Stripe keys/payment testing + dedicated billing/plan page deferred (`MONETIZATION.md`).
-- **M11** (security) — docs-first phase done (`SECURITY.md`); code hardening (rate limiter, CORS) pending.
+- **M11** (security) — docs-first phase done (threat model + accepted risks + pentest plan in PLAN §7); code hardening (rate limiter, CORS) pending.
 - **M12** (frontend polish) — **done (2026-08-24)**: public landing page, `/app` dashboard with stats + score charts, empty states, skeleton loaders, mobile-responsive layout, code-split routes (`/`, `/app`, `/interviews/:id`).
 - **M13** (observability) — docs-first done (`OBSERVABILITY.md`); structlog + Grafana Cloud (Loki for logs, **pure OTLP** metrics/traces → Prometheus) wiring pending.
 - **M14** (RAG / retrieval-augmented interviewing) — future enhancement, not started (`PLAN.md`).

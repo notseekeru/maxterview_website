@@ -1,8 +1,7 @@
 # OBSERVABILITY — maxterview
 
 Observability plan for the MVP. **Docs-first milestone (M13)**: this file captures the design and
-current state; implementation follows in a later code pass. Companion to `PLAN.md`, `SECURITY.md`,
-and `README.md`.
+current state; implementation follows in a later code pass. Companion to `PLAN.md` (security in §7) and `README.md`.
 
 > **Decided 2026-08-23:** Grafana-focused stack only (Loki + Prometheus + Grafana Cloud) — no Sentry.
 > For a personal MVP the two overlap on error logging; a single Grafana vendor keeps one auth, one

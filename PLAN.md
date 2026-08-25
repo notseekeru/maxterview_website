@@ -94,7 +94,22 @@ graph TD
 - [x] Health/readiness endpoints don't leak internals (`/health` = `{status:ok}` only)
 - [ ] (Later) Trivy deps scan — noted, not MVP; observability (structlog/Grafana) tracked in M13/`OBSERVABILITY.md`
 
-> **M11 (security, docs)** — full threat model and accepted-risks summary in `SECURITY.md`.
+**Threat model (M11):** browser SPA → nginx/Vite `/api` proxy → FastAPI → Postgres + LLM. FastAPI is the trust boundary.
+
+| Threat | Mitigation | Gap |
+|---|---|---|
+| Cross-tenant access | `WHERE owner_id = sub` on every query; foreign→404 (D4) | None |
+| Forged/replayed token | RS256-pinned, JWKS `kid`, `iss`/`exp` (`auth.py`) | `aud` off unless `CLERK_AUDIENCE` set |
+| Unauthenticated API | `get_current_user` on every handler | prod requires `CLERK_ENABLED=true` |
+| Prompt injection | system-prompt interviewer boundary; no tools given | no guardrail; open-ended user ans → LLM. Accept; ingress rate-limit + M10 turn caps |
+| Secret exfil via LLM | provider keys env-only, never in prompts | None |
+| Dependency exploit | pinned lockfile + `npm audit` (info) | Trivy image scan deferred |
+
+**Accepted risks (post-MVP):** (1) LLM prompt-injection surface — non-agent model, limited blast radius, revisit if it gains tools; (2) CORS relies on same-origin proxy — add allow-list only if opened cross-origin; (3) Trivy + observability not yet wired; (4) local llama.cpp has no isolation hardening (dev-only).
+
+**Rate limiting:** ingress `limit-rps:30/limit-burst:20` (gitops) ✅; **no app-level limiter** (⚠️ add slowapi/limits M11 code); per-LLM `max_tokens` ceiling ✅; M10 turn caps ✅.
+
+**Pre-ship checklist:** `CLERK_ENABLED=true` + real domain/JWKS + `aud`; app-level per-client rate limiter; Clerk DNS (`clerk.seekeru.tech` Pending); secrets only in k8s (`DATABASE_URL`/keys via Terraform/Infisical); Postgres on private network; enable Trivy in CD; `uv pip audit`/`npm audit` non-informational; **manual/assisted pentest** (OWASP ZAP/Burp on deployed SPA+API, scope: authz/IDOR/JWT/input/rate-limit/prompt-injection/secret leak; exit: no cross-tenant access, fixed 401/404/409/422, rate limiter trips, no secret leakage) before broad public traffic.
 ## 8. Milestones
 
 | # | Milestone | Deliverables | Status |
@@ -109,7 +124,7 @@ graph TD
 | 8 | Frontend | React+TS+Vite + Tailwind 4 + shadcn/ui + @/* alias. **App built (2026-08-23):** create-interview form, history list, SSE chat screen (create→start→chat/stream→complete→feedback), native fetch SSE, **react-router** URLs (`/`, `/interviews/:id`), Clerk dev/no-auth fallback. Verified green (typecheck/build/biome) and in-browser. Caveat: local llama.cpp auto-feedback may be empty (documented in `.env.example`); DeepSeek validated | [x] |
 | 9 | Verify + README | **Done (2026-08-23):** `compose config` (dev+prod) valid; backend ruff check/format + pytest 19 passed; frontend biome/typecheck/build green; `README.md` added | [x] |
 | 10 | Billing/monetization | **Backend shipped (2026-08-24):** quotas (`app/billing.py` — chat-turn cap, `resolve_tier`, `GET /usage`) + **raw Stripe** (`app/payments.py` — checkout/portal/webhook, signature-verified, idempotent upsert) + `0002_billing` migration. **Daily-interview cap removed + `dev` tier backend wiring shipped 2026-08-25**: interviews unlimited at creation; the per-interview chat-turn cap is the only gate; `dev` (500 turns) granted to the no-Clerk dev-fallback identity only. 29 tests pass. **Frontend M10 UX shipped 2026-08-24:** header tier labels (`UsageBadge` → Free/Premium + `DEV`) + lockout/upsell notice (`UpgradeNotice`) wiring `POST /billing/checkout` + `/portal`. **Deferred:** Stripe keys/CLI/payment testing, **dedicated billing/plan page**, live Clerk billing. Turn-based quotas, no token metering — `MONETIZATION.md`. | [~] |
-| 11 | Security hardening | **Docs-first (2026-08-23):** verified security checklist (§7), threat model + accepted risks + rate-limiting/abuse-prevention plan + penetration-test plan in `SECURITY.md`. Later (code): app-level rate limiter (slowapi/limits), CORS allow-list, LLM prompt-injection guardrails, dependency audit (uv/npm + Trivy) | [~] |
+| 11 | Security hardening | **Docs-first (2026-08-23):** verified security checklist + threat model + accepted risks + rate-limiting/abuse-prevention plan + penetration-test plan now folded into PLAN §7 (sole `SECURITY.md` removed 2026-08-25). Later (code): app-level rate limiter (slowapi/limits), CORS allow-list, LLM prompt-injection guardrails, dependency audit (uv/npm + Trivy) | [~] |
 | 12 | Frontend polish | **Done (2026-08-24):** public landing page, `/app` dashboard (stats cards + Recharts score trend + dimension bars), empty states, skeleton loaders, mobile-responsive grid, code-split react-router routes (`/` public, `/app`, `/interviews/:id`). Monochrome shadcn theme. | [x] |
 | 13 | Observability | **Docs-first (2026-08-23):** `OBSERVABILITY.md` — structlog JSON logging (foundation, prod-JSON/dev-human) + **Grafana Cloud** (Loki ingests JSON logs; **pure OTLP** for metrics/traces via OpenTelemetry SDK → Alloy, no `/metrics` scrape; Grafana dashboards/alerts). **Decision: no Sentry** (overlaps with Loki error logs for MVP). No code yet | [~] |
 | 14 | RAG (retrieval-augmented interviewing) | **Future enhancement (not MVP), noted 2026-08-23.** Current LLM layer is plain chat-completion (no vector store). Add embeddings + vector retrieval (pgvector in the existing Postgres, or a vector DB) + ingestion, retrieving role/question-bank content into the interviewer/feedback prompts. Enables the PRD's out-of-scope 'custom question banks'. Depends on acquiring a question-bank knowledge base. | [ ] |
