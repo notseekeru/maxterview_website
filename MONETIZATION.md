@@ -8,49 +8,33 @@
 > **Dedicated billing/plan page deferred** until Stripe keys / live Clerk are verified.
 > **Source of truth for decisions:** PLAN.md D10 (and D4 for owner-scoping).
 
-## 0. Limits (env-configurable, not hardcoded)
-
-| Limit | Free | Premium | dev |
-|---|---|---|---|
-| Daily interview cap | **none** (removed) | **none** | **none** |
-| Per-interview chat turns | **8** (`FREE_CHAT_TURNS`) | **100** (`PREMIUM_CHAT_TURNS`) | **500** (`DEV_CHAT_TURNS`) |
-
-- **No daily-interview cap** (removed 2026-08-25): interviews are unlimited at creation; the only
-  gate is the per-interview chat-turn cap. No token counting (decision 2026-08-23: simpler to count
-  turns than to meter LLM tokens; revisit only if LLM cost becomes a concern).
-- Limits are env-overridable (see `.env.example`). The chat-turn counter lives in `interviews.chat_turns`.
-
-## 1. Model: Free vs. Premium (+ dev)
+## 0. Limits & model (env-configurable, not hardcoded)
 
 | | Free | Premium | dev |
 |---|---|---|---|
-| Interviews | **unlimited** | **unlimited** | **unlimited** |
-| Chat turns per interview | **8** | **100** | **500** |
-| Price | $0 | **$9.99 / month** (monthly billing only) | $0 (dev-only) |
-| Free trial | **none** | — | — |
+| Interviews (creation) | **unlimited** | **unlimited** | **unlimited** |
+| Chat turns / interview | **8** (`FREE_CHAT_TURNS`) | **100** (`PREMIUM_CHAT_TURNS`) | **500** (`DEV_CHAT_TURNS`) |
+| Price | $0 | **$9.99/mo** (monthly only) | $0 |
+| Free trial | none | — | — |
 
-- **dev tier (only for developers, never prod):** the no-Clerk dev-fallback identity
-  (`CLERK_ENABLED=false`, i.e. the fixed `DEV_USER`) resolves to `dev` with caps above premium (500
-  turns). Backend wiring shipped 2026-08-25 (`app/billing.py` `LIMITS` + `resolve_tier`); the D2
-  boot guard confines `CLERK_ENABLED=false` to development/test, so `dev` can never leak to prod.
-  Never persisted in `subscriptions`; the frontend `DEV` label reflects it via `GET /usage`.
-- Gated resource: **per-interview chat turns only** (the daily-interview cap was removed).
-- **Feedback is NOT feature-gated by tier** — all tiers get the same feedback quality. The turn cap is
-  the cost-control lever (free is tight, premium generous, dev free).
-- Billing: **monthly only** (no annual). Single-user only (no teams/orgs — D4 owner-scoping).
-- No invoice/tax features in scope (Stripe handles tax; no merchant-of-record requirement).
-- **Decided 2026-08-11; metering simplified to turn-based 2026-08-24; daily cap removed 2026-08-25.**
+- **No daily-interview cap** (removed 2026-08-25): creation is unlimited; the per-interview chat-turn
+  cap is the only gate. No token counting (2026-08-23 decision) — count turns, not tokens.
+- Limits are env-overridable (`.env.example`). **`dev` tier** (only for developers, never prod): the
+  no-Clerk dev-fallback identity (`CLERK_ENABLED=false`) resolves to `dev` with caps above premium;
+  confines to dev/test and never persists in `subscriptions` (details in PLAN D10).
+- **Feedback not feature-gated** — same quality across tiers. Turn cap is the cost-control lever.
+- Billing **monthly only**, single-user (D4). Stripe handles tax (no merchant-of-record).
 
-## 2. The `tier` claim & its source of truth (entitlement)
+## 1. The `tier` claim & its source of truth (entitlement)
 
 - **Entitlement (`tier`)** ∈ `{"free", "premium"}` (+ `"dev"` for the no-Clerk dev-fallback
-  identity, see §1). Source of truth at runtime is `ClerkUser.tier` (JWT claim), **merged with an
+  identity, see §0). Source of truth at runtime is `ClerkUser.tier` (JWT claim), **merged with an
   active `premium` row in the `subscriptions` table** so billing can elevate even when the JWT is
   stale. Implemented in `app/billing.py::resolve_tier`.
 - **Consumption (the per-interview turn counter) is NOT in the JWT** — it's counted from
   `interviews.chat_turns`, server-side per owner (D4).
 
-## 3. Enforcement (backend-authoritative; frontend is UX only)
+## 2. Enforcement (backend-authoritative; frontend is UX only)
 
 Implemented in `app/billing.py` + `app/main.py`.
 
@@ -66,10 +50,10 @@ Implemented in `app/billing.py` + `app/main.py`.
   cached in the JWT; JWKS cached in `auth.py`.
 - **Usage status (`GET /usage`):** returns `tier` and the tier's `chat_turns` limit
   (`chat_turns_per_interview_<tier>`). The frontend `/app` header shows a **Free / Premium / DEV
-  tier label** (`UsageBadge`). `dev` is returned by the no-Clerk dev-fallback identity (see §1).
+  tier label** (`UsageBadge`). `dev` is returned by the no-Clerk dev-fallback identity (see §0).
 
 
-## 4. Billing provider — raw Stripe (backend shipped 2026-08-24)
+## 3. Billing provider — raw Stripe (backend shipped 2026-08-24)
 
 Implementation: **raw Stripe** (chosen over Clerk-billing for ownership, learning, and scale).
 
@@ -88,7 +72,7 @@ Stripe calculates tax, we remit; no merchant-of-record. Requires Stripe account 
 **Frontend M10 UX (shipped 2026-08-24, UI only):** the header tier labels (`UsageBadge` → **Free / Premium** + **`DEV`** when no Clerk key; `GET /usage`) and the lockout/upsell notice (`UpgradeNotice` on 402 — links to `POST /billing/checkout` and `POST /billing/portal`) are in the SPA. They are wired and correct, but **end-to-end payment cannot be exercised until the Stripe keys + live Clerk path exist.**
 
 **Deferred (needs Stripe keys / live Clerk):** a **dedicated billing/plan page** and real payment testing (Stripe CLI `listen` for local webhooks → subscribe → webhook → `resolve_tier` → tier flip → cancel/downgrade). Building the page before those are verified is speculative UI against an unverifiable contract (YAGNI) — the existing upsell/usage UX is enough until then. Until live, `subscriptions` rows can be created directly for testing/promo and `resolve_tier` honors them.
-## 5. Phase-2 schema (shipped with M10 backend)
+## 4. Phase-2 schema (shipped with M10 backend)
 
 Applied in `backend/migrations/0002_billing.sql`:
 
@@ -112,7 +96,7 @@ ALTER TABLE interviews ADD COLUMN IF NOT EXISTS chat_turns INTEGER NOT NULL DEFA
 > **No `usage` / `tokens_used` tables** — token metering was intentionally dropped for the turn-based
 > model (decision 2026-08-23). Reintroduce only if LLM cost accounting is required later.
 
-## 6. M10 handoff
+## 5. M10 handoff
 
 | Shipped (2026-08-24) | Deferred |
 |---|---|
@@ -125,7 +109,7 @@ ALTER TABLE interviews ADD COLUMN IF NOT EXISTS chat_turns INTEGER NOT NULL DEFA
 | `subscriptions` + `chat_turns` migration | — |
 | `ClerkUser.tier` seam + `resolve_tier` | — |
 
-## 7. Cancellation & billing terms (M10, deferred with Stripe)
+## 6. Cancellation & billing terms (M10, deferred with Stripe)
 
 - **Cancellation → access till end of the current paid period, no refunds.**
 - **Refund (2026-08-16): 3-day voluntary refund window**; after 3 days no voluntary refunds.
