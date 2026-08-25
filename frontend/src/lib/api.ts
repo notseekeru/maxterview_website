@@ -65,11 +65,6 @@ export async function listInterviews(): Promise<Interview[]> {
     return data;
 }
 
-export async function getInterview(id: string): Promise<Interview> {
-    const { data } = await api.get<Interview>(`/interviews/${id}`);
-    return data;
-}
-
 export async function startInterview(id: string): Promise<Interview> {
     const { data } = await api.post<Interview>(`/interviews/${id}/start`);
     return data;
