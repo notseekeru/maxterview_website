@@ -158,7 +158,7 @@ backend **has a `/health` route**, so its pods can use `httpGet` probes instead 
 ## Status
 
 - **M1–M9 done** (infra, backend, auth, API, LLM layer, tests, frontend app, verify + README).
-- **M10** (billing/monetization) — **backend shipped**: free/premium quotas + `GET /usage` + raw Stripe checkout/portal/webhook; **frontend UX shipped** (header Free/Premium + DEV tier labels, upsell + lockout notices); Stripe keys/payment testing + dedicated billing/plan page deferred. A **`dev` tier** (higher caps than premium, dev-only) is **planned** — frontend `DEV` label shipped, backend tier wiring pending (`MONETIZATION.md`).
+- **M10** (billing/monetization) — **backend shipped**: chat-turn quotas (free 8 / premium 100) + `GET /usage` + raw Stripe checkout/portal/webhook; **no daily-interview cap** (interviews are unlimited at creation); **`dev` tier (500 turns, dev-only) wired 2026-08-25**; **frontend UX shipped** (header Free/Premium + DEV tier labels, upsell + lockout notices); Stripe keys/payment testing + dedicated billing/plan page deferred (`MONETIZATION.md`).
 - **M11** (security) — docs-first phase done (`SECURITY.md`); code hardening (rate limiter, CORS) pending.
 - **M12** (frontend polish) — **done (2026-08-24)**: public landing page, `/app` dashboard with stats + score charts, empty states, skeleton loaders, mobile-responsive layout, code-split routes (`/`, `/app`, `/interviews/:id`).
 - **M13** (observability) — docs-first done (`OBSERVABILITY.md`); structlog + Grafana Cloud (Loki for logs, **pure OTLP** metrics/traces → Prometheus) wiring pending.
