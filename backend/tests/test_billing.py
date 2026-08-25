@@ -26,23 +26,34 @@ def test_quota_defaults():
     # the chat-turn cap is the only gate.
     assert _quota("free", "chat_turns") == 8
     assert _quota("premium", "chat_turns") == 100
+    assert _quota("dev", "chat_turns") == 500
+
+
+async def test_resolve_tier_dev_fallback_when_no_clerk(monkeypatch):
+    # CLERK_ENABLED=false => the dev-fallback identity (DEV_USER) => dev tier, no DB read.
+    monkeypatch.setattr(billing, "CLERK_ENABLED", False)
+    monkeypatch.setattr(billing, "fetchrow", _async_none)
+    assert await resolve_tier(_User("dev-session", "free")) == "dev"
 
 
 async def test_resolve_tier_premium_subscription_elevates(monkeypatch):
     async def _fake(_, _sub):
         return {"plan": "premium"}  # returned by fetchrow -> found
 
+    monkeypatch.setattr(billing, "CLERK_ENABLED", True)
     monkeypatch.setattr(billing, "fetchrow", _fake)
     assert await resolve_tier(_User("elevated-user", "free")) == "premium"
 
 
 async def test_resolve_tier_free_when_no_subscription(monkeypatch):
+    monkeypatch.setattr(billing, "CLERK_ENABLED", True)
     monkeypatch.setattr(billing, "fetchrow", _async_none)
     assert await resolve_tier(_User("plain-user", "free")) == "free"
 
 
 async def test_resolve_tier_jwt_premium_wins(monkeypatch):
     # A JWT that already says premium is honored without DB lookups.
+    monkeypatch.setattr(billing, "CLERK_ENABLED", True)
     monkeypatch.setattr(billing, "fetchrow", _async_none)
     assert await resolve_tier(_User("p-user", "premium")) == "premium"
 

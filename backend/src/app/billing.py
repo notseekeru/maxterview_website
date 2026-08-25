@@ -1,36 +1,48 @@
 """M10 billing/quota enforcement (MONETIZATION.md).
 
-Simple two-tier model: Free / Premium. Backend-authoritative.
+Simple tier model: Free / Premium / dev(-only). Backend-authoritative.
 
 - **Entitlement (`tier`)**: source of truth is `ClerkUser.tier` (JWT claim), merged with any
   active `premium` row in the `subscriptions` table so billing can elevate even when the JWT is
   stale. Default `"free"`.
-- **Quotas** (simpler than the token-budget design; see MONETIZATION.md):
-  - **Chat-turn cap** per interview: free = K user turns; premium = M (effectively unlimited).
-  No daily-interview cap (removed): interviews are unlimited at creation. The chat-turn cap is
-  the only gate. No token metering (decision 2026-08-23).
+- **`dev` tier**: only for the no-Clerk dev-fallback identity (`CLERK_ENABLED=false`, i.e. the
+  fixed `DEV_USER`). `main.py`'s D2 guard refuses to boot with `CLERK_ENABLED=false` outside
+  development/test, so `dev` can never leak to production. Never persisted in `subscriptions`.
+- **Quotas**: chat-turn cap per interview is the only gate — free = K, premium = M, dev = D (>M).
+  No daily-interview limit (removed) and no token metering (decision 2026-08-23).
+
 """
 
 import os
 
 from fastapi import HTTPException, status
 
+from app.auth import CLERK_ENABLED
 from app.db import fetchrow
 from app.models import ClerkUser
 
 # --- tier limits (env-overridable; MONETIZATION.md §0 placeholders) ---
 FREE_CHAT_TURNS = int(os.getenv("FREE_CHAT_TURNS", "8"))
 PREMIUM_CHAT_TURNS = int(os.getenv("PREMIUM_CHAT_TURNS", "100"))
+DEV_CHAT_TURNS = int(os.getenv("DEV_CHAT_TURNS", "500"))  # dev > premium
 
 LIMITS = {
     # chat-turn cap per interview is the only quota (daily-interview cap removed).
     "free": {"chat_turns": FREE_CHAT_TURNS},
     "premium": {"chat_turns": PREMIUM_CHAT_TURNS},
+    "dev": {"chat_turns": DEV_CHAT_TURNS},
 }
 
 
 async def resolve_tier(user: ClerkUser) -> str:
-    """Effective tier = ClerkUser.tier, escalated by an active premium subscription."""
+    """Effective tier = ClerkUser.tier, escalated by an active premium subscription.
+
+    `dev` is granted only to the no-Clerk dev-fallback identity (DEV_USER). With
+    CLERK_ENABLED=false the only possible user IS that fixed identity (auth always returns
+    DEV_USER), and the D2 boot guard confines CLERK_ENABLED=false to development/test, so
+    `dev` is unreachable in production."""
+    if not CLERK_ENABLED:
+        return "dev"
     if user.tier == "premium":
         return "premium"
     row = await fetchrow("SELECT plan FROM subscriptions WHERE owner_id = $1 AND plan = 'premium' AND status = 'active'", user.sub)

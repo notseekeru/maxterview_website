@@ -131,8 +131,8 @@ def test_interviews_unlimited_at_creation(client):
     assert u.status_code == 200
     body = u.json()
     assert "daily_interviews" not in body
-    assert body["tier"] == "free"  # no-Clerk dev-fallback, no active subscription -> free
-    assert body["chat_turns_per_interview_free"] == 8
+    assert body["tier"] == "dev"  # no-Clerk dev-fallback -> dev tier
+    assert body["chat_turns_per_interview_dev"] == 500
 
     assert client.delete(f"/interviews/{iid1}").status_code == 204
     assert client.delete(f"/interviews/{iid2}").status_code == 204
