@@ -8,6 +8,7 @@ services:
       target: prod
     env_file:
       - .env
+      - ./backend/.env
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-maxterview}:${POSTGRES_PASSWORD:-maxterview}@postgres:5432/${POSTGRES_DB:-maxterview}
       APP_ENV: ${APP_ENV:-production}
