@@ -5,7 +5,7 @@ Stack: FastAPI + React/TS + Postgres. Dev: Docker Compose (3-file split).
 
 > **How to use this file** — the *stable contract*: reload at session start for decisions,
 > guardrails, milestone status. Transient build state lives in session memory.
-> **Product requirements** live in `PRD.md`; **application flow + diagrams** in `APPFLOW.md`.
+> **Product requirements** live in `PRD.md`; **billing spec** in `MONETIZATION.md`.
 >
 > **Change policy:** edit only when a decision, milestone, or guardrail changes. `Last updated: 2026-08-11`
 
