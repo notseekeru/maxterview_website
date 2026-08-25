@@ -111,7 +111,6 @@ async def start_interview(
     interview_id: str,
     user: CurrentUser,
 ) -> dict:
-    # pending -> in_progress (PRD US2: the AI begins asking questions).
     row = await fetchrow(
         "UPDATE interviews SET status = 'in_progress', updated_at = now() WHERE id = $1 AND owner_id = $2 AND status = 'pending' RETURNING id::text, owner_id, role, topic, status, created_at, updated_at",
         interview_id,
@@ -128,7 +127,6 @@ async def complete_interview(
     interview_id: str,
     user: CurrentUser,
 ) -> dict:
-    # in_progress -> completed (PRD US4: end -> feedback + score).
     row = await fetchrow(
         "UPDATE interviews SET status = 'completed', updated_at = now() WHERE id = $1 AND owner_id = $2 AND status = 'in_progress' RETURNING id::text, owner_id, role, topic, status, created_at, updated_at",
         interview_id,
@@ -138,7 +136,7 @@ async def complete_interview(
         await _raise_complete_error(interview_id, user.sub)
     interview = dict(row)
 
-    # M6: auto-generate + persist feedback from the transcript (decision: in `complete`).
+    # Auto-generate + persist feedback (decision: in `complete`).
     await _generate_and_persist_feedback(interview_id)
 
     return interview
@@ -185,14 +183,13 @@ async def create_feedback(
     body: FeedbackCreate,
     user: CurrentUser,
 ) -> dict:
-    # M6's LLM handler calls this to write/update scores (may retry, idempotent UPSERT).
-    # Shared with `complete` -> `_generate_and_persist_feedback` (single write path).
+    # Single feedback write path (retryable, idempotent UPSERT), shared with `complete`.
     await _require_interview_owned(interview_id, user.sub)
     row = await _upsert_feedback(interview_id, body.scores, body.verdict, body.tips)
     return dict(row)
 
 
-# --- usage (M10: MONETIZATION §3 GET /usage) ---
+# --- usage ---
 
 
 @app.get("/usage")
@@ -206,7 +203,7 @@ async def get_usage(user: CurrentUser) -> dict:
     }
 
 
-# --- billing (M10: raw Stripe — checkout / portal / webhook) ---
+# --- billing (raw Stripe: checkout / portal / webhook) ---
 
 
 @app.post("/billing/checkout")
@@ -236,7 +233,7 @@ async def billing_webhook(request: Request) -> PlainTextResponse:
     return PlainTextResponse("ok")
 
 
-# --- SSE: interview chat (M6 wires real LLM streaming) ---
+# --- SSE: interview chat streaming ---
 
 
 @app.post("/interviews/{interview_id}/chat/stream")
@@ -246,7 +243,6 @@ async def chat_stream(
     user: CurrentUser,
 ) -> StreamingResponse:
     await _require_interview_owned(interview_id, user.sub)
-    # Consistent with create_message: chatting only makes sense mid-interview.
     interview = await fetchrow(
         "SELECT id::text, role, topic, status FROM interviews WHERE id = $1 AND owner_id = $2",
         interview_id,
@@ -257,7 +253,7 @@ async def chat_stream(
     if interview["status"] != "in_progress":
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Interview is not in progress")
 
-    # M10 (MONETIZATION): per-interview chat-turn cap (no token metering).
+    # Per-interview chat-turn cap (no token metering).
     tier = await billing.resolve_tier(user)
     if await billing.chat_turn_remaining(tier, interview_id) == 0:
         raise HTTPException(
@@ -265,7 +261,6 @@ async def chat_stream(
             detail="Chat turn limit reached for this interview. Complete it or upgrade to premium.",
         )
 
-    # Persist the user turn (chat_stream owns the user answer per decision).
     await billing.bump_chat_turn(interview_id)
     user_msg = await fetchrow(
         "INSERT INTO messages (interview_id, role, content) VALUES ($1, 'user', $2) RETURNING id::text",
@@ -274,7 +269,7 @@ async def chat_stream(
     )
     user_msg_id = user_msg["id"] if user_msg else None
 
-    # Build the LLM context: system prompt + prior transcript (owner's interview, ordered).
+    # Build the LLM context: system prompt + prior transcript, ordered.
     prior_rows = await fetch(
         "SELECT role, content FROM messages WHERE interview_id = $1 ORDER BY created_at",
         interview_id,
@@ -285,8 +280,7 @@ async def chat_stream(
     ]
 
     async def _stream_events():
-        # M6: real LLM streaming (llm.py). Streams increment deltas, then emits a done event.
-        # On LLM failure: emit an SSE error event and roll back the orphaned user message.
+        # Stream real LLM deltas; on failure roll back the orphaned user message.
         collected: list[str] = []
         try:
             async for delta in llm.stream_chat(history):
@@ -337,7 +331,7 @@ async def _upsert_feedback(interview_id: str, scores: dict, verdict: str, tips: 
 
 
 async def _generate_and_persist_feedback(interview_id: str) -> None:
-    """M6: generate feedback from the transcript and write it (idempotent UPSERT)."""
+    """Generate feedback from the transcript and write it (idempotent UPSERT)."""
     history_rows = await fetch(
         "SELECT role, content FROM messages WHERE interview_id = $1 ORDER BY created_at",
         interview_id,

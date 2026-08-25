@@ -6,9 +6,8 @@ from pydantic import BaseModel, Field
 class ClerkUser(BaseModel):
     """Authenticated identity — `sub` is the Clerk user id, scopes every query (D4).
 
-    `tier` is a monetization seam (D10): free/premium. Used for gating post-MVP;
-    billing engine itself is phase 2 (M10), not built in MVP.
-    """
+    `tier` is the monetization seam (D10): free/premium; `dev` applies for the
+    no-Clerk dev-fallback identity. Resolved by `billing.resolve_tier`."""
 
     sub: str
     email: str | None = None
@@ -53,7 +52,7 @@ class Message(BaseModel):
 
 
 class FeedbackCreate(BaseModel):
-    """Payload to write a feedback row (M6 LLM handler calls this after generating scores)."""
+    """Payload to write a feedback row (scored by the LLM feedback generator)."""
 
     scores: dict = Field(default_factory=dict)
     verdict: str = Field(min_length=1, max_length=2000)
@@ -69,7 +68,7 @@ class Feedback(BaseModel):
     created_at: datetime
 
 
-# --- SSE stub payload (M6 wires the real LLM stream) ---
+# --- LLM context / feedback / chat-turn payloads ---
 
 
 class ChatMessage(BaseModel):
