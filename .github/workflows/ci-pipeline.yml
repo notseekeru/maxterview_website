@@ -13,6 +13,8 @@ on:
       - "frontend/**"
       - "backend/**"
       - ".github/workflows/**"
+      - "!frontend/**/.env.example"
+      - "!backend/**/.env.example"
   workflow_dispatch:
 
 concurrency:
