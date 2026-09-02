@@ -61,3 +61,16 @@ prod-logs:
 	$(PROD_CMD) logs -f
 prod-down:
 	$(PROD_CMD) down -v
+
+prod-scan: prod-build
+	@echo '**--- Trivy image scan: maxterview-prod-<service> ---**'
+	for img in frontend backend; do \
+		echo "== scanning maxterview-prod-$$img =="; \
+		docker run --rm \
+			-v /var/run/docker.sock:/var/run/docker.sock \
+			-v $(CURDIR)/$$img/.trivyignore.yaml:/.trivyignore.yaml \
+			aquasec/trivy:0.74.0 image \
+			--severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 \
+			--ignorefile /.trivyignore.yaml \
+			maxterview-prod-$$img; \
+	done
