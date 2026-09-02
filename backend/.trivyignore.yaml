@@ -1,0 +1,7 @@
+# Trivy ignore policy (v0.56+ / .trivyignore.yaml)
+# This backend image is python:3.13-slim (uv-managed). Deliberately EMPTY for now:
+# populate dated exceptions here after a real CI/filesystem scan surfaces findings,
+# instead of pre-suppressing. When `expired_at` passes, CI re-fails until an entry
+# is re-verified.
+
+vulnerabilities: []

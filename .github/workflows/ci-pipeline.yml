@@ -66,6 +66,16 @@ jobs:
       - name: Test
         run: uv run pytest -q
 
+      - name: Scan with Trivy (filesystem)
+        run: |
+          docker run --rm \
+            -v ${{ github.workspace }}/backend:/workspace \
+            -v ${{ github.workspace }}/backend/.trivyignore.yaml:/.trivyignore.yaml \
+            aquasec/trivy:0.74.0 filesystem \
+            --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 \
+            --ignorefile /.trivyignore.yaml \
+            /workspace
+
   frontend:
     runs-on: ubuntu-latest
     defaults:
@@ -95,3 +105,13 @@ jobs:
 
       - name: Audit (informational)
         run: npm audit --audit-level=moderate || true
+
+      - name: Scan with Trivy (filesystem)
+        run: |
+          docker run --rm \
+            -v ${{ github.workspace }}/frontend:/workspace \
+            -v ${{ github.workspace }}/frontend/.trivyignore.yaml:/.trivyignore.yaml \
+            aquasec/trivy:0.74.0 filesystem \
+            --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 \
+            --ignorefile /.trivyignore.yaml \
+            /workspace
