@@ -28,3 +28,8 @@ Thumbs.db
 
 # --- Logs ---
 *.log
+
+# --- Playwright MCP runtime artifacts ---
+.playwright-mcp/
+# --- nix build output symlink ---
+result
