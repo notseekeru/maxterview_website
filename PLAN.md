@@ -43,7 +43,7 @@ Stack: FastAPI + React/TS + Postgres. Dev: Docker Compose (3-file split).
 | Observability | structlog (JSON in prod) + Grafana Cloud (Loki/Prometheus/Grafana). No Sentry (decision, M13) |
 | Frontend | React + TS + Vite + Tailwind 4 + shadcn/ui + react-router (installed, M8 done). nginx reverse proxy, same-origin `/api` |
 | Packaging | uv + `pyproject.toml` + `uv.lock`; dev deps in `[dependency-groups]` |
-| Quality | ruff, pytest (unit + integration vs Postgres), Biome (TS). Trivy noted for later (deps scan) |
+| Quality | ruff, pytest (unit + integration vs Postgres), Biome (TS). Trivy 0.74 fs-scan in CI + image scan in CD (`.trivyignore.yaml` dated) |
 | Runtime | Docker Compose v2 (dev), `python:3.13-slim` |
 
 > Frontend toolchain (installed for M8): React 19.2 · Vite 8.1 · TypeScript 7.0 · Tailwind 4.3 · **react-router v7** · Biome 2.4 · node:lts-alpine · nginx-unprivileged 1.31-alpine. Tailwind 4 via `@tailwindcss/vite` + shadcn/ui (`@/*` alias, `components.json`).
@@ -86,7 +86,7 @@ graph TD
 | `make lint` / `make format` | ruff in container |
 | `make test` | pytest unit + integration (vs Postgres service) |
 
-- CI/CD: `.github/workflows/` — CI lints + tests. **Deploy target: k3s + GitOps** (Argo CD App-of-Apps in the separate `notseekeru/gitops` repo, Terraform-installed). CD pipeline scaffolded but disabled — re-enable (GHCR build/push + `kustomize edit set image` bump) once `apps/maxterview` manifests exist. See README **Deployment**. Trivy noted for later.
+- CI/CD: `.github/workflows/` — CI lints + tests and runs a **Trivy 0.74 filesystem scan** on both services (`.trivyignore.yaml`; exceptions expire 2026-12-01). **Deploy target: k3s + GitOps** (Argo CD App-of-Apps in the separate `notseekeru/gitops` repo, Terraform-installed). CD is **enabled**: on green CI to `main` it builds both prod images, Trivy-image-scans them, smoke-tests, and pushes to GHCR. It does **not** mutate the gitops repo — `apps/maxterview` manifests there are still pending before anything reconciles onto the cluster. Dependabot handles npm + Docker base updates. See README **Deployment**.
 
 ## 7. Security checklist
 
@@ -98,7 +98,7 @@ graph TD
 - [ ] **CORS:** no `CORSMiddleware` in the backend — currently relies on same-origin nginx/Vite proxy. Add an explicit origin allow-list only if the API is ever opened cross-origin
 - [ ] **LLM prompt-injection:** no explicit sanitization; relies on the system prompt. Streaming rate-limited at the ingress (gitops `limit-rps`); free-tier quota (interview/turn caps) now enforced by M10
 - [x] Health/readiness endpoints don't leak internals (`/health` = `{status:ok}` only)
-- [ ] (Later) Trivy deps scan — noted, not MVP; observability (structlog/Grafana) tracked in M13/`OBSERVABILITY.md`
+- [x] **Trivy deps scan wired** (CI fs-scan both services + CD image scan, `0.74.0`, `.trivyignore.yaml` dated to 2026-12-01); observability (structlog/Grafana) still tracked in M13/`OBSERVABILITY.md`
 
 **Threat model (M11):** browser SPA → nginx/Vite `/api` proxy → FastAPI → Postgres + LLM. FastAPI is the trust boundary.
 
@@ -109,9 +109,9 @@ graph TD
 | Unauthenticated API | `get_current_user` on every handler | prod requires `CLERK_ENABLED=true` |
 | Prompt injection | system-prompt interviewer boundary; no tools given | no guardrail; open-ended user ans → LLM. Accept; ingress rate-limit + M10 turn caps |
 | Secret exfil via LLM | provider keys env-only, never in prompts | None |
-| Dependency exploit | pinned lockfile + `npm audit` (info) | Trivy image scan deferred |
+| Dependency exploit | pinned lockfile + `npm audit` (info) + Trivy 0.74 (CI fs + CD image) | backend `.trivyignore.yaml` empty pending first CD scan findings |
 
-**Accepted risks (post-MVP):** (1) LLM prompt-injection surface — non-agent model, limited blast radius, revisit if it gains tools; (2) CORS relies on same-origin proxy — add allow-list only if opened cross-origin; (3) Trivy + observability not yet wired; (4) local llama.cpp has no isolation hardening (dev-only).
+**Accepted risks (post-MVP):** (1) LLM prompt-injection surface — non-agent model, limited blast radius, revisit if it gains tools; (2) CORS relies on same-origin proxy — add allow-list only if opened cross-origin; (3) observability not yet wired (Trivy IS live — CI fs + CD image); no GitOps deploy yet (`apps/maxterview` pending in gitops); (4) local llama.cpp has no isolation hardening (dev-only).
 
 **Rate limiting:** ingress `limit-rps:30/limit-burst:20` (gitops) ✅; **no app-level limiter** (⚠️ add slowapi/limits M11 code); per-LLM `max_tokens` ceiling ✅; M10 turn caps ✅.
 
@@ -130,7 +130,7 @@ graph TD
 | 8 | Frontend | React+TS+Vite + Tailwind 4 + shadcn/ui + @/* alias. **App built (2026-08-23):** create-interview form, history list, SSE chat screen (create→start→chat/stream→complete→feedback), native fetch SSE, **react-router** URLs (`/`, `/interviews/:id`), Clerk dev/no-auth fallback. Verified green (typecheck/build/biome) and in-browser. Caveat: local llama.cpp auto-feedback may be empty (documented in `backend/.env.example`); DeepSeek validated | [x] |
 | 9 | Verify + README | **Done (2026-08-23):** `compose config` (dev+prod) valid; backend ruff check/format + pytest 19 passed; frontend biome/typecheck/build green; `README.md` added | [x] |
 | 10 | Billing/monetization | **Backend shipped (2026-08-24):** quotas (`app/billing.py` — chat-turn cap, `resolve_tier`, `GET /usage`) + **raw Stripe** (`app/payments.py` — checkout/portal/webhook, signature-verified, idempotent upsert) + `0002_billing` migration. **Daily-interview cap removed + `dev` tier backend wiring shipped 2026-08-25**: interviews unlimited at creation; the per-interview chat-turn cap is the only gate; `dev` (500 turns) granted to the no-Clerk dev-fallback identity only. 29 tests pass. **Frontend M10 UX shipped 2026-08-24:** header tier labels (`UsageBadge` → Free/Premium + `DEV`) + lockout/upsell notice (`UpgradeNotice`) wiring `POST /billing/checkout` + `/portal`. **Deferred:** Stripe keys/CLI/payment testing, **dedicated billing/plan page**, live Clerk billing. Turn-based quotas, no token metering — `MONETIZATION.md`. | [~] |
-| 11 | Security hardening | **Docs-first (2026-08-23):** verified security checklist + threat model + accepted risks + rate-limiting/abuse-prevention plan + penetration-test plan now folded into PLAN §7 (sole `SECURITY.md` removed 2026-08-25). Later (code): app-level rate limiter (slowapi/limits), CORS allow-list, LLM prompt-injection guardrails, dependency audit (uv/npm + Trivy) | [~] |
+| 11 | Security hardening | **Docs-first (2026-08-23):** verified security checklist + threat model + accepted risks + rate-limiting/abuse-prevention plan + penetration-test plan now folded into PLAN §7 (sole `SECURITY.md` removed 2026-08-25). **Dependency scanning shipped (2026-09-02):** CI Trivy fs-scan both services + CD image scan, `0.74.0`, per-service `.trivyignore.yaml` (dated to 2026-12-01), Dependabot for npm + Docker bases. Remaining (code): app-level rate limiter (slowapi/limits), CORS allow-list, LLM prompt-injection guardrails | [~] |
 | 12 | Frontend polish | **Done (2026-08-24):** public landing page, `/app` dashboard (stats cards + Recharts score trend + dimension bars), empty states, skeleton loaders, mobile-responsive grid, code-split react-router routes (`/` public, `/app`, `/interviews/:id`). Monochrome shadcn theme. | [x] |
 | 13 | Observability | **Docs-first (2026-08-23):** `OBSERVABILITY.md` — structlog JSON logging (foundation, prod-JSON/dev-human) + **Grafana Cloud** (Loki ingests JSON logs; **pure OTLP** for metrics/traces via OpenTelemetry SDK → Alloy, no `/metrics` scrape; Grafana dashboards/alerts). **Decision: no Sentry** (overlaps with Loki error logs for MVP). No code yet | [~] |
 | 14 | RAG (retrieval-augmented interviewing) | **Future enhancement (not MVP), noted 2026-08-23.** Current LLM layer is plain chat-completion (no vector store). Add embeddings + vector retrieval (pgvector in the existing Postgres, or a vector DB) + ingestion, retrieving role/question-bank content into the interviewer/feedback prompts. Enables the PRD's out-of-scope 'custom question banks'. Depends on acquiring a question-bank knowledge base. | [ ] |

@@ -112,8 +112,12 @@ make prod-build / prod-up / prod-logs / prod-down  (prod-style)
 - **LLM smoke**: `scripts/llm-smoke-full.sh` walks the whole lifecycle against a live model.
 
 CI (`.github/workflows/ci-pipeline.yml`) runs backend (ruff + format + pytest vs Postgres service) and
-frontend (biome + typecheck + build + audit). A CD pipeline (`.github/workflows/cd-pipeline.yml`) is scaffolded
-but **disabled** — it would build/push GHCR images and bump the GitOps kustomize SHAs (see Deployment).
+frontend (biome + typecheck + build + audit), and both jobs run a **Trivy 0.74 filesystem scan**
+against per-service `.trivyignore.yaml` dated-ignore policies (`--ignore-unfixed`, HIGH/CRITICAL gate,
+exceptions expire 2026-12-01). CD (`.github/workflows/cd-pipeline.yml`) runs on successful CI on `main`: it
+builds both prod images, **Trivy-image-scans** them, smoke-tests, and **pushes to GHCR** (`maxterview_backend`/
+`maxterview_frontend`). No GitOps repo is mutated here — deployment is adopted separately (see Deployment).
+**Dependabot** (`.github/dependabot.yml`) opens weekly PRs for frontend npm and both Docker base images.
 
 ---
 
@@ -126,12 +130,12 @@ This repo is the **app source**; the gitops repo holds the Kubernetes manifests.
 **How an app ships here (per the gitops repo's existing `portfolio` / `diagram` convention):**
 
 1. **Build & push images** to GHCR as immutable SHAs — `ghcr.io/notseekeru/maxterview_backend` and
-   `ghcr.io/notseekeru/maxterview_frontend`. The disabled CD pipeline already scaffolds this.
+   `ghcr.io/notseekeru/maxterview_frontend`. The enabled CD pipeline does this automatically on green CI to `main`.
 2. **Add the GitOps manifests** (in the gitops repo, not here):
    - `apps/maxterview/backend.yaml` + `frontend.yaml` + `kustomization.yaml` (Deployment + Service).
    - `apps-of-apps/maxterview.yaml` (child Application, `prune` + `selfHeal`).
    - `infra/maxterview-ingress.yaml` + a Cloudflare-tunnel DNS/route so a hostname reaches the cluster.
-   - `kustomization.yaml` pins the immutable image SHAs; CD auto-bumps them via `kustomize edit set image`.
+   - a deployment mechanism pins the immutable `:${SHA}` tag Argo CD reconciles against.
 3. **Secrets** (`maxterview-secrets`, e.g. `DATABASE_URL`, `LLM_API_KEY`, Clerk keys) are created by the
    Terraform installer from Infisical — same as the existing `diagram-secrets`/`ghcr-login` pattern.
 
@@ -140,8 +144,9 @@ This repo is the **app source**; the gitops repo holds the Kubernetes manifests.
 `/api` → backend directly, mirroring the `diagram` ingress). Unlike `diagram`'s backend, maxterview's
 backend **has a `/health` route**, so its pods can use `httpGet` probes instead of `tcpSocket`.
 
-> The disabled `cd-pipeline.yml` in this repo is the jump-off point: re-enable it (GHCR login + rebuild +
-> push + `kustomize edit set image` bump) once the gitops `apps/maxterview` manifests exist.
+> CD here is **enabled** and pushes images to GHCR, but until the gitops `apps/maxterview` manifests above
+> exist nothing reconciles them onto the cluster. CI/CD + scanning (Trivy) are live; only the GitOps adoption
+> half remains to be added in the `notseekeru/gitops` repo.
 
 ---
 
