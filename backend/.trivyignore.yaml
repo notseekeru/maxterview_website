@@ -4,4 +4,17 @@
 # instead of pre-suppressing. When `expired_at` passes, CI re-fails until an entry
 # is re-verified.
 
-vulnerabilities: []
+vulnerabilities:
+  - id: CVE-2026-54284
+    purls:
+      - "pkg:pypi/sqlparse@0.5.5"
+    statement: >-
+      Ignore sqlparse in Python backend
+    expired_at: 2026-10-01
+
+  - id: CVE-2026-66046
+    purls:
+      - "pkg:apk/alpine/libexpat@2.8.3-r0"
+    statement: >-
+      Ignore libexpat in Alpine frontend
+    expired_at: 2026-10-01
