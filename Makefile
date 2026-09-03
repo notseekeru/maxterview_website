@@ -70,7 +70,7 @@ prod-scan: prod-build
 			-v /var/run/docker.sock:/var/run/docker.sock \
 			-v $(CURDIR)/$$img/.trivyignore.yaml:/.trivyignore.yaml \
 			aquasec/trivy:0.74.0 image \
-			--skip-dirs "/root/.cache,app/.venv" \
+			--skip-dirs "root/.cache,app/.venv,usr/local" \
 			--severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 \
 			--ignorefile /.trivyignore.yaml \
 			maxterview-prod-$$img; \
