@@ -25,6 +25,11 @@ dev = [
     "respx>=0.21",
 ]
 
+[tool.uv]
+override-dependencies = [
+    "sqlparse>=0.6.0",
+]
+
 [tool.ruff]
 line-length = 320
 
