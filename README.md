@@ -117,7 +117,9 @@ against per-service `.trivyignore.yaml` dated-ignore policies (`--ignore-unfixed
 exceptions expire 2026-12-01). CD (`.github/workflows/cd-pipeline.yml`) runs on successful CI on `main`: it
 builds both prod images, **Trivy-image-scans** them, smoke-tests, and **pushes to GHCR** (`maxterview_backend`/
 `maxterview_frontend`). No GitOps repo is mutated here — deployment is adopted separately (see Deployment).
-**Dependabot** (`.github/dependabot.yml`) opens weekly PRs for frontend npm and both Docker base images.
+**Renovate** (renovate.json, GitHub-hosted app) opens weekly grouped PRs for frontend npm, backend
+uv/pep621, Docker base images (digest-pinned), and GitHub Actions refs. Dependabot *alerts* stay on;
+Native Dependabot update-stream is disabled.
 
 ---
 
