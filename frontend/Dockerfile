@@ -22,7 +22,7 @@ FROM base AS builder
 
 RUN npm run build
 
-FROM nginxinc/nginx-unprivileged:1.31.4-alpine AS prod
+FROM nginxinc/nginx-unprivileged:1.31.4 AS prod
 
 COPY --from=builder /app/dist /usr/share/nginx/html
 COPY nginx.conf /etc/nginx/conf.d/default.conf

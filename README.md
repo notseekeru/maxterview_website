@@ -112,9 +112,10 @@ make prod-build / prod-up / prod-logs / prod-down  (prod-style)
 - **LLM smoke**: `scripts/llm-smoke-full.sh` walks the whole lifecycle against a live model.
 
 CI (`.github/workflows/ci-pipeline.yml`) runs backend (ruff + format + pytest vs Postgres service) and
-frontend (biome + typecheck + build + audit), and both jobs run a **Trivy 0.74 filesystem scan**
-against per-service `.trivyignore.yaml` dated-ignore policies (`--ignore-unfixed`, HIGH/CRITICAL gate,
-exceptions expire 2026-12-01). CD (`.github/workflows/cd-pipeline.yml`) runs on successful CI on `main`: it
+frontend (biome + typecheck + build + audit). The backend job runs a **Trivy 0.74 filesystem scan**
+against its per-service `.trivyignore.yaml` dated-ignore policy (`--ignore-unfixed`, HIGH/CRITICAL gate,
+exceptions expire 2026-12-01). The frontend relies on the CD image scan (below), not a source-tree scan,
+as it ships only a static bundle. CD (`.github/workflows/cd-pipeline.yml`) runs on successful CI on `main`: it
 builds both prod images, **Trivy-image-scans** them, smoke-tests, and **pushes to GHCR** (`maxterview_backend`/
 `maxterview_frontend`). No GitOps repo is mutated here — deployment is adopted separately (see Deployment).
 **Renovate** (renovate.json, GitHub-hosted app) opens weekly grouped PRs for frontend npm, backend

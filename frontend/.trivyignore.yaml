@@ -1,70 +1,13 @@
 # Trivy ignore policy (v0.56+ / .trivyignore.yaml)
-# Dated, scoped exceptions with reachability rationale. When `expired_at`
-# passes, CI re-fails until each is re-verified (fixed by base bump/deb upgrade
-# or explicitly re-accepted). Keep entries short-lived.
+#
+# Empty by design: the shipping artifact is an nginx-unprivileged Debian
+# image serving a static bundled SPA (/api forward via proxy_pass), which
+# currently scans 0 HIGH/CRITICAL findings (last verified against :1.31.4).
+# Prior alpine apk/* OS purls and never-shipped npm devDeps no longer apply.
+#
+# Dated, scoped exceptions with reachability rationale live here. When
+# `expired_at` passes, the CD/`make prod-scan` gate re-fails until each is
+# re-verified (fixed by base bump / dep upgrade, or explicitly re-accepted).
+# Keep entries short-lived; prefer a base bump over an exception.
 
-vulnerabilities:
-  # --- nginx-alpine / node base OS libraries + their npm shadow ---
-  - id: CVE-2026-40200
-    purls:
-      - pkg:apk/alpine/musl
-    statement: >-
-      musl DoS in nginx-alpine base. Static-file serving only; reachability not
-      established. Re-check on next base bump.
-    expired_at: 2026-12-01
-
-  - id: CVE-2026-22184
-    purls:
-      - pkg:apk/alpine/zlib
-    statement: >-
-      zlib DoS in nginx-alpine base. Re-check on next base bump.
-    expired_at: 2026-12-01
-
-  - id: CVE-2026-33671
-    statement: >-
-      picomatch DoS. Build-time glob matching only (devDependency), not served
-      content.
-    expired_at: 2026-12-01
-
-  - id: CVE-2026-27135
-    purls:
-      - pkg:apk/alpine/nghttp2
-    statement: >-
-      nghttp2 DoS in nginx-alpine base. Re-check on next base bump.
-    expired_at: 2026-12-01
-
-  - id: CVE-2026-6732
-    purls:
-      - pkg:apk/alpine/libxml2
-    statement: >-
-      libxml2 issue in nginx-alpine base. No XML processing. Re-check on next
-      base bump.
-    expired_at: 2026-12-01
-
-  - id: CVE-2026-13149
-    statement: >-
-      brace-expansion exponential-time DoS (transitive via glob, build-only).
-      Not on the request path.
-    expired_at: 2026-12-01
-
-  - id: CVE-2026-59873
-    statement: >-
-      node-tar DoS via crafted gzip bomb. tar is not installed in the frontend
-      production npm tree. Re-verify on next full-scan.
-    expired_at: 2026-12-01
-
-  - id: CVE-2026-59874
-    statement: >-
-      node-tar DoS via malformed archive header. tar is not installed in the
-      frontend production npm tree. Re-verify on next full-scan.
-    expired_at: 2026-12-01
-
-  - id: CVE-2026-66046
-    statement: >-
-      Expat through 2.8.3 contains a denial of service
-    expired_at: 2026-12-01
-
-  - id: CVE-2026-76641
-    statement: >-
-      Temporary waiver for Alpine libexpat pending upstream patch.
-    expired_at: 2026-12-01
+vulnerabilities: []
