@@ -155,7 +155,7 @@ function dispatchFrame(frame: string, onEvent: (e: StreamEvent) => void) {
     const dataLines: string[] = [];
     for (const line of frame.split("\n")) {
         if (line.startsWith("event:")) eventName = line.slice(6).trim();
-        else if (line.startsWith("data:")) dataLines.push(line.slice(5).trim());
+        else if (line.startsWith("data:")) dataLines.push(line.slice(5).replace(/^ /, "").replace(/\r$/, ""));
     }
     const data = dataLines.join("\n");
 
