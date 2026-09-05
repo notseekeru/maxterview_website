@@ -62,6 +62,24 @@ and no CI gate** (it is not `@playwright/test`). If you later want an actual det
 CI-green regression, that requires the `@playwright/test` runner — a separate, slightly heavier layer.
 This skill stays lean by design.
 
+
+## After a run — verify then commit
+
+You have access to the repo's Makefile. If this run was to check changes you applied, do not
+leave them uncommitted without checking:
+
+```bash
+make up      # ensure backend + frontend dev containers are running (needed by targets below)
+make lint    # auto-fix: biome write (frontend) + ruff fix (backend)
+make exec    # full gate: frontend typecheck+build+biome; backend ruff+pytest
+```
+
+- A non-zero `make exec` is a blocker; fix and re-run before committing.
+- This E2E walkthrough is behavioural and complements (does not replace) `make exec`'s static +
+  unit checks.
+- Then commit per AGENTS.md: conventional `type(scope):`, atomic by relevance, amend (not farm)
+  when extending the last unpushed commit's concern, and ask before pushing or when scope is
+  unclear.
 ## Guardrails
 
 - Use test data only; interviews created here are real rows for DEV_USER — clean them up in History

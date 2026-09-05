@@ -128,6 +128,39 @@ needs real keys and a human at the card step — see clerk-stripe-operator's
 5. Ask the user before any action that mutates persistent Clerk/Stripe sandbox state unless you
    already have explicit go-ahead or it is the obviously-safe throwaway op.
 
+## Verify then commit (always after applying code changes)
+
+Whenever you have made edits (frontend or backend) and they form a justifiable unit, do NOT commit
+until you have run this repo's own gates. The stack must be up for the docker-exec targets; if it
+is down, run `make up` first (containers: `maxterview_frontend_dev`, `maxterview_backend_dev`).
+
+```bash
+make up        # ensure the backend + frontend dev containers exist
+make lint      # biome write (frontend) + ruff fix (backend) — auto-fix, then re-inspect diff
+make exec      # full gate: frontend npm ci + biome + typecheck + build; backend sync + ruff + pytest
+```
+
+- `make exec` is the closest single command to the repo's local pre-merge gate (mirrors what
+  `.github/workflows/ci-pipeline.yml` runs). Treat a non-zero exit as a blocker on committing.
+- If `make exec` fails, fix the surfaced failure and re-run before moving on.
+- (Optional, for flows touching auth-gated UI): drive the application once with the
+  `hermetic-e2e` onboarding/navigation walkthrough (Playwright MCP) so behavior is exercised,
+  since `make exec` is static checks + unit tests, not a browser.
+
+Then commit per the repo's AGENTS.md policy:
+- Conventional commits only: `feat(scope):`, `test(scope):`, `fix(scope):`, `ref(scope):`,
+  `docs(scope):`, `chore(scope):`, `revert(scope):`. Subject < 60 chars, no body needed for
+  trivial; add a short body when the scope is non-obvious.
+- Atomic by relevance: group files of ONE logical change into one commit; never cram unrelated
+  edits together. If unsure whether separate edits are one change, ask.
+- Amend, do not farm: if this edit extends the last unpushed commit's same logical concern, fold
+  it in with `git commit --amend` instead of opening a new commit. Open a new commit only when
+  the change is genuinely distinct.
+- Do not commit half-finished or speculative work. `git status` should reflect exactly what is
+  intended; never `git add -A` blindly.
+- Never push without the user asking; surface divergence/amends clearly if relevant.
+- If uncertain whether the change is one logical scope, or whether to amend vs open new, ask the
+  user first rather than guessing.
 ## Guardrails
 
 - ZERO TOUCH on secrets: presence-check only; never print/commit/log a key. Paste-steps always stay
