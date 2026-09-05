@@ -191,7 +191,7 @@ function Bubble({ from, content, streaming }: { from: string; content: string; s
     const isUser = from === "user";
     return (
         <div className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
-            <div className={isUser ? "max-w-[80%] rounded-lg bg-primary px-3 py-2 text-sm text-primary-foreground" : "max-w-[80%] rounded-lg border bg-card px-3 py-2 text-sm"}>
+            <div className={isUser ? "max-w-[80%] whitespace-pre-line rounded-lg bg-primary px-3 py-2 text-sm text-primary-foreground" : "max-w-[80%] whitespace-pre-line rounded-lg border bg-card px-3 py-2 text-sm"}>
                 {content}
                 {streaming && <span className="inline-block animate-pulse">▋</span>}
             </div>
