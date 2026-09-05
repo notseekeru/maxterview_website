@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
 import { completeInterview, type Feedback, getFeedback, getMessages, type Message, startInterview, streamChat } from "@/lib/api";
+import { OPENING_ASKS_RESUME } from "@/lib/config";
 import { FeedbackView } from "./FeedbackView";
 import { UpgradeNotice } from "./UsageBadge";
 
@@ -157,6 +158,7 @@ export function InterviewChat({ interviewId, onExit }: Props) {
                         {error && <p className="text-sm text-destructive">{error}</p>}
                         {quotaLocked && <UpgradeNotice reason="your free chat turns ran out." />}
                         {status === "loading" && <p className="text-sm text-muted-foreground">Starting…</p>}
+                        {messages.length === 0 && OPENING_ASKS_RESUME && <Bubble from="assistant" content={OPENING_ASKS_RESUME} />}
                         {messages.map((m) => (
                             <Bubble key={m.id} from={m.role} content={m.content} />
                         ))}
