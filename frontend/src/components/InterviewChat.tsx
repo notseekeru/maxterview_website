@@ -19,6 +19,7 @@ export function InterviewChat({ interviewId, onExit }: Props) {
     const [error, setError] = useState<string | null>(null);
     const [feedback, setFeedback] = useState<Feedback | null>(null);
     const [quotaLocked, setQuotaLocked] = useState(false);
+    const [completing, setCompleting] = useState(false);
     const abortRef = useRef<AbortController | null>(null);
     const scrollRef = useRef<HTMLDivElement | null>(null);
 
@@ -123,14 +124,16 @@ export function InterviewChat({ interviewId, onExit }: Props) {
     }, [assistBuf]);
 
     async function complete() {
-        setStatus("completed");
+        setCompleting(true);
         try {
             await completeInterview(interviewId);
             const fb = await getFeedback(interviewId);
             setFeedback(fb);
+            setStatus("completed");
         } catch {
             setError("Failed to complete interview / load feedback.");
-            setStatus("ready");
+        } finally {
+            setCompleting(false);
         }
     }
 
@@ -176,8 +179,9 @@ export function InterviewChat({ interviewId, onExit }: Props) {
                             <Button onClick={() => void send()} disabled={status !== "ready" || !draft.trim()}>
                                 Send
                             </Button>
-                            <Button variant="destructive" size="sm" onClick={() => void complete()} disabled={status === "streaming"}>
-                                Complete
+                            <Button variant="destructive" size="sm" onClick={() => void complete()} disabled={completing || status === "streaming"}>
+                                {completing && <Spinner />}
+                                {completing ? "Completing…" : "Complete"}
                             </Button>
                         </div>
                     </CardFooter>
@@ -197,4 +201,8 @@ function Bubble({ from, content, streaming }: { from: string; content: string; s
             </div>
         </div>
     );
+}
+
+function Spinner() {
+    return <span role="status" aria-label="Loading" className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent" />;
 }
