@@ -12,6 +12,7 @@ export interface NavItem {
 }
 
 export interface NavSection {
+    id: string;
     title?: string; // absent => rendered as a plain top-level item row (no grouping label)
     items: NavItem[];
 }
@@ -22,6 +23,7 @@ export interface NavSection {
 //   group "Management": Managed accounts, Docs
 export const NAV: NavSection[] = [
     {
+        id: "main",
         items: [
             { label: "Dashboard", to: "/app", icon: "dashboard", index: true },
             { label: "Interviews", to: "/app/interviews", icon: "chat" },
@@ -30,6 +32,7 @@ export const NAV: NavSection[] = [
         ],
     },
     {
+        id: "settings",
         title: "Settings",
         items: [
             { label: "System", to: "/app/settings/system", icon: "settings" },
@@ -37,6 +40,7 @@ export const NAV: NavSection[] = [
         ],
     },
     {
+        id: "management",
         title: "Management",
         items: [
             { label: "Managed accounts", to: "/app/manage/accounts", icon: "users" },
