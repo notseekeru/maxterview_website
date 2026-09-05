@@ -4,6 +4,22 @@
         <meta charset="UTF-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
         <title>maxterview</title>
+        <!-- Boot-time theme: read the stored choice before first paint so a dark
+             preference survives page loads landing anywhere in the app (the value is
+             otherwise only re-applied once React mounts the settings page). Must stay
+             in sync with frontend/src/lib/theme.ts (incl. the maxterview.theme key). -->
+        <script>
+            (() => {
+                try {
+                    const raw = localStorage.getItem("maxterview.theme");
+                    const theme = (raw === "light" || raw === "dark" || raw === "system") ? raw : "system";
+                    const dark = theme === "dark" || (theme === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+                    document.documentElement.classList.toggle("dark", dark);
+                } catch (e) {
+                    /* localStorage unavailable (private mode) — default light. */
+                }
+            })();
+        </script>
     </head>
     <body>
         <div id="root"></div>
