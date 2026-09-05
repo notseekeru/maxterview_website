@@ -1,12 +1,19 @@
 import { Show, SignInButton, SignUpButton } from "@clerk/react";
-import { lazy, Suspense } from "react";
-import { BrowserRouter, Route, Routes } from "react-router-dom";
+import { lazy, type ReactNode, Suspense } from "react";
+import { BrowserRouter, Outlet, Route, Routes } from "react-router-dom";
+
+import { AppShell } from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
 import { clerkEnabled } from "@/lib/config";
+import { AccountSettingsPage } from "@/pages/AccountSettingsPage";
+import { AnalyticsPage, DocsPage, ManageAccountsPage, ResumePage } from "@/pages/ComingSoonPages";
+import { InterviewsPage } from "@/pages/InterviewsPage";
 import { Landing } from "@/pages/Landing";
+import { SystemSettingsPage } from "@/pages/SystemSettingsPage";
 
-// Code-split the gated app (recharts lives only in the /app bundle).
-const AppHome = lazy(() => import("@/pages/AppHome").then((m) => ({ default: m.AppHome })));
+// Code-split only the heavy leaves (recharts lives in the Dashboard bundle and
+// the chat lives in its own route) so the shell/nav stay light.
+const DashboardHome = lazy(() => import("@/pages/AppHome").then((m) => ({ default: m.AppHome })));
 const InterviewRoute = lazy(() => import("@/pages/InterviewRoute").then((m) => ({ default: m.InterviewRoute })));
 
 function App() {
@@ -15,27 +22,56 @@ function App() {
             <Routes>
                 {/* Public marketing landing (M12). */}
                 <Route path="/" element={<Landing />} />
-                {/* Gated app section. */}
-                <Route
-                    path="/app"
-                    element={
-                        <ClerkGate>
-                            <Suspense fallback={<GateLoading />}>
-                                <AppHome />
-                            </Suspense>
-                        </ClerkGate>
-                    }
-                />
-                <Route
-                    path="/interviews/:id"
-                    element={
-                        <ClerkGate>
+
+                {/* Everything else is gated; the pathless Gate route renders the
+                    app/landing chrome around an <Outlet/> once (sign-in early-returns for
+                    small screens but keeps recursion). */}
+                <Route element={<Gate />}>
+                    {/* App area: persistent sidebar shell around Dashboard + sub-pages. */}
+                    <Route path="/app" element={<AppShell />}>
+                        <Route
+                            index
+                            element={
+                                <Suspense fallback={<GateLoading />}>
+                                    <DashboardHome />
+                                </Suspense>
+                            }
+                        />
+
+                        {/* Top-level sidebar destinations. */}
+                        <Route path="interviews" element={<InterviewsPage />} />
+                        <Route path="analytics" element={<AnalyticsPage />} />
+                        <Route path="resume" element={<ResumePage />} />
+
+                        {/* Settings group. */}
+                        <Route path="settings/system" element={<SystemSettingsPage />} />
+                        <Route path="settings/account" element={<AccountSettingsPage />} />
+
+                        {/* Management group. */}
+                        <Route path="manage/accounts" element={<ManageAccountsPage />} />
+                        <Route path="manage/docs" element={<DocsPage />} />
+
+                        {/* Unknown /app/* path -> dashboard (graceful). */}
+                        <Route
+                            path="*"
+                            element={
+                                <Suspense fallback={<GateLoading />}>
+                                    <DashboardHome />
+                                </Suspense>
+                            }
+                        />
+                    </Route>
+
+                    {/* Live interview / replay stays full-screen (not in the shell). */}
+                    <Route
+                        path="/interviews/:id"
+                        element={
                             <Suspense fallback={<GateLoading />}>
                                 <InterviewRoute />
                             </Suspense>
-                        </ClerkGate>
-                    }
-                />
+                        }
+                    />
+                </Route>
             </Routes>
         </BrowserRouter>
     );
@@ -45,9 +81,18 @@ function GateLoading() {
     return <div className="flex min-h-screen items-center justify-center bg-background text-sm text-muted-foreground">Loading…</div>;
 }
 
-// In Clerk mode, show sign-in until authenticated; then render children.
-function ClerkGate({ children }: { children: React.ReactNode }) {
-    if (!clerkEnabled) return <>{children}</>;
+// Gate: no-Clerk dev passes children straight through. Clerk mode gates the
+// whole subtree behind sign-in; the signed-out lightbox replaces content.
+function Gate() {
+    if (!clerkEnabled) return <Outlet />;
+    return (
+        <ShowContent>
+            <Outlet />
+        </ShowContent>
+    );
+}
+
+function ShowContent({ children }: { children: ReactNode }) {
     return (
         <>
             <Show when="signed-out">
