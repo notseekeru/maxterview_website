@@ -1,3 +1,15 @@
+---
+name: hermetic-e2e
+description: >-
+  Lean browser walkthrough of maxterview onboarding + dashboard navigation (Landing -> /app ->
+  create interview -> /interviews/:id), driven through the existing Playwright-MCP server
+  (chromium in .mcp.json) with no @playwright/test dependency. Hermetic: runs against the no-Clerk
+  DEV_USER dev fallback so it needs no Clerk/Stripe keys. Not a deterministic CI spec. Use when
+  the user wants to reproduce or eyeball the onboarding/new-interview flow in a browser, or after
+  applying frontend/backend changes (run `make lint`/`make exec`, then commit) without touching
+  real Clerk/Stripe accounts.
+---
+
 # Hermetic E2E — onboarding & dashboard navigation
 
 The walkthrough an agent follows to simulate a **user onboarding** and **dashboard navigation** in
