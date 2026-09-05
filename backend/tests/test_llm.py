@@ -51,3 +51,51 @@ def test_extract_json_object_handles_prose_wrap():
 
 def test_extract_json_object_no_json_returns_empty():
     assert llm._extract_json_object("no json here") == {}
+
+
+def test_valid_scores_rejects_partial_and_accepts_full(monkeypatch):
+    # Partial dims / non-numeric / out-of-range must be rejected so empty feedback never
+    # slips through and silently drops the interview's dashboard score contribution.
+    assert llm._valid_scores({}) is None
+    assert llm._valid_scores({"clarity": 8}) is None  # missing dims
+    assert llm._valid_scores({d: "hi" for d in llm.FEEDBACK_DIMS}) is None
+    assert llm._valid_scores({d: 0 for d in llm.FEEDBACK_DIMS}) is None  # out of 1-10
+    ok = llm._valid_scores({d: 6 for d in llm.FEEDBACK_DIMS})
+    assert ok == {d: 6.0 for d in llm.FEEDBACK_DIMS}
+
+
+async def test_generate_feedback_retries_then_succeeds(monkeypatch):
+    # Real-model path (STUB off): unusable first response -> one retry returns a valid
+    # summary, so we never write empty feedback when the model is merely flaky.
+    monkeypatch.setattr(llm, "STUB_MODE", False)
+    calls = {"n": 0}
+
+    async def _first_none_then_ok(history):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return None  # model echoed the transcript instead of JSON
+        return FeedbackSummary(scores={d: 7.0 for d in llm.FEEDBACK_DIMS}, verdict="Solid", tips=["Keep at it."])
+
+    monkeypatch.setattr(llm, "_request_feedback", _first_none_then_ok)
+    out = await llm.generate_feedback([ChatMessage(role="user", content="hi")])
+    assert calls["n"] == 2
+    assert out.verdict == "Solid"
+    assert set(out.scores) == set(llm.FEEDBACK_DIMS)
+
+
+async def test_generate_feedback_falls_back_to_auto_generated(monkeypatch):
+    # Both real-mode attempts unusable -> deterministic fallback flagged auto-generated,
+    # so a completed interview always carries a score for the dashboard (the regression fix).
+    monkeypatch.setattr(llm, "STUB_MODE", False)
+    calls = {"n": 0}
+
+    async def _always_none(history):
+        calls["n"] += 1
+        return None
+
+    monkeypatch.setattr(llm, "_request_feedback", _always_none)
+    out = await llm.generate_feedback([ChatMessage(role="user", content="hi")])
+    assert calls["n"] == 2
+    assert set(out.scores) == set(llm.FEEDBACK_DIMS)
+    assert out.verdict  # non-empty
+    assert "auto-generated" in out.verdict
