@@ -3,6 +3,9 @@
 # real TEST account. Destructive (drop) requires --admin-destroy.
 # Reads (never prints): STRIPE_SECRET_KEY. Returns ids as "price-id ..." / "customer-id ..." lines.
 set -euo pipefail
+_ENGINE_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=/dev/null
+. "$_ENGINE_DIR/_env.sh"
 
 API="https://api.stripe.com/v1"
 ADMINDESTROY=0

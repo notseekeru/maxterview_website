@@ -6,6 +6,9 @@
 # Reads (never prints): DATABASE_URL (psql path only when a DB is up), backend host from
 # BACKEND_URL env (default http://localhost:8000). Never runs destructive SQL.
 set -euo pipefail
+_ENGINE_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=/dev/null
+. "$_ENGINE_DIR/_env.sh"
 
 BACKEND_URL="${BACKEND_URL:-http://localhost:8000}"
 

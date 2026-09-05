@@ -3,6 +3,9 @@
 # NEVER prints a value; only prints set/missing + a paste-me template for missing ones.
 # Exit 0 if the required operator vars are set (test-mode), 1 if anything required is missing.
 set -euo pipefail
+_ENGINE_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=/dev/null
+. "$_ENGINE_DIR/_env.sh"
 
 # Vars the operator needs. Format: "VARNAME|label"
 REQUIRED=(

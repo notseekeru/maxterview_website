@@ -6,6 +6,9 @@
 # Outputs machine-ish lines starting with an unchanging prefix plus the token payload. The model
 # uses the token to clear `__session` for the app origin / drive Playwright. Never logs the secret.
 set -euo pipefail
+_ENGINE_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=/dev/null
+. "$_ENGINE_DIR/_env.sh"
 
 API="https://api.clerk.com/v1"
 ADMINDESTROY=0

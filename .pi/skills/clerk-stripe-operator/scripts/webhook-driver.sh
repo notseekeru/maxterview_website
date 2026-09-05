@@ -12,6 +12,9 @@
 # Reads (never prints): STRIPE_WEBHOOK_SECRET (whsec_), STRIPE_SECRET_KEY. Backend root from
 # BACKEND_URL env or default http://localhost:8000. Webhook path is always /billing/webhook.
 set -euo pipefail
+_ENGINE_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=/dev/null
+. "$_ENGINE_DIR/_env.sh"
 
 BACKEND_URL="${BACKEND_URL:-http://localhost:8000}"
 WEBHOOK="$BACKEND_URL/billing/webhook"
