@@ -34,3 +34,4 @@ Thumbs.db
 .playwright-mcp/
 # --- nix build output symlink ---
 result
+clerk-e2e/

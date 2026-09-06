@@ -15,6 +15,7 @@ ADMINDESTROY=0
 ARG_TEARDOWN=0
 USER_ID=""
 EMAIL=""
+USERNAME=""
 
 for a in "$@"; do
   case "$a" in
@@ -22,6 +23,7 @@ for a in "$@"; do
     --teardown)      ARG_TEARDOWN=1 ;;
     --user=*)        USER_ID="${a#--user=}" ;;
     --email=*)       EMAIL="${a#--email=}" ;;
+    --username=*)    USERNAME="${a#--username=}" ;;
     *) echo "unexpected arg: $a"; exit 2 ;;
   esac
 done
@@ -44,37 +46,46 @@ if [ "$ARG_TEARDOWN" = 1 ]; then
   exit 0
 fi
 
-# 1) Create a throwaway user (primary_email_address is nice-to-have; Clerk needs an email normally).
+# 1) Create a throwaway user. Some dev instances require a `username` in their user
+#    requirements (else POST users -> 422 form_data_missing:["username"]). Auto-derive one
+#    when not given, and ask Clerk not to email the throwaway address.
 email="${EMAIL:-maxterview.operator.$(date +%s)@example.com}"
-user=$(curl -fsS -H "$AUTH" -H "Content-Type: application/json" \
-  -X POST "$API/users" \
-  -d "{\"email_address\":[\"$email\"],\"first_name\":\"Operator\",\"last_name\":\"Probe\",\"skip_password_requirement\":true}")
-uid=$(printf '%s' "$user" | sed -n 's/.*"id":"\([^"]*\)".*/\1/p' | head -1)
-echo "user-id  $uid   (email $email)"
+username="${USERNAME:-operator_$(date +%s)}"
+create_user() {
+  curl -sS -H "$AUTH" -H "Content-Type: application/json" \
+    -X POST "$API/users" \
+    -d "{\"email_address\":[\"$email\"],\"username\":\"$username\",\"first_name\":\"Operator\",\"last_name\":\"Probe\",\"skip_password_requirement\":true,\"notify_primary_email_address\":false}"
+}
+RESP="$(create_user)"
+# A 422 body is still valid JSON that curl won't flag, so surface errors explicitly and
+# capture the FIRST object key "id" (the real user_… id), NOT nested identification idn_… ids.
+if printf '%s' "$RESP" | grep -q '"errors"'; then
+  echo "create-user FAILED (instance may require extra fields). Body:"
+  echo "$RESP" | head -c 600
+  echo
+  exit 4
+fi
+uid=$(printf '%s' "$RESP" | sed -n 's/.*"id": *"\(user_[^"]*\)".*/\1/p' | head -1)
+username_echo="${uid:+$username}"
+echo "user-id  $uid   (email $email, username $username_echo)"
 
-# 2) Create a client session for that user and mint an active session token (dev-instance short-lived
-#    token). Requires CLERK_FRONTEND_API if we go through the session API; for prod-use prefer the
-#    testing-token template (see token-template path below).
-client=$(curl -fsS -H "$AUTH" -H "Content-Type: application/json" -X POST "$API/clients")
-client_id=$(printf '%s' "$client" | sed -n 's/.*"id":"\([^"]*\)".*/\1/p' | head -1)
-echo "client-id $client_id"
-
+# 2) Mint a signed auth token. The legacy Backend `/clients` endpoint is deprecated (405),
+#    so use the current supported testing-token API (dev instance doesn't need a template).
+#    For a prod-instance browser-authenticating token, set CLERK_TESTING_TOKEN_TEMPLATE.
 token=""
 if [ -n "${CLERK_TESTING_TOKEN_TEMPLATE:-}" ]; then
-  # Produce a signed TESTING token via the template (works on dev AND prod). Needs the template id.
-  # eslint-style: this returns a long JWT; we never print the secret var, only the JWT payload.
   tk=$(curl -fsS -H "$AUTH" -H "Content-Type: application/json" \
        -X POST "$API/testing_tokens" -d "{\"template\":\"${CLERK_TESTING_TOKEN_TEMPLATE}\"}")
-  token=$(printf '%s' "$tk" | sed -n 's/.*"token":"\([^"]*\)".*/\1/p' | head -1)
 else
-  echo "  ~ CLERK_TESTING_TOKEN_TEMPLATE unset; using dev-session token. For prod-instance browser "
-  echo "    auth create a testing-token template and set CLERK_TESTING_TOKEN_TEMPLATE."
+  tk=$(curl -fsS -H "$AUTH" -H "Content-Type: application/json" -X POST "$API/testing_tokens" -d '{}')
 fi
+token=$(printf '%s' "$tk" | sed -n 's/.*"token": *"\([^"]*\)".*/\1/p' | head -1)
+[ -z "$token" ] && echo "token-issue: could not mint via /testing_tokens (see body above)."; printf '%s' "$tk" | grep -q '"errors"' && { echo "token API error body:"; echo "$tk" | head -c 400; }
 if [ -n "$token" ]; then
   echo "testing-token  $token"
-  echo "  (set it as the frontend origin's __session cookie to authenticate that browser as $uid)."
-  echo "  It will use your configured Clerk instance. NOTE: the token is a credential — handle as a secret."
-fi
-if [ -z "$token" ]; then
-  echo "token-issue: could not mint a token (need dev instance session flow or testing-token template)."
+  echo "  (set it as the frontend origin's __session cookie / or drive @clerk/testing with it to"
+  echo "   authenticate that browser as $uid. It will use your configured Clerk instance. NOTE: the"
+  echo "   token is a credential - handle as a secret. It is NOT a JWT session cookie by itself: to"
+  echo "   sign into the SPA headlessly, use clerk.signIn( emailAddress ) from @clerk/testing/playwright"
+  echo "   (see SKILL.md 'Fully-headless Clerk auth')."
 fi

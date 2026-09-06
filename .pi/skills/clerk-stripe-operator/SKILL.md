@@ -133,6 +133,34 @@ resources; the whole chain drives the app's real `payments.handle_webhook_event`
 
 ---
 
+### Fully-headless Clerk auth (verified 2026-09-06) — preferred over the Playwright MCP
+
+The `.mcp.json` Playwright binary has been observed broken (ENOENT). The supported headless
+sign-in is **`@clerk/testing/playwright`** run on the **host** (not the Alpine app container —
+its bundled chromium is glibc/Debian and will not run under Alpine's musl). The repo flake's
+devShell now ships `nodejs` for this. It needs a real dev-instance `sk_test_` + `pk_test_`.
+
+Mechanism:
+- `clerkSetup({ publishableKey, secretKey, frontendApiUrl })` mints a Clerk **testing token** and
+  sets `CLERK_FAPI`/`CLERK_TESTING_TOKEN` in `process.env` (it returns `undefined`).
+- `clerk.signIn({ page, emailAddress })` arms `setupClerkTestingToken` (route-intercepts the FAPI
+  to inject `__clerk_testing_token`) and signs the user in with **no UI** — the app's
+  `<ClerkProvider>` then holds a real `__session`. Requires `CLERK_SECRET_KEY` in `process.env`.
+- A signed-in page yields an ~800-char `__session` cookie; the backend validates its JWT against
+  the dev JWKS and `/usage` resolves that real `sub`.
+
+Env / data realities learned:
+- Dev instances with username-in-requirements reject user create without a `username`
+  (422 `form_data_missing:["username"]`). `clerk-mint.sh` now auto-derives one.
+- User API ids are `user_…`; the `idn_…` ids in the same payload are *identifications*, not the
+  user id. `clerk-mint.sh` now parses the real `user_…` id.
+- Clerk **Platform API key** (`CLERK_PLATFORM_API_KEY`) is the headless/agent alternative to
+  `clerk auth login` (avoids the browser), but **creating that key is itself dashboard-only**
+  and it manages account apps/domains, not sessions. For minting app/user sessions you need the
+  instance `sk_test_` (Backend API `api.clerk.com/v1`).
+- Backend Clerk JWT verification uses only the public JWKS URL + CLERK_DOMAIN — the backend does
+  **not** read `CLERK_SECRET_KEY`. The secret is only needed for Backend API calls (user mint).
+
 ### Browser leg (MCP): completing the real hosted Checkout
 
 The account-administration scripts above call Clerk/Stripe HTTP APIs and the Stripe CLI **directly**
