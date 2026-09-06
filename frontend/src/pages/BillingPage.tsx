@@ -14,12 +14,15 @@ import { clerkEnabled } from "@/lib/config";
 // read-only summary and no upgrade path.
 
 export function BillingPage() {
+    // Fetch usage ONCE here and thread it down: Summary + both PlanCards share
+    // the same result, so a single page load issues one GET /usage (not three).
+    const usageState = useUsage();
     return (
         <Page title="Billing & Plan" description="Your plan gates your daily chat-turn credits (all interviews). Compare tiers and manage your subscription.">
-            <Summary />
+            <Summary {...usageState} />
             <div className="grid gap-4 md:grid-cols-2">
-                <PlanCard tier="free" />
-                <PlanCard tier="premium" />
+                <PlanCard tier="free" usage={usageState.usage} />
+                <PlanCard tier="premium" usage={usageState.usage} />
             </div>
         </Page>
     );
@@ -53,9 +56,7 @@ const TIER_NAME: Record<Tier, string> = { free: "Free", premium: "Premium", dev:
 
 // --- current plan summary ---
 
-function Summary() {
-    const { usage, failed, loading } = useUsage();
-
+function Summary({ usage, failed, loading }: { usage: Usage | null; failed: boolean; loading: boolean }) {
     return (
         <Card>
             <CardHeader className="flex-row flex-wrap items-center justify-between space-y-0">
@@ -82,8 +83,7 @@ function Summary() {
 
 // --- tier card ---
 
-function PlanCard({ tier }: { tier: "free" | "premium" }) {
-    const { usage } = useUsage();
+function PlanCard({ tier, usage }: { tier: "free" | "premium"; usage: Usage | null }) {
     const [busy, setBusy] = useState(false);
     const [ctaError, setCtaError] = useState(false);
     const plan = PLANS[tier];
