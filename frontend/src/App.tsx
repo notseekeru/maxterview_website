@@ -4,6 +4,7 @@ import { BrowserRouter, Outlet, Route, Routes } from "react-router-dom";
 
 import { AppShell } from "@/components/AppShell";
 import { AppThemeSync } from "@/components/AppThemeSync";
+import { AuthMisconfigBanner } from "@/components/AuthMisconfigBanner";
 import { Button } from "@/components/ui/button";
 import { clerkEnabled } from "@/lib/config";
 import { AccountSettingsPage } from "@/pages/AccountSettingsPage";
@@ -25,6 +26,9 @@ function App() {
                 the System Settings page (fixes dark preference lost on Dashboard
                 or any hard page load landing outside the settings route). */}
             <AppThemeSync />
+            {/* Shows only when Clerk auth env is self-contradictory (bad key, or backend
+                auth-gated but no usable pk_). Above <Routes> so it appears in every mode. */}
+            <AuthMisconfigBanner />
             <Routes>
                 {/* Public marketing landing (M12). */}
                 <Route path="/" element={<Landing />} />

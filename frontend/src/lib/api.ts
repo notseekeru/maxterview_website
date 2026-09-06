@@ -1,5 +1,7 @@
 import axios, { type AxiosError } from "axios";
 
+import { markAuthGate401 } from "./authHealth";
+
 // The Vite dev proxy (and prod nginx) forward /api/... to the backend, stripping the
 // /api prefix so backend routes at root (/interviews) are hit.
 const BASE = `${import.meta.env.VITE_API_BASE ?? "/api"}`;
@@ -8,6 +10,18 @@ export const api = axios.create({
     baseURL: BASE,
     withCredentials: true, // send __session cookie for Clerk auth
 });
+
+// Surface the backend-is-auth-gated-but-browser-can't-login mismatch to the shell.
+// On any 401 whose detail is exactly the backend's `Missing credentials`, tell authHealth.
+// When the frontend also has no usable pk_ key the shell then shows the misconfig banner.
+api.interceptors.response.use(
+    (r) => r,
+    (err) => {
+        const d = err.response?.data as { detail?: string } | undefined;
+        if (err.response?.status === 401 && d?.detail === "Missing credentials") markAuthGate401();
+        return Promise.reject(err);
+    },
+);
 
 // M10: a 402 signals a quota lockout (daily interview cap or chat-turn cap).
 export function isQuotaError(e: unknown): boolean {

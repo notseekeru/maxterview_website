@@ -1,9 +1,10 @@
-// Runtime config. `clerkEnabled` is true only when a publishable key is present.
-// Matches the backend's CLERK_ENABLED=false -> DEV_USER fallback (no-auth dev mode).
-const embeddedKey = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY as string | undefined;
+// Runtime config. `clerkEnabled` is true ONLY when a real publishable key (pk_…) is present —
+// a non-empty key that isn't pk_ (e.g. a stray secret pasted in) does NOT count and keeps the
+// app in no-auth/dev mode + raises the misconfig banner. Delegates to authHealth.ts so the
+// shape check is the single source of truth across main.tsx / api.ts / the shell.
+import { clerkEnabled, clerkPublishableKey } from "./authHealth";
 
-export const clerkEnabled = Boolean(embeddedKey);
-export const clerkPublishableKey = embeddedKey ?? "";
+export { clerkEnabled, clerkPublishableKey };
 
 // The opening line shown at the top of a fresh interview thread. The interviewer is a
 // mock-interview coach, so we kick off by asking the candidate to share their resume /
