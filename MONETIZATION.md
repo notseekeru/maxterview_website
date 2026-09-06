@@ -11,12 +11,14 @@
 | | Free | Premium | dev |
 |---|---|---|---|
 | Interviews (creation) | **unlimited** | **unlimited** | **unlimited** |
-| Chat turns / interview | **8** (`FREE_CHAT_TURNS`) | **100** (`PREMIUM_CHAT_TURNS`) | **500** (`DEV_CHAT_TURNS`) |
 | Price | $0 | **$9.99/mo** (monthly only) | $0 |
+| Chat turns / day (GLOBAL, all interviews) | **10** (`FREE_CHAT_TURNS`) | **250** (`PREMIUM_CHAT_TURNS`) | **500** (`DEV_CHAT_TURNS`) |
 | Free trial | none | — | — |
 
-- **No daily-interview cap** (removed 2026-08-25): creation is unlimited; the per-interview chat-turn
-  cap is the only gate. No token counting (2026-08-23 decision) — count turns, not tokens.
+- **Model change (this pass):** the gate moved from a **per-interview** turn cap to a
+  **global daily allowance per owner** spanning ALL their interviews in one UTC day, reset at
+  00:00 UTC. See §2. No per-interview cap and no daily-interview cap (creation stays unlimited).
+  No token counting (2026-08-23 decision) — count turns, not tokens.
 - Limits are env-overridable (`backend/.env.example`). **`dev` tier** (only for developers, never prod): the
   no-Clerk dev-fallback identity (`CLERK_ENABLED=false`) resolves to `dev` with caps above premium;
   confines to dev/test and never persists in `subscriptions` (details in PLAN D10).
@@ -29,26 +31,31 @@
   identity, see §0). Source of truth at runtime is `ClerkUser.tier` (JWT claim), **merged with an
   active `premium` row in the `subscriptions` table** so billing can elevate even when the JWT is
   stale. Implemented in `app/billing.py::resolve_tier`.
-- **Consumption (the per-interview turn counter) is NOT in the JWT** — it's counted from
-  `interviews.chat_turns`, server-side per owner (D4).
+- **Consumption (the daily GLOBAL turn counter) is NOT in the JWT** — it's counted from
+  `turn_usage`, server-side per owner (owner_id, UTC day) (D4).
 
 ## 2. Enforcement (backend-authoritative; frontend is UX only)
 
 Implemented in `app/billing.py` + `app/main.py`.
 
-- **No daily-interview cap** (removed 2026-08-25): `POST /interviews` does a plain INSERT — every
-  owner can create unlimited interviews. Overage lockout applies to chat turns only.
-- **Per-interview chat-turn cap** on `POST /interviews/{id}/chat/stream`: checks
-  `interviews.chat_turns < limit`, then `bump_chat_turn`. Over → **`402 Payment Required`**.
-  Caps: free 8, premium 100, dev 500.
+- **No per-interview cap and no daily-interview cap** (removed): `POST /interviews` does a plain
+  INSERT — every owner can create unlimited interviews. Over-land lockout applies only to the
+  daily GLOBAL chat-turn allowance.
+- **Daily GLOBAL chat-turn cap** on `POST /interviews/{id}/chat/stream`: for the owner's current
+  UTC day, check `turns_used(today) < limit` (reads `turn_usage`), then `bump_chat_turn`
+  (upsert +1 on `(owner_id, today)`). Over → **`402 Payment Required`**. May 402 mid-interview
+  once the owner burns today's allowance across ALL their interviews.
+  Caps: free 10/day, premium 250/day, dev 500/day.
 - **Overage → lockout:** block new turns only. **Never delete, truncate, or hide existing
   user data** — reads stay fully available. Hard rule.
 - **No free trial.** Upgrade is a hard gate.
 - **Cache decision:** no cache-aside for the counters (DB-backed, per-user, low-frequency). `tier`
   cached in the JWT; JWKS cached in `auth.py`.
-- **Usage status (`GET /usage`):** returns `tier` and the tier's `chat_turns` limit
-  (`chat_turns_per_interview_<tier>`). The frontend `/app` header shows a **Free / Premium / DEV
-  tier label** (`UsageBadge`). `dev` is returned by the no-Clerk dev-fallback identity (see §0).
+- **Usage status (`GET /usage`):** returns `tier`, today's cap
+  (`chat_turns_per_day_<tier>`), and `chat_turns_used_today` / `chat_turns_remaining_today`
+  (computed from `turn_usage` for the caller). The frontend `/app` header shows a
+  **Free / Premium / DEV tier label** (`UsageBadge`). `dev` is returned by the no-Clerk
+  dev-fallback identity (see §0).
 
 
 ## 3. Billing provider — raw Stripe (backend shipped 2026-08-24)
@@ -87,19 +94,28 @@ CREATE TABLE IF NOT EXISTS subscriptions (
     updated_at          TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
--- per-interview chat-turn counter (free-tier cap; no token metering)
-ALTER TABLE interviews ADD COLUMN IF NOT EXISTS chat_turns INTEGER NOT NULL DEFAULT 0;
+-- (this pass) 0004_global_chat_turns.sql: global daily per-owner counter (supersedes the
+-- per-interview interviews.chat_turns added in 0002, which is dropped here).
+ALTER TABLE interviews DROP COLUMN IF EXISTS chat_turns;
+
+CREATE TABLE IF NOT EXISTS turn_usage (
+    owner_id TEXT NOT NULL,
+    day      DATE NOT NULL,          -- UTC day (reset at 00:00 UTC)
+    turns    INT  NOT NULL DEFAULT 0,
+    PRIMARY KEY (owner_id, day)
+);
 ```
 
-> **No `usage` / `tokens_used` tables** — token metering was intentionally dropped for the turn-based
-> model (decision 2026-08-23). Reintroduce only if LLM cost accounting is required later.
+> **No token metering** — the `turn_usage` counter counts turns, not tokens (decision
+> 2026-08-23). Token/tokens_used tables were deliberately dropped; reintroduce only if LLM cost
+> accounting is required later.
 
 ## 5. M10 handoff
 
 | Shipped | Open |
 |---|---|
 | Backend: `billing.py`, `payments.py` (checkout/portal/webhook), `0002_billing` migration | **Live Clerk billing** (`CLERK_ENABLED=true` + JWT `tier` template/domain) so a real user surfaces `premium` in `/usage` |
-| Caps: chat-turn per interview (free 8 / premium 100 / dev 500); no daily-interview cap | — |
+| Caps: daily GLOBAL chat-turn per owner (free 10 / premium 250 / dev 500, UTC-day reset; `0004_global_chat_turns`); no per-interview / no daily-interview cap | — |
 | Frontend: usage badge, upsell/lockout notices, billing/plan page (`/app/settings/billing`) | — |
 | Real payment test (2026-09-06) + `_period_end` datetime fix | — |
 ## 6. Cancellation & billing terms (M10, deferred with Stripe)

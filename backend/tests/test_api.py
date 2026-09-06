@@ -126,13 +126,33 @@ def test_interviews_unlimited_at_creation(client):
     r2 = client.post("/interviews", json={"role": "Quota Probe 2"})
     assert r2.status_code == 201
     iid2 = r2.json()["id"]
-    # /usage no longer reports a daily-interview field (removed); still reports tier + chat turns.
+    # /usage reports tier + the daily GLOBAL chat-turn dial (per owner, not per interview).
     u = client.get("/usage")
     assert u.status_code == 200
     body = u.json()
     assert "daily_interviews" not in body
     assert body["tier"] == "dev"  # no-Clerk dev-fallback -> dev tier
-    assert body["chat_turns_per_interview_dev"] == 500
+    assert body["chat_turns_per_day_dev"] == 500
+    assert body["chat_turns_used_today"] >= 0
+    assert body["chat_turns_remaining_today"] >= 0
 
     assert client.delete(f"/interviews/{iid1}").status_code == 204
     assert client.delete(f"/interviews/{iid2}").status_code == 204
+
+
+def test_usage_tracks_global_daily_counter(client):
+    # Chat turns count GLOBALLY per owner (across all interviews), not per interview.
+    # A turn in one interview advances the shared daily /usage counter that all of the
+    # owner's interviews draw from (cap math covered by the unit tests; dev cap 500
+    # keeps this integration run safely under the cap).
+    c = client
+    iv = c.post("/interviews", json={"role": "Cap Probe"}).json()
+    iid = iv["id"]
+    c.post(f"/interviews/{iid}/start")
+
+    before = c.get("/usage").json()["chat_turns_used_today"]
+    r = c.post(f"/interviews/{iid}/chat/stream", json={"interview_id": iid, "content": "ping"})
+    assert r.status_code == 200
+    after = c.get("/usage").json()["chat_turns_used_today"]
+    assert after == before + 1
+    c.delete(f"/interviews/{iid}")

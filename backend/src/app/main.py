@@ -62,8 +62,8 @@ async def create_interview(
     body: InterviewCreate,
     user: CurrentUser,
 ) -> dict:
-    # No daily-interview cap (removed): interviews are unlimited at creation; the only
-    # gate is the per-interview chat-turn cap (checked in chat/stream).
+    # No daily-interview cap and no per-interview cap: interviews are unlimited at creation.
+    # The only gate is the owner's daily GLOBAL chat-turn allowance (checked in chat/stream).
     row = await fetchrow(
         """
         INSERT INTO interviews (owner_id, role, topic)
@@ -194,12 +194,15 @@ async def create_feedback(
 
 @app.get("/usage")
 async def get_usage(user: CurrentUser) -> dict:
-    """Cheap quota status: tier + the per-interview chat-turn limit."""
+    """Cheap quota status: tier + the daily GLOBAL chat-turn dial (per owner, all interviews)."""
     tier = await billing.resolve_tier(user)
     chat = int(billing._quota(tier, "chat_turns"))
+    used = await billing.chat_turns_used(user.sub)
     return {
         "tier": tier,
-        f"chat_turns_per_interview_{tier}": chat,
+        f"chat_turns_per_day_{tier}": chat,
+        "chat_turns_used_today": used,
+        "chat_turns_remaining_today": max(0, chat - used),
     }
 
 
@@ -253,15 +256,17 @@ async def chat_stream(
     if interview["status"] != "in_progress":
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Interview is not in progress")
 
-    # Per-interview chat-turn cap (no token metering).
+    # Today's daily GLOBAL chat-turn cap per owner (no token metering). May 402 even
+    # mid-interview: the allowance spans ALL the owner's interviews this UTC day.
     tier = await billing.resolve_tier(user)
-    if await billing.chat_turn_remaining(tier, interview_id) == 0:
+    if await billing.chat_turn_remaining(tier, user.sub) == 0:
         raise HTTPException(
             status_code=status.HTTP_402_PAYMENT_REQUIRED,
-            detail="Chat turn limit reached for this interview. Complete it or upgrade to premium.",
+            detail="Daily chat-turn allowance reached. Try again after midnight UTC, or upgrade to premium.",
         )
 
-    await billing.bump_chat_turn(interview_id)
+    await billing.bump_chat_turn(user.sub)
+
     user_msg = await fetchrow(
         "INSERT INTO messages (interview_id, role, content) VALUES ($1, 'user', $2) RETURNING id::text",
         interview_id,

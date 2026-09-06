@@ -8,12 +8,13 @@ Simple tier model: Free / Premium / dev(-only). Backend-authoritative.
 - **`dev` tier**: only for the no-Clerk dev-fallback identity (`CLERK_ENABLED=false`, i.e. the
   fixed `DEV_USER`). `main.py`'s D2 guard refuses to boot with `CLERK_ENABLED=false` outside
   development/test, so `dev` can never leak to production. Never persisted in `subscriptions`.
-- **Quotas**: chat-turn cap per interview is the only gate — free = K, premium = M, dev = D (>M).
-  No daily-interview limit (removed) and no token metering (decision 2026-08-23).
-
+- **Quotas**: a single daily chat-turn allowance per owner is the only gate — free = 10,
+  premium = 250, dev = 500 (across ALL the owner's interviews in one UTC day). No
+  per-interview cap and no token metering (decisions 2026-08-23 / this change).
 """
 
 import os
+from datetime import UTC, date, datetime
 
 from fastapi import HTTPException, status
 
@@ -22,12 +23,15 @@ from app.db import fetchrow
 from app.models import ClerkUser
 
 # --- tier limits (env-overridable; MONETIZATION.md §0 placeholders) ---
-FREE_CHAT_TURNS = int(os.getenv("FREE_CHAT_TURNS", "8"))
-PREMIUM_CHAT_TURNS = int(os.getenv("PREMIUM_CHAT_TURNS", "100"))
+# Daily GLOBAL chat-turn allowance PER OWNER (across all interviews in one UTC day),
+# reset at 00:00:00 UTC. No per-interview cap (removed). Resets each day: free = 10/day,
+# premium = 250/day, dev = 500/day (dev > premium).
+FREE_CHAT_TURNS = int(os.getenv("FREE_CHAT_TURNS", "10"))
+PREMIUM_CHAT_TURNS = int(os.getenv("PREMIUM_CHAT_TURNS", "250"))
 DEV_CHAT_TURNS = int(os.getenv("DEV_CHAT_TURNS", "500"))  # dev > premium
 
 LIMITS = {
-    # chat-turn cap per interview is the only quota (daily-interview cap removed).
+    # Daily global chat-turn allowance is the only quota (per-interview + daily-interview caps removed).
     "free": {"chat_turns": FREE_CHAT_TURNS},
     "premium": {"chat_turns": PREMIUM_CHAT_TURNS},
     "dev": {"chat_turns": DEV_CHAT_TURNS},
@@ -57,22 +61,33 @@ def _quota(tier: str, what: str) -> float:
     return limits[what]
 
 
-async def chat_turn_remaining(tier: str, interview_id: str) -> int:
-    """Remaining user turns for this interview (0 at/over cap)."""
-    limit = _quota(tier, "chat_turns")
-    if limit == float("inf"):
-        return -1
+def _utc_day() -> date:
+    """The current UTC day as a `date` — the counter's daily reset bucket.
+    Returned as a `datetime.date` (NOT an ISO string) so asyncpg binds it natively
+    to the `turn_usage.day` DATE column."""
+    return datetime.now(UTC).date()
+
+
+async def chat_turns_used(owner_id: str) -> int:
+    """Number of user turns this owner has used across all interviews today (UTC)."""
     row = await fetchrow(
-        "SELECT chat_turns FROM interviews WHERE id = $1",
-        interview_id,
+        "SELECT turns FROM turn_usage WHERE owner_id = $1 AND day = $2",
+        owner_id,
+        _utc_day(),
     )
-    used = (row["chat_turns"] or 0) if row else 0
-    return max(0, int(limit) - used)
+    return (row["turns"] or 0) if row else 0
 
 
-async def bump_chat_turn(interview_id: str) -> None:
-    """Increment the per-interview user-turn counter (called when a user turn is accepted)."""
+async def chat_turn_remaining(tier: str, owner_id: str) -> int:
+    """Remaining GLOBAL user turns for this owner today (0 at/over the daily cap)."""
+    limit = _quota(tier, "chat_turns")
+    return max(0, int(limit) - await chat_turns_used(owner_id))
+
+
+async def bump_chat_turn(owner_id: str) -> None:
+    """Increment today's GLOBAL per-owner turn counter (called when a user turn is accepted)."""
     await fetchrow(
-        "UPDATE interviews SET chat_turns = chat_turns + 1 WHERE id = $1 RETURNING id",
-        interview_id,
+        "INSERT INTO turn_usage (owner_id, day, turns) VALUES ($1, $2, 1) ON CONFLICT (owner_id, day) DO UPDATE SET turns = turn_usage.turns + 1",
+        owner_id,
+        _utc_day(),
     )

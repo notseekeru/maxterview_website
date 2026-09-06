@@ -25,12 +25,12 @@ export function AccountSettingsPage() {
         <Page title="Account Settings" description="Your sign-in details and subscription.">
             {/* Plan — summary only; the full tiers + upgrade/portal surface lives on
                 /app/settings/billing (see BillingPage). Show what tier the user is on
-                and the per-interview chat-turn cap it grants. */}
+                and the daily chat-turn allowance (all interviews) it grants. */}
             <Card>
                 <CardHeader className="flex-row items-center justify-between space-y-0">
                     <div>
                         <CardTitle>Plan</CardTitle>
-                        <CardDescription className="mt-1">{usage?.tier === "dev" ? "Dev mode — no Clerk key; runs against the backend DEV_USER." : `You are on ${tierLabel}. ${usage ? `Turn cap per interview: ${chatTurns(usage)}.` : ""}`}</CardDescription>
+                        <CardDescription className="mt-1">{usage?.tier === "dev" ? "Dev mode — no Clerk key; runs against the backend DEV_USER." : `You are on ${tierLabel}. ${usage ? `Daily chat turns (all interviews): ${chatTurns(usage)}.` : ""}`}</CardDescription>
                     </div>
                     <Badge variant={usage?.tier === "premium" ? "default" : "secondary"}>{tierLabel}</Badge>
                 </CardHeader>

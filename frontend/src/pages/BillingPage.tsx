@@ -15,7 +15,7 @@ import { clerkEnabled } from "@/lib/config";
 
 export function BillingPage() {
     return (
-        <Page title="Billing & Plan" description="Your plan gates per-interview chat turns. Compare tiers and manage your subscription.">
+        <Page title="Billing & Plan" description="Your plan gates your daily chat-turn allowance (all interviews). Compare tiers and manage your subscription.">
             <Summary />
             <div className="grid gap-4 md:grid-cols-2">
                 <PlanCard tier="free" />
@@ -26,10 +26,10 @@ export function BillingPage() {
 }
 
 // Free/premium real figures from MONETIZATION §0 (env-overridable server-side:
-// FREE_CHAT_TURNS=8 / PREMIUM_CHAT_TURNS=100). `dev` (500) isn't marketed.
+// FREE_CHAT_TURNS=10 / PREMIUM_CHAT_TURNS=250). `dev` (500) isn't marketed.
 export const PLANS: Record<"free" | "premium", { name: string; monthly: string; turns: number }> = {
-    free: { name: "Free", monthly: "$0", turns: 8 },
-    premium: { name: "Premium", monthly: "$9.99/mo", turns: 100 },
+    free: { name: "Free", monthly: "$0", turns: 10 },
+    premium: { name: "Premium", monthly: "$9.99/mo", turns: 250 },
 };
 
 // --- shared data hook ---
@@ -68,7 +68,7 @@ function Summary() {
             <CardFooter className="text-sm">
                 {usage ? (
                     <span className="text-muted-foreground">
-                        Chat-turn cap per interview: <span className="font-medium text-foreground">{chatTurns(usage)}</span>
+                        Daily chat turns (all interviews): <span className="font-medium text-foreground">{chatTurns(usage)}</span>
                     </span>
                 ) : failed ? (
                     <span className="text-destructive">Couldn’t load your plan. Refresh to retry.</span>
@@ -139,7 +139,7 @@ function PlanCard({ tier }: { tier: "free" | "premium" }) {
             </CardHeader>
             <CardContent className="flex-1 space-y-2.5 text-sm text-muted-foreground">
                 <Feature>
-                    <strong>{plan.turns}</strong> chat turns per interview
+                    <strong>{plan.turns}</strong> chat turns allowed per day
                 </Feature>
                 <Feature>Unlimited interviews — no daily cap</Feature>
                 <Feature>{isPremium ? "Priority on the interviewer model + bigger scope" : "Free model keeps quality for everyday practice"}</Feature>

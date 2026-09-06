@@ -22,10 +22,10 @@ async def _async_none(*_args, **_kwargs):
 
 
 def test_quota_defaults():
-    # MONETIZATION.md §0 placeholders by default. No daily-interview quota (removed):
-    # the chat-turn cap is the only gate.
-    assert _quota("free", "chat_turns") == 8
-    assert _quota("premium", "chat_turns") == 100
+    # MONETIZATION.md §0 placeholders by default. No per-interview or daily-interview quota:
+    # the daily GLOBAL chat-turn allowance is the only gate.
+    assert _quota("free", "chat_turns") == 10
+    assert _quota("premium", "chat_turns") == 250
     assert _quota("dev", "chat_turns") == 500
 
 
@@ -49,6 +49,54 @@ async def test_resolve_tier_free_when_no_subscription(monkeypatch):
     monkeypatch.setattr(billing, "CLERK_ENABLED", True)
     monkeypatch.setattr(billing, "fetchrow", _async_none)
     assert await resolve_tier(_User("plain-user", "free")) == "free"
+
+
+# --- GLOBAL daily chat-turn accounting (turn_usage per owner per UTC day) ---
+
+
+async def test_chat_turns_used_defaults_zero_when_no_row(monkeypatch):
+    monkeypatch.setattr(billing, "fetchrow", _async_none)
+    assert await billing.chat_turns_used("some-owner") == 0
+
+
+async def test_chat_turn_remaining_uses_global_counter(monkeypatch):
+    # Used 7 across all interviews today -> free(10) has 3 left; premium(250) has 243.
+    async def _fake(q, owner, day):
+        return {"turns": 7}
+
+    monkeypatch.setattr(billing, "fetchrow", _fake)
+    assert await billing.chat_turn_remaining("free", "o") == 3
+    assert await billing.chat_turn_remaining("premium", "o") == 243
+    assert await billing.chat_turn_remaining("dev", "o") == 493
+
+
+async def test_chat_turn_remaining_floor_at_zero(monkeypatch):
+    async def _fake(q, owner, day):
+        return {"turns": 30}
+
+    monkeypatch.setattr(billing, "fetchrow", _fake)
+    assert await billing.chat_turn_remaining("free", "o") == 0
+
+
+async def test_bump_upserts_global_row(monkeypatch):
+    calls = []
+
+    async def _fake(q, *a, **k):
+        calls.append((q, a))
+        return {"id": "r"}
+
+    monkeypatch.setattr(billing, "fetchrow", _fake)
+    await billing.bump_chat_turn("owner-1")
+    assert calls and "turn_usage" in calls[0][0]
+    # owner_id + the current UTC day are passed, and the row is keyed by owner+day.
+    assert calls[0][1][0] == "owner-1"
+
+
+def test_utc_day_is_date_object():
+    # Reset bucket is the current UTC calendar day as a bound-able `date` for asyncpg.
+    from datetime import date
+
+    assert isinstance(billing._utc_day(), date)
 
 
 async def test_resolve_tier_jwt_premium_wins(monkeypatch):
