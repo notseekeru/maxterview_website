@@ -1,12 +1,10 @@
 # MONETIZATION — Payment & Billing
 
-> **Model: Free / Premium + dev-only.** This file is the billing spec for **M10**.
-> **Backend quota enforcement + raw Stripe shipped (2026-08-24).** **No daily-interview cap +
-> `dev` tier backend wiring shipped 2026-08-25:** interviews are unlimited at creation; the only gate
-> is the per-interview chat-turn cap; `dev` (500 turns) applies only to the no-Clerk dev-fallback
-> identity. Frontend M10 UX (usage badge + lockout/upsell notices) shipped 2026-08-24 (UI).
-> **Dedicated billing/plan page deferred** until Stripe keys / live Clerk are verified.
-> **Source of truth for decisions:** PLAN.md D10 (and D4 for owner-scoping).
+> **Model: Free / Premium + dev-only.** Billing spec for **M10**. **Shipped:** quota backend + raw
+> Stripe (2026-08-24/25); billing/plan page + **real payment test** (2026-09-06) — test-mode
+> checkout → webhook → premium `subscriptions` row, signature-verified; a live Clerk identity
+> (`CLERK_ENABLED=true`) is the one remaining requirement to surface `premium` in `/usage`.
+> **Source of truth for decisions:** PLAN.md D10 (and D4 for owner-scoping). Planner status in PLAN.md §8.
 
 ## 0. Limits & model (env-configurable, not hardcoded)
 
@@ -69,9 +67,9 @@ Implementation: **raw Stripe** (chosen over Clerk-billing for ownership, learnin
 Stripe calculates tax, we remit; no merchant-of-record. Requires Stripe account + keys in prod Secret
 (zero-touch on credentials).
 
-**Frontend M10 UX (shipped 2026-08-24, UI only):** the header tier labels (`UsageBadge` → **Free / Premium** + **`DEV`** when no Clerk key; `GET /usage`) and the lockout/upsell notice (`UpgradeNotice` on 402 — links to `POST /billing/checkout` and `POST /billing/portal`) are in the SPA. They are wired and correct, but **end-to-end payment cannot be exercised until the Stripe keys + live Clerk path exist.**
+**Frontend (2026-08-24 → 09-06):** header tier labels (`UsageBadge`) + lockout/upsell notice (`UpgradeNotice` on 402) wired to checkout/portal, and a dedicated **billing/plan page** (`/app/settings/billing`) with Free vs Premium cards, current-plan summary, and an Upgrade → `/billing/checkout` CTA. See PLAN §8 M10.
 
-**Deferred (needs Stripe keys / live Clerk):** a **dedicated billing/plan page** and real payment testing (Stripe CLI `listen` for local webhooks → subscribe → webhook → `resolve_tier` → tier flip → cancel/downgrade). Building the page before those are verified is speculative UI against an unverifiable contract (YAGNI) — the existing upsell/usage UX is enough until then. Until live, `subscriptions` rows can be created directly for testing/promo and `resolve_tier` honors them.
+**Payment test (2026-09-06):** real test-mode Checkout Session URL returned; live `stripe listen` delivered signature-verified `customer.subscription.*` events → a **`premium`/`active` `subscriptions` row** (found+fixed `_period_end` passing Stripe's epoch int where asyncpg needs a `datetime` — it used to 500). Residual: only a live Clerk identity surfaces `premium` in `/usage`; until `CLERK_ENABLED=true`, dev-mode users see `dev`. Until live, `subscriptions` rows can be seeded directly and `resolve_tier` honors them.
 ## 4. Phase-2 schema (shipped with M10 backend)
 
 Applied in `backend/migrations/0002_billing.sql`:
@@ -98,17 +96,12 @@ ALTER TABLE interviews ADD COLUMN IF NOT EXISTS chat_turns INTEGER NOT NULL DEFA
 
 ## 5. M10 handoff
 
-| Shipped (2026-08-24) | Deferred |
+| Shipped | Open |
 |---|---|
-| `app/billing.py` — tiers, quotas, `resolve_tier` | Stripe keys / Stripe CLI local webhook testing |
-| Chat-turn cap (free/premium/dev) — **`dev` tier + no-daily-cap shipped 2026-08-25** | Dedicated billing/plan page |
-| `GET /usage` (tier + chat turns; no daily fields) — **shipped 2026-08-25** | Live Clerk billing (`CLERK_ENABLED=true`) + JWT `tier` template |
-
-| Frontend upsell/lock UX + usage badge (`UsageBadge`/`UpgradeNotice`) — **shipped 2026-08-24** | — |
-| `app/payments.py` — raw Stripe checkout / portal / webhook | Real payment testing (needs `sk_test_`/`whsec_`) |
-| `subscriptions` + `chat_turns` migration | — |
-| `ClerkUser.tier` seam + `resolve_tier` | — |
-
+| Backend: `billing.py`, `payments.py` (checkout/portal/webhook), `0002_billing` migration | **Live Clerk billing** (`CLERK_ENABLED=true` + JWT `tier` template/domain) so a real user surfaces `premium` in `/usage` |
+| Caps: chat-turn per interview (free 8 / premium 100 / dev 500); no daily-interview cap | — |
+| Frontend: usage badge, upsell/lockout notices, billing/plan page (`/app/settings/billing`) | — |
+| Real payment test (2026-09-06) + `_period_end` datetime fix | — |
 ## 6. Cancellation & billing terms (M10, deferred with Stripe)
 
 - **Cancellation → access till end of the current paid period, no refunds.**
