@@ -213,21 +213,24 @@ The minimal flow above is the whole trick: `clerkSetup` mints a testing token, `
 arms the FAPI route interceptor and signs in with no UI. `clerk-mint.sh` already covers the
 user-create + token; the browser leg above is only needed when you must assert the SPA as a
 signed-in user (tier billing page) rather than mint a token.
-### Browser leg (MCP): completing the real hosted Checkout
+### Browser leg (no MCP): completing the real hosted Checkout
 
 The account-administration scripts above call Clerk/Stripe HTTP APIs and the Stripe CLI **directly**
 (no MCP, no browser). The one genuinely browser-y step — clicking Upgrade in the SPA and
-**paying on the real `checkout.stripe.com` page with the Stripe test card** — is driven through the
-existing **Playwright MCP** server (already declared in `.mcp.json`; `mcp__playwright` tools
-`navigate`/`fill`/`click`/etc.).
+**paying on the real `checkout.stripe.com` page with the Stripe test card** — is driven through a
+**host-direct playwright** browser. There is NO browser MCP: `.mcp.json` no longer declares a
+`playwright` server (its old entry pointed at a dead nix-store binary and was removed). Drive the
+real browser with the same host-direct `playwright-core` + nix chromium mechanism documented in the
+`hermetic-e2e` skill (resolve paths from `/nix/store` at runtime; no host npm install), and sign in
+headlessly with `@clerk/testing/playwright` per the recipe above.
 
 Follow `references/card-browser-checkout.md` for the full walkthrough. Skeleton: mint identity
 (`clerk-mint.sh`) → browse `{FRONTEND_BASE_URL}/app` → trigger Upgrade → land on hosted Checkout →
 fill `4242 4242 4242 4242` → Stripe webhook back to `/billing/webhook` → assert `tier: premium`).
 
 Two hard notes about this leg:
-- The Playwright server is **headless** in `.mcp.json`. Stripe's anti-bot may interrupt the card
-  step; at that point **hand the visible browser back to the human to finish** (don't retry loops).
+- The browser is headless. Stripe's anti-bot may interrupt the card step; at that point **hand the
+  visible browser back to the human to finish** (don't retry loops).
 - This is an **interactive journey**, not a CI spec runner. It exercises the real Upgrade button +
   real hosted Checkout; full automation of the actual money step is not something Stripe permits.
 ## 5. Commands / scripts

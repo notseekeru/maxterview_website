@@ -46,8 +46,10 @@ narrate. Everything here is real infra you can actually reach from this repo.
   price/customer/webhook/state — gives you API hands on both accounts (curl), with live-key refusal
   and `--admin-destroy` gating. Use for "set up a test user", "show webhooks/customers/price",
   "make it premium", "tear that test user down".
-- **hermetic-e2e** → a browser walkthrough of onboarding + dashboard nav through Playwright-MCP,
-  hermetic DEV_USER, no keys. Use to drive the UI quickly. (Not a deterministic CI spec.)
+- **hermetic-e2e** → a browser walkthrough of onboarding + dashboard nav, driven HOST-DIRECT with
+  nix-store playwright-core/chromium (there is no browser MCP anymore). Hermetic DEV_USER needs the
+  backend at CLERK_ENABLED=false; real-Clerk stacks sign in headlessly first. Use to drive the UI
+  quickly. (Not a deterministic CI spec.)
 
 ## Quick console (run from repo root)
 
@@ -117,7 +119,8 @@ Remember the two runtime modes:
 - **Fast debug mode (recommended default):** no Clerk key → backend `DEV_USER`, UI testable now. Run
   against dev (CLERK_ENABLED=false) using whatever is in env.
 - **Full live-auth mode:** requires real `CLERK_ENABLED=true` + domain/JWKS/audience + frontend pk,
-  plus the Clerk `sk_test` operator secret to mint sessions/users for browser auth.
+  plus the Clerk `sk_test` operator secret to mint sessions/users for headless browser auth
+  (@clerk/testing) on real-Clerk stacks.
 
 ## Acting on the Clerk/Stripe sandbox
 
@@ -135,13 +138,23 @@ it refuses `*_live_*`, and anything destructive requires `--admin-destroy`. Repr
 ./.pi/skills/clerk-stripe-operator/scripts/debug-state.sh
 ```
 
-## Browser drive (Playwright MCP)
+## Browser drive (NO browser MCP — go host-direct or headless-clerk)
 
-For UI reproduction/navigation use the Playwright MCP (chromium, already in `.mcp.json`): navigate,
-fill, click, assert_text, screenshot, etc. The hermetic-e2e skill documents the onboarding journey
-(Landing → /app → create interview → /interviews/:id) against DEV_USER. Real hosted Stripe Checkout
-needs real keys and a human at the card step — see clerk-stripe-operator's
-`references/card-browser-checkout.md`; do NOT loop-automate Stripe's bot checks.
+`.mcp.json` no longer declares a `playwright` server: the old entry pointed at a dead
+`/nix/store/...playwright-mcp.../bin/playwright-mcp` binary that does not exist (verified); the MCP
+route is gone. Replace it with one of these working paths:
+
+- **Hermetic DEV_USER (no keys):** read the `hermetic-e2e` skill. It drives a real browser via
+  `playwright-core` + chromium resolved from the immutable nix store (no host npm install → no
+  `node_modules` on the host), against the backend at `CLERK_ENABLED=false`. Check posture first:
+  `curl -s -o /dev/null -w "%{http_code}" localhost:8000/usage` → 200 means DEV_USER (hermetic),
+  401 means real-Clerk (not hermetic).
+- **Real-Clerk headless sign-in:** use the `clerk-stripe-operator` skill → `@clerk/testing/playwright`
+  (`clerkSetup` + `clerk.signIn`) with a throwaway minted user, then render the auth-gated route.
+  Real hosted Stripe Checkout still needs real keys and a human at the card step — see
+  `references/card-browser-checkout.md`; do NOT loop-automate Stripe's bot checks.
+
+Never hand-roll a brand-new browser harness when the two existing skill paths above cover it.
 
 ## Workflow guidance (how to reason as the infra-hands)
 
@@ -173,8 +186,8 @@ make exec      # full gate: frontend npm ci + biome + typecheck + build; backend
   `.github/workflows/ci-pipeline.yml` runs). Treat a non-zero exit as a blocker on committing.
 - If `make exec` fails, fix the surfaced failure and re-run before moving on.
 - (Optional, for flows touching auth-gated UI): drive the application once with the
-  `hermetic-e2e` onboarding/navigation walkthrough (Playwright MCP) so behavior is exercised,
-  since `make exec` is static checks + unit tests, not a browser.
+  `hermetic-e2e` onboarding/navigation walkthrough (host-direct playwright-core browser) so behavior
+  is exercised, since `make exec` is static checks + unit tests, not a browser.
 
 Then commit per the repo's AGENTS.md policy:
 - Conventional commits only: `feat(scope):`, `test(scope):`, `fix(scope):`, `ref(scope):`,

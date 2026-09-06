@@ -1,7 +1,9 @@
-# Real Stripe Checkout via the Playwright MCP (the "pay/upgrade" leg)
+# Real Stripe Checkout via a host-direct browser (the "pay/upgrade" leg)
 
 This reference is what an agent follows to drive a **real** hosted Stripe Checkout in a browser,
-using the Playwright MCP server already declared in `.mcp.json`. It is the natural continuation of
+using a **host-direct playwright** browser. NOTE: there is NO browser MCP — `.mcp.json` no longer
+declares a `playwright` server (its old entry pointed at a dead nix-store binary and was removed).Drive the real browser with the same mechanism the `hermetic-e2e` skill documents:`playwright-core` + chromium resolved from `/nix/store` at runtime via a host node(js), no host
+`npm install`, so no `node_modules` land in local storage. This is the natural continuation of
 `clerk-mint.sh` + `webhook-driver.sh`: mint the identity, drive the browser up to a real Stripe
 page, complete it with a **test card**, and assert the entitlement flip end to end.
 
@@ -22,17 +24,28 @@ test card, and Stripe posts the webhook back to the app. Assertions happen on yo
 - Either (a) `CLERK_ENABLED=false` dev fallback mode means every call is `DEV_USER`, or
   (b) real Clerk via testing-token from `clerk-mint.sh` to authenticate the browser as a chosen user.
 
-## Driver conventions through Playwright MCP
+## Driver conventions (host-direct playwright)
 
-The Playwright server in `.mcp.json` runs **chromium headless**. To use it, the agent issues
-`mcp__playwright` calls: `navigate`, `fill`, `click`, `goto`, `new_page`, `screenshot`, `text`, etc.
-All browser steps in this file are phrased in those terms. No new dependency is added: it reuses the
-existing server.
+The browser runs headless chromium via `playwright-core` from the nix store. Resolve the two store
+artifacts at runtime (never hardcode store hashes), per the `hermetic-e2e` skill:
+
+```js
+import pw from process.env.PCORE_INDEX;              // CJS default import
+const { chromium } = pw;
+const b = await chromium.launch({ executablePath: process.env.CHROME_PATH,
+                                  headless: true, args: ["--no-sandbox", "--disable-gpu"] });
+const ctx = await b.newContext();
+const page = await ctx.newPage();
+// all browser steps in this file map to page.*: page.goto, page.click, page.fill, ...
+```
+
+Resolve `PCORE_INDEX` (e.g. `.../playwright-core-1.61.1/index.js`) and `CHROME_PATH`
+(`.../playwright-chromium/chrome-linux64/chrome`) with `find /nix/store`.
 
 Because Stripe may ask for a manual completion mid-flow, the browser used for the final card step
-should ideally be one a human can see. The declared `.mcp.json` starts headless. If the human wants
-visibility, launch a headed chromium for the run (`args: ["--browser","chromium"]` without `--headless`)
-in your Playwright MCP server config or use the handoff step below on a page they watch.
+should ideally be one a human can see. The run is headless by default. If the human wants visibility,
+launch with `headless: false` for that one step, or hand the live browser off to the human at the
+checkpoint below.
 
 ## Procedure
 
@@ -44,7 +57,7 @@ Now the SPA's `ClerkGate` treats the browser as signed in as that user. In no-Cl
 the backend returns `DEV_USER` for any request.
 
 ### 1. Drive the SPA to the Upgrade UX
-- `mcp__playwright navigate` to `{FRONTEND_BASE_URL}/app`.
+- `page.goto("{FRONTEND_BASE_URL}/app")`.
 - Expect the app/gated dashboard. Trigger Upgrade — the `UsageBadge`/`UpgradeNotice` button calls
   `createCheckoutSession()` (SPA `POST /api/billing/checkout` → proxy strips `/api` → backend `POST /billing/checkout`), which returns a **real**
   `https://checkout.stripe.com/c/pay/...` URL. Catch the navigation or read the fetched URL.
