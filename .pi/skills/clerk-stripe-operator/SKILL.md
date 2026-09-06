@@ -161,6 +161,38 @@ Env / data realities learned:
 - Backend Clerk JWT verification uses only the public JWKS URL + CLERK_DOMAIN — the backend does
   **not** read `CLERK_SECRET_KEY`. The secret is only needed for Backend API calls (user mint).
 
+**Bare-bones runnable recipe (self-contained, ~1 min):**
+```bash
+# one-time host setup (gitignored scratch dir; not committed):
+mkdir -p /tmp/clerk-e2e && cd /tmp/clerk-e2e && npm init -y >/dev/null && npm i @clerk/testing playwright
+nix develop /path/to/maxterview_website   # puts nodejs on PATH (flake ships nodejs)
+# export dev-instance creds (never echoed):
+set -a; . /path/to/maxterview_website/backend/.env; set +a   # CLERK_SECRET_KEY
+PUB=$(grep '^VITE_CLERK_PUBLISHABLE_KEY=' /path/to/maxterview_website/frontend/.env | cut -d= -f2-)
+# minimal script (signs in the app with NO UI, asserts a session cookie):
+cat > headless.mjs <<'EOF'
+import { chromium } from 'playwright';
+import { clerk, clerkSetup } from '@clerk/testing/playwright';
+const PUB = process.env.PUB;
+const b = await chromium.launch({ headless: true, executablePath: process.env.CHROME_PATH || 'chromium' });
+try {
+  await clerkSetup({ publishableKey: PUB, secretKey: process.env.CLERK_SECRET_KEY, frontendApiUrl: process.env.FAPI });
+  const p = await b.newPage();
+  await p.goto(process.env.APP || 'http://localhost:5173/');
+  await p.waitForFunction(() => window.Clerk && window.Clerk.loaded);
+  await clerk.signIn({ page: p, emailAddress: process.env.E2E_EMAIL || 'e2e.operator@example.com' });
+  await p.waitForTimeout(3000);
+  const s = (await p.context().cookies()).find((c) => c.name === '__session');
+  console.log(s ? 'E2E OK: __session len ' + s.value.length : 'E2E FAIL: no session');
+} finally { await b.close(); }
+EOF
+# chromium must be a host/glibc build on PATH (e.g. `nix shell nixpkgs#chromium`) or set CHROME_PATH.
+FAPI='https://known-polecat-16.clerk.accounts.dev' PUB="$PUB" CHROME_PATH="$CHROME_PATH" node headless.mjs
+```
+The minimal flow above is the whole trick: `clerkSetup` mints a testing token, `clerk.signIn`
+arms the FAPI route interceptor and signs in with no UI. `clerk-mint.sh` already covers the
+user-create + token; the browser leg above is only needed when you must assert the SPA as a
+signed-in user (tier billing page) rather than mint a token.
 ### Browser leg (MCP): completing the real hosted Checkout
 
 The account-administration scripts above call Clerk/Stripe HTTP APIs and the Stripe CLI **directly**
