@@ -41,7 +41,9 @@ def create_checkout_session(user: ClerkUser) -> str:
     session = _client().checkout.sessions.create(
         params={
             "mode": "subscription",
-            "customer_email": user.email or user.sub,
+            # Only prefill the email when the JWT actually carries one; NEVER fall back to the
+            # sub claim (user_xxx is not an email -> Stripe rejects). Stripe collects it at checkout.
+            **({"customer_email": user.email} if (user.email or "").__contains__("@") else {}),
             "line_items": [{"price": STRIPE_PRICE_ID, "quantity": 1}],
             "success_url": f"{FRONTEND_BASE_URL}/app?upgrade=success",
             "cancel_url": f"{FRONTEND_BASE_URL}/app?upgrade=cancelled",
