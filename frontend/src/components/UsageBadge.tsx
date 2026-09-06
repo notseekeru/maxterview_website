@@ -26,12 +26,15 @@ export function UsageBadge() {
     if (error) return null;
     if (!usage) return <Badge variant="secondary">…</Badge>;
 
-    // Explicit tier label (Free/Premium) + optional DEV marker when no Clerk key.
-    const tierBadge = usage.tier === "premium" ? <Badge>Premium</Badge> : <Badge variant="outline">Free</Badge>;
+    // Explicit tier label (Free/Premium) + DEV marker. `dev` is only reachable in
+    // no-Clerk mode (resolve_tier grants it solely to the DEV_USER identity), so
+    // its label replaces the shared-FREE read shown pre-fix.
+    const isDev = usage.tier === "dev";
+    const tierBadge = usage.tier === "premium" ? <Badge>Premium</Badge> : isDev ? <Badge variant="outline">DEV</Badge> : <Badge variant="outline">Free</Badge>;
 
     return (
         <div className="flex items-center gap-2">
-            {!clerkEnabled && <Badge className="bg-muted text-muted-foreground">DEV</Badge>}
+            {!clerkEnabled && !isDev && <Badge className="bg-muted text-muted-foreground">DEV</Badge>}
             {tierBadge}
         </div>
     );

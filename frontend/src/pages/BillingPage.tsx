@@ -1,0 +1,165 @@
+import type { ReactNode } from "react";
+import { useEffect, useState } from "react";
+import { Page } from "@/components/PagePrimitives";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import { chatTurns, createCheckoutSession, getUsage, openBillingPortal, type Tier, type Usage } from "@/lib/api";
+import { clerkEnabled } from "@/lib/config";
+
+// Dedicated billing / plan page (M10 frontend) at /app/settings/billing.
+// Side-by-side Free vs Premium cards + a current-plan summary. The Free card's
+// upgrade CTA posts to /billing/checkout (Stripe hosted checkout) and redirects;
+// the Premium card offers Stripe portal management. `dev` (no-Clerk-only) gets a
+// read-only summary and no upgrade path.
+
+export function BillingPage() {
+    return (
+        <Page title="Billing & Plan" description="Your plan gates per-interview chat turns. Compare tiers and manage your subscription.">
+            <Summary />
+            <div className="grid gap-4 md:grid-cols-2">
+                <PlanCard tier="free" />
+                <PlanCard tier="premium" />
+            </div>
+        </Page>
+    );
+}
+
+// Free/premium real figures from MONETIZATION §0 (env-overridable server-side:
+// FREE_CHAT_TURNS=8 / PREMIUM_CHAT_TURNS=100). `dev` (500) isn't marketed.
+export const PLANS: Record<"free" | "premium", { name: string; monthly: string; turns: number }> = {
+    free: { name: "Free", monthly: "$0", turns: 8 },
+    premium: { name: "Premium", monthly: "$9.99/mo", turns: 100 },
+};
+
+// --- shared data hook ---
+
+function useUsage() {
+    const [usage, setUsage] = useState<Usage | null>(null);
+    const [failed, setFailed] = useState(false);
+    useEffect(() => {
+        let alive = true;
+        getUsage()
+            .then((u) => alive && setUsage(u))
+            .catch(() => alive && setFailed(true));
+        return () => {
+            alive = false;
+        };
+    }, []);
+    return { usage, failed, loading: !usage && !failed };
+}
+
+const TIER_NAME: Record<Tier, string> = { free: "Free", premium: "Premium", dev: "Developer (dev)" };
+
+// --- current plan summary ---
+
+function Summary() {
+    const { usage, failed, loading } = useUsage();
+
+    return (
+        <Card>
+            <CardHeader className="flex-row flex-wrap items-center justify-between space-y-0">
+                <div className="space-y-1">
+                    <CardTitle>Current plan</CardTitle>
+                    <CardDescription>Resolved from your Clerk JWT merged with any active subscription.</CardDescription>
+                </div>
+                {usage && !failed && !loading && <Badge variant={usage.tier === "premium" ? "default" : "secondary"}>{TIER_NAME[usage.tier]}</Badge>}
+            </CardHeader>
+            <CardFooter className="text-sm">
+                {usage ? (
+                    <span className="text-muted-foreground">
+                        Chat-turn cap per interview: <span className="font-medium text-foreground">{chatTurns(usage)}</span>
+                    </span>
+                ) : failed ? (
+                    <span className="text-destructive">Couldn’t load your plan. Refresh to retry.</span>
+                ) : (
+                    <span className="text-muted-foreground">Loading…</span>
+                )}
+            </CardFooter>
+        </Card>
+    );
+}
+
+// --- tier card ---
+
+function PlanCard({ tier }: { tier: "free" | "premium" }) {
+    const { usage } = useUsage();
+    const [busy, setBusy] = useState(false);
+    const [ctaError, setCtaError] = useState(false);
+    const plan = PLANS[tier];
+    const isPremium = tier === "premium";
+    const isCurrent = !!usage && usage.tier === tier;
+
+    // Redirect must follow real Stripe-hosted checkout/portal URLs.
+    const go = async (open: () => Promise<string>) => {
+        setBusy(true);
+        setCtaError(false);
+        try {
+            window.location.assign(await open());
+        } catch {
+            setCtaError(true);
+            setBusy(false);
+        }
+    };
+
+    let cta: ReactNode;
+    if (isCurrent) {
+        cta = isPremium ? (
+            <Button className="w-full" variant="outline" onClick={() => void go(openBillingPortal)} disabled={busy || !usage}>
+                {busy ? "Opening…" : "Manage billing (Stripe)"}
+            </Button>
+        ) : (
+            <Button className="w-full" disabled>
+                Your current plan
+            </Button>
+        );
+    } else if (!clerkEnabled) {
+        cta = (
+            <Button className="w-full" disabled>
+                Dev mode — no upgrade
+            </Button>
+        );
+    } else {
+        // Free user eyeing Premium, or (rare) premium user reverting to Free.
+        cta = (
+            <Button className="w-full" onClick={() => void go(createCheckoutSession)} disabled={busy || !usage}>
+                {busy ? "Opening Stripe…" : isPremium ? `Upgrade · ${plan.monthly}` : "Switch to Free"}
+            </Button>
+        );
+    }
+
+    return (
+        <Card className="flex flex-col">
+            <CardHeader>
+                <div className="flex items-center justify-between gap-2">
+                    <CardTitle>{plan.name}</CardTitle>
+                    {isCurrent && <Badge variant={isPremium ? "default" : "secondary"}>Your plan</Badge>}
+                </div>
+                <CardDescription className="text-lg font-semibold text-foreground">{plan.monthly}</CardDescription>
+            </CardHeader>
+            <CardContent className="flex-1 space-y-2.5 text-sm text-muted-foreground">
+                <Feature>
+                    <strong>{plan.turns}</strong> chat turns per interview
+                </Feature>
+                <Feature>Unlimited interviews — no daily cap</Feature>
+                <Feature>{isPremium ? "Priority on the interviewer model + bigger scope" : "Free model keeps quality for everyday practice"}</Feature>
+                <Feature>Full feedback &amp; dimension scoring on every run</Feature>
+            </CardContent>
+            <CardFooter className="flex-col items-stretch gap-2 pt-0">
+                {cta}
+                {ctaError && <p className="text-xs text-destructive">Payment is unavailable right now. Try again in a moment.</p>}
+            </CardFooter>
+        </Card>
+    );
+}
+
+function Feature({ children }: { children: ReactNode }) {
+    return (
+        <div className="flex items-start gap-2">
+            <span aria-hidden="true" className="mt-0.5">
+                •
+            </span>
+            <span>{children}</span>
+        </div>
+    );
+}

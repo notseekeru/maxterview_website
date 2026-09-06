@@ -46,11 +46,23 @@ export interface Feedback {
 }
 
 // Mirror GET /usage (MONETIZATION §3).
+// Mirror GET /usage (MONETIZATION §3). Backend returns EXACTLY:
+//   { "tier": tier, "chat_turns_per_interview_<tier>": <int> }
+// (the daily-interview cap was removed 2026-08-25, so those fields are gone —
+// the per-interview chat-turn cap is the only quota, plus `dev` for the no-Clerk
+// identity). The dynamic key is addressed via `chatTurns(usage)` below.
+export type Tier = "free" | "premium" | "dev";
+
 export interface Usage {
-    tier: "free" | "premium";
-    daily_interviews_remaining: number; // -1 when unlimited
-    daily_interviews_unlimited: boolean;
-    [key: string]: string | boolean | number;
+    tier: Tier;
+    chat_turns_per_interview_free?: number;
+    chat_turns_per_interview_premium?: number;
+    chat_turns_per_interview_dev?: number;
+}
+
+// Access the per-tier turn cap dial for whatever tier the user is on.
+export function chatTurns(usage: Usage): number {
+    return usage[`chat_turns_per_interview_${usage.tier}`] ?? 0;
 }
 
 // --- interviews ---

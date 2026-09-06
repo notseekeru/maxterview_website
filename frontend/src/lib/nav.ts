@@ -37,6 +37,7 @@ export const NAV: NavSection[] = [
         items: [
             { label: "System", to: "/app/settings/system", icon: "settings" },
             { label: "Account", to: "/app/settings/account", icon: "user" },
+            { label: "Billing", to: "/app/settings/billing", icon: "card" },
         ],
     },
     {

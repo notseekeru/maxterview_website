@@ -7,6 +7,7 @@ import { AppThemeSync } from "@/components/AppThemeSync";
 import { Button } from "@/components/ui/button";
 import { clerkEnabled } from "@/lib/config";
 import { AccountSettingsPage } from "@/pages/AccountSettingsPage";
+import { BillingPage } from "@/pages/BillingPage";
 import { AnalyticsPage, DocsPage, ManageAccountsPage, ResumePage } from "@/pages/ComingSoonPages";
 import { InterviewsPage } from "@/pages/InterviewsPage";
 import { Landing } from "@/pages/Landing";
@@ -51,6 +52,7 @@ function App() {
                         {/* Settings group. */}
                         <Route path="settings/system" element={<SystemSettingsPage />} />
                         <Route path="settings/account" element={<AccountSettingsPage />} />
+                        <Route path="settings/billing" element={<BillingPage />} />
 
                         {/* Management group. */}
                         <Route path="manage/accounts" element={<ManageAccountsPage />} />

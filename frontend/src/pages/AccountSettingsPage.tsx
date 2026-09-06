@@ -1,10 +1,11 @@
 import { SignOutButton } from "@clerk/react";
 import { useCallback, useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { Page } from "@/components/PagePrimitives";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
-import { getUsage, openBillingPortal, type Usage } from "@/lib/api";
+import { chatTurns, getUsage, openBillingPortal, type Usage } from "@/lib/api";
 import { clerkEnabled } from "@/lib/config";
 
 // /app/settings/account — single-user account + plan. Rest of "account
@@ -18,23 +19,34 @@ export function AccountSettingsPage() {
         void load().catch(() => setUsage(null));
     }, [load]);
 
-    const isPremium = usage?.tier === "premium";
+    const tierLabel = usage?.tier === "premium" ? "Premium" : usage?.tier === "dev" ? "Developer (dev)" : "Free";
 
     return (
         <Page title="Account Settings" description="Your sign-in details and subscription.">
-            {/* Plan */}
+            {/* Plan — summary only; the full tiers + upgrade/portal surface lives on
+                /app/settings/billing (see BillingPage). Show what tier the user is on
+                and the per-interview chat-turn cap it grants. */}
             <Card>
                 <CardHeader className="flex-row items-center justify-between space-y-0">
                     <div>
                         <CardTitle>Plan</CardTitle>
-                        <CardDescription className="mt-1">{clerkEnabled ? "Free and Premium metered by daily interviews." : "Dev mode — no Clerk key; runs against the backend DEV_USER."}</CardDescription>
+                        <CardDescription className="mt-1">{usage?.tier === "dev" ? "Dev mode — no Clerk key; runs against the backend DEV_USER." : `You are on ${tierLabel}. ${usage ? `Turn cap per interview: ${chatTurns(usage)}.` : ""}`}</CardDescription>
                     </div>
-                    <Badge variant={usage?.tier === "premium" ? "default" : "secondary"}>{isPremium ? "Premium" : "Free"}</Badge>
+                    <Badge variant={usage?.tier === "premium" ? "default" : "secondary"}>{tierLabel}</Badge>
                 </CardHeader>
                 <CardFooter className="flex flex-row flex-wrap items-center gap-3">
-                    {usage && <span className="text-sm text-muted-foreground">Daily interviews left: {usage.daily_interviews_unlimited ? "unlimited" : String(usage.daily_interviews_remaining)}</span>}
-                    <Button variant="outline" size="sm" onClick={() => void openBillingPortal()}>
-                        Manage billing
+                    {usage?.tier !== "premium" && usage?.tier !== "dev" && (
+                        <Button asChild size="sm">
+                            <Link to="/app/settings/billing">Upgrade to Premium</Link>
+                        </Button>
+                    )}
+                    {usage?.tier === "premium" && (
+                        <Button variant="outline" size="sm" onClick={() => void openBillingPortal()}>
+                            Manage billing
+                        </Button>
+                    )}
+                    <Button asChild variant="ghost" size="sm">
+                        <Link to="/app/settings/billing">See plans</Link>
                     </Button>
                 </CardFooter>
             </Card>

@@ -45,9 +45,10 @@ export function DocsPage() {
                     <li>Dashboard — start a new interview or see your performance at a glance.</li>
                     <li>Interviews — review, reopen or delete past sessions.</li>
                     <li>Settings → System — appearance theme and future defaults.</li>
-                    <li>Settings → Account — plan and billing.</li>
+                    <li>Settings → Account — your sign-in, plus a Plan summary.</li>
+                    <li>Settings → Billing — compare plans and upgrade.</li>
                 </ul>
-                <p>Your free plan is metered per-day; upgrade to Premium for unlimited interviews.</p>
+                <p>Your free plan allows unlimited interviews; upgrade to Premium for more chat turns per interview.</p>
             </div>
         </Page>
     );
