@@ -12,6 +12,7 @@ import { BillingPage } from "@/pages/BillingPage";
 import { AnalyticsPage, DocsPage, ManageAccountsPage, ResumePage } from "@/pages/ComingSoonPages";
 import { InterviewsPage } from "@/pages/InterviewsPage";
 import { Landing } from "@/pages/Landing";
+import { NotFound } from "@/pages/NotFound";
 import { SystemSettingsPage } from "@/pages/SystemSettingsPage";
 
 // Code-split only the heavy leaves (recharts lives in the Dashboard bundle and
@@ -83,6 +84,9 @@ function App() {
                         }
                     />
                 </Route>
+
+                {/* Catch-all: unknown paths always show 404, regardless of auth state. */}
+                <Route path="*" element={<NotFound />} />
             </Routes>
         </BrowserRouter>
     );
