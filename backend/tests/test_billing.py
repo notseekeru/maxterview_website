@@ -99,6 +99,50 @@ async def test_webhook_checkout_completed_writes_subscription(monkeypatch):
     assert args[2] == "active"  # normalized status (complete -> active)
 
 
+async def test_webhook_subscription_created_upserts_datetime_period(monkeypatch):
+    """customer.subscription.created/updated passes a tz-aware datetime (not Stripe's
+    raw epoch int) so asyncpg accepts it for the timestamptz column.
+    Regression: _period_end returned the int seconds -> asyncpg DataError 500 on the
+    subscription events that actually set the tier."""
+    from datetime import UTC, datetime
+
+    from app import payments
+
+    calls = []
+
+    async def fake_fetchrow(q, *a, **k):
+        calls.append((q, a))
+        # owner lookup for the customer returns no prior row -> fall back to metadata.
+        if "SELECT owner_id FROM subscriptions" in q:
+            return None
+        return {"id": "row"}
+
+    monkeypatch.setattr("app.db.fetchrow", fake_fetchrow)
+    event = {
+        "type": "customer.subscription.created",
+        "data": {
+            "object": {
+                "id": "sub_123",
+                "customer": "cus_123",
+                "status": "active",
+                "current_period_end": 1788678469,  # Stripe epoch seconds (int)
+                "metadata": {"owner_id": "paying-user"},
+            }
+        },
+    }
+    await payments.handle_webhook_event(event)
+    assert calls, "expected an upsert call"
+    upsert = next((a for q, a in calls if "INSERT INTO subscriptions" in q), None)
+    assert upsert is not None
+    # args: owner_id, stripe_id, status, period_end
+    assert upsert[0] == "paying-user"
+    assert upsert[1] == "cus_123"
+    assert upsert[2] == "active"
+    assert isinstance(upsert[3], datetime)  # NOT the int that crashed asyncpg
+    assert upsert[3].year == datetime.fromtimestamp(1788678469, tz=UTC).year
+    assert upsert[3].tzinfo is not None
+
+
 async def test_webhook_subscription_deleted_downgrades(monkeypatch):
     """customer.subscription.deleted drops premium (owner set free)."""
     from app import payments

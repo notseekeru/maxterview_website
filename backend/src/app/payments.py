@@ -15,6 +15,7 @@ Config (env, zero-touch on credentials):
 """
 
 import os
+from datetime import UTC, datetime
 
 import stripe
 from fastapi import HTTPException, status
@@ -130,4 +131,8 @@ def _period_end(sub: dict):
         if it.get("current_period_end"):
             pe = it["current_period_end"]
             break
-    return pe
+    # Stripe sends epoch seconds (int); asyncpg needs a tz-aware datetime for
+    # the timestamptz column. Guard against already-native datetimes for safety.
+    if isinstance(pe, datetime):
+        return pe
+    return datetime.fromtimestamp(pe, tz=UTC) if pe is not None else None
