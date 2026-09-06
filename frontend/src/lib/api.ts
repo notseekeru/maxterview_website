@@ -64,7 +64,7 @@ export interface Feedback {
 //   { "tier": tier, "chat_turns_per_day_<tier>": <int>, "chat_turns_used_today": <int>,
 //     "chat_turns_remaining_today": <int> }
 // The per-interview + daily-interview caps are gone: the only quota is a daily GLOBAL
-// chat-turn allowance shared across ALL of the owner's interviews (plus `dev` for the
+// chat-turn credits shared across ALL of the owner's interviews (plus `dev` for the
 // no-Clerk identity). The dynamic dial key is addressed via `chatTurns(usage)` below.
 
 export type Tier = "free" | "premium" | "dev";

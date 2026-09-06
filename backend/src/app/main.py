@@ -63,7 +63,7 @@ async def create_interview(
     user: CurrentUser,
 ) -> dict:
     # No daily-interview cap and no per-interview cap: interviews are unlimited at creation.
-    # The only gate is the owner's daily GLOBAL chat-turn allowance (checked in chat/stream).
+    # The only gate is the owner's daily GLOBAL chat-turn credits (checked in chat/stream).
     row = await fetchrow(
         """
         INSERT INTO interviews (owner_id, role, topic)
@@ -257,12 +257,12 @@ async def chat_stream(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Interview is not in progress")
 
     # Today's daily GLOBAL chat-turn cap per owner (no token metering). May 402 even
-    # mid-interview: the allowance spans ALL the owner's interviews this UTC day.
+    # mid-interview: the credits spans ALL the owner's interviews this UTC day.
     tier = await billing.resolve_tier(user)
     if await billing.chat_turn_remaining(tier, user.sub) == 0:
         raise HTTPException(
             status_code=status.HTTP_402_PAYMENT_REQUIRED,
-            detail="Daily chat-turn allowance reached. Try again after midnight UTC, or upgrade to premium.",
+            detail="Daily chat-turn credits reached. Try again after midnight UTC, or upgrade to premium.",
         )
 
     await billing.bump_chat_turn(user.sub)

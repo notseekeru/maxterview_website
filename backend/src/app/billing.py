@@ -8,7 +8,7 @@ Simple tier model: Free / Premium / dev(-only). Backend-authoritative.
 - **`dev` tier**: only for the no-Clerk dev-fallback identity (`CLERK_ENABLED=false`, i.e. the
   fixed `DEV_USER`). `main.py`'s D2 guard refuses to boot with `CLERK_ENABLED=false` outside
   development/test, so `dev` can never leak to production. Never persisted in `subscriptions`.
-- **Quotas**: a single daily chat-turn allowance per owner is the only gate — free = 10,
+- **Quotas**: a single daily chat-turn credits per owner is the only gate — free = 10,
   premium = 250, dev = 500 (across ALL the owner's interviews in one UTC day). No
   per-interview cap and no token metering (decisions 2026-08-23 / this change).
 """
@@ -23,7 +23,7 @@ from app.db import fetchrow
 from app.models import ClerkUser
 
 # --- tier limits (env-overridable; MONETIZATION.md §0 placeholders) ---
-# Daily GLOBAL chat-turn allowance PER OWNER (across all interviews in one UTC day),
+# Daily GLOBAL chat-turn credits PER OWNER (across all interviews in one UTC day),
 # reset at 00:00:00 UTC. No per-interview cap (removed). Resets each day: free = 10/day,
 # premium = 250/day, dev = 500/day (dev > premium).
 FREE_CHAT_TURNS = int(os.getenv("FREE_CHAT_TURNS", "10"))
@@ -31,7 +31,7 @@ PREMIUM_CHAT_TURNS = int(os.getenv("PREMIUM_CHAT_TURNS", "250"))
 DEV_CHAT_TURNS = int(os.getenv("DEV_CHAT_TURNS", "500"))  # dev > premium
 
 LIMITS = {
-    # Daily global chat-turn allowance is the only quota (per-interview + daily-interview caps removed).
+    # Daily global chat-turn credits is the only quota (per-interview + daily-interview caps removed).
     "free": {"chat_turns": FREE_CHAT_TURNS},
     "premium": {"chat_turns": PREMIUM_CHAT_TURNS},
     "dev": {"chat_turns": DEV_CHAT_TURNS},

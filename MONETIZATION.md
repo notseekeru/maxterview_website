@@ -8,15 +8,15 @@
 
 ## 0. Limits & model (env-configurable, not hardcoded)
 
-| | Free | Premium | dev |
-|---|---|---|---|
-| Interviews (creation) | **unlimited** | **unlimited** | **unlimited** |
-| Price | $0 | **$9.99/mo** (monthly only) | $0 |
+|                                           | Free                       | Premium                        | dev                        |
+| ----------------------------------------- | -------------------------- | ------------------------------ | -------------------------- |
+| Interviews (creation)                     | **unlimited**              | **unlimited**                  | **unlimited**              |
+| Price                                     | $0                         | **$9.99/mo** (monthly only)    | $0                         |
 | Chat turns / day (GLOBAL, all interviews) | **10** (`FREE_CHAT_TURNS`) | **250** (`PREMIUM_CHAT_TURNS`) | **500** (`DEV_CHAT_TURNS`) |
-| Free trial | none | — | — |
+| Free trial                                | none                       | —                              | —                          |
 
 - **Model change (this pass):** the gate moved from a **per-interview** turn cap to a
-  **global daily allowance per owner** spanning ALL their interviews in one UTC day, reset at
+  **global daily credits per owner** spanning ALL their interviews in one UTC day, reset at
   00:00 UTC. See §2. No per-interview cap and no daily-interview cap (creation stays unlimited).
   No token counting (2026-08-23 decision) — count turns, not tokens.
 - Limits are env-overridable (`backend/.env.example`). **`dev` tier** (only for developers, never prod): the
@@ -40,11 +40,11 @@ Implemented in `app/billing.py` + `app/main.py`.
 
 - **No per-interview cap and no daily-interview cap** (removed): `POST /interviews` does a plain
   INSERT — every owner can create unlimited interviews. Over-land lockout applies only to the
-  daily GLOBAL chat-turn allowance.
+  daily GLOBAL chat-turn credits.
 - **Daily GLOBAL chat-turn cap** on `POST /interviews/{id}/chat/stream`: for the owner's current
   UTC day, check `turns_used(today) < limit` (reads `turn_usage`), then `bump_chat_turn`
   (upsert +1 on `(owner_id, today)`). Over → **`402 Payment Required`**. May 402 mid-interview
-  once the owner burns today's allowance across ALL their interviews.
+  once the owner burns today's credits across ALL their interviews.
   Caps: free 10/day, premium 250/day, dev 500/day.
 - **Overage → lockout:** block new turns only. **Never delete, truncate, or hide existing
   user data** — reads stay fully available. Hard rule.
@@ -57,12 +57,12 @@ Implemented in `app/billing.py` + `app/main.py`.
   **Free / Premium / DEV tier label** (`UsageBadge`). `dev` is returned by the no-Clerk
   dev-fallback identity (see §0).
 
-
 ## 3. Billing provider — raw Stripe (backend shipped 2026-08-24)
 
 Implementation: **raw Stripe** (chosen over Clerk-billing for ownership, learning, and scale).
 
 **Shipped (backend):**
+
 - `app/payments.py` — Stripe client, hosted Checkout Session, billing portal, and the webhook handler.
 - `POST /billing/checkout` — creates a monthly subscription Checkout Session (metadata `owner_id`), returns its URL.
 - `POST /billing/portal` — returns the Stripe billing portal URL for the user's customer.
@@ -77,6 +77,7 @@ Stripe calculates tax, we remit; no merchant-of-record. Requires Stripe account 
 **Frontend (2026-08-24 → 09-06):** header tier labels (`UsageBadge`) + lockout/upsell notice (`UpgradeNotice` on 402) wired to checkout/portal, and a dedicated **billing/plan page** (`/app/settings/billing`) with Free vs Premium cards, current-plan summary, and an Upgrade → `/billing/checkout` CTA. See PLAN §8 M10.
 
 **Payment test (2026-09-06):** real test-mode Checkout Session URL returned; live `stripe listen` delivered signature-verified `customer.subscription.*` events → a **`premium`/`active` `subscriptions` row** (found+fixed `_period_end` passing Stripe's epoch int where asyncpg needs a `datetime` — it used to 500). Residual: only a live Clerk identity surfaces `premium` in `/usage`; until `CLERK_ENABLED=true`, dev-mode users see `dev`. Until live, `subscriptions` rows can be seeded directly and `resolve_tier` honors them.
+
 ## 4. Phase-2 schema (shipped with M10 backend)
 
 Applied in `backend/migrations/0002_billing.sql`:
@@ -112,12 +113,13 @@ CREATE TABLE IF NOT EXISTS turn_usage (
 
 ## 5. M10 handoff
 
-| Shipped | Open |
-|---|---|
-| Backend: `billing.py`, `payments.py` (checkout/portal/webhook), `0002_billing` migration | **Live Clerk billing** (`CLERK_ENABLED=true` + JWT `tier` template/domain) so a real user surfaces `premium` in `/usage` |
-| Caps: daily GLOBAL chat-turn per owner (free 10 / premium 250 / dev 500, UTC-day reset; `0004_global_chat_turns`); no per-interview / no daily-interview cap | — |
-| Frontend: usage badge, upsell/lockout notices, billing/plan page (`/app/settings/billing`) | — |
-| Real payment test (2026-09-06) + `_period_end` datetime fix | — |
+| Shipped                                                                                                                                                      | Open                                                                                                                     |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------ |
+| Backend: `billing.py`, `payments.py` (checkout/portal/webhook), `0002_billing` migration                                                                     | **Live Clerk billing** (`CLERK_ENABLED=true` + JWT `tier` template/domain) so a real user surfaces `premium` in `/usage` |
+| Caps: daily GLOBAL chat-turn per owner (free 10 / premium 250 / dev 500, UTC-day reset; `0004_global_chat_turns`); no per-interview / no daily-interview cap | —                                                                                                                        |
+| Frontend: usage badge, upsell/lockout notices, billing/plan page (`/app/settings/billing`)                                                                   | —                                                                                                                        |
+| Real payment test (2026-09-06) + `_period_end` datetime fix                                                                                                  | —                                                                                                                        |
+
 ## 6. Cancellation & billing terms (M10, deferred with Stripe)
 
 - **Cancellation → access till end of the current paid period, no refunds.**

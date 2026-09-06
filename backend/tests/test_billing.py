@@ -23,7 +23,7 @@ async def _async_none(*_args, **_kwargs):
 
 def test_quota_defaults():
     # MONETIZATION.md §0 placeholders by default. No per-interview or daily-interview quota:
-    # the daily GLOBAL chat-turn allowance is the only gate.
+    # the daily GLOBAL chat-turn credits is the only gate.
     assert _quota("free", "chat_turns") == 10
     assert _quota("premium", "chat_turns") == 250
     assert _quota("dev", "chat_turns") == 500

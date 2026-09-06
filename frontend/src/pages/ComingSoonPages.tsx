@@ -48,7 +48,7 @@ export function DocsPage() {
                     <li>Settings → Account — your sign-in, plus a Plan summary.</li>
                     <li>Settings → Billing — compare plans and upgrade.</li>
                 </ul>
-                <p>Your free plan allows unlimited interviews; upgrade to Premium for a larger daily chat allowance.</p>
+                <p>Your free plan allows unlimited interviews; upgrade to Premium for a larger daily chat credits.</p>
             </div>
         </Page>
     );

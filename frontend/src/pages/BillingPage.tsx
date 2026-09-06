@@ -15,7 +15,7 @@ import { clerkEnabled } from "@/lib/config";
 
 export function BillingPage() {
     return (
-        <Page title="Billing & Plan" description="Your plan gates your daily chat-turn allowance (all interviews). Compare tiers and manage your subscription.">
+        <Page title="Billing & Plan" description="Your plan gates your daily chat-turn credits (all interviews). Compare tiers and manage your subscription.">
             <Summary />
             <div className="grid gap-4 md:grid-cols-2">
                 <PlanCard tier="free" />

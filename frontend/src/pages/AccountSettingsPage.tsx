@@ -25,7 +25,7 @@ export function AccountSettingsPage() {
         <Page title="Account Settings" description="Your sign-in details and subscription.">
             {/* Plan — summary only; the full tiers + upgrade/portal surface lives on
                 /app/settings/billing (see BillingPage). Show what tier the user is on
-                and the daily chat-turn allowance (all interviews) it grants. */}
+                and the daily chat-turn credit (all interviews) it grants. */}
             <Card>
                 <CardHeader className="flex-row items-center justify-between space-y-0">
                     <div>
