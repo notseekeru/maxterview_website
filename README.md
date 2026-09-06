@@ -7,6 +7,7 @@ Stack: **FastAPI** (backend) + **React + TypeScript + Vite** frontend (SPA) + **
 run with Docker Compose. Frontend: Tailwind 4 + shadcn/ui + react-router.
 
 Docs:
+
 - `PRD.md` — product requirements (user stories, acceptance criteria)
 - `PLAN.md` — technical decisions (D1–D10) and milestones (M1–M15)
 - `MONETIZATION.md` — billing spec (quotas + raw Stripe + billing plan page shipped; real payment test done 2026-09-06; live-Clerk premium view open)
@@ -61,25 +62,43 @@ make up                     # builds + starts postgres, backend, frontend
 Then open the frontend, create an interview (role + optional topic), answer the AI's questions,
 and click **Complete** to see feedback.
 
-### LLM / auth config
+### What to initialize to use each feature
 
-By default the backend runs in **STUB_MODE** (no `LLM_BASE_URL`) for model-free development/tests,
-and **no-auth dev mode** (`CLERK_ENABLED=false` → `DEV_USER`). Set these in `backend/.env` (see `backend/.env.example`).
+Everything below reads git-ignored env in `backend/.env` (backend) or `frontend/.env` (frontend).
+`cp *.env.example *.env` first; you only need to fill the vars for the features you actually use.
+Run `need-keys.sh` to see which are set (names only):
 
-| Var | Purpose | Dev default |
-|---|---|---|
-| `LLM_BASE_URL` / `LLM_MODEL` / `LLM_API_KEY` | OpenAI-compatible LLM endpoint | empty (STUB_MODE) |
-| `LLM_MAX_TOKENS` / `LLM_MAX_FEEDBACK_TOKENS` | bounds for runaway local thinking models | 512 / 1024 |
-| `LLM_DISABLE_THINKING` | disable Qwen reasoning pass (env) | true |
-| `CLERK_ENABLED` / `CLERK_DOMAIN` / `CLERK_JWKS_URL` | real auth (pre-ship) | false |
+```bash
+./.pi/skills/clerk-stripe-operator/scripts/need-keys.sh   # set/missing/live, never values
+```
 
-Frontend `VITE_CLERK_PUBLISHABLE_KEY`: set to enable real Clerk auth UI; leave blank for
-dev/no-auth mode.
+| Want this feature                                               | Set in `backend/.env`                                                                     | plus                                                   | how to run/verify                                                                                                    |
+| --------------------------------------------------------------- | ----------------------------------------------------------------------------------------- | ------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------- |
+| UI/API with no auth at all (fast dev)                           | _(nothing)_                                                                               | —                                                      | default works (`CLERK_ENABLED=false` → `DEV_USER`)                                                                   |
+| Real Clerk sign-in button + JWT auth                            | `CLERK_ENABLED=true`, `CLERK_DOMAIN`, `CLERK_JWKS_URL`                                    | `frontend/.env` `VITE_CLERK_PUBLISHABLE_KEY=pk_test_…` | `make up`, visit `/app`, sign in                                                                                     |
+| Headless Clerk ops (mint users/sessions, drive the `clerk` CLI) | `CLERK_SECRET_KEY=sk_test_…`                                                              | —                                                      | `docker exec -e CLERK_SECRET_KEY="$CLERK_SECRET_KEY" maxterview_frontend_dev sh -c 'cd /tmp && npx clerk api users'` |
+| Stripe $9.99 checkout → premium row                             | `STRIPE_SECRET_KEY` (`sk_test_…`), `STRIPE_WEBHOOK_SECRET` (`whsec_…`), `STRIPE_PRICE_ID` | —                                                      | host `stripe` CLI: `stripe listen --forward-to localhost:8000/billing/webhook`, then upgrade in UI                   |
+| Real AI interviewer chat + auto-feedback                        | `LLM_BASE_URL`, `LLM_MODEL`, `LLM_API_KEY`                                                | —                                                      | empty → deterministic STUB (model-free tests/dev)                                                                    |
+| Observability                                                   | _(nothing yet)_                                                                           | —                                                      | `OBSERVABILITY.md` (docs-first, not wired)                                                                           |
+
+Feature env values come from your Clerk app's **Development instance** (`.clerk.accounts.dev` /
+`pk_test_` / `sk_test_`) and Stripe **test mode** — both are safe to use on `localhost`. The
+production `pk_live_…` / `sk_live_…` keys are locked to `seekeru.tech` and will be rejected
+elsewhere.
+
+> **You do NOT need** `clerk auth login`, `clerk link`, or a `CLERK_PLATFORM_API_KEY` to use any
+> repo feature. Those Platform/admin tools manage apps/domains (a beta, dashboard-only capability)
+> and add nothing here — the instance `CLERK_SECRET_KEY` (Backend API) plus the `stripe` CLI cover
+> everything an operator needs. Avoid the dead-ends: NixOS can't run the npm-global `clerk` binary,
+> and the container's OAuth loopback isn't reachable from a host browser.
+
+---
 
 > **Local llama.cpp caveat:** some llama.cpp builds return HTTP 500 to **non-streaming**
 > `/chat/completions` when called via httpx, so auto-feedback can come back empty against a local
 > llama.cpp (the streaming chat path is unaffected). Use a chat/OpenAI-compatible provider
 > (e.g. DeepSeek) for structured feedback output. See `backend/.env.example`.
+
 ---
 
 ## Common commands (`make`)
@@ -119,7 +138,7 @@ as it ships only a static bundle. CD (`.github/workflows/cd-pipeline.yml`) runs 
 builds both prod images, **Trivy-image-scans** them, smoke-tests, and **pushes to GHCR** (`maxterview_backend`/
 `maxterview_frontend`). No GitOps repo is mutated here — deployment is adopted separately (see Deployment).
 **Renovate** (renovate.json, GitHub-hosted app) opens weekly grouped PRs for frontend npm, backend
-uv/pep621, Docker base images (digest-pinned), and GitHub Actions refs. Dependabot *alerts* stay on;
+uv/pep621, Docker base images (digest-pinned), and GitHub Actions refs. Dependabot _alerts_ stay on;
 Native Dependabot update-stream is disabled.
 
 ---

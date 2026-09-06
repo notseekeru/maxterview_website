@@ -70,6 +70,35 @@ curl -s http://localhost:8000/health; echo
 curl -s http://localhost:8000/usage; echo     # tier for the current (DEV_USER) caller if no __session
 ```
 
+## Feature enablement — what to initialize first on a fresh device
+
+Every repo feature gates on some git-ignored env value. On a new clone you set ONLY what you
+need; nothing is required for everything. Read each key from its account dashboard (Clerk/Stripe);
+keep secrets sealed (zero-touch) — say which var is missing, never the value.
+
+| Feature | git-ignored file + var | Value you set once | Notes |
+| --- | --- | --- | --- |
+| Run the UI/API on no-auth dev fallback | *(nothing)* | — | default: `CLERK_ENABLED=false` → `DEV_USER`; fastest path, no keys |
+| Real Clerk sign-in (UI button) + JWT auth | `backend/.env` → `CLERK_ENABLED=true`, `CLERK_DOMAIN`, `CLERK_JWKS_URL`; `frontend/.env` → `VITE_CLERK_PUBLISHABLE_KEY` | the .accounts.dev HTTPS URL + its JWKS + the `pk_test_…` | public, not secrets; best on the **Development** instance |
+| Headless Clerk ops (mint users/sessions/tokens, read users) — the CLI + mint script | `backend/.env` → `CLERK_SECRET_KEY` | `sk_test_…` (instance secret, Backend API) | this is what drives `clerk` Backend-API commands + `clerk-mint.sh`. The backend itself does NOT read it (JWT verify is public JWKS only). |
+| Clerk CLI shell (needs the tool only) | nix flake (`nix develop .`) has `nodejs`; `clerk` run via container `npx` | — | `docker exec maxterview_frontend_dev sh -c 'npx clerk …'` or `clerk api` with `CLERK_SECRET_KEY` |
+| Stripe checkout → premium webhook row | `backend/.env` → `STRIPE_SECRET_KEY` (`sk_test_`), `STRIPE_WEBHOOK_SECRET` (`whsec_` from `stripe listen`), `STRIPE_PRICE_ID` | test-mode secret + webhook secret + a monthly price id | `stripe` CLI on host (flake) starts the listener; the `whsec_` must match the backend config |
+| LLM interview chat / feedback | `backend/.env` → `LLM_BASE_URL`, `LLM_MODEL`, `LLM_API_KEY` (or empty = STUB) | OpenAI-compatible base/model/key | no key → deterministic stub |
+| Observability | OBSERVABILITY.md | n/a | docs-first, not wired |
+
+**Not needed** on any device: `clerk auth login`, `clerk link`, or a `CLERK_PLATFORM_API_KEY`.
+That Platform/admin path requires an account opted into the Platform API beta (many accounts
+show no such page) and, where present, its dashboard-only creation. It manages apps/domains —
+NOT needed to run the app, sign in, mint users, or accept Stripe subscriptions. Everything an
+operator/agent needs runs off the instance `CLERK_SECRET_KEY` (Backend API) + the Stripe test
+keys above.
+
+Fast reproducible check that feature env is in place (lists set/missing names only):
+
+```bash
+./.pi/skills/clerk-stripe-operator/scripts/need-keys.sh
+```
+
 ## Reading config (zero-touch) and the one paste-step
 
 Do NOT cat secrets or print secret values. Determine *presence* only. The operator skill's

@@ -68,6 +68,26 @@ Keys must already exist in the environment (e.g. `backend/.env` loaded by docker
 the shell). Run `scripts/need-keys.sh` — it will print exactly which of the above are present and
 which are missing, and the *paste-me template* for the missing ones. It never prints any value.
 
+
+**Driving the `clerk` CLI on this repo (no browser login needed for backend ops):** run the
+CLI in the frontend container (it has node + can `npx clerk`), and authenticate it with the
+instance `sk_test_` (`CLERK_SECRET_KEY`) exported so it can call the Backend API:
+
+```bash
+# user / session / token / client APIs all work via the instance secret:
+docker exec -e CLERK_SECRET_KEY="$CLERK_SECRET_KEY" maxterview_frontend_dev sh -c \
+  'cd /tmp && npx clerk api users limit=1'        # e.g. list users
+# scope reference: `npx clerk api ls` lists every Backend-API route it can call
+# (users, sessions, clients, templates…).
+# The container CLI also mints via clerk-mint.sh (scripts/) using only CLERK_SECRET_KEY.
+```
+
+`clerk auth login` / `clerk link` / `CLERK_PLATFORM_API_KEY` control the *Platform/admin* surface
+(apps, domains, JWT-templates). That beta capability is often NOT present on an account and is
+dashboard-only; it is not needed to run the app, sign a user in, mint users/sessions, or accept
+Stripe subscriptions. If your account shows no Platform-key page, do not chase it — the Backend
+API (`sk_test_`) + the mint scripts cover every repo feature.
+
 The backend only reaches Stripe/clerk when these are populated; with `CLERK_ENABLED=false` the app
 runs in the no-Clerk dev-fallback. That is fine for most UI debugging but does **not** exercise
 real Clerk auth or the real webhook. For genuine operator work you need `CLERK_ENABLED=true` +
