@@ -8,7 +8,6 @@ run with Docker Compose. Frontend: Tailwind 4 + shadcn/ui + react-router.
 
 Docs:
 
-- `PRD.md` — product requirements (user stories, acceptance criteria)
 - `PLAN.md` — technical decisions (D1–D10) and milestones (M1–M15)
 - `MONETIZATION.md` — billing spec (quotas + raw Stripe + billing plan page shipped; real payment test done 2026-09-06; live-Clerk premium view open)
 - `OBSERVABILITY.md` — logging/error-tracking/metrics plan (doc-first M13)
