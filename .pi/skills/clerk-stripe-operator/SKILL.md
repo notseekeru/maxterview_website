@@ -254,7 +254,7 @@ run can never accidentally wipe real (test) state. **Every destructive invocatio
 ```bash
 .pi/skills/clerk-stripe-operator/scripts/webhook-driver.sh --admin-destroy --event customer.subscription.deleted
 .pi/skills/clerk-stripe-operator/scripts/clerk-mint.sh --admin-destroy --teardown --user <id>
-.PI/skills/clerk-stripe-operator/scripts/stripe-stub.sh --admin-destroy --drop --customer <id>
+.pi/skills/clerk-stripe-operator/scripts/stripe-stub.sh --admin-destroy --drop --customer <id>
 ```
 
 - Without the flag any destructive-looking call is refused with a clear message (it prints: "refused:

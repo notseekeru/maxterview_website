@@ -46,7 +46,7 @@ the backend returns `DEV_USER` for any request.
 ### 1. Drive the SPA to the Upgrade UX
 - `mcp__playwright navigate` to `{FRONTEND_BASE_URL}/app`.
 - Expect the app/gated dashboard. Trigger Upgrade — the `UsageBadge`/`UpgradeNotice` button calls
-  `createCheckoutSession()` (`POST /app/billing/checkout`), which returns a **real**
+  `createCheckoutSession()` (SPA `POST /api/billing/checkout` → proxy strips `/api` → backend `POST /billing/checkout`), which returns a **real**
   `https://checkout.stripe.com/c/pay/...` URL. Catch the navigation or read the fetched URL.
 - Do **not** follow that URL from node; navigate to it in the browser (a popup/new tab is fine).
 
