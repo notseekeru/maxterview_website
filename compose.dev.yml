@@ -45,7 +45,7 @@ services:
       - backend
 
   psql:
-    image: postgres:17-alpine
+    image: postgres:18-alpine@sha256:d3e1620b530c944afa6e887d22eb899824da68e19c52024bf98f5220c88a65b2
     container_name: maxterview_psql_dev
     profiles: ["tools"]
     environment:
