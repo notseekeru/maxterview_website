@@ -8,7 +8,7 @@ run with Docker Compose. Frontend: Tailwind 4 + shadcn/ui + react-router.
 
 Docs:
 
-- `PLAN.md` — technical decisions (D1–D10) and milestones (M1–M15)
+- `PLAN.md` — technical decisions (D1–D10) and milestones (M1–M16)
 - `MONETIZATION.md` — billing spec (quotas + raw Stripe + billing plan page shipped; real payment test done 2026-09-06; live-Clerk premium view open)
 - `OBSERVABILITY.md` — logging/error-tracking/metrics plan (doc-first M13)
 
@@ -186,5 +186,6 @@ backend **has a `/health` route**, so its pods can use `httpGet` probes instead 
 - **M11** (security) — docs-first phase done (threat model + accepted risks + pentest plan in PLAN §7); code hardening (rate limiter, CORS) pending.
 - **M12** (frontend polish) — **done (2026-08-24)**: public landing page, `/app` dashboard with stats + score charts, empty states, skeleton loaders, mobile-responsive layout, code-split routes (`/`, `/app`, `/interviews/:id`).
 - **M13** (observability) — docs-first done (`OBSERVABILITY.md`); structlog + Grafana Cloud (Loki for logs, **pure OTLP** metrics/traces → Prometheus) wiring pending.
-- **M14** (RAG / retrieval-augmented interviewing) — future enhancement, not started (`PLAN.md`).
-- **M15** (live voice interview — TTS + STT + webcam illusion) — future enhancement, not started (`PLAN.md`).
+- **M14** (OKF / structured-output hardening) — future enhancement, not started (`PLAN.md`). Logical precursor to M15 RAG.
+- **M15** (RAG / retrieval-augmented interviewing) — future enhancement, not started (`PLAN.md`).
+- **M16** (live voice interview — TTS + STT + webcam illusion) — future enhancement, not started (`PLAN.md`).
