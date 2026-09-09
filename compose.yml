@@ -9,7 +9,9 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-maxterview}
       POSTGRES_DB: ${POSTGRES_DB:-maxterview}
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      # PG18+ images store data in a versioned subdir; mount the parent dir.
+      # See https://github.com/docker-library/postgres/pull/1259
+      - postgres_data:/var/lib/postgresql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-maxterview} -d ${POSTGRES_DB:-maxterview}"]
       interval: 5s
