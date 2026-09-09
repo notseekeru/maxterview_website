@@ -1,3 +1,4 @@
+import asyncio
 import os
 from contextlib import asynccontextmanager
 from typing import Annotated
@@ -11,6 +12,20 @@ from app.db import close_pool, fetch, fetchrow, init_pool
 from app.models import ChatMessage, ChatTurn, ClerkUser, Feedback, FeedbackCreate, Interview, InterviewCreate, Message
 
 APP_ENV = os.getenv("APP_ENV", "development")
+
+# Bounded inline auto-retry for scoring a freshly-completed interview, so a transient
+# model outage does not silently leave it unscored. /complete re-runs the generator up to
+# this many times (it internally retries each stage) with a short sleep between attempts;
+# only after ALL attempts fail does the interview stay unscored and fall back to the user
+# pressing the manual regenerate button (POST /feedback/generate, unchanged).
+COMPLETE_MAX_FEEDBACK_ATTEMPTS = 3
+COMPLETE_FEEDBACK_BACKOFF_MS = 800  # pacing between auto attempts keeps the gen from hot-lopping
+
+
+async def _backoff_sleep(ms: int) -> None:
+    """Pause between auto-retry attempts. Module hook so tests can patch it to a no-op."""
+    await asyncio.sleep(ms / 1000)
+
 
 if not CLERK_ENABLED and APP_ENV not in ("development", "test"):
     raise RuntimeError("CLERK_ENABLED=false is only allowed when APP_ENV is development or test; refusing to boot.")
@@ -136,8 +151,9 @@ async def complete_interview(
         await _raise_complete_error(interview_id, user.sub)
     interview = dict(row)
 
-    # Auto-generate + persist feedback (decision: in `complete`).
-    await _generate_and_persist_feedback(interview_id)
+    # Auto-generate + persist feedback (decision: in `complete`) with a bounded inline
+    # retry: a transient model outage should not leave the interview silently unscored.
+    await _auto_generate_and_persist_feedback(interview_id)
 
     return interview
 
@@ -363,6 +379,23 @@ async def _upsert_feedback(interview_id: str, scores: dict, verdict: str, tips: 
         verdict,
         tips,
     )
+
+
+async def _auto_generate_and_persist_feedback(interview_id: str) -> dict | None:
+    """Score a completed interview, auto-retrying up to COMPLETE_MAX_FEEDBACK_ATTEMPTS.
+
+    One full generation attempt per iteration (each stage already re-runs internally);
+    after every attempt the row is idempotently UPSERTED so a mid-run success is durable.
+    Returns the written feedback row, or None ONLY when every attempt failed -- the
+    interview then stays unscored and the manual regenerate button remains the fallback
+    (single-shot, unchanged). Bounded so a hot-lopping generator can never stall /complete."""
+    for attempt in range(COMPLETE_MAX_FEEDBACK_ATTEMPTS):
+        row = await _generate_and_persist_feedback(interview_id)
+        if row is not None:
+            return row
+        if attempt < COMPLETE_MAX_FEEDBACK_ATTEMPTS - 1:
+            await _backoff_sleep(COMPLETE_FEEDBACK_BACKOFF_MS)
+    return None
 
 
 async def _generate_and_persist_feedback(interview_id: str) -> dict | None:

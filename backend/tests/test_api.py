@@ -176,6 +176,7 @@ def test_regenerate_feedback_writes_when_model_recovers(client, monkeypatch):
     # A completed interview whose /complete run scored nothing (model returned None, as in
     # real mode) can be re-scored on demand once the model recovers.
     from app import llm
+    from app import main as main_mod
     from app.models import FeedbackSummary
 
     iv = client.post("/interviews", json={"role": "Regen Recovers"}).json()
@@ -184,6 +185,8 @@ def test_regenerate_feedback_writes_when_model_recovers(client, monkeypatch):
     client.post(f"/interviews/{iid}/chat/stream", json={"interview_id": iid, "content": "hello?"})
 
     # First complete: model "fails" (None, as in real mode) -> no feedback row written.
+    # /complete auto-retries, so neutralize its backoff timer to keep this test fast.
+    monkeypatch.setattr(main_mod, "_backoff_sleep", _noop_sleep)
     monkeypatch.setattr(llm, "generate_feedback", _always_none)
     r = client.post(f"/interviews/{iid}/complete")
     assert r.status_code == 200
@@ -206,3 +209,69 @@ def test_regenerate_feedback_writes_when_model_recovers(client, monkeypatch):
 
 async def _always_none(history):
     return None
+
+
+async def _noop_sleep(ms):
+    return None  # neutralize the /complete auto-retry backoff so integration tests run instantly
+
+
+def test_complete_auto_retries_then_leaves_unscored_when_always_none(client, monkeypatch):
+    # A model that keeps failing must NOT be retried forever: /complete auto-retries up to
+    # COMPLETE_MAX_FEEDBACK_ATTEMPTS, then gives up leaving the interview completed but
+    # genuinely unscored (404) so the manual regenerate button can retry later.
+    from app import llm
+    from app import main as main_mod
+
+    monkeypatch.setattr(main_mod, "_backoff_sleep", _noop_sleep)
+    attempts = {"n": 0}
+
+    async def _count_none(_history):
+        attempts["n"] += 1
+        return None
+
+    monkeypatch.setattr(llm, "generate_feedback", _count_none)
+
+    iv = client.post("/interviews", json={"role": "AutoRetry Exhaust"}).json()
+    iid = iv["id"]
+    client.post(f"/interviews/{iid}/start")
+    client.post(f"/interviews/{iid}/chat/stream", json={"interview_id": iid, "content": "hello?"})
+
+    r = client.post(f"/interviews/{iid}/complete")
+    assert r.status_code == 200
+    assert r.json()["status"] == "completed"
+    assert attempts["n"] == main_mod.COMPLETE_MAX_FEEDBACK_ATTEMPTS  # bounded, not infinite
+    assert client.get(f"/interviews/{iid}/feedback").status_code == 404  # still unscored -> manual
+    client.delete(f"/interviews/{iid}")
+
+
+def test_complete_auto_retry_stops_on_first_success(client, monkeypatch):
+    # A flaky model that succeeds on the 2nd attempt should stop immediately (not burn its
+    # remaining attempts) and persist the recovered feedback.
+    from app import llm
+    from app import main as main_mod
+    from app.models import FeedbackSummary
+
+    monkeypatch.setattr(main_mod, "_backoff_sleep", _noop_sleep)
+    attempts = {"n": 0}
+
+    async def _flaky(_history):
+        attempts["n"] += 1
+        if attempts["n"] == 1:
+            return None
+        return FeedbackSummary(scores={d: 7.0 for d in llm.FEEDBACK_DIMS}, verdict="Auto recovered", tips=["Keep."])
+
+    monkeypatch.setattr(llm, "generate_feedback", _flaky)
+
+    iv = client.post("/interviews", json={"role": "AutoRetry Recover"}).json()
+    iid = iv["id"]
+    client.post(f"/interviews/{iid}/start")
+    client.post(f"/interviews/{iid}/chat/stream", json={"interview_id": iid, "content": "hello?"})
+
+    r = client.post(f"/interviews/{iid}/complete")
+    assert r.status_code == 200
+    assert attempts["n"] == 2  # recovered on attempt 2; no 3rd attempt
+    assert r.json()["status"] == "completed"
+    fb = client.get(f"/interviews/{iid}/feedback")
+    assert fb.status_code == 200
+    assert fb.json()["verdict"] == "Auto recovered"
+    client.delete(f"/interviews/{iid}")
