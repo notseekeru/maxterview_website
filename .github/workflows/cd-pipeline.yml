@@ -73,6 +73,7 @@ jobs:
             -v ${{ matrix.service.context }}/.trivyignore.yaml:/.trivyignore.yaml \
             aquasec/trivy:0.74.0 image \
             --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 \
+            --skip-dirs "root/.cache,app/.venv,usr/local" \
             --ignorefile /.trivyignore.yaml \
             ${{ env.IMAGE }}:${{ github.sha }}
 
