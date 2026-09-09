@@ -1,52 +1,24 @@
-// Hermetic host-direct browser runner (no MCP server, no @playwright/test, no host npm install).
+// Hermetic host-direct browser journey runner — onboarding, chat + Complete scoring.
 //
-// Resolves chromium + playwright-core from the immutable nix store at runtime — NEVER hardcode a
-// store hash (they are garbage-collected over time). Targets the no-Clerk DEV_USER stack:
-// frontend :5173, backend :8000 (CLERK_ENABLED=false). Requires a host node that can read
-// /nix/store (repo flake: `nix develop .`).
-//
-// CJS by design: playwright-core is a CommonJS package and ESM cannot `import ... from <expr>`.
+// No MCP server, no @playwright/test, no host npm install. Requires the nix-store chromium +
+// playwright resolved by ./store.cjs (do not hardcode store hashes). Backend must be
+// CLERK_ENABLED=false (DEV_USER / hermetic). Needs a host node that reads /nix/store
+// (repo flake: `nix develop .`). CJS by design (playwright-core is CommonJS).
 //
 // Usage (from repo root):
-//   nix develop . -c node .pi/skills/hermetic-e2e/scripts/e2e.cjs             # onboarding nav only
-//   nix develop . -c node .pi/skills/hermetic-e2e/scripts/e2e.cjs --feedback  # + send turn + Complete
-//   E2E_BASE=http://localhost:5173 node .pi/skills/hermetic-e2e/scripts/e2e.cjs --feedback
+//   nix develop . -c node .pi/skills/hermetic-e2e/scripts/e2e.cjs            # onboarding nav only
+//   nix develop . -c node .pi/skills/hermetic-e2e/scripts/e2e.cjs --feedback # + send turn + Complete
+//   E2E_ANSWER=... nix develop . -c node .pi/skills/hermetic-e2e/scripts/e2e.cjs --feedback
 //
 // Cleanup: created interviews are real DEV_USER rows; the script prints their ids.
-'use strict';
-const fs = require("fs");
-const path = require("path");
+"use strict";
 
-const BASE = process.env.E2E_BASE ?? "http://localhost:5173";
-const NIX = process.env.NIX_STORE_DIR ?? "/nix/store";
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-
-function resolvePcore() {
-  for (const name of fs.readdirSync(NIX).filter((n) => n.includes("playwright-core-") && !n.endsWith(".drv"))) {
-    const ix = path.join(NIX, name, "index.js");
-    if (fs.existsSync(ix)) return ix;
-  }
-  throw new Error("playwright-core index.js not found under " + NIX);
-}
-function resolveChrome() {
-  for (const name of fs.readdirSync(NIX).filter((n) => n.includes("playwright-chromium") && !n.endsWith(".drv"))) {
-    const cand = path.join(NIX, name, "chrome-linux64", "chrome");
-    if (fs.existsSync(cand)) return cand;
-  }
-  throw new Error("playwright chromium executable not found under " + NIX);
-}
-
-const pcore = require(resolvePcore());
-const CHROME_BIN = resolveChrome();
+const { BASE, CHROME_BIN, sleep, openBrowser } = require("./store.cjs");
 
 async function main() {
   const wantFeedback = process.argv.includes("--feedback");
   console.log("chromium:", CHROME_BIN);
-  const browser = await pcore.chromium.launch({
-    executablePath: CHROME_BIN,
-    headless: true,
-    args: ["--no-sandbox", "--disable-gpu"],
-  });
+  const browser = await openBrowser();
   const page = await browser.newPage();
   const createdIds = [];
 
@@ -55,6 +27,8 @@ async function main() {
     await page.goto(BASE + "/", { waitUntil: "domcontentloaded" });
     await page.getByText("Get started", { exact: false }).first().click();
     await page.waitForURL(/\/app/, { timeout: 15000 });
+    // Wait for the actual dashboard chrome so we don't act on a mid-transition Landing frame.
+    await page.locator("#role").waitFor({ state: "visible", timeout: 15000 });
     console.log("  \u2713 Landing -> /app");
 
     // New interview.

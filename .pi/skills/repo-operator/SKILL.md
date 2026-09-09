@@ -49,7 +49,9 @@ narrate. Everything here is real infra you can actually reach from this repo.
 - **hermetic-e2e** → a browser walkthrough of onboarding + chat/complete-scoring, driven HOST-DIRECT
   with nix-store playwright-core/chromium (no browser MCP is wired; pi consumes MCP via a pi-package
   MCP adapter, not `.mcp.json` — containerized `@playwright/mcp` via adapter is the documented target;
-  see hermetic-e2e SKILL.md). Hermetic DEV_USER needs the
+  see hermetic-e2e SKILL.md). `e2e.cjs` asserts the journey (PASS/FAIL, `--feedback` adds
+  chat+Complete); `inspect.cjs` dumps the live DOM per stage for debug; both share `store.cjs`.
+  Hermetic DEV_USER needs the
   backend at CLERK_ENABLED=false; real-Clerk stacks sign in headlessly first. Use to drive the UI
   quickly. (Not a deterministic CI spec.)
 

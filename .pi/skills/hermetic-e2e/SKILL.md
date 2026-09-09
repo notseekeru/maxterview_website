@@ -6,7 +6,9 @@ description: >-
   runner (scripts/e2e.cjs) that resolves playwright-core + chromium from the nix store and drives
   real chromium with the node(js) the repo flake ships (no .mcp.json server is wired; raw .mcp.json
   is not a pi mechanism anyway — see "Host-direct vs browser MCP"). Add --feedback to also send an
-  answer, click Complete, and assert the FeedbackView (or Retry-scoring notice) renders. The
+  answer, click Complete, and assert the FeedbackView (or Retry-scoring notice) renders. A
+  companion debug runner (scripts/inspect.cjs) dumps the live DOM per stage when an assert is
+  ambiguous; scripts/store.cjs holds the shared resolve/launch. The
   intended long-term browser-MCP path (pi MCP adapter in a package -> containerized @playwright/mcp)
   is noted in that section; host-direct is the working fallback needing NO host npm install / zero
   node_modules. Hermetic when the backend runs with CLERK_ENABLED=false (no-Clerk DEV_USER). If the
@@ -69,31 +71,41 @@ Why host-direct is the working today-path:
   gone). `scripts/e2e.cjs` re-resolves both from `/nix/store` at startup by reading directory names
   (`<hash>-playwright-core-…` / `<hash>-playwright-chromium`) and checking for the real file/dir.
 
-## Running it (pre-flight + journey in ONE command)
+## Running the runners (pre-flight + journey in ONE command)
 
-The committed runner `scripts/e2e.cjs` handles artifact resolution, browser launch, onboarding,
-and (with `--feedback`) chat + Complete scoring:
+Helpers in `scripts/`; you normally only call the first two:
+
+- `scripts/store.cjs` — shared: resolves playwright-core + chromium from `/nix/store` at runtime
+  and exposes `{ BASE, CHROME_BIN, pcore, sleep, openBrowser }`. `e2e.cjs` and `inspect.cjs` both
+  `require()` it, so resolve/browser-launch changes happen once. Do NOT hardcode a store hash.
+- `scripts/e2e.cjs` — the assert run: onboarding + chat + Complete, prints PASS/FAIL.
+- `scripts/inspect.cjs` — the debug run: same journey but dumps the live DOM per stage so you can
+  SEE what actually rendered (add `--dom` for raw innerHTML) when an assert run is ambiguous.
 
 ```bash
 # onboarding + dashboard nav only (fast sanity):
 nix develop . -c node .pi/skills/hermetic-e2e/scripts/e2e.cjs
 
-# full: send an answer, click Complete, and assert FeedbackView OR the Retry-scoring notice renders:
+# full assert: send an answer, click Complete, assert FeedbackView OR the Retry-scoring notice:
 nix develop . -c node .pi/skills/hermetic-e2e/scripts/e2e.cjs --feedback
+
+# debug: same journey, dump the live DOM at each stage (append --dom for raw innerHTML):
+nix develop . -c node .pi/skills/hermetic-e2e/scripts/inspect.cjs [--dom]
 
 # optional overrides (all env-settable): E2E_BASE, E2E_ROLE, E2E_TOPIC, E2E_ANSWER
 E2E_ANSWER="..." nix develop . -c node .pi/skills/hermetic-e2e/scripts/e2e.cjs --feedback
 ```
 
-The default journey below describes the steps both modes cover. On a real model backend `/complete`
-runs inline and can block tens of seconds; the runner uses a ~90s deadline for the scoring outcome.
+On a real model backend `/complete` runs inline and can block tens of seconds; `e2e.cjs` uses a
+~90s deadline for the scoring outcome. Both runners create a real DEV_USER interview and print its
+id — delete it when judging (History / `DELETE /interviews/<id>`).
 
 Why a committed runner instead of a copy-paste snippet: the older skill handed agents an ESM
 snippet (`import pw from PCORE_INDEX`) that is a **SyntaxError** (import specifiers must be string
 literals) and used inconsistent variable names (`PCORE`/`CHROME`/`CHROME_PATH`/`CHROME_BIN`) across
 sections, plus it resolved the top-level chromium *dir* rather than the real `chrome-linux64/chrome`
-binary — all of which produced false "chromium missing" failures. Keeping resolution in one file
-removes that whole class of error.
+binary — all of which produced false "chromium missing" failures. Keeping resolution in one shared
+module removes that whole class of error.
 
 ## The journey (what both modes assert, via the real DOM)
 
@@ -155,7 +167,8 @@ const b = await pw.chromium.launch({ executablePath: path.join('/nix/store', chr
   headless: true, args: ['--no-sandbox', '--disable-gpu'] });
 ```
 
-Do not reintroduce `import … from <var>` ESM or a bare-directory `executablePath`; prefer `scripts/e2e.cjs`.
+Do not reintroduce `import … from <var>` ESM or a bare-directory `executablePath`; prefer
+`scripts/store.cjs` (it already does this), or add to it rather than duplicating resolution.
 
 ## Why this is not a CI spec
 

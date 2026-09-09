@@ -1,37 +1,17 @@
-// Drive the same hermetic onboarding journey and DUMP the live DOM at each stage so an agent
-// can see what is actually rendered (not just assert on checkpoints). Host-direct playwright-core
-// resolved from /nix/store at runtime (no @playwright/test, no host npm install). CJS by design.
+// Drive the hermetic onboarding journey and DUMP the live DOM at each stage so an agent/human can
+// see what is actually rendered (not just assert on checkpoints). Host-direct playwright-core +
+// chromium resolved by ./store.cjs (no @playwright/test, no host npm install, no hardcoded store
+// hashes). CJS by design.
 //
 // Usage (from repo root), backend must be CLERK_ENABLED=false (DEV_USER / hermetic):
 //   nix develop . -c node .pi/skills/hermetic-e2e/scripts/inspect.cjs
-//   nix develop . -c node .pi/skills/hermetic-e2e/scripts/inspect.cjs --dom        # raw innerHTML per stage
-//   E2E_BASE=... E2E_ROLE=... E2E_TOPIC=... nix develop . -c node .pi/skills/hermetic-e2e/scripts/inspect.cjs
-'use strict';
-const fs = require("fs");
-const path = require("path");
+//   nix develop . -c node .pi/skills/hermetic-e2e/scripts/inspect.cjs --dom   # raw innerHTML per stage
+//   E2E_BASE=... E2E_ROLE=... E2E_TOPIC=... nix develop . -c node .../inspect.cjs
+"use strict";
 
-const BASE = process.env.E2E_BASE ?? "http://localhost:5173";
-const NIX = process.env.NIX_STORE_DIR ?? "/nix/store";
+const { BASE, CHROME_BIN, pcore } = require("./store.cjs");
+const { chromium } = pcore;
 const RAW_DOM = process.argv.includes("--dom");
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-
-function resolvePcore() {
-  for (const n of fs.readdirSync(NIX).filter((n) => n.includes("playwright-core-") && !n.endsWith(".drv"))) {
-    const ix = path.join(NIX, n, "index.js");
-    if (fs.existsSync(ix)) return ix;
-  }
-  throw new Error("playwright-core index.js not found under " + NIX);
-}
-function resolveChrome() {
-  for (const n of fs.readdirSync(NIX).filter((n) => n.includes("playwright-chromium") && !n.endsWith(".drv"))) {
-    const c = path.join(NIX, n, "chrome-linux64", "chrome");
-    if (fs.existsSync(c)) return c;
-  }
-  throw new Error("playwright chromium not found under " + NIX);
-}
-
-const pcore = require(resolvePcore());
-const CHROME_BIN = resolveChrome();
 
 async function dump(page, label) {
   console.log("\n\n========== DOM @ " + label + " ==========");
@@ -46,7 +26,7 @@ async function dump(page, label) {
 
 async function main() {
   console.log("chromium:", CHROME_BIN);
-  const browser = await pcore.chromium.launch({
+  const browser = await chromium.launch({
     executablePath: CHROME_BIN,
     headless: true,
     args: ["--no-sandbox", "--disable-gpu"],
