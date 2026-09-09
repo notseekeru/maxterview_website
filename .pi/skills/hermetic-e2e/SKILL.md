@@ -2,19 +2,20 @@
 name: hermetic-e2e
 description: >-
   Lean browser walkthrough of maxterview onboarding + dashboard navigation (Landing -> /app ->
-  create interview -> /interviews/:id). There is no browser MCP server wired into .mcp.json (the
-  old playwright-mcp nix binary was garbage-collected and removed; mcpServers is empty). Drive the
-  browser HOST-DIRECT instead: a committed runner (scripts/e2e.cjs) resolves playwright-core +
-  chromium from the immutable /nix/store and drives real chromium executed by the node(js) the repo
-  flake ships. Needs NO host npm install, so it keeps zero node_modules in local storage. Add
-  --feedback to also send an answer, click Complete, and assert the FeedbackView (or Retry-scoring
-  notice) renders. Hermetic when the backend runs with CLERK_ENABLED=false (no-Clerk DEV_USER). If
-  the stack runs real Clerk, sign in headlessly first via the clerk-stripe-operator skill. Not a
-  deterministic CI spec. Use to reproduce or eyeball onboarding / new-interview / complete-scoring
-  in a browser, or after applying frontend/backend changes, without touching real Clerk/Stripe.
+  create interview -> /interviews/:id). Browser automation is HOST-DIRECT today via a committed
+  runner (scripts/e2e.cjs) that resolves playwright-core + chromium from the nix store and drives
+  real chromium with the node(js) the repo flake ships (no .mcp.json server is wired; raw .mcp.json
+  is not a pi mechanism anyway — see "Host-direct vs browser MCP"). Add --feedback to also send an
+  answer, click Complete, and assert the FeedbackView (or Retry-scoring notice) renders. The
+  intended long-term browser-MCP path (pi MCP adapter in a package -> containerized @playwright/mcp)
+  is noted in that section; host-direct is the working fallback needing NO host npm install / zero
+  node_modules. Hermetic when the backend runs with CLERK_ENABLED=false (no-Clerk DEV_USER). If the
+  stack runs real Clerk, sign in headlessly first via the clerk-stripe-operator skill. Use to
+  reproduce or eyeball onboarding / new-interview / complete-scoring in a browser, or after applying
+  frontend/backend changes.
 ---
 
-# Hermetic E2E — onboarding, chat + complete-scoring walkthrough (host-direct, no MCP)
+# Hermetic E2E — onboarding, chat + complete-scoring walkthrough (host-direct; browser-MCP-via-adapter is a documented note, not wired)
 
 A walkthrough an agent follows to simulate a user **onboarding**, **driving a chat turn** and
 **(optionally) completing an interview** in the frontend, using a **real browser** via a committed
@@ -28,22 +29,26 @@ WITHOUT `CLERK_ENABLED=true` so it returns `DEV_USER`, and frontend without a us
 so `clerkEnabled=false` renders the gated routes directly. No Clerk or Stripe keys needed. It does
 not place a real Stripe payment.
 
-## Why "host-direct" and not browser MCP
+## Host-direct vs browser MCP
 
-Historically `.mcp.json` declared a `playwright` MCP server pointing at a
-`/nix/store/...-playwright-mcp-.../bin/playwright-mcp` binary. That binary was **garbage-collected
-from the store** (it no longer exists), `.mcp.json` now has an empty `mcpServers`, and the repo flake
-never provisions a browser MCP server. Host-direct is the working substitute, **verified against the
-live stack**:
+Host-direct (a committed runner driving nix-store chromium) is the browser path this repo uses
+and verifies. Browser MCP exists as a target only — see the note below; it is not wired.
+
+Why host-direct is the working today-path:
 
 - `playwright-core` is a store package you `require()` without installing.
-- `playwright-chromium` ships the chromium executable at `<hash>-playwright-chromium/chrome-linux64/chrome`.
+- chromium's binary lives in the store at `<hash>-playwright-chromium/chrome-linux64/chrome`.
 - The repo flake (`nix develop .`) puts a `nodejs` on PATH, so a host `node` drives it.
 - No host `npm install`: nothing lands in `.playwright-mcp/` or any host `node_modules`.
 
-This is a Nix-only, machine-local mechanism (not reproducible for non-Nix users). Re-adding a real
-browser MCP server (see the `.mcp.json` plan) would require provisioning `@playwright/mcp` into the
-repo tooling so a durable binary exists — out of scope here.
+> **Note — browser MCP is a pi adapter, not `.mcp.json`.** pi does not consume raw `.mcp.json`
+> `mcpServers`; it reaches MCP servers through an MCP-adapter extension bundled in a **pi package**
+> (pi README lists "MCP server integration" under extensions; packages carry extensions). The old
+> `.mcp.json` playwright binary was garbage-collected and correctly removed — it was never how pi
+> reached it. The intended browser-MCP path is a **containerized `@playwright/mcp`** service on the
+> compose network (GC-proof, reachable by service name) consumed by a pi package MCP adapter; pin
+> the adapter against the pi-version's extension API when building it (pi core docs lag the adapter).
+> Not built here; host-direct is the verified fallback.
 
 ## Preconditions
 

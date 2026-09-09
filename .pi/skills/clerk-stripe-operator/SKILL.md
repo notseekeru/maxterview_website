@@ -160,6 +160,10 @@ sign-in is **`@clerk/testing/playwright`** run on the **host** (not the Alpine a
 its bundled chromium is glibc/Debian and will not run under Alpine's musl). The repo flake's
 devShell now ships `nodejs` for this. It needs a real dev-instance `sk_test_` + `pk_test_`.
 
+> Note: raw `.mcp.json` is not how pi reaches an MCP server — pi consumes MCP via an
+> MCP-adapter extension bundled in a **pi package**. Browser MCP (host-direct, or a containerized
+> `@playwright/mcp` reached through that adapter) is documented in the `hermetic-e2e` skill.
+
 Mechanism:
 - `clerkSetup({ publishableKey, secretKey, frontendApiUrl })` mints a Clerk **testing token** and
   sets `CLERK_FAPI`/`CLERK_TESTING_TOKEN` in `process.env` (it returns `undefined`).
@@ -213,13 +217,13 @@ The minimal flow above is the whole trick: `clerkSetup` mints a testing token, `
 arms the FAPI route interceptor and signs in with no UI. `clerk-mint.sh` already covers the
 user-create + token; the browser leg above is only needed when you must assert the SPA as a
 signed-in user (tier billing page) rather than mint a token.
-### Browser leg (no MCP): completing the real hosted Checkout
+### Browser leg (no browser MCP wired): completing the real hosted Checkout
 
 The account-administration scripts above call Clerk/Stripe HTTP APIs and the Stripe CLI **directly**
 (no MCP, no browser). The one genuinely browser-y step — clicking Upgrade in the SPA and
 **paying on the real `checkout.stripe.com` page with the Stripe test card** — is driven through a
-**host-direct playwright** browser. There is NO browser MCP: `.mcp.json` no longer declares a
-`playwright` server (its old entry pointed at a dead nix-store binary and was removed). Drive the
+**host-direct playwright** browser. No browser MCP is wired (pi consumes MCP via a pi-package
+adapter, not `.mcp.json`, whose old playwright entry was removed). Drive the
 real browser with the same host-direct `playwright-core` + nix chromium mechanism documented in the
 `hermetic-e2e` skill (resolve paths from `/nix/store` at runtime; no host npm install), and sign in
 headlessly with `@clerk/testing/playwright` per the recipe above.

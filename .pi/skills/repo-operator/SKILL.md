@@ -46,8 +46,10 @@ narrate. Everything here is real infra you can actually reach from this repo.
   price/customer/webhook/state — gives you API hands on both accounts (curl), with live-key refusal
   and `--admin-destroy` gating. Use for "set up a test user", "show webhooks/customers/price",
   "make it premium", "tear that test user down".
-- **hermetic-e2e** → a browser walkthrough of onboarding + dashboard nav, driven HOST-DIRECT with
-  nix-store playwright-core/chromium (there is no browser MCP anymore). Hermetic DEV_USER needs the
+- **hermetic-e2e** → a browser walkthrough of onboarding + chat/complete-scoring, driven HOST-DIRECT
+  with nix-store playwright-core/chromium (no browser MCP is wired; pi consumes MCP via a pi-package
+  MCP adapter, not `.mcp.json` — containerized `@playwright/mcp` via adapter is the documented target;
+  see hermetic-e2e SKILL.md). Hermetic DEV_USER needs the
   backend at CLERK_ENABLED=false; real-Clerk stacks sign in headlessly first. Use to drive the UI
   quickly. (Not a deterministic CI spec.)
 
@@ -138,11 +140,13 @@ it refuses `*_live_*`, and anything destructive requires `--admin-destroy`. Repr
 ./.pi/skills/clerk-stripe-operator/scripts/debug-state.sh
 ```
 
-## Browser drive (NO browser MCP — use the committed hermetic runner or headless-clerk)
+## Browser drive (no browser MCP wired; pi uses a package MCP adapter if you add one)
 
-`.mcp.json` no longer declares a `playwright` server: the old entry pointed at a
-`/nix/store/...playwright-mcp.../bin/playwright-mcp` binary that was garbage-collected from the
-store (`mcpServers` is empty). Drive the browser one of these working paths:
+`.mcp.json` no longer declares a `playwright` server (the old `/nix/store/...playwright-mcp...`
+binary was garbage-collected). Raw `.mcp.json` is not how pi reaches an MCP server anyway — pi loads
+MCP through an MCP-adapter extension shipped as a **pi package**, whose natural target is a
+containerized `@playwright/mcp` service (see hermetic-e2e SKILL.md). Until that adapter is built,
+drive the browser one of these working paths:
 
 - **Hermetic DEV_USER (no keys):** run the committed runner from the `hermetic-e2e` skill, which
   resolves `playwright-core` + chromium from `/nix/store` at runtime (no host npm install → no
