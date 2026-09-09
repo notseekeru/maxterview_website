@@ -46,14 +46,13 @@ narrate. Everything here is real infra you can actually reach from this repo.
   price/customer/webhook/state — gives you API hands on both accounts (curl), with live-key refusal
   and `--admin-destroy` gating. Use for "set up a test user", "show webhooks/customers/price",
   "make it premium", "tear that test user down".
-- **hermetic-e2e** → a browser walkthrough of onboarding + chat/complete-scoring, driven HOST-DIRECT
-  with nix-store playwright-core/chromium (no browser MCP is wired; pi consumes MCP via a pi-package
-  MCP adapter, not `.mcp.json` — containerized `@playwright/mcp` via adapter is the documented target;
-  see hermetic-e2e SKILL.md). `e2e.cjs` asserts the journey (PASS/FAIL, `--feedback` adds
-  chat+Complete); `inspect.cjs` dumps the live DOM per stage for debug; both share `store.cjs`.
-  Hermetic DEV_USER needs the
-  backend at CLERK_ENABLED=false; real-Clerk stacks sign in headlessly first. Use to drive the UI
-  quickly. (Not a deterministic CI spec.)
+- **hermetic-e2e** → drive a real headless browser against the running frontend (host-direct, nix-store
+  playwright-core + chromium; no MCP, no @playwright/test, no host npm install). Two ways in that
+  skill: live/ad-hoc (`openBrowser()` + bespoke `page.*` — the flexible/dynamic way) or canned runners:
+  `e2e.cjs` asserts onboarding+Complete (PASS/FAIL; `--feedback`), `inspect.cjs` dumps DOM per stage.
+  All share `scripts/store.cjs`. Hermetic DEV_USER needs backend at CLERK_ENABLED=false; real-Clerk
+  stacks sign in headlessly first (clerk-stripe-operator). Browser-MCP is notes-only there, not wired.
+  (Not a deterministic CI spec.)
 
 ## Quick console (run from repo root)
 
@@ -142,20 +141,19 @@ it refuses `*_live_*`, and anything destructive requires `--admin-destroy`. Repr
 ./.pi/skills/clerk-stripe-operator/scripts/debug-state.sh
 ```
 
-## Browser drive (no browser MCP wired; pi uses a package MCP adapter if you add one)
+## Browser drive (host-direct; see hermetic-e2e for full detail)
 
-`.mcp.json` no longer declares a `playwright` server (the old `/nix/store/...playwright-mcp...`
-binary was garbage-collected). Raw `.mcp.json` is not how pi reaches an MCP server anyway — pi loads
-MCP through an MCP-adapter extension shipped as a **pi package**, whose natural target is a
-containerized `@playwright/mcp` service (see hermetic-e2e SKILL.md). Until that adapter is built,
-drive the browser one of these working paths:
+There is no browser MCP wired here, and `.mcp.json` is not how pi consumes an MCP server (pi needs an
+MCP-adapter extension in a pi package). Browser-MCP pros/cons/why-not is a compact notes section in the
+`hermetic-e2e` skill; drive the browser with these working paths:
 
-- **Hermetic DEV_USER (no keys):** run the committed runner from the `hermetic-e2e` skill, which
-  resolves `playwright-core` + chromium from `/nix/store` at runtime (no host npm install → no
-  `node_modules` on the host):
+- **Hermetic DEV_USER (no keys, recommended):** use the `hermetic-e2e` skill — either ad-hoc
+  (`openBrowser()` + bespoke `page.*`) or the canned runners resolved from `/nix/store` at runtime
+  (no host npm install / no `node_modules`):
   ```bash
   nix develop . -c node .pi/skills/hermetic-e2e/scripts/e2e.cjs             # onboarding/nav
   nix develop . -c node .pi/skills/hermetic-e2e/scripts/e2e.cjs --feedback  # + chat + Complete
+  nix develop . -c node .pi/skills/hermetic-e2e/scripts/inspect.cjs         # dump live DOM per stage
   ```
   Backend must be `CLERK_ENABLED=false`. Check posture first: `curl -s -o /dev/null -w "%{http_code}" localhost:8000/usage`
   → 200 means DEV_USER (hermetic); 401 means real-Clerk (not hermetic).
