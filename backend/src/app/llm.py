@@ -56,8 +56,12 @@ def system_prompt(role: str, level: str, topic: str = "") -> str:
     """Build the versioned system prompt for an interview.
 
     `role` is the target title; `level` is the target seniority slug from app.levels
-    (e.g. 'mid', 'senior'). `any` means "Not sure": calibrate dynamically off the
-    candidate's demonstrated answers rather than a fixed target.
+    (e.g. 'mid', 'senior'); `any` means "Not sure": calibrate dynamically off the
+    candidate's demonstrated answers. `topic` is an optional focus area.
+
+    Now teaches the interviewer its own resume/background opener (so it remembers it
+    asked) and the bio -> behavioural -> technical arc it should run even when the
+    candidate declines to share a resume.
     """
     parts = [SYSTEM_PROMPT_V1, f"The candidate is interviewing for the role: {role}."]
     if level and level != "any":
@@ -66,17 +70,37 @@ def system_prompt(role: str, level: str, topic: str = "") -> str:
         parts.append("The target seniority is unspecified. Probe incrementally and calibrate question difficulty to the candidate's demonstrated experience as the interview proceeds.")
     if topic:
         parts.append(f"Focus area / topic: {topic}.")
-    parts.append("Ask one question at a time. Keep responses concise. Reply as the interviewer.")
+    # Resume/opener protocol + flowing arc. The opener may or may not be surfaced to the
+    # candidate as a UI bubble (never as a persisted turn), so the interviewer must stay
+    # coherent either way: it never re-livens a resume ask it already posed, and it always
+    # steers bio rapport -> behavioural -> role technical regardless of whether a resume is
+    # supplied (relevant for the grader's self-presentation rule, not a blocker in-chat).
+    parts.append(
+        "Assume the candidate may or may not have been invited, before speaking, to open by sharing their background/resume."
+        " If your first outbound message is still pending, that opening invitation is what you should send - ask once, briefly."
+        " If the candidate supplies background/resume, use it to tailor questions."
+        " If they supply none, you may ask one short follow-up to capture background, then move on - never block or keep re-asking for a resume."
+        " Run the interview in this order: a short natural/bio rapport exchange, then behavioural questions about their past experience, then technical questions suited to the target role and level."
+        " Ask one question at a time and wait for each answer before moving on."
+    )
     return " ".join(parts)
 
 
 GRADER_PROMPT_V1 = """You are maxterview's interview grader. You will be given an interview transcript between an interviewer and a candidate applying for a software role.
+
+Background: the interviewer opened by inviting the candidate to share their resume / background so it could tailor questions, and interviews went: a short bio/rapport warm-up, then behavioural questions, then role-specific technical questions.
 
 Assess ONLY the candidate's answers against these four dimensions, each on a 1-10 scale:
 - clarity: how well-structured and easy to follow each answer was.
 - relevance: how directly the answer addressed the question and the role.
 - structure: use of a clear framework (e.g. STAR) with a beginning/middle/end.
 - confidence: delivery signals (concise, specific, no hedging).
+
+Self-presentation rule: the candidate's first answers should establish their background/resume.
+If they never supplied any background/resume to anchor their answers, be strict: score relevance/structure
+low when answers stay vague or disconnected from the role, and call the omission out in your verdict and
+tips as a real reason points were lost. Do NOT let the omission pass silently — but still grade the
+technical/behavioural content they DID give on its own merit.
 
 Write a short paragraph PER dimension: name the dimension, give one concrete thing from the candidate's answers as evidence, then a single suggested integer score for it. Then write a 2-3 sentence overall verdict and 2-4 specific, actionable tips.
 
