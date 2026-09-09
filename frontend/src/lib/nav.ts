@@ -26,9 +26,9 @@ export const NAV: NavSection[] = [
         id: "main",
         items: [
             { label: "Dashboard", to: "/app", icon: "dashboard", index: true },
+            { label: "Resume", to: "/app/resume", icon: "file" },
             { label: "Interviews", to: "/app/interviews", icon: "chat" },
             { label: "Analytics", to: "/app/analytics", icon: "chart" },
-            { label: "Resume", to: "/app/resume", icon: "file" },
         ],
     },
     {
