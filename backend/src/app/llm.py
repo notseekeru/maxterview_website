@@ -94,7 +94,12 @@ Assess ONLY the candidate's answers against these four dimensions, each on a 1-1
 - clarity: how well-structured and easy to follow each answer was.
 - relevance: how directly the answer addressed the question and the role.
 - structure: use of a clear framework (e.g. STAR) with a beginning/middle/end.
-- confidence: delivery signals (concise, specific, no hedging).
+- confidence: DELIVERY ONLY — hedging, vague phrasing, whether they commit to a position. Do NOT count missing resume/metrics/experience here; that belongs under relevance/structure.
+
+Calibration: resist 10s. Reserve 9-10 for near-flawless, concrete, evidence-backed answers. If you can name no real weakness for a dimension, probe harder rather than defaulting to a perfect score;
+a strong interview that 'has no flaws' should still land around 7-9 with an explicit weaker spot, not a flat 10 across the board.
+
+Grounding: never attribute an achievement, metric, project, "team", employer, or result to the candidate unless it is stated IN the transcript. If evidence is missing, score the relevant dimension down and say exactly what was absent. Do not invent specifics to justify a high score.
 
 Self-presentation rule: the candidate's first answers should establish their background/resume.
 If they never supplied any background/resume to anchor their answers, be strict: score relevance/structure
