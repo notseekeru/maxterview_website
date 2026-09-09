@@ -64,37 +64,79 @@ def test_valid_scores_rejects_partial_and_accepts_full(monkeypatch):
     assert ok == {d: 6.0 for d in llm.FEEDBACK_DIMS}
 
 
-async def test_generate_feedback_retries_then_succeeds(monkeypatch):
-    # Real-model path (STUB off): unusable first response -> one retry returns a valid
-    # summary, so we never write empty feedback when the model is merely flaky.
+async def test_generate_feedback_real_grader_and_formatter_path(monkeypatch):
+    # Drives the REAL two-stage pipeline end-to-end at the _completion seam: grader prose
+    # call returns notes, formatter JSON call returns a sample object -> valid FeedbackSummary.
     monkeypatch.setattr(llm, "STUB_MODE", False)
-    calls = {"n": 0}
+    caller = {"model": None, "msgs": None, "json": None}
 
-    async def _first_none_then_ok(history):
-        calls["n"] += 1
-        if calls["n"] == 1:
-            return None  # model echoed the transcript instead of JSON
-        return FeedbackSummary(scores={d: 7.0 for d in llm.FEEDBACK_DIMS}, verdict="Solid", tips=["Keep at it."])
+    async def _completion(system, user_text, *, model, base_url, max_tokens, json_output=False):
+        caller["model"] = model
+        caller["msgs"] = [system, user_text]
+        caller["json"] = json_output
+        return "prose notes" if not json_output else '{"scores": {"clarity": 7, "relevance": 8, "structure": 6, "confidence": 5}, "verdict": "Solid.", "tips": ["Do X", "Do Y"]}'
 
-    monkeypatch.setattr(llm, "_request_feedback", _first_none_then_ok)
+    monkeypatch.setattr(llm, "_completion", _completion)
     out = await llm.generate_feedback([ChatMessage(role="user", content="hi")])
-    assert calls["n"] == 2
-    assert out.verdict == "Solid"
-    assert set(out.scores) == set(llm.FEEDBACK_DIMS)
+    assert out is not None
+    assert all(1 <= out.scores[d] <= 10 for d in llm.FEEDBACK_DIMS)
+    assert caller["json"] is True  # formatter hop requested JSON mode
 
 
-async def test_generate_feedback_returns_none_after_double_failure(monkeypatch):
-    # Both real-mode attempts unusable (transport error, junk JSON, or schema mismatch) ->
-    # return None so the caller writes NO feedback. A completed interview must surface as
-    # genuinely unscored rather than carrying fabricated 6s in the dashboard averages.
+async def test_generate_feedback_formatter_retries_on_bad_schema(monkeypatch):
+    # Formatter's real retry: first attempt returns non-schema JSON (no scores), the retry
+    # returns the right shape. generate_feedback should yield the recovered summary.
     monkeypatch.setattr(llm, "STUB_MODE", False)
-    calls = {"n": 0}
+    attempts = {"n": 0}
 
-    async def _always_none(history):
-        calls["n"] += 1
+    async def _completion(system, user_text, *, model, base_url, max_tokens, json_output=False):
+        if json_output:
+            attempts["n"] += 1
+            if attempts["n"] == 1:
+                return '{"verdict": "no scores"}'
+            return '{"scores": {"clarity": 9, "relevance": 9, "structure": 9, "confidence": 9}, "verdict": "Great.", "tips": ["A"]}'
+        return "prose notes"
+
+    monkeypatch.setattr(llm, "_completion", _completion)
+    out = await llm.generate_feedback([ChatMessage(role="user", content="hi")])
+    assert attempts["n"] == 2  # schema mismatch triggered the formatter retry
+    assert out is not None and out.verdict == "Great."
+
+
+async def test_generate_feedback_returns_none_when_formatter_never_valid(monkeypatch):
+    # Grader OK but every formatter JSON attempt (incl. its retry) is unusable -> None, so
+    # the caller writes NO feedback rather than a fabricated 6-average.
+    monkeypatch.setattr(llm, "STUB_MODE", False)
+    attempts = {"n": 0}
+
+    async def _completion(system, user_text, *, model, base_url, max_tokens, json_output=False):
+        if json_output:
+            attempts["n"] += 1
+            return '{"verdict": "nope"}'  # always schema-mismatched
+        return "prose notes"
+
+    monkeypatch.setattr(llm, "_completion", _completion)
+    out = await llm.generate_feedback([ChatMessage(role="user", content="hi")])
+    assert attempts["n"] == 2  # formatter exhausted its one retry
+    assert out is None  # no fabricated feedback
+
+
+async def test_generate_feedback_returns_none_when_grader_fails(monkeypatch):
+    # Grader's real retry never yields prose -> generate stops and returns None; the
+    # formatter JSON hop is never even attempted.
+    monkeypatch.setattr(llm, "STUB_MODE", False)
+    grader_attempts = {"n": 0}
+    format_attempts = {"n": 0}
+
+    async def _completion(system, user_text, *, model, base_url, max_tokens, json_output=False):
+        if json_output:
+            format_attempts["n"] += 1
+            return None
+        grader_attempts["n"] += 1
         return None
 
-    monkeypatch.setattr(llm, "_request_feedback", _always_none)
+    monkeypatch.setattr(llm, "_completion", _completion)
     out = await llm.generate_feedback([ChatMessage(role="user", content="hi")])
-    assert calls["n"] == 2  # attempted a retry before giving up
-    assert out is None  # no fabricated feedback
+    assert grader_attempts["n"] == 2  # grader retried once
+    assert format_attempts["n"] == 0  # formatter never invoked
+    assert out is None

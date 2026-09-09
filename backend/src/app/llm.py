@@ -13,9 +13,21 @@ LLM_BASE_URL = os.getenv("LLM_BASE_URL", "").rstrip("/")
 LLM_MODEL = os.getenv("LLM_MODEL", "")
 LLM_API_KEY = os.getenv("LLM_API_KEY", "")
 
+# Two-stage feedback pipeline (grader -> formatter). Stage-1 (grader) reads the FULL
+# transcript and writes free-text analysis because a permissive chat model is unreliable
+# at emitting strict JSON over a long context; stage-2 (formatter) re-shapes that small,
+# fresh analysis into the exact schema where schema adherence is cheapest. Each stage can
+# ride a different model/provider: LLM_GRADER_* override the shared LLM_*_URL/MODEL when
+# set (e.g. prod points the grader at a stronger model and keeps the cheap one for the
+# formatter), else stage 1==stage 2==the single configured model.
+LLM_GRADER_BASE_URL = os.getenv("LLM_GRADER_BASE_URL", LLM_BASE_URL).rstrip("/")
+LLM_GRADER_MODEL = os.getenv("LLM_GRADER_MODEL", LLM_MODEL)
+
 # Token ceilings to bound runaway local thinking models (Qwen emits long reasoning).
-# Env-overridable: LLM_MAX_TOKENS caps streaming replies; LLM_MAX_FEEDBACK_TOKENS caps feedback.
+# Env-overridable: LLM_MAX_TOKENS caps streaming replies; LLM_MAX_GRADER_TOKENS caps the
+# grader's free-text analysis; LLM_MAX_FEEDBACK_TOKENS caps the formatter's JSON.
 LLM_MAX_TOKENS = int(os.getenv("LLM_MAX_TOKENS", "512"))
+LLM_MAX_GRADER_TOKENS = int(os.getenv("LLM_MAX_GRADER_TOKENS", "1024"))
 LLM_MAX_FEEDBACK_TOKENS = int(os.getenv("LLM_MAX_FEEDBACK_TOKENS", "1024"))
 LLM_DISABLE_THINKING = os.getenv("LLM_DISABLE_THINKING", "true").lower() == "true"
 
@@ -48,7 +60,25 @@ def system_prompt(role: str, topic: str = "") -> str:
     return " ".join(parts)
 
 
-FEEDBACK_PROMPT_V1 = 'Review the full interview transcript. Return a JSON object ONLY, with keys: "scores" (object with numeric 1-10 values for keys clarity, relevance, structure, confidence), "verdict" (string, 2-3 sentences overall assessment), and "tips" (array of 2-4 short actionable strings).'
+GRADER_PROMPT_V1 = """You are maxterview's interview grader. You will be given an interview transcript between an interviewer and a candidate applying for a software role.
+
+Assess ONLY the candidate's answers against these four dimensions, each on a 1-10 scale:
+- clarity: how well-structured and easy to follow each answer was.
+- relevance: how directly the answer addressed the question and the role.
+- structure: use of a clear framework (e.g. STAR) with a beginning/middle/end.
+- confidence: delivery signals (concise, specific, no hedging).
+
+Write a short paragraph PER dimension: name the dimension, give one concrete thing from the candidate's answers as evidence, then a single suggested integer score for it. Then write a 2-3 sentence overall verdict and 2-4 specific, actionable tips.
+
+Use PLAIN PROSE. Do NOT wrap everything in JSON — you are the reviewer, a separate step turns your notes into the final format. Be strict but fair; award high scores only with evidence."""
+
+
+# Concrete JSON example inlined (DeepSeek's JSON-mode docs require a shape example, and
+# it hard-codes the schema so a weak local backend cannot drift the field names). The
+# formatter runs on fresh, SHORT grader notes rather than the long raw transcript.
+FEEDBACK_PROMPT_V1 = """Convert the interview grader notes in your user message into a JSON object ONLY, exactly matching this shape:
+{"scores": {"clarity": 7, "relevance": 6, "structure": 8, "confidence": 5}, "verdict": "Overall assessment in 2-3 sentences.", "tips": ["tip one", "tip two"]}
+Rules: scores are integers 1-10 for exactly clarity/relevance/structure/confidence; verdict is 2-3 sentences; tips is an array of 2-4 short strings. Return ONLY the JSON object, no prose, no markdown."""
 
 
 # --- HTTP / streaming helpers ---
@@ -142,77 +172,133 @@ def _valid_scores(value) -> dict | None:
     return dict(numeric)
 
 
-async def _request_feedback(history: list[ChatMessage]) -> FeedbackSummary | None:
-    """One real-model feedback call. Returns None when the output is not usable.
+async def _completion(
+    system: str,
+    user_text: str,
+    *,
+    model: str,
+    base_url: str,
+    max_tokens: int,
+    json_output: bool = False,
+) -> str | None:
+    """One non-streaming completion. Returns the raw assistant text, or None on failure.
 
-    Classifies + logs WHY it failed (so operators can tell transport errors apart from
-    schema-mismatch / junk-JSON instead of guessing), but never raises: an uncaught
-    exception here would 500 the whole /complete and leave an interview half-finished.
-
-    Logs message COUNTS, never content/keys, per the observability doc's secret rule."""
-    msgs = len(history)
+    Logs transport/empty failures only (never content or transcript bodies), and never
+    raises so a model outage can't 500 the caller that would otherwise leave an interview
+    half-finished."""
+    payload: dict = {
+        "model": model,
+        "messages": [{"role": "system", "content": system}, {"role": "user", "content": user_text}],
+        "stream": False,
+        "max_tokens": max_tokens,
+        **_chat_extras(),
+    }
+    if json_output:
+        payload["response_format"] = {"type": "json_object"}
+    headers = {"Authorization": f"Bearer {LLM_API_KEY}"} if LLM_API_KEY else {}
     try:
-        payload = {
-            "model": LLM_MODEL,
-            "messages": [{"role": "system", "content": FEEDBACK_PROMPT_V1}, *[m.model_dump() for m in history]],
-            "stream": False,
-            "response_format": {"type": "json_object"},
-            "max_tokens": LLM_MAX_FEEDBACK_TOKENS,
-            **_chat_extras(),
-        }
-        headers = {"Authorization": f"Bearer {LLM_API_KEY}"} if LLM_API_KEY else {}
-        async with httpx.AsyncClient(base_url=LLM_BASE_URL, timeout=httpx.Timeout(300.0)) as client:
+        async with httpx.AsyncClient(base_url=base_url, timeout=httpx.Timeout(300.0)) as client:
             resp = await client.post("/chat/completions", json=payload, headers=headers)
             resp.raise_for_status()
             content = resp.json()["choices"][0]["message"]["content"]
     except Exception as exc:  # httpx.HTTPError + malformed/truncated response bodies
-        log.warning("llm.feedback.transport_error", reason=type(exc).__name__, history_msgs=msgs)
+        log.warning("llm.feedback.transport_error", reason=type(exc).__name__)
         return None
     if not isinstance(content, str) or not content.strip():
-        log.warning("llm.feedback.empty_output", history_msgs=msgs)
+        log.warning("llm.feedback.empty_output")
         return None
-    obj = _extract_json_object(content)
-    if not obj:
-        log.warning("llm.feedback.no_json", history_msgs=msgs)
+    return content
+
+
+async def _request_grader_notes(history: list[ChatMessage]) -> str | None:
+    """Stage 1: grade the FULL transcript in free text. Retries once on quirkiness.
+
+    Runs on LLM_GRADER_* (falls back to the shared model). Fresh prompt + role-labelled
+    transcript, so the heavy "read the whole thing" work is clean and schema-free — the
+    model is far more reliable at prose critique than strict JSON over a long context."""
+    transcript = _format_transcript(history)
+    if not transcript:
+        log.warning("llm.feedback.empty_transcript")
         return None
-    verdict = obj.get("verdict", "")
-    scores = _valid_scores(obj.get("scores"))
-    if scores is None:
-        log.warning("llm.feedback.schema_mismatch", field="scores", has_verdict=bool(verdict), history_msgs=msgs)
-        return None
-    if not isinstance(verdict, str) or not verdict.strip():
-        log.warning("llm.feedback.schema_mismatch", field="verdict", history_msgs=msgs)
-        return None
-    tips_list = obj.get("tips")
-    tips = [t for t in tips_list if isinstance(t, str) and t.strip()] if isinstance(tips_list, list) else []
-    return FeedbackSummary(scores=scores, verdict=verdict.strip(), tips=tips)
+    for _ in range(2):
+        notes = await _completion(
+            GRADER_PROMPT_V1,
+            transcript,
+            model=LLM_GRADER_MODEL,
+            base_url=LLM_GRADER_BASE_URL,
+            max_tokens=LLM_MAX_GRADER_TOKENS,
+        )
+        if notes is not None:
+            return notes
+    log.error("llm.feedback.grader_unavailable")
+    return None
+
+
+def _format_transcript(history: list[ChatMessage]) -> str:
+    """Render the stored chat turns into a clean role-labelled transcript for the grader,
+    so it can attribute answers instead of reading an undifferentiated message dump."""
+    lines: list[str] = []
+    for m in history:
+        if m.role == "system":
+            continue  # interviewer system framing is not grading material
+        who = "Candidate" if m.role == "user" else "Interviewer"
+        lines.append(f"{who}: {m.content}")
+    return "\n".join(lines)
+
+
+async def _request_format(notes: str) -> FeedbackSummary | None:
+    """Stage 2: turn the grader's short notes into the exact JSON schema.
+
+    Fresh, SMALL context (just the notes) is where schema adherence is cheap and reliable.
+    Retries once — this is the fragile hop, so it gets the same two-shot retry the old
+    single-fat-call got. Parses + validates strictly; never trusts partial/empty output."""
+    for _ in range(2):
+        content = await _completion(
+            FEEDBACK_PROMPT_V1,
+            notes,
+            model=LLM_MODEL,
+            base_url=LLM_BASE_URL,
+            max_tokens=LLM_MAX_FEEDBACK_TOKENS,
+            json_output=True,
+        )
+        if content is None:
+            continue
+        obj = _extract_json_object(content)
+        if not obj:
+            log.warning("llm.feedback.no_json")
+            continue
+        verdict = obj.get("verdict", "")
+        scores = _valid_scores(obj.get("scores"))
+        if scores is None:
+            log.warning("llm.feedback.schema_mismatch", field="scores", has_verdict=bool(verdict))
+            continue
+        if not isinstance(verdict, str) or not verdict.strip():
+            log.warning("llm.feedback.schema_mismatch", field="verdict")
+            continue
+        tips_list = obj.get("tips")
+        tips = [t for t in tips_list if isinstance(t, str) and t.strip()] if isinstance(tips_list, list) else []
+        return FeedbackSummary(scores=scores, verdict=verdict.strip(), tips=tips)
+    log.error("llm.feedback.formatter_unavailable")
+    return None
 
 
 async def generate_feedback(history: list[ChatMessage]) -> FeedbackSummary | None:
     """Return structured feedback for a completed transcript, or None when it is genuinely
-    unavailable (real model unusable after the retry).
+    unavailable.
 
-    Single path for both modes:
-      - STUB_MODE: no model configured -> deterministic stand-in (dev/seed only, called with
-        a clear signal that no LLM scored it).
-      - Real model: ask for JSON, validate it; if unusable (or the model/network errors)
-        retry once. On double-failure return None -- the caller must NOT write feedback,
-        so the interview surfaces as unscored rather than carrying fabricated 6s.
-
-    Guardrail note (flag, NOT implemented here): the feedback request is fed the raw
-    interview transcript, and asking a permissive chat model to strictly emit JSON while
-    also echoing user-supplied interview content is prompt-injection-prone. A hardened
-    grader should run in a dedicated system context / separate endpoint with output-only
-    surface - tracked as a follow-up, deliberately out of scope for this fix."""
+    Two-mode, two-stage pipeline:
+      - STUB_MODE: no model configured -> deterministic stand-in (dev/seed/tests only).
+      - Real: grader (full transcript -> prose) then formatter (prose -> strict JSON). On
+        either stage failing after its retry, return None -- the caller must NOT write
+        feedback, so the interview surfaces as unscored rather than carrying fabricated 6s.
+    """
     if STUB_MODE:
         log.warning("llm.feedback.stub_deterministic")
         return _deterministic_summary()
-    for _ in range(2):
-        summary = await _request_feedback(history)
-        if summary is not None:
-            return summary
-    log.error("llm.feedback.unavailable_after_retry", history_msgs=len(history))
-    return None
+    notes = await _request_grader_notes(history)
+    if notes is None:
+        return None
+    return await _request_format(notes)
 
 
 def _extract_json_object(text: str) -> dict:
