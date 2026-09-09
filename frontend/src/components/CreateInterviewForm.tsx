@@ -8,11 +8,18 @@ import { LEVELS, ROLE_PRESETS } from "@/lib/interviewOptions";
 import { cn } from "@/lib/utils";
 import { UpgradeNotice } from "./UsageBadge";
 
+type Variant = "compact" | "featured";
+
 interface Props {
     onCreated: (id: string) => void;
+    variant?: Variant;
 }
 
-export function CreateInterviewForm({ onCreated }: Props) {
+export function CreateInterviewForm({ onCreated, variant = "compact" }: Props) {
+    // Same component, context-aware density: "compact" is a tile that competes
+    // with dashboard siblings; "featured" sheds the width cap and lets Role +
+    // Topic span both columns so Level|Topic sit level with it on the hero page.
+    const featured = variant === "featured";
     const [role, setRole] = useState("");
     const [level, setLevel] = useState("any");
     const [topic, setTopic] = useState("");
@@ -39,14 +46,14 @@ export function CreateInterviewForm({ onCreated }: Props) {
     }
 
     return (
-        <Card className="w-full max-w-lg">
+        <Card className={featured ? "w-full" : "w-full max-w-lg"}>
             <form onSubmit={submit}>
                 <CardHeader>
                     <CardTitle>New interview</CardTitle>
                     <CardDescription>Start a simulated interview with an AI coach.</CardDescription>
                 </CardHeader>
-                <CardContent className="space-y-4">
-                    <div className="space-y-1.5">
+                <CardContent className={featured ? "grid gap-x-4 gap-y-4 sm:grid-cols-2" : "space-y-4"}>
+                    <div className={cn("space-y-1.5", featured && "sm:col-span-2")}>
                         <Label htmlFor="role">Role</Label>
                         <div className="flex flex-wrap gap-1.5">
                             {ROLE_PRESETS.slice(0, 6).map((preset) => (
@@ -79,8 +86,12 @@ export function CreateInterviewForm({ onCreated }: Props) {
                         <Label htmlFor="topic">Topic (optional)</Label>
                         <Input id="topic" value={topic} onChange={(e) => setTopic(e.target.value)} placeholder="e.g. system design" />
                     </div>
-                    {error && <p className="text-sm text-destructive">{error}</p>}
-                    {quotaLocked && <UpgradeNotice reason="your free daily interview quota ran out." />}
+                    {(error || quotaLocked) && (
+                        <div className={cn("space-y-2", featured && "sm:col-span-2")}>
+                            {error && <p className="text-sm text-destructive">{error}</p>}
+                            {quotaLocked && <UpgradeNotice reason="your free daily interview quota ran out." />}
+                        </div>
+                    )}
                 </CardContent>
                 <CardFooter>
                     <Button type="submit" disabled={busy}>

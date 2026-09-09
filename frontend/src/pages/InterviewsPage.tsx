@@ -26,7 +26,7 @@ export function InterviewsPage() {
         <Page title="Interviews" description="Start a new session or review, reopen or remove your interview history.">
             <section className="space-y-2">
                 <h2 className="text-sm font-medium uppercase tracking-wide text-muted-foreground">New interview</h2>
-                <CreateInterviewForm onCreated={onCreated} />
+                <CreateInterviewForm onCreated={onCreated} variant="featured" />
             </section>
 
             <section className="space-y-2">

@@ -31,7 +31,7 @@ export function AppHome() {
             <section className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
                 <div className="space-y-2">
                     <h2 className="text-sm font-medium uppercase tracking-wide text-muted-foreground">New interview</h2>
-                    <CreateInterviewForm onCreated={onCreated} />
+                    <CreateInterviewForm onCreated={onCreated} variant="compact" />
                 </div>
                 <div className="space-y-2">
                     <h2 className="text-sm font-medium uppercase tracking-wide text-muted-foreground">Performance</h2>
