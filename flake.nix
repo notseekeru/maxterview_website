@@ -1,6 +1,4 @@
 {
-  description = "maxterview dev shell (stripe-cli + curl for the Clerk/Stripe operator tooling)";
-
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
   };
@@ -15,7 +13,6 @@
       forAllSystems = nixpkgs.lib.genAttrs systems;
     in
     {
-      # `nix develop .` -> a shell with the operator/CLI tooling on PATH.
       devShells = forAllSystems (
         system:
         let
