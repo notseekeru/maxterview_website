@@ -27,12 +27,17 @@ jobs:
             image_suffix: maxterview_backend
             port: 8000
             health_endpoint: /health
+            # Scan shipped python runtime (app/.venv holds transitive wheels).
+            # Keep only build-time noise filters.
+            skip_dirs: "root/.cache,usr/local"
           - name: frontend
             context: ./frontend
             dockerfile: ./frontend/Dockerfile
             image_suffix: maxterview_frontend
             port: 8080
             health_endpoint: /
+            # Nginx image has no venv; skip set is moot-noise only.
+            skip_dirs: "root/.cache,app/.venv,usr/local"
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -73,7 +78,7 @@ jobs:
             -v ${{ matrix.service.context }}/.trivyignore.yaml:/.trivyignore.yaml \
             aquasec/trivy:0.74.0 image \
             --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 \
-            --skip-dirs "root/.cache,app/.venv,usr/local" \
+            --skip-dirs "${{ matrix.service.skip_dirs }}" \
             --ignorefile /.trivyignore.yaml \
             ${{ env.IMAGE }}:${{ github.sha }}
 

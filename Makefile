@@ -66,11 +66,17 @@ prod-scan: prod-build
 	@echo '**--- Trivy image scan: maxterview-prod-<service> ---**'
 	for img in frontend backend; do \
 		echo "== scanning maxterview-prod-$$img =="; \
+		if [ "$$img" = backend ]; then \
+			# Scan shipped python runtime (app/.venv) too; skip build noise only. \
+			skip_dirs="root/.cache,usr/local"; \
+		else \
+			skip_dirs="root/.cache,app/.venv,usr/local"; \
+		fi; \
 		docker run --rm \
 			-v /var/run/docker.sock:/var/run/docker.sock \
 			-v $(CURDIR)/$$img/.trivyignore.yaml:/.trivyignore.yaml \
 			aquasec/trivy:0.74.0 image \
-			--skip-dirs "root/.cache,app/.venv,usr/local" \
+			--skip-dirs "$$skip_dirs" \
 			--severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 \
 			--ignorefile /.trivyignore.yaml \
 			maxterview-prod-$$img; \
