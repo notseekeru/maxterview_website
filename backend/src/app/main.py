@@ -189,6 +189,36 @@ async def create_feedback(
     return dict(row)
 
 
+@app.post("/interviews/{interview_id}/feedback/generate", response_model=Feedback)
+async def regenerate_feedback(
+    interview_id: str,
+    user: CurrentUser,
+) -> dict:
+    """(Re)generate feedback for a COMPLETED interview from its stored transcript.
+
+    Recovery seam for change-1: real-mode scoring can fail (transport/schema -> no
+    feedback row written). This lets a caller re-run scoring later idempotently instead
+    of leaving the interview permanently unscored (re-POST /complete is a 409 once the
+    interview is 'completed', and POST /feedback needs a hand-built body)."""
+    await _require_interview_owned(interview_id, user.sub)
+    row = await fetchrow(
+        "SELECT status FROM interviews WHERE id = $1 AND owner_id = $2",
+        interview_id,
+        user.sub,
+    )
+    if row is None or row["status"] != "completed":
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Interview is not completed")
+    # _generate_and_persist_feedback writes nothing on failure, so we can distinguish a
+    # successful (re)score (row returned) from an unavailable model (503 -> try later).
+    row = await _generate_and_persist_feedback(interview_id)
+    if row is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Scoring model could not produce feedback right now; try again later.",
+        )
+    return dict(row)
+
+
 # --- usage ---
 
 
@@ -335,15 +365,24 @@ async def _upsert_feedback(interview_id: str, scores: dict, verdict: str, tips: 
     )
 
 
-async def _generate_and_persist_feedback(interview_id: str) -> None:
-    """Generate feedback from the transcript and write it (idempotent UPSERT)."""
+async def _generate_and_persist_feedback(interview_id: str) -> dict | None:
+    """Generate feedback from the transcript and write it (idempotent UPSERT).
+
+    Returns the written feedback row, or None when the model produced no usable feedback
+    (transport/schema failure after the retry). On None we write NOTHING rather than a
+    fabricated row, so the completed interview surfaces as genuinely unscored
+    (dashboard/history exclude it) instead of poisoning the score averages with fake 6s."""
     history_rows = await fetch(
         "SELECT role, content FROM messages WHERE interview_id = $1 ORDER BY created_at",
         interview_id,
     )
     history = [ChatMessage(role=r["role"], content=r["content"]) for r in history_rows]
     summary = await llm.generate_feedback(history)
-    await _upsert_feedback(interview_id, summary.scores, summary.verdict, summary.tips)
+    if summary is None:
+        # Real-model path could not score this transcript. Leave feedback absent so the
+        # client can offer a retry instead of reading fabricated numbers as truth.
+        return None
+    return await _upsert_feedback(interview_id, summary.scores, summary.verdict, summary.tips)
 
 
 async def _raise_start_error(interview_id: str, owner_id: str) -> None:

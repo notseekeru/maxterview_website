@@ -83,9 +83,10 @@ async def test_generate_feedback_retries_then_succeeds(monkeypatch):
     assert set(out.scores) == set(llm.FEEDBACK_DIMS)
 
 
-async def test_generate_feedback_falls_back_to_auto_generated(monkeypatch):
-    # Both real-mode attempts unusable -> deterministic fallback flagged auto-generated,
-    # so a completed interview always carries a score for the dashboard (the regression fix).
+async def test_generate_feedback_returns_none_after_double_failure(monkeypatch):
+    # Both real-mode attempts unusable (transport error, junk JSON, or schema mismatch) ->
+    # return None so the caller writes NO feedback. A completed interview must surface as
+    # genuinely unscored rather than carrying fabricated 6s in the dashboard averages.
     monkeypatch.setattr(llm, "STUB_MODE", False)
     calls = {"n": 0}
 
@@ -95,7 +96,5 @@ async def test_generate_feedback_falls_back_to_auto_generated(monkeypatch):
 
     monkeypatch.setattr(llm, "_request_feedback", _always_none)
     out = await llm.generate_feedback([ChatMessage(role="user", content="hi")])
-    assert calls["n"] == 2
-    assert set(out.scores) == set(llm.FEEDBACK_DIMS)
-    assert out.verdict  # non-empty
-    assert "auto-generated" in out.verdict
+    assert calls["n"] == 2  # attempted a retry before giving up
+    assert out is None  # no fabricated feedback

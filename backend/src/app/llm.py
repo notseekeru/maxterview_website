@@ -2,8 +2,11 @@ import os
 from collections.abc import AsyncIterator
 
 import httpx
+import structlog
 
 from app.models import ChatMessage, FeedbackSummary
+
+log = structlog.get_logger(__name__)
 
 # --- config (D7): OpenAI-compatible, local on dev, DeepSeek on prod ---
 LLM_BASE_URL = os.getenv("LLM_BASE_URL", "").rstrip("/")
@@ -105,25 +108,21 @@ def _extract_delta(chunk: str) -> str:
 
 # --- feedback generation + structured-output guard ---
 
-# The dimension keys we expect from a model. If a response omits any of them we treat
-# it as a failed structured-parse rather than trusting partial/empty output, so the
-# 'completed' interview always lands with a real score (dashboard/History depend on it).
+# The dimension keys we expect from a model. If a response omits any of them we treat it
+# as a failed structured-parse (never accept partial scores) and give up on that attempt.
 FEEDBACK_DIMS = ("clarity", "relevance", "structure", "confidence")
-
-
 DEFAULT_TIPS = ["Use STAR format.", "Be more specific with metrics.", "Slow down and breathe."]
 
 
-def _deterministic_summary(auto_generated: bool) -> FeedbackSummary:
-    """Fallback FeedbackSummary used when no usable model JSON is returned.
+def _deterministic_summary() -> FeedbackSummary:
+    """Deterministic stand-in feedback for STUB_MODE ONLY (no LLM configured).
 
-    STUB_MODE calls this directly (auto_generated=False). The real-model path calls it
-    only after a retry fails to return structured feedback, with auto_generated=True so
-    reviewers can tell real scoring apart from the deterministic stand-in."""
-    verdict = "Feedback was auto-generated because the scoring model returned no structured scores. Overall: keep answers concise and well-structured." if auto_generated else "Good overall; practice keeping answers concise and structured."
+    Used when running model-free dev/seed/tests so the UI has a real-looking shape.
+    The REAL-model path never fabricates scores: on genuine failure it surfaces absence
+    (None) and writes no feedback, rather than poisoning dashboard stats with fake 6s."""
     return FeedbackSummary(
         scores={d: 6 for d in FEEDBACK_DIMS},
-        verdict=verdict,
+        verdict="Good overall; practice keeping answers concise and structured.",
         tips=list(DEFAULT_TIPS),
     )
 
@@ -146,59 +145,74 @@ def _valid_scores(value) -> dict | None:
 async def _request_feedback(history: list[ChatMessage]) -> FeedbackSummary | None:
     """One real-model feedback call. Returns None when the output is not usable.
 
-    Never raises: a model/network HTTP error is treated the same as a garbage or
-    transcript-echo response (a known failure mode for weak local chat models) so callers can
-    retry then fall back -- an uncaught exception here would 500 the whole /complete and
-    leave an interview stuck half-way."""
-    payload = {
-        "model": LLM_MODEL,
-        "messages": [{"role": "system", "content": FEEDBACK_PROMPT_V1}, *[m.model_dump() for m in history]],
-        "stream": False,
-        "response_format": {"type": "json_object"},
-        "max_tokens": LLM_MAX_FEEDBACK_TOKENS,
-        **_chat_extras(),
-    }
-    headers = {"Authorization": f"Bearer {LLM_API_KEY}"} if LLM_API_KEY else {}
+    Classifies + logs WHY it failed (so operators can tell transport errors apart from
+    schema-mismatch / junk-JSON instead of guessing), but never raises: an uncaught
+    exception here would 500 the whole /complete and leave an interview half-finished.
+
+    Logs message COUNTS, never content/keys, per the observability doc's secret rule."""
+    msgs = len(history)
     try:
+        payload = {
+            "model": LLM_MODEL,
+            "messages": [{"role": "system", "content": FEEDBACK_PROMPT_V1}, *[m.model_dump() for m in history]],
+            "stream": False,
+            "response_format": {"type": "json_object"},
+            "max_tokens": LLM_MAX_FEEDBACK_TOKENS,
+            **_chat_extras(),
+        }
+        headers = {"Authorization": f"Bearer {LLM_API_KEY}"} if LLM_API_KEY else {}
         async with httpx.AsyncClient(base_url=LLM_BASE_URL, timeout=httpx.Timeout(300.0)) as client:
             resp = await client.post("/chat/completions", json=payload, headers=headers)
             resp.raise_for_status()
             content = resp.json()["choices"][0]["message"]["content"]
-    except (httpx.HTTPError, KeyError, TypeError, ValueError, IndexError):
+    except Exception as exc:  # httpx.HTTPError + malformed/truncated response bodies
+        log.warning("llm.feedback.transport_error", reason=type(exc).__name__, history_msgs=msgs)
         return None
-    if not isinstance(content, str):
+    if not isinstance(content, str) or not content.strip():
+        log.warning("llm.feedback.empty_output", history_msgs=msgs)
         return None
     obj = _extract_json_object(content)
+    if not obj:
+        log.warning("llm.feedback.no_json", history_msgs=msgs)
+        return None
     verdict = obj.get("verdict", "")
     scores = _valid_scores(obj.get("scores"))
-    if scores is None or not isinstance(verdict, str) or not verdict.strip():
+    if scores is None:
+        log.warning("llm.feedback.schema_mismatch", field="scores", has_verdict=bool(verdict), history_msgs=msgs)
+        return None
+    if not isinstance(verdict, str) or not verdict.strip():
+        log.warning("llm.feedback.schema_mismatch", field="verdict", history_msgs=msgs)
         return None
     tips_list = obj.get("tips")
     tips = [t for t in tips_list if isinstance(t, str) and t.strip()] if isinstance(tips_list, list) else []
     return FeedbackSummary(scores=scores, verdict=verdict.strip(), tips=tips)
 
 
-async def generate_feedback(history: list[ChatMessage]) -> FeedbackSummary:
-    """Return structured feedback (scores/verdict/tips) for a completed transcript.
+async def generate_feedback(history: list[ChatMessage]) -> FeedbackSummary | None:
+    """Return structured feedback for a completed transcript, or None when it is genuinely
+    unavailable (real model unusable after the retry).
 
-    Single path for both modes per the retry-then-fallback policy:
-      - STUB_MODE: no model, returns the deterministic summary.
-      - Real model: ask for JSON feedback, validate it; if unusable (or the model/network
-        errors), retry once with an identical request, then fall back to the deterministic
-        summary and flag that it was auto-generated.
+    Single path for both modes:
+      - STUB_MODE: no model configured -> deterministic stand-in (dev/seed only, called with
+        a clear signal that no LLM scored it).
+      - Real model: ask for JSON, validate it; if unusable (or the model/network errors)
+        retry once. On double-failure return None -- the caller must NOT write feedback,
+        so the interview surfaces as unscored rather than carrying fabricated 6s.
 
     Guardrail note (flag, NOT implemented here): the feedback request is fed the raw
     interview transcript, and asking a permissive chat model to strictly emit JSON while
     also echoing user-supplied interview content is prompt-injection-prone. A hardened
     grader should run in a dedicated system context / separate endpoint with output-only
-    surface - tracked as a follow-up, deliberately out of scope for this regression fix."""
+    surface - tracked as a follow-up, deliberately out of scope for this fix."""
     if STUB_MODE:
-        return _deterministic_summary(auto_generated=False)
+        log.warning("llm.feedback.stub_deterministic")
+        return _deterministic_summary()
     for _ in range(2):
         summary = await _request_feedback(history)
         if summary is not None:
             return summary
-    return _deterministic_summary(auto_generated=True)
+    log.error("llm.feedback.unavailable_after_retry", history_msgs=len(history))
+    return None
 
 
 def _extract_json_object(text: str) -> dict:

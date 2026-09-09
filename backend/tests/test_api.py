@@ -156,3 +156,53 @@ def test_usage_tracks_global_daily_counter(client):
     after = c.get("/usage").json()["chat_turns_used_today"]
     assert after == before + 1
     c.delete(f"/interviews/{iid}")
+
+
+def test_regenerate_feedback_rejects_incomplete_and_foreign(client):
+    # A pending interview cannot be (re)scored.
+    r = client.post("/interviews", json={"role": "Regen Guard"})
+    assert r.status_code == 201
+    pending_id = r.json()["id"]
+    rr = client.post(f"/interviews/{pending_id}/feedback/generate")
+    assert rr.status_code == 409
+
+    # A nonexistent/foreign interview is a 404 via the ownership guard.
+    rr = client.post("/interviews/00000000-0000-0000-0000-000000000000/feedback/generate")
+    assert rr.status_code == 404
+    client.delete(f"/interviews/{pending_id}")
+
+
+def test_regenerate_feedback_writes_when_model_recovers(client, monkeypatch):
+    # A completed interview whose /complete run scored nothing (model returned None, as in
+    # real mode) can be re-scored on demand once the model recovers.
+    from app import llm
+    from app.models import FeedbackSummary
+
+    iv = client.post("/interviews", json={"role": "Regen Recovers"}).json()
+    iid = iv["id"]
+    client.post(f"/interviews/{iid}/start")
+    client.post(f"/interviews/{iid}/chat/stream", json={"interview_id": iid, "content": "hello?"})
+
+    # First complete: model "fails" (None, as in real mode) -> no feedback row written.
+    monkeypatch.setattr(llm, "generate_feedback", _always_none)
+    r = client.post(f"/interviews/{iid}/complete")
+    assert r.status_code == 200
+    assert r.json()["status"] == "completed"
+    assert client.get(f"/interviews/{iid}/feedback").status_code == 404  # genuinely absent
+
+    # Later regenerate: model "recovers" -> row written; 404 turns into 200.
+    async def _ok(history):
+        return FeedbackSummary(scores={d: 7.0 for d in llm.FEEDBACK_DIMS}, verdict="Recovered", tips=["Keep going."])
+
+    monkeypatch.setattr(llm, "generate_feedback", _ok)
+    rr = client.post(f"/interviews/{iid}/feedback/generate")
+    assert rr.status_code == 200
+    assert rr.json()["verdict"] == "Recovered"
+    fb = client.get(f"/interviews/{iid}/feedback")
+    assert fb.status_code == 200
+    assert fb.json()["verdict"] == "Recovered"
+    client.delete(f"/interviews/{iid}")
+
+
+async def _always_none(history):
+    return None
