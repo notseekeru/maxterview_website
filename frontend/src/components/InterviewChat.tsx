@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
-import { completeInterview, type Feedback, getFeedback, getMessages, type Message, startInterview, streamChat } from "@/lib/api";
+import { completeInterview, type Feedback, getFeedback, getMessages, type Message, regenerateFeedback, startInterview, streamChat } from "@/lib/api";
 import { OPENING_ASKS_RESUME } from "@/lib/config";
 import { FeedbackView } from "./FeedbackView";
 import { UpgradeNotice } from "./UsageBadge";
@@ -20,7 +20,8 @@ export function InterviewChat({ interviewId, onExit }: Props) {
     const [error, setError] = useState<string | null>(null);
     const [feedback, setFeedback] = useState<Feedback | null>(null);
     const [quotaLocked, setQuotaLocked] = useState(false);
-    const [completing, setCompleting] = useState(false);
+    const [completing, setCompleting] = useState(false); // 'Completing…' / 'Retry scoring…' spinner
+    const [scoringTip, setScoringTip] = useState(false); // completed but feedback not ready yet
     const abortRef = useRef<AbortController | null>(null);
     const scrollRef = useRef<HTMLDivElement | null>(null);
 
@@ -124,15 +125,37 @@ export function InterviewChat({ interviewId, onExit }: Props) {
         assistBufRef.current = assistBuf;
     }, [assistBuf]);
 
+    async function finish(loaded: () => Promise<Feedback>) {
+        setStatus("completed");
+        setScoringTip(false);
+        setError(null);
+        try {
+            const fb = await loaded();
+            setFeedback(fb);
+        } catch {
+            // Feedback genuinely absent (or not ready after a scoring attempt). Keep the
+            // completed view and offer a retry rather than a hard error or fabricated scores.
+            setScoringTip(true);
+        }
+    }
+
     async function complete() {
         setCompleting(true);
         try {
             await completeInterview(interviewId);
-            const fb = await getFeedback(interviewId);
-            setFeedback(fb);
-            setStatus("completed");
+            await finish(() => getFeedback(interviewId));
         } catch {
-            setError("Failed to complete interview / load feedback.");
+            setError("Failed to complete the interview.");
+            setStatus("ready");
+        } finally {
+            setCompleting(false);
+        }
+    }
+
+    async function retryScoring() {
+        setCompleting(true);
+        try {
+            await finish(() => regenerateFeedback(interviewId));
         } finally {
             setCompleting(false);
         }
@@ -164,6 +187,16 @@ export function InterviewChat({ interviewId, onExit }: Props) {
                         ))}
                         {assistBuf && <Bubble from="assistant" content={assistBuf} streaming />}
                         {status === "streaming" && !assistBuf && <p className="text-sm text-muted-foreground">Thinking…</p>}
+                        {scoringTip && status === "completed" && (
+                            <div role="status" className="rounded-lg border p-3 text-sm">
+                                <p className="font-medium">Interview complete — scoring wasn't ready.</p>
+                                <p className="mt-1 text-muted-foreground">We couldn't generate your feedback this run. Try scoring again, or exit and check your history.</p>
+                                <Button variant="outline" size="sm" className="mt-2" onClick={() => void retryScoring()} disabled={completing}>
+                                    {completing && <Spinner />}
+                                    {completing ? "Scoring…" : "Retry scoring"}
+                                </Button>
+                            </div>
+                        )}
                     </CardContent>
                     <CardFooter className="gap-2">
                         <Textarea
@@ -171,17 +204,18 @@ export function InterviewChat({ interviewId, onExit }: Props) {
                             onChange={(e) => setDraft(e.target.value)}
                             placeholder={status === "ready" ? "Type your answer to the interviewer..." : status === "streaming" ? "Waiting for the interviewer..." : "Starting…"}
                             onKeyDown={(e) => {
-                                if (e.key === "Enter" && !e.shiftKey) {
+                                if (e.key === "Enter" && !e.shiftKey && status === "ready") {
                                     e.preventDefault();
                                     void send();
                                 }
                             }}
+                            disabled={status === "completed"}
                         />
                         <div className="flex flex-col gap-2">
                             <Button onClick={() => void send()} disabled={status !== "ready" || !draft.trim()}>
                                 Send
                             </Button>
-                            <Button variant="destructive" size="sm" onClick={() => void complete()} disabled={completing || status === "streaming"}>
+                            <Button variant="destructive" size="sm" onClick={() => void complete()} disabled={completing || status === "streaming" || status === "completed"}>
                                 {completing && <Spinner />}
                                 {completing ? "Completing…" : "Complete"}
                             </Button>

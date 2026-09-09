@@ -117,6 +117,14 @@ export async function getFeedback(id: string): Promise<Feedback> {
     return data;
 }
 
+// POST /interviews/{id}/feedback/generate: (re)run two-stage scoring for a COMPLETED
+// interview whose feedback is absent (real-mode scoring failed on /complete). 404 => not
+// found; 409 => not completed; 503 => model unavailable right now (retry later).
+export async function regenerateFeedback(id: string): Promise<Feedback> {
+    const { data } = await api.post<Feedback>(`/interviews/${id}/feedback/generate`);
+    return data;
+}
+
 // --- M10 usage + billing ---
 
 export async function getUsage(): Promise<Usage> {
