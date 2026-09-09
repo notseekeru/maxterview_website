@@ -138,23 +138,27 @@ it refuses `*_live_*`, and anything destructive requires `--admin-destroy`. Repr
 ./.pi/skills/clerk-stripe-operator/scripts/debug-state.sh
 ```
 
-## Browser drive (NO browser MCP — go host-direct or headless-clerk)
+## Browser drive (NO browser MCP — use the committed hermetic runner or headless-clerk)
 
-`.mcp.json` no longer declares a `playwright` server: the old entry pointed at a dead
-`/nix/store/...playwright-mcp.../bin/playwright-mcp` binary that does not exist (verified); the MCP
-route is gone. Replace it with one of these working paths:
+`.mcp.json` no longer declares a `playwright` server: the old entry pointed at a
+`/nix/store/...playwright-mcp.../bin/playwright-mcp` binary that was garbage-collected from the
+store (`mcpServers` is empty). Drive the browser one of these working paths:
 
-- **Hermetic DEV_USER (no keys):** read the `hermetic-e2e` skill. It drives a real browser via
-  `playwright-core` + chromium resolved from the immutable nix store (no host npm install → no
-  `node_modules` on the host), against the backend at `CLERK_ENABLED=false`. Check posture first:
-  `curl -s -o /dev/null -w "%{http_code}" localhost:8000/usage` → 200 means DEV_USER (hermetic),
-  401 means real-Clerk (not hermetic).
+- **Hermetic DEV_USER (no keys):** run the committed runner from the `hermetic-e2e` skill, which
+  resolves `playwright-core` + chromium from `/nix/store` at runtime (no host npm install → no
+  `node_modules` on the host):
+  ```bash
+  nix develop . -c node .pi/skills/hermetic-e2e/scripts/e2e.cjs             # onboarding/nav
+  nix develop . -c node .pi/skills/hermetic-e2e/scripts/e2e.cjs --feedback  # + chat + Complete
+  ```
+  Backend must be `CLERK_ENABLED=false`. Check posture first: `curl -s -o /dev/null -w "%{http_code}" localhost:8000/usage`
+  → 200 means DEV_USER (hermetic); 401 means real-Clerk (not hermetic).
 - **Real-Clerk headless sign-in:** use the `clerk-stripe-operator` skill → `@clerk/testing/playwright`
   (`clerkSetup` + `clerk.signIn`) with a throwaway minted user, then render the auth-gated route.
   Real hosted Stripe Checkout still needs real keys and a human at the card step — see
   `references/card-browser-checkout.md`; do NOT loop-automate Stripe's bot checks.
 
-Never hand-roll a brand-new browser harness when the two existing skill paths above cover it.
+Never hand-roll a brand-new browser harness when the committed runner / clerk skill cover it.
 
 ## Workflow guidance (how to reason as the infra-hands)
 
