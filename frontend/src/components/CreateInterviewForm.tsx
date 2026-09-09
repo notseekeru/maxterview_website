@@ -4,6 +4,8 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { createInterview, isQuotaError } from "@/lib/api";
+import { LEVELS, ROLE_PRESETS } from "@/lib/interviewOptions";
+import { cn } from "@/lib/utils";
 import { UpgradeNotice } from "./UsageBadge";
 
 interface Props {
@@ -12,6 +14,7 @@ interface Props {
 
 export function CreateInterviewForm({ onCreated }: Props) {
     const [role, setRole] = useState("");
+    const [level, setLevel] = useState("any");
     const [topic, setTopic] = useState("");
     const [error, setError] = useState<string | null>(null);
     const [busy, setBusy] = useState(false);
@@ -26,7 +29,7 @@ export function CreateInterviewForm({ onCreated }: Props) {
         setBusy(true);
         setError(null);
         try {
-            const interview = await createInterview(role.trim(), topic.trim());
+            const interview = await createInterview(role.trim(), topic.trim(), level);
             onCreated(interview.id);
         } catch (e) {
             if (isQuotaError(e)) setQuotaLocked(true);
@@ -45,7 +48,32 @@ export function CreateInterviewForm({ onCreated }: Props) {
                 <CardContent className="space-y-4">
                     <div className="space-y-1.5">
                         <Label htmlFor="role">Role</Label>
-                        <Input id="role" value={role} onChange={(e) => setRole(e.target.value)} placeholder="e.g. Software Engineer" required />
+                        <div className="flex flex-wrap gap-1.5">
+                            {ROLE_PRESETS.slice(0, 6).map((preset) => (
+                                <button
+                                    key={preset}
+                                    type="button"
+                                    onClick={() => {
+                                        setError(null);
+                                        setRole(preset);
+                                    }}
+                                    className={cn("rounded-full border px-3 py-1 text-xs transition-colors", role === preset ? "border-primary bg-primary/10 font-medium text-primary" : "border-input text-muted-foreground hover:bg-accent")}
+                                >
+                                    {preset}
+                                </button>
+                            ))}
+                        </div>
+                        <Input id="role" value={role} onChange={(e) => setRole(e.target.value)} placeholder="e.g. Software Engineer — or pick a preset above" required />
+                    </div>
+                    <div className="space-y-1.5">
+                        <Label htmlFor="level">Level {level === "any" && <span className="text-xs font-normal text-muted-foreground">· AI adapts to you</span>}</Label>
+                        <select id="level" value={level} onChange={(e) => setLevel(e.target.value)} className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring">
+                            {LEVELS.map((l) => (
+                                <option key={l.value} value={l.value}>
+                                    {l.label}
+                                </option>
+                            ))}
+                        </select>
                     </div>
                     <div className="space-y-1.5">
                         <Label htmlFor="topic">Topic (optional)</Label>

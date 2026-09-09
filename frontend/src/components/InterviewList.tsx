@@ -1,8 +1,10 @@
 import { useState } from "react";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { Interview } from "@/lib/api";
+import { levelLabel } from "@/lib/interviewOptions";
 
 interface Props {
     interviews: Interview[];
@@ -51,7 +53,14 @@ export function InterviewList({ interviews, loading, error, onRefresh, onOpen, o
                 {interviews.map((i) => (
                     <div key={i.id} className="flex items-center justify-between gap-3 rounded-md border p-3">
                         <div className="min-w-0">
-                            <p className="truncate font-medium">{i.role}</p>
+                            <p className="truncate font-medium">
+                                {i.role}
+                                {i.level && i.level !== "any" && (
+                                    <Badge variant="secondary" className="ml-2 align-middle text-[10px] font-medium">
+                                        {levelLabel(i.level)}
+                                    </Badge>
+                                )}
+                            </p>
                             <p className="text-xs text-muted-foreground">
                                 {i.topic ? `${i.topic} · ` : ""}
                                 {i.status}

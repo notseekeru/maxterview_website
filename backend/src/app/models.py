@@ -1,6 +1,13 @@
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, Field
+
+from app import levels
+
+# Level slugs accepted on create, unpacked from the canonical levels vocabulary so the
+# API, DB CHECK, prompt, and frontend can never drift (see app/levels.py).
+Level = Literal[*levels.LEVELS]
 
 
 class ClerkUser(BaseModel):
@@ -22,12 +29,14 @@ class ClerkUser(BaseModel):
 class InterviewCreate(BaseModel):
     role: str = Field(min_length=1, max_length=200)
     topic: str = Field(default="", max_length=500)
+    level: Level = "any"
 
 
 class Interview(BaseModel):
     id: str
     owner_id: str
     role: str
+    level: str = "any"
     topic: str = ""
     status: str
     created_at: datetime

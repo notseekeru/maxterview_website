@@ -2,11 +2,16 @@ from app import llm
 from app.models import ChatMessage, FeedbackSummary
 
 
-def test_system_prompt_includes_role_and_topic():
-    p = llm.system_prompt("Software Engineer", "System Design")
+def test_system_prompt_any_level_and_topic():
+    p = llm.system_prompt("Software Engineer", "any", "System Design")
     assert "Software Engineer" in p
     assert "System Design" in p
     assert "one question at a time" in p
+
+
+def test_system_prompt_calibrates_to_explicit_level():
+    p = llm.system_prompt("Software Engineer", "mid", "")
+    assert "mid-level experience band" in p
 
 
 def test_stub_mode_active_without_base_url():

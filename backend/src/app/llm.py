@@ -4,6 +4,7 @@ from collections.abc import AsyncIterator
 import httpx
 import structlog
 
+from app import levels
 from app.models import ChatMessage, FeedbackSummary
 
 log = structlog.get_logger(__name__)
@@ -51,9 +52,18 @@ STUB_MODE = not LLM_BASE_URL
 SYSTEM_PROMPT_V1 = "You are maxterview, an AI mock-interview coach. You conduct a simulated interview one question at a time, in a natural, encouraging tone. Stay in character as an interviewer. Do not answer the candidate's questions on their behalf. After the interview ends, provide detailed feedback."
 
 
-def system_prompt(role: str, topic: str = "") -> str:
-    """Build the versioned system prompt for an interview."""
+def system_prompt(role: str, level: str, topic: str = "") -> str:
+    """Build the versioned system prompt for an interview.
+
+    `role` is the target title; `level` is the target seniority slug from app.levels
+    (e.g. 'mid', 'senior'). `any` means "Not sure": calibrate dynamically off the
+    candidate's demonstrated answers rather than a fixed target.
+    """
     parts = [SYSTEM_PROMPT_V1, f"The candidate is interviewing for the role: {role}."]
+    if level and level != "any":
+        parts.append(f"Target the {levels.label(level).lower()} experience band; tailor question difficulty and scope expectations to that band.")
+    else:
+        parts.append("The target seniority is unspecified. Probe incrementally and calibrate question difficulty to the candidate's demonstrated experience as the interview proceeds.")
     if topic:
         parts.append(f"Focus area / topic: {topic}.")
     parts.append("Ask one question at a time. Keep responses concise. Reply as the interviewer.")

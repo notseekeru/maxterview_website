@@ -34,6 +34,7 @@ export interface Interview {
     id: string;
     owner_id: string;
     role: string;
+    level: string;
     topic?: string;
     status: "pending" | "in_progress" | "completed";
     created_at: string;
@@ -83,8 +84,8 @@ export function chatTurns(usage: Usage): number {
 
 // --- interviews ---
 
-export async function createInterview(role: string, topic = ""): Promise<Interview> {
-    const { data } = await api.post<Interview>("/interviews", { role, topic });
+export async function createInterview(role: string, topic = "", level: string = "any"): Promise<Interview> {
+    const { data } = await api.post<Interview>("/interviews", { role, topic, level });
     return data;
 }
 

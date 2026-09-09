@@ -57,7 +57,7 @@ async def list_interviews(user: CurrentUser) -> list[dict]:
     # Include optional score/verdict by LEFT JOIN feedback (US5: history shows a score; avoids N+1).
     rows = await fetch(
         """
-        SELECT i.id::text, i.owner_id, i.role, i.topic, i.status, i.created_at, i.updated_at,
+        SELECT i.id::text, i.owner_id, i.role, i.level, i.topic, i.status, i.created_at, i.updated_at,
                f.verdict AS verdict,
                CASE WHEN jsonb_typeof(f.scores) = 'object' THEN
                  (SELECT round(avg(v.value::numeric)::numeric, 1) FROM jsonb_each_text(f.scores) AS v)
@@ -81,12 +81,13 @@ async def create_interview(
     # The only gate is the owner's daily GLOBAL chat-turn credits (checked in chat/stream).
     row = await fetchrow(
         """
-        INSERT INTO interviews (owner_id, role, topic)
-        VALUES ($1, $2, $3)
-        RETURNING id::text, owner_id, role, topic, status, created_at, updated_at
+        INSERT INTO interviews (owner_id, role, level, topic)
+        VALUES ($1, $2, $3, $4)
+        RETURNING id::text, owner_id, role, level, topic, status, created_at, updated_at
         """,
         user.sub,
         body.role,
+        body.level,
         body.topic,
     )
     return dict(row)
@@ -98,7 +99,7 @@ async def get_interview(
     user: CurrentUser,
 ) -> dict:
     row = await fetchrow(
-        "SELECT id::text, owner_id, role, topic, status, created_at, updated_at FROM interviews WHERE id = $1 AND owner_id = $2",
+        "SELECT id::text, owner_id, role, level, topic, status, created_at, updated_at FROM interviews WHERE id = $1 AND owner_id = $2",
         interview_id,
         user.sub,
     )
@@ -293,7 +294,7 @@ async def chat_stream(
 ) -> StreamingResponse:
     await _require_interview_owned(interview_id, user.sub)
     interview = await fetchrow(
-        "SELECT id::text, role, topic, status FROM interviews WHERE id = $1 AND owner_id = $2",
+        "SELECT id::text, role, level, topic, status FROM interviews WHERE id = $1 AND owner_id = $2",
         interview_id,
         user.sub,
     )
@@ -326,7 +327,7 @@ async def chat_stream(
         interview_id,
     )
     history = [
-        ChatMessage(role="system", content=llm.system_prompt(interview["role"], interview["topic"])),
+        ChatMessage(role="system", content=llm.system_prompt(interview["role"], interview["level"], interview["topic"])),
         *[ChatMessage(role=r["role"], content=r["content"]) for r in prior_rows],
     ]
 
