@@ -4,7 +4,7 @@ import { CreateInterviewForm } from "@/components/CreateInterviewForm";
 import { InterviewList } from "@/components/InterviewList";
 import { Page } from "@/components/PagePrimitives";
 import { useInterviewData } from "@/hooks/useInterviewData";
-import { deleteInterview } from "@/lib/api";
+import { deleteInterview, regenerateFeedback } from "@/lib/api";
 
 // /app/interviews — a management home for your sessions. Mirrors the Dashboard's
 // "New interview" panel so you can start a session here too, above the history.
@@ -22,6 +22,11 @@ export function InterviewsPage() {
         await refresh();
     }
 
+    async function onRescore(id: string) {
+        await regenerateFeedback(id);
+        await refresh();
+    }
+
     return (
         <Page title="Interviews" description="Start a new session or review, reopen or remove your interview history.">
             <section className="space-y-2">
@@ -31,7 +36,7 @@ export function InterviewsPage() {
 
             <section className="space-y-2">
                 <h2 className="text-sm font-medium uppercase tracking-wide text-muted-foreground">History</h2>
-                <InterviewList interviews={interviews} loading={loading} error={error} onRefresh={() => void refresh()} onOpen={(id) => navigate(`/interviews/${id}`)} onDelete={onDelete} />
+                <InterviewList interviews={interviews} loading={loading} error={error} onRefresh={() => void refresh()} onOpen={(id) => navigate(`/interviews/${id}`)} onDelete={onDelete} onRescore={onRescore} />
             </section>
         </Page>
     );

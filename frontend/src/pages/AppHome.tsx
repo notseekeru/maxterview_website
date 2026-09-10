@@ -5,7 +5,7 @@ import { DashboardStats } from "@/components/DashboardStats";
 import { InterviewList } from "@/components/InterviewList";
 import { Page } from "@/components/PagePrimitives";
 import { useInterviewData } from "@/hooks/useInterviewData";
-import { deleteInterview } from "@/lib/api";
+import { deleteInterview, regenerateFeedback } from "@/lib/api";
 import { clerkEnabled } from "@/lib/config";
 
 // /app (dashboard) — the shell index. One data source (useInterviewData) shared
@@ -21,6 +21,11 @@ export function AppHome() {
 
     async function onDelete(id: string) {
         await deleteInterview(id);
+        await refresh();
+    }
+
+    async function onRescore(id: string) {
+        await regenerateFeedback(id);
         await refresh();
     }
 
@@ -45,7 +50,7 @@ export function AppHome() {
 
             <section className="space-y-2">
                 <h2 className="text-sm font-medium uppercase tracking-wide text-muted-foreground">History</h2>
-                <InterviewList interviews={interviews} loading={loading} error={error} onRefresh={() => void refresh()} onOpen={(id) => navigate(`/interviews/${id}`)} onDelete={onDelete} />
+                <InterviewList interviews={interviews} loading={loading} error={error} onRefresh={() => void refresh()} onOpen={(id) => navigate(`/interviews/${id}`)} onDelete={onDelete} onRescore={onRescore} />
             </section>
         </Page>
     );

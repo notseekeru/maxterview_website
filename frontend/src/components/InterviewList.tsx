@@ -13,16 +13,34 @@ interface Props {
     onRefresh: () => void;
     onOpen: (id: string) => void;
     onDelete: (id: string) => Promise<void> | void;
+    /** Re-run scoring for a completed-but-unscored run. Caller refreshes on success. */
+    onRescore: (id: string) => Promise<void> | void;
 }
 
 function formatDate(iso: string) {
     return new Date(iso).toLocaleString();
 }
 
-export function InterviewList({ interviews, loading, error, onRefresh, onOpen, onDelete }: Props) {
+export function InterviewList({ interviews, loading, error, onRefresh, onOpen, onDelete, onRescore }: Props) {
     // Two-step confirm: first click arms the row for deletion, second confirms.
     const [confirmingId, setConfirmingId] = useState<string | null>(null);
     const [deleting, setDeleting] = useState(false);
+    // Row currently being re-scored, so its button can show progress without blocking others.
+    const [scoringId, setScoringId] = useState<string | null>(null);
+    const [scoreError, setScoreError] = useState<string | null>(null);
+
+    async function handleRescore(id: string) {
+        setScoringId(id);
+        setScoreError(null);
+        try {
+            await onRescore(id);
+        } catch {
+            // Model can still be unavailable (503) — surface it instead of failing silently.
+            setScoreError("Couldn't score that run. Try again in a moment.");
+        } finally {
+            setScoringId(null);
+        }
+    }
 
     async function handleDelete(id: string) {
         if (confirmingId !== id) {
@@ -48,6 +66,7 @@ export function InterviewList({ interviews, loading, error, onRefresh, onOpen, o
             </CardHeader>
             <CardContent className="space-y-2">
                 {error && <p className="text-sm text-destructive">{error}</p>}
+                {scoreError && <p className="text-sm text-destructive">{scoreError}</p>}
                 {loading && <Skeleton className="h-16" />}
                 {!loading && interviews.length === 0 && !error && <p className="text-sm text-muted-foreground">No interviews yet. Create one to begin.</p>}
                 {interviews.map((i) => (
@@ -67,11 +86,16 @@ export function InterviewList({ interviews, loading, error, onRefresh, onOpen, o
                                 {i.created_at ? ` · ${formatDate(i.created_at)}` : ""}
                             </p>
                             {/* A completed run with no score is a real state (scoring failed and no
-                                feedback row was written). Say so instead of dropping the line, which
-                                read as a broken row. Regenerate lives in the interview view. */}
+                                feedback row was written). Say so and offer the retry, since the run
+                                is otherwise a dead end from this page. */}
                             {typeof i.score === "number" ? <p className="text-xs text-muted-foreground">Score: {i.score}</p> : i.status === "completed" ? <p className="text-xs text-muted-foreground">Not scored</p> : null}
                         </div>
                         <div className="flex shrink-0 items-center gap-2">
+                            {typeof i.score !== "number" && i.status === "completed" && (
+                                <Button size="sm" variant="outline" onClick={() => void handleRescore(i.id)} disabled={scoringId === i.id || confirmingId === i.id}>
+                                    {scoringId === i.id ? "Scoring…" : "Retry scoring"}
+                                </Button>
+                            )}
                             <Button size="sm" variant="outline" onClick={() => onOpen(i.id)}>
                                 Open
                             </Button>
