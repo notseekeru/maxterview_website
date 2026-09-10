@@ -17,9 +17,10 @@ export function ScoreTrendChart({ data }: { data: { label: string; score: number
                 {/* Labels are pre-formatted in useInterviewData (MM/DD, or MM/DD HH:MM when two
                     runs share a day) — no formatter here, or we'd re-trim the time away. */}
                 <XAxis dataKey="label" tickLine={false} axisLine={false} tickMargin={8} interval="preserveStartEnd" />
-                {/* Padded data domain instead of a fixed 0-10: with scores clustered in
-                    the middle a hard 0-10 scale made the line read as flat and washed out. */}
-                <YAxis dataKey="score" domain={["dataMin - 1", "dataMax + 1"]} tickCount={5} tickLine={false} axisLine={false} width={28} tickFormatter={(v: number) => (Number.isInteger(v) ? String(v) : v.toFixed(1))} />
+                {/* Whole-number domain so recharts emits whole-number ticks. The raw
+                    dataMin-1/dataMax+1 domain produced a mixed scale (0, 3, 6, 8.5) because
+                    the bounds were fractional. */}
+                <YAxis dataKey="score" domain={[(min: number) => Math.max(0, Math.floor(min - 1)), (max: number) => Math.min(10, Math.ceil(max + 1))]} tickCount={5} tickLine={false} axisLine={false} width={28} allowDecimals={false} />
                 <ChartTooltip cursor={false} content={<ChartTooltipContent indicator="line" />} />
                 {/* dot: with only a few runs, visible anchors stop the area reading as a smudge. */}
                 <Area dataKey="score" type="monotone" fill="var(--color-score)" fillOpacity={0.25} stroke="var(--color-score)" strokeWidth={2} dot={{ r: 3, fillOpacity: 1 }} activeDot={{ r: 4 }} />
