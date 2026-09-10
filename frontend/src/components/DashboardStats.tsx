@@ -121,12 +121,17 @@ function DimensionScores({ feedback }: { feedback: Feedback[] }) {
             <CardHeader>
                 <CardTitle className="text-sm">Dimension averages</CardTitle>
             </CardHeader>
-            <CardContent className="flex flex-1 flex-col justify-between">
+            <CardContent className="grid flex-1 grid-cols-2 grid-rows-2 gap-3">
                 {dims.map((d) => (
-                    <div key={d.dimension} className="flex items-center gap-3">
-                        <span className="w-24 shrink-0 text-xs capitalize">{d.dimension}</span>
-                        <Progress value={(d.average / 10) * 100} />
-                        <span className="w-10 shrink-0 text-right text-xs tabular-nums text-muted-foreground">{d.average.toFixed(1)}</span>
+                    <div key={d.dimension} className="flex min-w-0 flex-col justify-between rounded-md border px-3 py-2.5">
+                        <span className="truncate text-xs capitalize text-muted-foreground">{d.dimension}</span>
+                        {/* At ~90px per tile the bar can only span ~63px, so 4.0 vs 5.0 is a
+                            ~6px difference. The number carries the value; the bar is the cue. */}
+                        <span className="text-3xl font-semibold leading-none tabular-nums">
+                            {d.average.toFixed(1)}
+                            <span className="text-sm font-normal text-muted-foreground">/10</span>
+                        </span>
+                        <Progress className="h-1.5" value={(d.average / 10) * 100} />
                     </div>
                 ))}
             </CardContent>
