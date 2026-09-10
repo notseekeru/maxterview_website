@@ -29,13 +29,17 @@ export function AppHome() {
             {!clerkEnabled && <p className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">Dev mode (no Clerk key) — requests run against the backend&apos;s DEV_USER. Set VITE_CLERK_PUBLISHABLE_KEY to enable real Clerk auth.</p>}
 
             <section className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
-                <div className="space-y-2">
+                <div className="flex flex-col gap-2">
                     <h2 className="text-sm font-medium uppercase tracking-wide text-muted-foreground">New interview</h2>
-                    <CreateInterviewForm onCreated={onCreated} variant="compact" />
+                    <div className="flex-1">
+                        <CreateInterviewForm className="h-full" onCreated={onCreated} variant="compact" />
+                    </div>
                 </div>
-                <div className="space-y-2">
+                <div className="flex flex-col gap-2">
                     <h2 className="text-sm font-medium uppercase tracking-wide text-muted-foreground">Performance</h2>
-                    <DashboardStats loading={loading} dims={dims} feedback={feedback} />
+                    <div className="flex-1">
+                        <DashboardStats className="h-full" loading={loading} dims={dims} feedback={feedback} />
+                    </div>
                 </div>
             </section>
 

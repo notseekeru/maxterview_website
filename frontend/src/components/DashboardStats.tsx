@@ -4,17 +4,19 @@ import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { InterviewDims } from "@/hooks/useInterviewData";
 import type { Feedback } from "@/lib/api";
+import { cn } from "@/lib/utils";
 
 interface Props {
     feedback: Feedback[];
     loading: boolean;
     dims: InterviewDims;
+    className?: string;
 }
 
-export function DashboardStats({ loading, dims, feedback }: Props) {
+export function DashboardStats({ loading, dims, feedback, className }: Props) {
     if (loading) {
         return (
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+            <div className={cn("grid grid-cols-1 gap-4 sm:grid-cols-3", className)}>
                 <Skeleton className="h-24" />
                 <Skeleton className="h-24" />
                 <Skeleton className="h-24" />
@@ -24,7 +26,7 @@ export function DashboardStats({ loading, dims, feedback }: Props) {
 
     if (dims.total === 0) {
         return (
-            <Card>
+            <Card className={className}>
                 <CardHeader>
                     <CardTitle>Performance stats</CardTitle>
                 </CardHeader>
@@ -36,13 +38,13 @@ export function DashboardStats({ loading, dims, feedback }: Props) {
     }
 
     return (
-        <div className="space-y-4">
+        <div className={cn("flex h-full flex-col space-y-4", className)}>
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
                 <Stat label="Interviews" value={String(dims.total)} />
                 <Stat label="Completed" value={String(dims.completed)} />
                 <Stat label="Avg score" value={dims.completed ? dims.avgScore.toFixed(1) : "—"} />
             </div>
-            <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <div className="grid flex-1 grid-cols-1 gap-4 content-stretch lg:grid-cols-2">
                 <ScoreTrend data={dims.scoreTrend} />
                 <DimensionScores feedback={feedback} />
             </div>
@@ -53,7 +55,7 @@ export function DashboardStats({ loading, dims, feedback }: Props) {
 function ScoreTrend({ data }: { data: { label: string; score: number }[] }) {
     if (data.length === 0) {
         return (
-            <Card>
+            <Card className="h-full">
                 <CardHeader>
                     <CardTitle className="text-sm">Score trend</CardTitle>
                 </CardHeader>
@@ -64,7 +66,7 @@ function ScoreTrend({ data }: { data: { label: string; score: number }[] }) {
         );
     }
     return (
-        <Card className="flex flex-col">
+        <Card className="flex h-full min-h-0 flex-col">
             <CardHeader>
                 <CardTitle className="text-sm">Score trend</CardTitle>
             </CardHeader>
@@ -103,7 +105,7 @@ function DimensionScores({ feedback }: { feedback: Feedback[] }) {
 
     if (dims.every((d) => d.average === 0)) {
         return (
-            <Card>
+            <Card className="h-full">
                 <CardHeader>
                     <CardTitle className="text-sm">Dimension averages</CardTitle>
                 </CardHeader>
@@ -115,11 +117,11 @@ function DimensionScores({ feedback }: { feedback: Feedback[] }) {
     }
 
     return (
-        <Card>
+        <Card className="flex h-full min-h-0 flex-col">
             <CardHeader>
                 <CardTitle className="text-sm">Dimension averages</CardTitle>
             </CardHeader>
-            <CardContent className="space-y-3">
+            <CardContent className="flex flex-1 flex-col justify-between">
                 {dims.map((d) => (
                     <div key={d.dimension} className="flex items-center gap-3">
                         <span className="w-24 shrink-0 text-xs capitalize">{d.dimension}</span>

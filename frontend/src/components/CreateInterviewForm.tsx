@@ -13,9 +13,10 @@ type Variant = "compact" | "featured";
 interface Props {
     onCreated: (id: string) => void;
     variant?: Variant;
+    className?: string;
 }
 
-export function CreateInterviewForm({ onCreated, variant = "compact" }: Props) {
+export function CreateInterviewForm({ onCreated, variant = "compact", className }: Props) {
     // Same component, context-aware density: "compact" is a tile that competes
     // with dashboard siblings; "featured" sheds the width cap and lets Role +
     // Topic span both columns so Level|Topic sit level with it on the hero page.
@@ -46,7 +47,7 @@ export function CreateInterviewForm({ onCreated, variant = "compact" }: Props) {
     }
 
     return (
-        <Card className={featured ? "w-full" : "w-full max-w-lg"}>
+        <Card className={cn(featured ? "w-full" : "w-full max-w-lg", className)}>
             <form onSubmit={submit}>
                 <CardHeader>
                     <CardTitle>New interview</CardTitle>
