@@ -45,17 +45,24 @@ pi must run inside `nix develop`/direnv for the command to resolve. `.mcp.json`:
   "args": ["--headless", "--isolated", "--browser", "chromium"], "lifecycle": "lazy" } } }
 ```
 
-Typical drive, ref-based:
+Typical drive. **Tool names are namespaced `playwright_*`** — bare `browser_navigate` fails with
+"Tool not found" (the adapter prefixes by server name; `toolPrefix: "none"` in adapter settings would
+remove it). `target` accepts **either** a snapshot ref (`e8`) **or** a unique CSS selector, so the
+journey selectors in the runners section work unchanged:
 
 ```
-mcp({ tool: "browser_navigate", args: { url: "http://localhost:5173/" } })
-mcp({ tool: "browser_snapshot", args: {} })            # read the a11y tree + refs
-mcp({ tool: "browser_click", args: { target: "e8", element: "Get started button" } })
+mcp({ tool: "playwright_browser_navigate", args: { url: "http://localhost:5173/" } })
+mcp({ tool: "playwright_browser_snapshot", args: {} })   # read the a11y tree + refs
+mcp({ tool: "playwright_browser_click", args: { target: "e8", element: "Get started button" } })
+mcp({ tool: "playwright_browser_type", args: { target: "#role", text: "Backend Engineer" } })
+mcp({ tool: "playwright_browser_wait_for", args: { text: "Your performance summary" } })
 ```
 
-For multi-step/conditional runs use `mcpScript` (plain JS, loops + chaining) rather than N sequential
-`mcp` calls — e.g. navigate, snapshot, decide, click, re-snapshot. `lifecycle: "lazy"` means the
-browser does not spawn until the first tool call.
+**Don't snapshot-spam.** `browser_snapshot` is the token sink; each call dumps a full YAML tree.
+Snapshot once to get refs, then act, then prefer `browser_wait_for` (`{text}` / `{textGone}` /
+`{time}`) to gate the next read. For multi-step/conditional runs use `mcpScript` (plain JS, loops +
+chaining) rather than N sequential `mcp` calls. `lifecycle: "lazy"` means the browser does not spawn
+until the first tool call.
 
 **Costs to know:** every `browser_snapshot` ships a YAML accessibility tree into context (token-heavy
 vs. a targeted `page.locator(...)` assertion); the tool surface is a fixed 23 verbs (no `page.route`,
@@ -134,18 +141,24 @@ nix develop . -c node .pi/skills/hermetic-e2e/scripts/inspect.cjs [--dom]
 Runners create a real DEV_USER interview and print its id — delete it when judging
 (History / `DELETE /interviews/<id>`). Keep local storage free of host `node_modules`/`install`.
 
-## Journey selectors (for ad-hoc or e2e runs)
+## Journey selectors (for MCP or runner runs)
 
-Real DOM / routes (`react-router-dom`): Landing `/`, app `/app`, chat `/interviews/:id`.
+Real DOM / routes (`react-router-dom`): Landing `/`, app `/app`, chat `/interviews/:id`. Selectors below
+work for both paths — MCP `target` takes a CSS selector or a snapshot ref.
 
-1. Landing: click **"Get started"** -> `/app`.
+1. Landing: click **"Get started"** (`#` on `/`) -> `/app`.
 2. `/app`: wait for `#role` input (dev-mode banner: "Dev mode (no Clerk key)…").
 3. Fill `#role` + optional `#topic`, submit **"Start interview"** -> `/interviews/{uuid}`.
-4. Chat: wait for `textarea`. Send an answer (**Send**); await interviewer stream; **Complete**.
+4. Chat: wait for `textarea`. Send an answer (**Send**); await interviewer stream (**Send** flips
+   `disabled` when done); click **Complete**.
 5. Outcome markers: **FeedbackView** body = "Your performance summary"; **absent** = notice
-   "scoring wasn't ready" + **Retry scoring** button.
+   "scoring wasn't ready" + **Retry scoring** button. Gate on `browser_wait_for` / `waitFor`, not a
+   fixed sleep — `/complete` runs inline against a real model and took ~20s in practice (~90s ceiling).
 
 Do not treat `pending → in_progress` auto-transition as a failure.
+
+**Landing has two CTA buttons** ("Get started", "Start practicing"). The skill means "Get started";
+do not guess from the snapshot alone.
 
 ## Real-Clerk posture (NOT hermetic)
 
@@ -165,8 +178,10 @@ Wired via `.mcp.json` → nixpkgs `playwright-mcp`. Facts worth not re-deriving:
 - The adapter reads (low→high precedence): `~/.config/mcp/mcp.json`, `~/.agents/mcp.json`,
   `~/.agents/mcp/mcp.json`, `<pi agent dir>/mcp.json`, `.mcp.json`, `.pi/mcp.json`. Project
   `.mcp.json` is the right home for a repo-scoped browser server.
-- Config is read at **session start**. Adding/changing `.mcp.json` mid-session shows `MCP: 0/0 servers`
-  until pi restarts — that is not a config error.
+- Config is read at session start, but the adapter **hot-reloads**: a session that began before
+  `.mcp.json` existed picked the server up mid-session (`MCP: 0/1 servers, 23 tools` = registered but
+  not yet listening, since `lifecycle: lazy`). `0/0 servers` means no config was found — not a
+  restart requirement.
 - `~/.pi/agent/mcp-cache.json` caches tool metadata. A **stale cache can advertise servers that no
   longer exist** in config (and omit new tools). If status and cache disagree, delete the cache file
   and restart pi.
@@ -203,7 +218,8 @@ make exec    # full gate: frontend typecheck+build+biome; backend ruff+pytest
 - Hermetic path never touches Clerk/Stripe keys. Real-Clerk leg via `clerk-stripe-operator`
   (headless sign-in; real hosted Checkout needs a human at the card step). No mixing postures.
 - No host `npm install`, no committed store hashes — resolve at runtime. `.playwright-mcp/` is
-  gitignored throwaway output; never commit it.
+  gitignored throwaway output; never commit it. It is written relative to pi's **cwd**, so runs in
+  other repos will litter those trees — the dir must be gitignored everywhere you use this.
 - `browser_run_code_unsafe` executes arbitrary JS in the server process (RCE-equivalent). Use only
   when the 23 typed tools genuinely cannot do the job.
 
