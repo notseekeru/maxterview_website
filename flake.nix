@@ -26,6 +26,7 @@
               nodejs # host runtime for the @clerk/testing + Playwright headless Clerk e2e
               playwright # playwright-core (CJS require-able) for the hermetic-e2e host-direct runner
               chromium # GC-safe headless chrome reference; playwright-core drives it via executablePath
+              playwright-mcp # stdio MCP browser server (wrapped: PLAYWRIGHT_BROWSERS_PATH + isolated). Consumed via .mcp.json.
             ];
           };
         }

@@ -1,9 +1,9 @@
-// e2e-onboarding-onboarding.nolean — host-direct playwright-core walkthrough (no MCP).
+// e2e-onboarding-onboarding.nolean — labelled checkpoints for the onboarding journey.
 //
 // Purpose: simulate a user coming in on the public Landing, entering the app, and creating +
 // navigating to a new interview — the lean "onboarding + dashboard navigation" journey.
-// Driven host-direct: playwright-core + chromium resolved from the nix store (no .mcp.json server,
-// no @playwright/test, no host npm install). See SKILL.md for the exact launch snippet.
+// Drive with EITHER the wired MCP browser (browser_* by ref) or host-direct (playwright-core +
+// chromium from the nix store). See SKILL.md for both paths and their tradeoffs.
 //
 // Hermetic: run the app pointed at the no-Clerk dev fallback (frontend WITHOUT a VITE_CLERK_
 // PUBLISHABLE_KEY => clerkEnabled=false, backend returns DEV_USER). No Clerk/Stripe keys needed.
@@ -11,8 +11,8 @@
 // clerk-stripe-operator skill, or you will hit the signed-out gate instead of the dashboard.
 //
 // Precondition: the dev stack is up and reachable (make up), frontend at the BASE below.
-// This file exports the labelled checkpoint array an agent asserts against while driving page.*;
-// map each step to: page.goto / page.getByText / page.fill / page.click / page.url.}
+// This file exports the labelled checkpoint array an agent asserts against while driving the browser
+// (via MCP browser_* by ref, or host-direct page.*), mapping each step to a concrete action.
 
 export const E2E_BASE = process.env.E2E_BASE ?? "http://localhost:5173";
 export const ROLE = process.env.E2E_ROLE ?? "Software Engineer QA Walkthrough";

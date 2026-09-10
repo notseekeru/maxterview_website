@@ -1,3 +1,9 @@
 {
-    "mcpServers": {}
+  "mcpServers": {
+    "playwright": {
+      "command": "playwright-mcp",
+      "args": ["--headless", "--isolated", "--browser", "chromium"],
+      "lifecycle": "lazy"
+    }
+  }
 }
