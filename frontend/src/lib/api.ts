@@ -23,6 +23,12 @@ api.interceptors.response.use(
     },
 );
 
+// Axios rejects with the status nested at `response.status` (not top level); this
+// normalizes it so callers can branch on it the way the SSE errors already allow.
+export function httpStatus(e: unknown): number | undefined {
+    return (e as AxiosError)?.response?.status ?? (e as { status?: number })?.status;
+}
+
 // M10: a 402 signals a quota lockout (daily interview cap or chat-turn cap).
 export function isQuotaError(e: unknown): boolean {
     return (e as AxiosError)?.response?.status === 402;
@@ -110,6 +116,14 @@ export async function deleteInterview(id: string): Promise<void> {
 
 export async function getMessages(id: string): Promise<Message[]> {
     const { data } = await api.get<Message[]>(`/interviews/${id}/messages`);
+    return data;
+}
+
+// Authoritative status for one interview. Needed because POST /start 409s for BOTH
+// in_progress and completed runs, so the error alone can't tell a live run from a
+// finished one.
+export async function getInterview(id: string): Promise<Interview> {
+    const { data } = await api.get<Interview>(`/interviews/${id}`);
     return data;
 }
 

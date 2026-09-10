@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
-import { completeInterview, type Feedback, getFeedback, getMessages, type Message, regenerateFeedback, startInterview, streamChat } from "@/lib/api";
+import { completeInterview, type Feedback, getFeedback, getInterview, getMessages, httpStatus, type Message, regenerateFeedback, startInterview, streamChat } from "@/lib/api";
 import { OPENING_ASKS_RESUME } from "@/lib/config";
 import { FeedbackView } from "./FeedbackView";
 import { UpgradeNotice } from "./UsageBadge";
@@ -33,6 +33,26 @@ export function InterviewChat({ interviewId, onExit }: Props) {
         }
     }, [interviewId]);
 
+    // Reopening an existing (non-pending) run. POST /start 409s for BOTH in_progress and
+    // completed runs, so read the authoritative status rather than inferring "completed"
+    // from the conflict (that made a live run render as finished + unscored). Completed
+    // runs show stored feedback, or flag that scoring never landed: 404 from /feedback is
+    // that case (the backend writes no row when generation fails) and is the same signal
+    // `finish()` sets after a fresh /complete, so both paths render one warning block.
+    const loadExisting = useCallback(
+        async (id: string) => {
+            const [interview] = await Promise.all([getInterview(id), loadMessages()]);
+            if (interview.status !== "completed") return "ready" as const;
+            try {
+                setFeedback(await getFeedback(id));
+            } catch (e: unknown) {
+                if (httpStatus(e) === 404) setScoringTip(true);
+            }
+            return "completed" as const;
+        },
+        [loadMessages],
+    );
+
     useEffect(() => {
         let cancelled = false;
         (async () => {
@@ -43,11 +63,17 @@ export function InterviewChat({ interviewId, onExit }: Props) {
                 setStatus("ready");
             } catch (e: unknown) {
                 if (!cancelled) {
-                    const any = e as { status?: number };
-                    // Already started (409) is fine; other errors surface.
-                    if (any?.status !== 409) setError("Could not start interview.");
-                    else await loadMessages();
-                    setStatus("ready");
+                    const st = httpStatus(e);
+                    // NB: previously read `e.status`, which is undefined for axios errors, so this
+                    // branch never ran and reopening a run skipped both transcript and feedback.
+                    if (st !== 409) {
+                        setError("Could not start interview.");
+                        setStatus("ready");
+                    } else {
+                        // Not pending (in_progress or completed) — let the interview's real
+                        // status drive the UI state instead of assuming "completed".
+                        setStatus(await loadExisting(interviewId));
+                    }
                 }
             }
         })();
@@ -55,7 +81,7 @@ export function InterviewChat({ interviewId, onExit }: Props) {
             cancelled = true;
             abortRef.current?.abort();
         };
-    }, [interviewId, loadMessages]);
+    }, [interviewId, loadMessages, loadExisting]);
 
     useEffect(() => {
         scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
@@ -113,7 +139,7 @@ export function InterviewChat({ interviewId, onExit }: Props) {
             );
         } catch (e: unknown) {
             if ((e as { name?: string })?.name !== "AbortError") {
-                if ((e as { status?: number }).status === 402) setQuotaLocked(true);
+                if (httpStatus(e) === 402) setQuotaLocked(true);
                 else setError("Connection lost while streaming.");
             }
             setStatus("ready");
