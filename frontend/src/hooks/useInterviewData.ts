@@ -36,7 +36,10 @@ export function useInterviewData() {
 
 export interface InterviewDims {
     total: number;
+    /** Every interview with status 'completed', whether or not scoring succeeded. */
     completed: number;
+    /** Subset of `completed` that has a persisted score (drives avgScore/scoreTrend). */
+    scored: number;
     avgScore: number;
     scoreTrend: { label: string; score: number }[];
 }
@@ -51,10 +54,14 @@ function trendLabel(iso: string, dateRepeats: boolean): string {
 
 function computeDims(interviews: Interview[] | null): InterviewDims {
     const list = interviews ?? [];
-    const completed = list.filter((i) => i.status === "completed" && typeof i.score === "number");
-    const avgScore = completed.length === 0 ? 0 : completed.reduce((a, i) => a + (i.score as number), 0) / completed.length;
-    const recent = completed.slice(-20);
-    const dates = recent.map((i) => i.created_at.slice(0, 10));
-    const scoreTrend = recent.map((i) => ({ label: trendLabel(i.created_at, dates.filter((d) => d === i.created_at.slice(0, 10)).length > 1), score: i.score as number }));
-    return { total: list.length, completed: completed.length, avgScore, scoreTrend };
+    // `completed` counts what the History rows label "completed" (status only). Scoring
+    // can legitimately fail (scores schema/outage) leaving completed-without-score, so
+    // counting only scored runs made the tile read fewer than the rows showed.
+    const completed = list.filter((i) => i.status === "completed");
+    const recent = completed.filter((i) => typeof i.score === "number");
+    const avgScore = recent.length === 0 ? 0 : recent.reduce((a, i) => a + (i.score as number), 0) / recent.length;
+    const window = recent.slice(-20);
+    const dates = window.map((i) => i.created_at.slice(0, 10));
+    const scoreTrend = window.map((i) => ({ label: trendLabel(i.created_at, dates.filter((d) => d === i.created_at.slice(0, 10)).length > 1), score: i.score as number }));
+    return { total: list.length, completed: completed.length, scored: recent.length, avgScore, scoreTrend };
 }

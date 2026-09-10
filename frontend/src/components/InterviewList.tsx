@@ -66,7 +66,10 @@ export function InterviewList({ interviews, loading, error, onRefresh, onOpen, o
                                 {i.status}
                                 {i.created_at ? ` · ${formatDate(i.created_at)}` : ""}
                             </p>
-                            {typeof i.score === "number" && <p className="text-xs text-muted-foreground">Score: {i.score}</p>}
+                            {/* A completed run with no score is a real state (scoring failed and no
+                                feedback row was written). Say so instead of dropping the line, which
+                                read as a broken row. Regenerate lives in the interview view. */}
+                            {typeof i.score === "number" ? <p className="text-xs text-muted-foreground">Score: {i.score}</p> : i.status === "completed" ? <p className="text-xs text-muted-foreground">Not scored</p> : null}
                         </div>
                         <div className="flex shrink-0 items-center gap-2">
                             <Button size="sm" variant="outline" onClick={() => onOpen(i.id)}>

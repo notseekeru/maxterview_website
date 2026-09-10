@@ -42,7 +42,9 @@ export function DashboardStats({ loading, dims, feedback, className }: Props) {
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
                 <Stat label="Interviews" value={String(dims.total)} />
                 <Stat label="Completed" value={String(dims.completed)} />
-                <Stat label="Avg score" value={dims.completed ? dims.avgScore.toFixed(1) : "—"} />
+                {/* A completed run can be permanently unscored (scoring failed). Say so, or
+                    the average silently covers fewer runs than "Completed" claims. */}
+                <Stat label="Avg score" value={dims.scored ? dims.avgScore.toFixed(1) : "—"} hint={dims.scored && dims.scored < dims.completed ? `from ${dims.scored} of ${dims.completed} scored` : undefined} />
             </div>
             <div className="grid flex-1 grid-cols-1 gap-4 content-stretch lg:grid-cols-2">
                 <ScoreTrend data={dims.scoreTrend} />
@@ -77,7 +79,7 @@ function ScoreTrend({ data }: { data: { label: string; score: number }[] }) {
     );
 }
 
-function Stat({ label, value }: { label: string; value: string }) {
+function Stat({ label, value, hint }: { label: string; value: string; hint?: string }) {
     return (
         <Card>
             <CardHeader className="pb-2">
@@ -85,6 +87,7 @@ function Stat({ label, value }: { label: string; value: string }) {
             </CardHeader>
             <CardContent>
                 <p className="text-3xl font-semibold tabular-nums">{value}</p>
+                {hint && <p className="mt-1 text-xs text-muted-foreground">{hint}</p>}
             </CardContent>
         </Card>
     );
