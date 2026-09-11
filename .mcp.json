@@ -4,6 +4,14 @@
       "command": "playwright-mcp",
       "args": ["--headless", "--isolated", "--browser", "chromium"],
       "lifecycle": "lazy"
+    },
+    "neon": {
+      "url": "https://mcp.neon.tech/mcp",
+      "auth": "bearer",
+      "bearerTokenEnv": "NEON_API_KEY",
+      "protocolVersion": "auto",
+      "lifecycle": "lazy",
+      "approveTools": ["*delete*", "*drop*", "*reset*", "*truncate*"]
     }
   }
 }

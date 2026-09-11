@@ -175,6 +175,29 @@ PVC, no StatefulSet, and no DB backup/upgrade work in-cluster.
   backups, and per-PR database branches for testing.
 - Local dev and CI are unaffected — they still use the Postgres container / service.
 
+### Driving Neon from an agent (MCP)
+
+`.mcp.json` wires Neon's hosted MCP server so a coding agent can inspect/modify Neon directly — no
+dashboard, no `neonctl`. This requires the `pi-mcp-adapter` extension (pi core has no MCP of its own).
+
+```bash
+export NEON_API_KEY='<Neon console → Account settings → API keys>'   # never committed
+```
+
+Then `/mcp` inside pi to connect. `NEON_API_KEY` is an **API-scoped** key and is *not* `DATABASE_URL`
+(that is the separate DSN secret, §Deployment). Two device-level facts worth knowing:
+
+- **Auth is bearer, not OAuth.** The adapter keeps OAuth tokens in the OS credential store and fails
+  closed rather than writing them in plaintext. Headless Linux here has no Secret Service/keyring, so
+  OAuth cannot complete; `bearerTokenEnv` is a plain `process.env` read and sidesteps this entirely.
+- **The key is per-device, the config is per-repo.** `.mcp.json` is committed and contains only the
+  *variable name*; export the value on each machine (or via `.envrc`/direnv). Setting it once does not
+  propagate to another host.
+
+`approveTools` gates destructive calls (`*delete*`, `*drop*`, `*reset*`, `*truncate*`) behind an
+interactive confirmation; reads run ungated. **This key can mutate the production database** — the free
+basic key is account-wide, so there is no branch-level protection between the agent and prod data.
+
 **Ports/roles:** backend serves `:8000` (FastAPI), frontend serves `:8080` (nginx, static SPA). The frontend's
 `nginx.conf` proxies `/api` → `backend:8000` internally, so ingress can route `/` → frontend only (or
 `/api` → backend directly, mirroring the `diagram` ingress). Unlike `diagram`'s backend, maxterview's
@@ -191,6 +214,8 @@ backend **has a `/health` route**, so its pods can use `httpGet` probes instead 
 - `.env` files are git-ignored; only `.env.example` is committed.
 - Never commit secrets. Backend refuses to boot in prod with `CLERK_ENABLED=false`.
 - Clerk publishable keys are public; secret keys are admin-only (never in client code).
+- `NEON_API_KEY` (MCP, see "Driving Neon from an agent") lives only in the environment — `.mcp.json`
+  commits the variable *name*, never a value.
 
 ---
 
