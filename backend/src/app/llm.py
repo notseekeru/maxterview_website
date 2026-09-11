@@ -141,21 +141,18 @@ async def stream_chat(messages: list[ChatMessage]) -> AsyncIterator[str]:
     async with httpx.AsyncClient(base_url=LLM_BASE_URL, timeout=httpx.Timeout(300.0, read=120.0)) as client:
         async with client.stream("POST", "/chat/completions", json=payload, headers=headers) as resp:
             resp.raise_for_status()
-            # Server-Sent-Event line format: data: {json}\n\n
             async for line in resp.aiter_lines():
                 if not line or not line.startswith("data:"):
                     continue
                 data = line[5:].strip()
                 if data == "[DONE]":
                     return
-                # heuristically strip the delta content; tolerate non-JSON fragments
                 delta = _extract_delta(data)
                 if delta:
                     yield delta
 
 
 def _extract_delta(chunk: str) -> str:
-    """Pull the content delta from an OpenAI SSE data chunk."""
     import json
 
     try:
@@ -171,8 +168,8 @@ def _extract_delta(chunk: str) -> str:
 
 # --- feedback generation + structured-output guard ---
 
-# The dimension keys we expect from a model. If a response omits any of them we treat it
-# as a failed structured-parse (never accept partial scores) and give up on that attempt.
+# If a response omits any dim we treat it as a failed structured-parse (never accept
+# partial scores) and give up on that attempt.
 FEEDBACK_DIMS = ("clarity", "relevance", "structure", "confidence")
 DEFAULT_TIPS = ["Use STAR format.", "Be more specific with metrics.", "Slow down and breathe."]
 
@@ -191,7 +188,7 @@ def _deterministic_summary() -> FeedbackSummary:
 
 
 def _valid_scores(value) -> dict | None:
-    """Return scores if `value` is a dict with all dims as finite 1-10 numbers, else None."""
+    """All four dims present as 1-10 numbers, else None (never accept partial scores)."""
     if not isinstance(value, dict):
         return None
     numeric = []
@@ -268,8 +265,7 @@ async def _request_grader_notes(history: list[ChatMessage]) -> str | None:
 
 
 def _format_transcript(history: list[ChatMessage]) -> str:
-    """Render the stored chat turns into a clean role-labelled transcript for the grader,
-    so it can attribute answers instead of reading an undifferentiated message dump."""
+    """Role-label the stored turns so the grader can attribute answers, not read a message dump."""
     lines: list[str] = []
     for m in history:
         if m.role == "system":
@@ -283,8 +279,8 @@ async def _request_format(notes: str) -> FeedbackSummary | None:
     """Stage 2: turn the grader's short notes into the exact JSON schema.
 
     Fresh, SMALL context (just the notes) is where schema adherence is cheap and reliable.
-    Retries once — this is the fragile hop, so it gets the same two-shot retry the old
-    single-fat-call got. Parses + validates strictly; never trusts partial/empty output."""
+    Retries once — this is the fragile hop. Parses + validates strictly; never trusts
+    partial/empty output."""
     for _ in range(2):
         content = await _completion(
             FEEDBACK_PROMPT_V1,

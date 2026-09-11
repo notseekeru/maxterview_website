@@ -18,7 +18,7 @@ COMPLETE_FEEDBACK_BACKOFF_MS = 800
 
 
 async def _backoff_sleep(ms: int) -> None:
-    """Pause between auto-retry attempts. Module hook so tests can patch it to a no-op."""
+    """Module hook so tests can patch the auto-retry pause to a no-op."""
     await asyncio.sleep(ms / 1000)
 
 
@@ -149,9 +149,6 @@ async def complete_interview(
     return interview
 
 
-# --- messages ---
-
-
 @app.get("/interviews/{interview_id}/messages", response_model=list[Message])
 async def list_messages(
     interview_id: str,
@@ -163,9 +160,6 @@ async def list_messages(
         interview_id,
     )
     return [dict(r) for r in rows]
-
-
-# --- feedback ---
 
 
 @app.get("/interviews/{interview_id}/feedback", response_model=Feedback)
@@ -189,7 +183,6 @@ async def create_feedback(
     body: FeedbackCreate,
     user: CurrentUser,
 ) -> dict:
-    # Single feedback write path (retryable, idempotent UPSERT), shared with `complete`.
     await _require_interview_owned(interview_id, user.sub)
     row = await _upsert_feedback(interview_id, body.scores, body.verdict, body.tips)
     return dict(row)
@@ -239,19 +232,16 @@ async def get_usage(user: CurrentUser) -> dict:
 
 @app.post("/billing/checkout")
 async def billing_checkout(user: CurrentUser) -> dict:
-    """Create a Stripe checkout session and return its hosted URL."""
     return {"url": payments.create_checkout_session(user)}
 
 
 @app.post("/billing/portal", response_model=dict)
 async def billing_portal(user: CurrentUser) -> dict:
-    """Return a Stripe billing-portal URL for the user's subscription."""
     return {"url": await payments.create_portal_session(user)}
 
 
 @app.post("/billing/webhook")
 async def billing_webhook(request: Request) -> PlainTextResponse:
-    """Verify a Stripe webhook signature, upsert the subscription, return 200."""
     import stripe
 
     payload = await request.body()
@@ -336,9 +326,6 @@ async def chat_stream(
     return StreamingResponse(_stream_events(), media_type="text/event-stream")
 
 
-# --- helper ---
-
-
 async def _require_interview_owned(interview_id: str, owner_id: str) -> None:
     row = await fetchrow("SELECT 1 FROM interviews WHERE id = $1 AND owner_id = $2", interview_id, owner_id)
     if row is None:
@@ -347,7 +334,6 @@ async def _require_interview_owned(interview_id: str, owner_id: str) -> None:
 
 async def _upsert_feedback(interview_id: str, scores: dict, verdict: str, tips: list):
     # Single write path for feedback: idempotent UPSERT on the UNIQUE interview_id.
-    # JSONB round-trips natively via the pool codec (db.py init).
     return await fetchrow(
         "INSERT INTO feedback (interview_id, scores, verdict, tips) VALUES ($1, $2, $3, $4) ON CONFLICT (interview_id) DO UPDATE SET scores = EXCLUDED.scores, verdict = EXCLUDED.verdict, tips = EXCLUDED.tips, created_at = now() RETURNING id::text, interview_id::text, scores, verdict, tips, created_at",
         interview_id,

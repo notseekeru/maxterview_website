@@ -41,8 +41,8 @@ def create_checkout_session(user: ClerkUser) -> str:
     session = _client().checkout.sessions.create(
         params={
             "mode": "subscription",
-            # Only prefill the email when the JWT actually carries one; NEVER fall back to the
-            # sub claim (user_xxx is not an email -> Stripe rejects). Stripe collects it at checkout.
+            # Only prefill when the JWT carries a real email; NEVER fall back to the sub claim
+            # (user_xxx is not an email -> Stripe rejects). Stripe collects it at checkout.
             **({"customer_email": user.email} if (user.email or "").__contains__("@") else {}),
             "line_items": [{"price": STRIPE_PRICE_ID, "quantity": 1}],
             "success_url": f"{FRONTEND_BASE_URL}/app?upgrade=success",
@@ -69,7 +69,6 @@ async def _subscription_row(owner_id: str):
 
 
 async def _upsert(owner_id: str, stripe_id: str, status_str: str, period_end) -> None:
-    """Idempotently upsert a subscription row."""
     from app.db import fetchrow
 
     await fetchrow(
@@ -92,7 +91,6 @@ async def _upsert(owner_id: str, stripe_id: str, status_str: str, period_end) ->
 
 
 async def handle_webhook_event(event: dict) -> None:
-    """Apply a verified Stripe event to the subscriptions table (idempotent)."""
     from app.db import fetchrow
 
     etype = event.get("type", "")
@@ -106,7 +104,6 @@ async def handle_webhook_event(event: dict) -> None:
             await _upsert(owner_id, customer, "active", None)
 
     elif etype in ("customer.subscription.created", "customer.subscription.updated"):
-        # The subscription object: status + periods authoritative.
         customer = obj.get("customer")
         status_str = "active" if obj.get("status") in ("active", "trialing") else obj.get("status", "unknown")
         period_end = _period_end(obj)
@@ -133,8 +130,8 @@ def _period_end(sub: dict):
         if it.get("current_period_end"):
             pe = it["current_period_end"]
             break
-    # Stripe sends epoch seconds (int); asyncpg needs a tz-aware datetime for
-    # the timestamptz column. Guard against already-native datetimes for safety.
+    # Stripe sends epoch seconds (int); asyncpg needs a tz-aware datetime for the
+    # timestamptz column.
     if isinstance(pe, datetime):
         return pe
     return datetime.fromtimestamp(pe, tz=UTC) if pe is not None else None

@@ -4,7 +4,7 @@ from app.main import app
 
 
 def test_health():
-    # Context manager runs lifespan (init_pool, lazy) — no Postgres needed.
+    # The context manager runs lifespan (init_pool, lazy) — no Postgres needed.
     with TestClient(app) as client:
         res = client.get("/health")
     assert res.status_code == 200

@@ -26,7 +26,6 @@ _jwks_cache_at: float = 0.0
 
 
 def _b64url_decode(value: str) -> bytes:
-    # JWKS n/e are base64url without padding.
     return base64.urlsafe_b64decode(value + "=" * (-len(value) % 4))
 
 

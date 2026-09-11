@@ -11,7 +11,8 @@ _pool: asyncpg.Pool | None = None
 
 
 async def _init_pool_on_connect(conn: asyncpg.Connection) -> None:
-    # Make JSONB/JSON round-trip as native Python objects (dict/list), not JSON strings.
+    # Without this, JSONB round-trips as a JSON string, not a dict/list
+    # (silently breaks scores/tips reads).
     await conn.set_type_codec("jsonb", encoder=json.dumps, decoder=json.loads, schema="pg_catalog")
     await conn.set_type_codec("json", encoder=json.dumps, decoder=json.loads, schema="pg_catalog")
 

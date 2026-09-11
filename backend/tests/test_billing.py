@@ -22,15 +22,12 @@ async def _async_none(*_args, **_kwargs):
 
 
 def test_quota_defaults():
-    # MONETIZATION.md §0 placeholders by default. No per-interview or daily-interview quota:
-    # the daily GLOBAL chat-turn credits is the only gate.
     assert _quota("free", "chat_turns") == 10
     assert _quota("premium", "chat_turns") == 250
     assert _quota("dev", "chat_turns") == 500
 
 
 async def test_resolve_tier_dev_fallback_when_no_clerk(monkeypatch):
-    # CLERK_ENABLED=false => the dev-fallback identity (DEV_USER) => dev tier, no DB read.
     monkeypatch.setattr(billing, "CLERK_ENABLED", False)
     monkeypatch.setattr(billing, "fetchrow", _async_none)
     assert await resolve_tier(_User("dev-session", "free")) == "dev"
@@ -38,7 +35,7 @@ async def test_resolve_tier_dev_fallback_when_no_clerk(monkeypatch):
 
 async def test_resolve_tier_premium_subscription_elevates(monkeypatch):
     async def _fake(_, _sub):
-        return {"plan": "premium"}  # returned by fetchrow -> found
+        return {"plan": "premium"}
 
     monkeypatch.setattr(billing, "CLERK_ENABLED", True)
     monkeypatch.setattr(billing, "fetchrow", _fake)
@@ -88,19 +85,16 @@ async def test_bump_upserts_global_row(monkeypatch):
     monkeypatch.setattr(billing, "fetchrow", _fake)
     await billing.bump_chat_turn("owner-1")
     assert calls and "turn_usage" in calls[0][0]
-    # owner_id + the current UTC day are passed, and the row is keyed by owner+day.
-    assert calls[0][1][0] == "owner-1"
+    assert calls[0][1][0] == "owner-1"  # owner_id bound; row keyed by owner+day
 
 
 def test_utc_day_is_date_object():
-    # Reset bucket is the current UTC calendar day as a bound-able `date` for asyncpg.
     from datetime import date
 
     assert isinstance(billing._utc_day(), date)
 
 
 async def test_resolve_tier_jwt_premium_wins(monkeypatch):
-    # A JWT that already says premium is honored without DB lookups.
     monkeypatch.setattr(billing, "CLERK_ENABLED", True)
     monkeypatch.setattr(billing, "fetchrow", _async_none)
     assert await resolve_tier(_User("p-user", "premium")) == "premium"
@@ -148,10 +142,8 @@ async def test_webhook_checkout_completed_writes_subscription(monkeypatch):
 
 
 async def test_webhook_subscription_created_upserts_datetime_period(monkeypatch):
-    """customer.subscription.created/updated passes a tz-aware datetime (not Stripe's
-    raw epoch int) so asyncpg accepts it for the timestamptz column.
-    Regression: _period_end returned the int seconds -> asyncpg DataError 500 on the
-    subscription events that actually set the tier."""
+    """Regression: Stripe's raw epoch int for current_period_end made asyncpg DataError
+    500 on the subscription events that actually set the tier; we must bind tz-aware."""
     from datetime import UTC, datetime
 
     from app import payments

@@ -40,7 +40,6 @@ def client(migrated_db):
 
 def test_interview_lifecycle_owner_scoped(client):
     c = client
-    # create (pending)
     r = c.post("/interviews", json={"role": "Software Engineer", "topic": "system design"})
     assert r.status_code == 201
     interview = r.json()
@@ -48,12 +47,10 @@ def test_interview_lifecycle_owner_scoped(client):
     assert interview["status"] == "pending"
     iid = interview["id"]
 
-    # list
     r = c.get("/interviews")
     assert r.status_code == 200
     assert any(i["id"] == iid for i in r.json())
 
-    # get
     r = c.get(f"/interviews/{iid}")
     assert r.status_code == 200
     assert r.json()["role"] == "Software Engineer"
@@ -62,12 +59,11 @@ def test_interview_lifecycle_owner_scoped(client):
     r = c.post(f"/interviews/{iid}/chat/stream", json={"interview_id": iid, "content": "hi"})
     assert r.status_code == 409
 
-    # start -> in_progress
     r = c.post(f"/interviews/{iid}/start")
     assert r.status_code == 200
     assert r.json()["status"] == "in_progress"
 
-    # SSE chat (M6: real LLM stub streams + persists both turns)
+    # SSE chat: real LLM stub streams + persists both turns
     r = c.post(f"/interviews/{iid}/chat/stream", json={"interview_id": iid, "content": "I have 5 years of experience."})
     assert r.status_code == 200
     assert "text/event-stream" in r.headers["content-type"]
@@ -92,8 +88,6 @@ def test_interview_lifecycle_owner_scoped(client):
     r = c.get(f"/interviews/{iid}/feedback")
     assert r.status_code == 200
     assert r.json()["verdict"] == "Good"
-
-    # feedback UPSERT: second write updates (not 500) (Gap B)
     r = c.post(f"/interviews/{iid}/feedback", json={"scores": {"clarity": 5}, "verdict": "Better", "tips": ["shorter"]})
     assert r.status_code == 201
     r = c.get(f"/interviews/{iid}/feedback")
@@ -108,7 +102,6 @@ def test_interview_lifecycle_owner_scoped(client):
     r = c.get(f"/interviews/{iid}")
     assert r.status_code in (200, 404)  # DEV_USER owns it, so 200; foreign-user path is D4-safe
 
-    # delete
     r = c.delete(f"/interviews/{iid}")
     assert r.status_code == 204
 
@@ -119,7 +112,6 @@ def test_get_interview_missing_returns_404(client):
 
 
 def test_interviews_unlimited_at_creation(client):
-    # Daily-interview cap removed: creating multiple interviews the same day all succeed.
     r1 = client.post("/interviews", json={"role": "Quota Probe"})
     assert r1.status_code == 201
     iid1 = r1.json()["id"]
@@ -141,10 +133,8 @@ def test_interviews_unlimited_at_creation(client):
 
 
 def test_usage_tracks_global_daily_counter(client):
-    # Chat turns count GLOBALLY per owner (across all interviews), not per interview.
-    # A turn in one interview advances the shared daily /usage counter that all of the
-    # owner's interviews draw from (cap math covered by the unit tests; dev cap 500
-    # keeps this integration run safely under the cap).
+    # A turn in one interview advances the shared per-owner daily counter that all of the
+    # owner's interviews draw from (cap math is unit-tested; dev cap 500 keeps this under it).
     c = client
     iv = c.post("/interviews", json={"role": "Cap Probe"}).json()
     iid = iv["id"]
@@ -159,7 +149,6 @@ def test_usage_tracks_global_daily_counter(client):
 
 
 def test_regenerate_feedback_rejects_incomplete_and_foreign(client):
-    # A pending interview cannot be (re)scored.
     r = client.post("/interviews", json={"role": "Regen Guard"})
     assert r.status_code == 201
     pending_id = r.json()["id"]
@@ -169,12 +158,11 @@ def test_regenerate_feedback_rejects_incomplete_and_foreign(client):
     # A nonexistent/foreign interview is a 404 via the ownership guard.
     rr = client.post("/interviews/00000000-0000-0000-0000-000000000000/feedback/generate")
     assert rr.status_code == 404
+
     client.delete(f"/interviews/{pending_id}")
 
 
 def test_regenerate_feedback_writes_when_model_recovers(client, monkeypatch):
-    # A completed interview whose /complete run scored nothing (model returned None, as in
-    # real mode) can be re-scored on demand once the model recovers.
     from app import llm
     from app import main as main_mod
     from app.models import FeedbackSummary
@@ -216,9 +204,6 @@ async def _noop_sleep(ms):
 
 
 def test_complete_auto_retries_then_leaves_unscored_when_always_none(client, monkeypatch):
-    # A model that keeps failing must NOT be retried forever: /complete auto-retries up to
-    # COMPLETE_MAX_FEEDBACK_ATTEMPTS, then gives up leaving the interview completed but
-    # genuinely unscored (404) so the manual regenerate button can retry later.
     from app import llm
     from app import main as main_mod
 
@@ -245,8 +230,6 @@ def test_complete_auto_retries_then_leaves_unscored_when_always_none(client, mon
 
 
 def test_complete_auto_retry_stops_on_first_success(client, monkeypatch):
-    # A flaky model that succeeds on the 2nd attempt should stop immediately (not burn its
-    # remaining attempts) and persist the recovered feedback.
     from app import llm
     from app import main as main_mod
     from app.models import FeedbackSummary

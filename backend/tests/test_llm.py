@@ -15,7 +15,6 @@ def test_system_prompt_calibrates_to_explicit_level():
 
 
 def test_stub_mode_active_without_base_url():
-    # conftest doesn't set LLM_BASE_URL -> STUB_MODE is on (deterministic, no network).
     assert llm.STUB_MODE is True
 
 
@@ -26,14 +25,13 @@ async def test_stub_stream_echoes_user():
 
 
 def test_max_tokens_config_defaults():
-    # Bounds runaway local thinking models; defaults fixed unless env-overridden.
+    # Bounds runaway local thinking models (Qwen emits long reasoning).
     assert llm.LLM_MAX_TOKENS == 512
     assert llm.LLM_MAX_FEEDBACK_TOKENS == 1024
 
 
 def test_chat_extras_disable_thinking_by_default():
-    # Qwen-family models emit a long reasoning pass that can swallow max_tokens;
-    # disable thinking by default. Non-thinking models ignore chat_template_kwargs.
+    # Non-thinking models ignore chat_template_kwargs, so this is safe by default.
     assert llm.LLM_DISABLE_THINKING is True
     assert llm._chat_extras() == {"chat_template_kwargs": {"enable_thinking": False}}
 
@@ -46,7 +44,6 @@ async def test_stub_feedback_is_deterministic():
 
 
 def test_extract_json_object_handles_prose_wrap():
-    # llama.cpp-style: prose around the JSON object.
     text = 'Here is your feedback:\n```json\n{"scores": {"clarity": 8}, "verdict": "Nice", "tips": ["a"]}\n```\nGood job!'
     obj = llm._extract_json_object(text)
     assert obj["verdict"] == "Nice"
@@ -59,8 +56,6 @@ def test_extract_json_object_no_json_returns_empty():
 
 
 def test_valid_scores_rejects_partial_and_accepts_full(monkeypatch):
-    # Partial dims / non-numeric / out-of-range must be rejected so empty feedback never
-    # slips through and silently drops the interview's dashboard score contribution.
     assert llm._valid_scores({}) is None
     assert llm._valid_scores({"clarity": 8}) is None  # missing dims
     assert llm._valid_scores({d: "hi" for d in llm.FEEDBACK_DIMS}) is None
@@ -70,8 +65,6 @@ def test_valid_scores_rejects_partial_and_accepts_full(monkeypatch):
 
 
 async def test_generate_feedback_real_grader_and_formatter_path(monkeypatch):
-    # Drives the REAL two-stage pipeline end-to-end at the _completion seam: grader prose
-    # call returns notes, formatter JSON call returns a sample object -> valid FeedbackSummary.
     monkeypatch.setattr(llm, "STUB_MODE", False)
     caller = {"model": None, "msgs": None, "json": None}
 
@@ -89,8 +82,6 @@ async def test_generate_feedback_real_grader_and_formatter_path(monkeypatch):
 
 
 async def test_generate_feedback_formatter_retries_on_bad_schema(monkeypatch):
-    # Formatter's real retry: first attempt returns non-schema JSON (no scores), the retry
-    # returns the right shape. generate_feedback should yield the recovered summary.
     monkeypatch.setattr(llm, "STUB_MODE", False)
     attempts = {"n": 0}
 
@@ -109,8 +100,8 @@ async def test_generate_feedback_formatter_retries_on_bad_schema(monkeypatch):
 
 
 async def test_generate_feedback_returns_none_when_formatter_never_valid(monkeypatch):
-    # Grader OK but every formatter JSON attempt (incl. its retry) is unusable -> None, so
-    # the caller writes NO feedback rather than a fabricated 6-average.
+    # Every formatter attempt (incl. retry) unusable -> None, so the caller writes NO
+    # feedback rather than a fabricated 6-average.
     monkeypatch.setattr(llm, "STUB_MODE", False)
     attempts = {"n": 0}
 
@@ -127,8 +118,7 @@ async def test_generate_feedback_returns_none_when_formatter_never_valid(monkeyp
 
 
 async def test_generate_feedback_returns_none_when_grader_fails(monkeypatch):
-    # Grader's real retry never yields prose -> generate stops and returns None; the
-    # formatter JSON hop is never even attempted.
+    # Grader retry never yields prose -> stop; the formatter JSON hop is never attempted.
     monkeypatch.setattr(llm, "STUB_MODE", False)
     grader_attempts = {"n": 0}
     format_attempts = {"n": 0}

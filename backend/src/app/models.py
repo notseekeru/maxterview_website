@@ -51,7 +51,7 @@ class Interview(BaseModel):
 class Message(BaseModel):
     id: str
     interview_id: str
-    role: str  # user | assistant | system
+    role: str
     content: str
     created_at: datetime
 
@@ -60,8 +60,6 @@ class Message(BaseModel):
 
 
 class FeedbackCreate(BaseModel):
-    """Payload to write a feedback row (scored by the LLM feedback generator)."""
-
     scores: dict = Field(default_factory=dict)
     verdict: str = Field(min_length=1, max_length=2000)
     tips: list = Field(default_factory=list)
@@ -80,9 +78,7 @@ class Feedback(BaseModel):
 
 
 class ChatMessage(BaseModel):
-    """One message in the conversation context sent to the LLM."""
-
-    role: str  # user | assistant | system
+    role: str
     content: str
 
 
@@ -95,7 +91,5 @@ class FeedbackSummary(BaseModel):
 
 
 class ChatTurn(BaseModel):
-    """One user turn in a simulated interview; the SSE endpoint streams the assistant reply."""
-
     interview_id: str
     content: str
