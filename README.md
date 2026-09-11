@@ -52,7 +52,7 @@ Requires Docker + Docker Compose v2. Copy the example env and (optionally) fill 
 cp .env.example .env                  # compose/infra only: APP_ENV, POSTGRES_*, ports
 cp backend/.env.example backend/.env  # backend runtime: CLERK, LLM, quotas, STRIPE
 cp frontend/.env.example frontend/.env # VITE_* frontend vars
-make up                     # builds + starts postgres, backend, frontend
+make up                     # builds + starts postgres, backend, frontend   (dev only — prod uses Neon)
 ```
 
 - Backend API: http://localhost:8000 (`/health`)
@@ -159,6 +159,21 @@ This repo is the **app source**; the gitops repo holds the Kubernetes manifests.
    - a deployment mechanism pins the immutable `:${SHA}` tag Argo CD reconciles against.
 3. **Secrets** (`maxterview-secrets`, e.g. `DATABASE_URL`, `LLM_API_KEY`, Clerk keys) are created by the
    Terraform installer from Infisical — same as the existing `diagram-secrets`/`ghcr-login` pattern.
+
+**Database:** production runs against **Neon** (managed Postgres), not a DB pod in the cluster. There is no
+PVC, no StatefulSet, and no DB backup/upgrade work in-cluster.
+
+- `DATABASE_URL` comes from the `maxterview-secrets` Secret — use Neon's **direct** host
+  (`ep-<id>-<region>.aws.neon.tech`) with `?sslmode=require`, **not** the `-pooler` host.
+- The direct host needs zero code changes: the backend is one long-running pod holding ~10 pooled
+  connections. Neon's pooler only matters when many short-lived instances share a DB (serverless) —
+  and `app/db.py` already auto-detects a `-pooler` DSN (`statement_cache_size=0`) if you ever switch.
+- Run migrations against Neon the same way as dev: `make migrate` with `DATABASE_URL` pointed at it
+  (yoyo is stock Postgres; no changes).
+- **Tradeoffs:** public-internet round trips (measure latency from wherever the app runs) and free-tier
+  compute scale-to-zero, so the first query after idle is slower. In exchange you get durability,
+  backups, and per-PR database branches for testing.
+- Local dev and CI are unaffected — they still use the Postgres container / service.
 
 **Ports/roles:** backend serves `:8000` (FastAPI), frontend serves `:8080` (nginx, static SPA). The frontend's
 `nginx.conf` proxies `/api` → `backend:8000` internally, so ingress can route `/` → frontend only (or

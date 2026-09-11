@@ -1,5 +1,5 @@
-# Prod-style overlay: compiled backend (uvicorn), nginx-served frontend.
-#   docker compose -p maxterview-prod -f compose.yml -f compose.prod.yml up
+# Prod-shape rehearsal only — real prod is k3s + external Neon, no DB pod (PLAN.md 3b).
+# Export DATABASE_URL to rehearse against Neon; the local container is the default.
 services:
   backend:
     container_name: maxterview_backend_prod
@@ -10,7 +10,7 @@ services:
       - .env
       - ./backend/.env
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-maxterview}:${POSTGRES_PASSWORD:-maxterview}@postgres:5432/${POSTGRES_DB:-maxterview}
+      DATABASE_URL: ${DATABASE_URL:-postgresql://${POSTGRES_USER:-maxterview}:${POSTGRES_PASSWORD:-maxterview}@postgres:5432/${POSTGRES_DB:-maxterview}}
       APP_ENV: ${APP_ENV:-production}
     ports:
       - "${BACKEND_PORT:-8000}:8000"
