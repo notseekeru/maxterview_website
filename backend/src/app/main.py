@@ -53,7 +53,7 @@ async def list_interviews(user: CurrentUser) -> list[dict]:
     rows = await fetch(
         """
         SELECT i.id::text, i.owner_id, i.role, i.level, i.topic, i.status, i.created_at, i.updated_at,
-               f.verdict AS verdict,
+               f.verdict AS verdict, f.decision AS decision, f.certainty AS certainty,
                CASE WHEN jsonb_typeof(f.scores) = 'object' THEN
                  (SELECT round(avg(v.value::numeric)::numeric, 1) FROM jsonb_each_text(f.scores) AS v)
                ELSE NULL END AS score
@@ -171,7 +171,7 @@ async def get_feedback(
 ) -> dict:
     await _require_interview_owned(interview_id, user.sub)
     row = await fetchrow(
-        "SELECT id::text, interview_id::text, scores, verdict, tips, created_at FROM feedback WHERE interview_id = $1",
+        "SELECT id::text, interview_id::text, scores, verdict, tips, decision, certainty, created_at FROM feedback WHERE interview_id = $1",
         interview_id,
     )
     if row is None:
@@ -186,7 +186,7 @@ async def create_feedback(
     user: CurrentUser,
 ) -> dict:
     await _require_interview_owned(interview_id, user.sub)
-    row = await _upsert_feedback(interview_id, body.scores, body.verdict, body.tips)
+    row = await _upsert_feedback(interview_id, body.scores, body.verdict, body.tips, body.decision, body.certainty)
     return dict(row)
 
 
@@ -348,14 +348,19 @@ async def _has_transcript(interview_id: str) -> bool:
     return row is not None
 
 
-async def _upsert_feedback(interview_id: str, scores: dict, verdict: str, tips: list):
+async def _upsert_feedback(interview_id: str, scores: dict, verdict: str, tips: list, decision: str | None = None, certainty: int | None = None):
     # Single write path for feedback: idempotent UPSERT on the UNIQUE interview_id.
     return await fetchrow(
-        "INSERT INTO feedback (interview_id, scores, verdict, tips) VALUES ($1, $2, $3, $4) ON CONFLICT (interview_id) DO UPDATE SET scores = EXCLUDED.scores, verdict = EXCLUDED.verdict, tips = EXCLUDED.tips, created_at = now() RETURNING id::text, interview_id::text, scores, verdict, tips, created_at",
+        "INSERT INTO feedback (interview_id, scores, verdict, tips, decision, certainty) VALUES ($1, $2, $3, $4, $5, $6) "
+        "ON CONFLICT (interview_id) DO UPDATE SET scores = EXCLUDED.scores, verdict = EXCLUDED.verdict, tips = EXCLUDED.tips, "
+        "decision = EXCLUDED.decision, certainty = EXCLUDED.certainty, created_at = now() "
+        "RETURNING id::text, interview_id::text, scores, verdict, tips, decision, certainty, created_at",
         interview_id,
         scores,
         verdict,
         tips,
+        decision,
+        certainty,
     )
 
 
@@ -378,7 +383,7 @@ async def _generate_and_persist_feedback(interview_id: str) -> dict | None:
     summary = await llm.generate_feedback(history)
     if summary is None:
         return None
-    return await _upsert_feedback(interview_id, summary.scores, summary.verdict, summary.tips)
+    return await _upsert_feedback(interview_id, summary.scores, summary.verdict, summary.tips, summary.decision, summary.certainty)
 
 
 async def _raise_start_error(interview_id: str, owner_id: str) -> None:

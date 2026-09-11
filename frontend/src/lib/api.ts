@@ -53,6 +53,8 @@ export interface Interview {
     updated_at: string;
     score?: number | null;
     verdict?: string | null;
+    decision?: Decision | null;
+    certainty?: number | null;
 }
 
 export interface Message {
@@ -69,8 +71,16 @@ export interface Feedback {
     scores: Record<string, number>;
     verdict: string;
     tips: string[];
+    decision?: Decision | null;
+    certainty?: number | null;
     created_at: string;
 }
+
+// Post-interview hire/reject spectrum (mirrors backend app/models.DECISIONS, ordered
+// left to right). `certainty` (0-100) is the SEPARATE axis: how well the transcript
+// evidences the decision, not how positive it is. Both are null for a run the model
+// could not decide, and for feedback written before the columns existed.
+export type Decision = "reject" | "lean_reject" | "lean_hire" | "hire";
 
 // Mirror GET /usage (MONETIZATION §3). The only quota is a daily GLOBAL chat-turn
 // credit shared across ALL of the owner's interviews (plus `dev` for the no-Clerk

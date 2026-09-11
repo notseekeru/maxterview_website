@@ -1,17 +1,23 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import type { Feedback } from "@/lib/api";
+import type { Decision, Feedback } from "@/lib/api";
+import { DecisionVerdict } from "./DecisionVerdict";
 
 export function FeedbackView({ feedback }: { feedback: Feedback }) {
     const dims = Object.entries(feedback.scores ?? {});
+    // Absent for feedback written before the hire/reject columns existed, and for a run the
+    // model could not decide: show nothing rather than a default verdict.
+    const decision = feedback.decision as Decision | null | undefined;
 
     return (
-        <div className="space-y-4 p-6">
+        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-6">
             <Card>
                 <CardHeader>
                     <CardTitle>Feedback</CardTitle>
                     <CardDescription>Your performance summary</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
+                    {decision && <DecisionVerdict decision={decision} certainty={feedback.certainty} />}
+
                     <p className="text-sm leading-relaxed">{feedback.verdict}</p>
 
                     {dims.length > 0 && (

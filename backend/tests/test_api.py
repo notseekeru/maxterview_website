@@ -81,6 +81,14 @@ def test_interview_lifecycle_owner_scoped(client):
     r = c.get(f"/interviews/{iid}/feedback")
     assert r.status_code == 200
     assert r.json()["verdict"]
+    # Hire/reject spectrum + certainty, not pass/fail: the stub's lean_hire/50 is capped by
+    # the one-answer transcript (40 + 8 per candidate answer), so certainty must be 48.
+    assert (r.json()["decision"], r.json()["certainty"]) == ("lean_hire", 48)
+
+    # The history list carries the same two fields (drives the row chip).
+    r = c.get("/interviews")
+    row = next(i for i in r.json() if i["id"] == iid)
+    assert (row["decision"], row["certainty"]) == ("lean_hire", 48)
 
     # write + read feedback (UPSERT over the auto-generated one)
     r = c.post(f"/interviews/{iid}/feedback", json={"scores": {"clarity": 4}, "verdict": "Good", "tips": ["be concise"]})
@@ -88,11 +96,18 @@ def test_interview_lifecycle_owner_scoped(client):
     r = c.get(f"/interviews/{iid}/feedback")
     assert r.status_code == 200
     assert r.json()["verdict"] == "Good"
-    r = c.post(f"/interviews/{iid}/feedback", json={"scores": {"clarity": 5}, "verdict": "Better", "tips": ["shorter"]})
+    r = c.post(f"/interviews/{iid}/feedback", json={"scores": {"clarity": 5}, "verdict": "Better", "tips": ["shorter"], "decision": "hire", "certainty": 80})
     assert r.status_code == 201
     r = c.get(f"/interviews/{iid}/feedback")
     assert r.status_code == 200
     assert r.json()["verdict"] == "Better"
+    assert (r.json()["decision"], r.json()["certainty"]) == ("hire", 80)
+
+    # A decision outside the four-point spread is refused, not silently stored.
+    r = c.post(f"/interviews/{iid}/feedback", json={"verdict": "Hmm", "decision": "strong_hire", "certainty": 80})
+    assert r.status_code == 422
+    r = c.post(f"/interviews/{iid}/feedback", json={"verdict": "Hmm", "decision": "hire", "certainty": 101})
+    assert r.status_code == 422
 
     # chat blocked once completed
     r = c.post(f"/interviews/{iid}/chat/stream", json={"interview_id": iid, "content": "late"})

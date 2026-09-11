@@ -1,11 +1,12 @@
 import os
+import re
 from collections.abc import AsyncIterator
 
 import httpx
 import structlog
 
 from app import levels
-from app.models import ChatMessage, FeedbackSummary
+from app.models import DECISIONS, ChatMessage, FeedbackSummary
 
 log = structlog.get_logger(__name__)
 
@@ -138,6 +139,11 @@ technical/behavioural content they DID give on its own merit.
 
 Write a short paragraph PER dimension: name the dimension, give one concrete thing from the candidate's answers as evidence, then a single suggested integer score for it. Then write a 2-3 sentence overall verdict and 2-4 specific, actionable tips.
 
+Then state a hiring recommendation for THIS role on the four-point scale - reject, lean_reject, lean_hire, hire - plus a certainty integer 0-100 for how well the transcript supports that decision.
+Calibrate certainty to EVIDENCE VOLUME, not to how positive the recommendation is: a short or evasive interview cannot exceed roughly 50 even when the few answers given were strong, and only
+several concrete, role-specific answers with named metrics or specifics justify 80+. An interview of one or two answers is a low-certainty read by definition, however good those answers were. Do not
+inflate certainty to sound decisive.
+
 Use PLAIN PROSE. Do NOT wrap everything in JSON — you are the reviewer, a separate step turns your notes into the final format. Be strict but fair; award high scores only with evidence."""
 
 
@@ -145,9 +151,11 @@ Use PLAIN PROSE. Do NOT wrap everything in JSON — you are the reviewer, a sepa
 # it hard-codes the schema so a weak local backend cannot drift the field names). The
 # formatter runs on fresh, SHORT grader notes rather than the long raw transcript.
 FEEDBACK_PROMPT_V1 = """Convert the interview grader notes in your user message into a JSON object ONLY, exactly matching this shape:
-{"scores": {"clarity": 7, "relevance": 6, "structure": 8, "confidence": 5}, "verdict": "Overall assessment in 2-3 sentences.", "tips": ["tip one", "tip two"]}
+{"scores": {"clarity": 7, "relevance": 6, "structure": 8, "confidence": 5}, "decision": "lean_hire", "certainty": 55, "verdict": "Overall assessment in 2-3 sentences.", "tips": ["tip one", "tip two"]}
 Rules: scores are integers 1-10 for exactly clarity/relevance/structure/confidence - 1 is the FLOOR and means nothing usable was said
-(never emit 0 or any value outside 1-10, even when the notes say the candidate failed); verdict is 2-3 sentences; tips is an array of 2-4 short strings. Return ONLY the JSON object, no prose, no markdown."""
+(never emit 0 or any value outside 1-10, even when the notes say the candidate failed); decision is exactly one of
+reject/lean_reject/lean_hire/hire; certainty is an integer 0-100 for how well the transcript backs that decision and must never be
+rounded UP past the evidence the notes describe; verdict is 2-3 sentences; tips is an array of 2-4 short strings. Return ONLY the JSON object, no prose, no markdown."""
 
 # --- HTTP / streaming helpers ---
 
@@ -219,10 +227,12 @@ FEEDBACK_JSON_SCHEMA = {
             "required": list(FEEDBACK_DIMS),
             "additionalProperties": False,
         },
+        "decision": {"type": "string", "enum": list(DECISIONS)},
+        "certainty": {"type": "integer", "minimum": 0, "maximum": 100},
         "verdict": {"type": "string"},
         "tips": {"type": "array", "items": {"type": "string"}, "minItems": 2, "maxItems": 4},
     },
-    "required": ["scores", "verdict", "tips"],
+    "required": ["scores", "decision", "certainty", "verdict", "tips"],
     "additionalProperties": False,
 }
 DEFAULT_TIPS = ["Use STAR format.", "Be more specific with metrics.", "Slow down and breathe."]
@@ -249,7 +259,59 @@ def _deterministic_summary() -> FeedbackSummary:
         scores={d: 6 for d in FEEDBACK_DIMS},
         verdict="Good overall; practice keeping answers concise and structured.",
         tips=list(DEFAULT_TIPS),
+        decision="lean_hire",
+        # Mid-spectrum on purpose: generate_feedback caps it by evidence volume either way.
+        certainty=50,
     )
+
+
+# Certainty ceiling by evidence volume: a one-answer transcript cannot support a 95% verdict,
+# however good that answer was. 40 + 8 per candidate answer saturates at 8 answers.
+# AI HERE: turn COUNT only. Upgrade path: fold in answer substance (length, resume presence)
+# once the grader reports it as a structured field.
+EVIDENCE_CAP_BASE, EVIDENCE_CAP_STEP = 40, 8
+
+
+def _evidence_cap(history: list[ChatMessage]) -> int:
+    answers = sum(1 for m in history if m.role == "user")
+    return min(100, EVIDENCE_CAP_BASE + EVIDENCE_CAP_STEP * answers)
+
+
+def _apply_evidence_cap(summary: FeedbackSummary, history: list[ChatMessage]) -> FeedbackSummary:
+    """Clamp the model's certainty to what the transcript can actually support."""
+    if summary.certainty is not None:
+        summary.certainty = min(summary.certainty, _evidence_cap(history))
+    return summary
+
+
+def _coerce_decision(value) -> str | None:
+    """Canonical slug for a model-emitted decision, or None when it is unrecognisable.
+
+    Tolerates label drift ("Lean Hire", "lean-hire"); an unknown label stays None - landing
+    on the wrong side of the spectrum is worse than reporting no decision at all."""
+    if not isinstance(value, str):
+        return None
+    slug = re.sub(r"[\s-]+", "_", value.strip().lower())
+    return slug if slug in DECISIONS else None
+
+
+def _coerce_certainty(value) -> int | None:
+    """Certainty pulled into 0-100, or None if not a number.
+
+    Mirrors _coerce_score: tolerates the drift a small sampler emits ("85%", 0.85 as a
+    probability) rather than discarding an otherwise valid decision over one field."""
+    if isinstance(value, bool):
+        return None  # JSON true/false is not a percentage
+    if isinstance(value, str):
+        try:
+            value = float(value.strip().rstrip("%"))
+        except ValueError:
+            return None
+    if not isinstance(value, (int, float)):
+        return None
+    if 0 < value <= 1 and not float(value).is_integer():
+        value *= 100  # 0.85 is a probability, not a certainty of one percent
+    return int(min(100, max(0, round(value))))
 
 
 def _coerce_score(value) -> float | None:
@@ -263,8 +325,6 @@ def _coerce_score(value) -> float | None:
     if isinstance(value, bool):
         return None  # JSON true/false is not a score
     if isinstance(value, str):
-        import re
-
         try:
             value = float(re.sub(r"\s*/\s*10$", "", value.strip()))
         except ValueError:
@@ -420,7 +480,20 @@ async def _request_format(notes: str) -> FeedbackSummary | None:
             continue
         tips_list = obj.get("tips")
         tips = [t for t in tips_list if isinstance(t, str) and t.strip()] if isinstance(tips_list, list) else []
-        return FeedbackSummary(scores=scores, verdict=verdict.strip(), tips=tips)
+        # decision/certainty are additive: a drift there costs the badge, not the whole scoring
+        # run (the four scores are what the dashboard and trend depend on).
+        decision = _coerce_decision(obj.get("decision"))
+        if decision is None and obj.get("decision") is not None:
+            log.warning("llm.feedback.decision_drift", shape=_shape(obj.get("decision")))
+        return FeedbackSummary(
+            scores=scores,
+            verdict=verdict.strip(),
+            tips=tips,
+            decision=decision,
+            # Certainty without a decision has nothing to qualify: drop it rather than let an
+            # orphan number into the certainty average.
+            certainty=_coerce_certainty(obj.get("certainty")) if decision else None,
+        )
     log.error("llm.feedback.formatter_unavailable")
     return None
 
@@ -434,14 +507,18 @@ async def generate_feedback(history: list[ChatMessage]) -> FeedbackSummary | Non
       - Real: grader (full transcript -> prose) then formatter (prose -> strict JSON). On
         either stage failing after its retry, return None -- the caller must NOT write
         feedback, so the interview surfaces as unscored rather than carrying fabricated 6s.
+
+    Both paths pass through the evidence cap: the decision (hire/reject spectrum) comes from
+    the model, the certainty ceiling from how much transcript there is to back it.
     """
     if STUB_MODE:
         log.warning("llm.feedback.stub_deterministic")
-        return _deterministic_summary()
+        return _apply_evidence_cap(_deterministic_summary(), history)
     notes = await _request_grader_notes(history)
     if notes is None:
         return None
-    return await _request_format(notes)
+    summary = await _request_format(notes)
+    return None if summary is None else _apply_evidence_cap(summary, history)
 
 
 def _extract_json_object(text: str) -> dict:

@@ -109,6 +109,45 @@ def test_valid_scores_coerces_range_and_string_drift():
     assert llm._valid_scores({"clarity": [7], "relevance": {"score": 7}, "structure": 7, "confidence": 7}) is None
 
 
+def test_coerce_decision_tolerates_label_drift_but_never_guesses():
+    assert llm._coerce_decision("lean_hire") == "lean_hire"
+    assert llm._coerce_decision(" Lean Hire ") == "lean_hire"
+    assert llm._coerce_decision("lean-hire") == "lean_hire"
+    assert llm._coerce_decision("Strong Hire") is None  # off-vocabulary -> undecided, not a guess
+    assert llm._coerce_decision(None) is None
+    assert llm._coerce_decision(True) is None
+
+
+def test_coerce_certainty_range_percent_and_probability():
+    assert llm._coerce_certainty(85) == 85
+    assert llm._coerce_certainty("62%") == 62
+    assert llm._coerce_certainty(0.85) == 85  # probability, not one percent
+    assert llm._coerce_certainty(-5) == 0
+    assert llm._coerce_certainty(140) == 100
+    assert llm._coerce_certainty("high") is None
+    assert llm._coerce_certainty(True) is None
+
+
+def test_evidence_cap_scales_with_answer_count_then_saturates():
+    def answers(n):
+        return [ChatMessage(role="user", content="x") for _ in range(n)]
+
+    assert llm._evidence_cap(answers(1)) == 48
+    assert llm._evidence_cap(answers(4)) == 72
+    assert llm._evidence_cap(answers(8)) == 100
+    assert llm._evidence_cap(answers(40)) == 100  # no overshoot past 100
+    assert llm._evidence_cap([]) == 40
+
+
+def test_evidence_cap_clamps_model_certainty():
+    # The model may WANT to be certain; a one-answer transcript doesn't support it.
+    loud = FeedbackSummary(scores={d: 8 for d in llm.FEEDBACK_DIMS}, verdict="v", tips=["a"], decision="hire", certainty=99)
+    assert llm._apply_evidence_cap(loud, [ChatMessage(role="user", content="one answer")]).certainty == 48
+    # ...and never inflates a modest one.
+    quiet = FeedbackSummary(scores={d: 5 for d in llm.FEEDBACK_DIMS}, verdict="v", tips=["a"], decision="lean_reject", certainty=20)
+    assert llm._apply_evidence_cap(quiet, [ChatMessage(role="user", content="x")] * 20).certainty == 20
+
+
 async def test_generate_feedback_real_grader_and_formatter_path(monkeypatch):
     monkeypatch.setattr(llm, "STUB_MODE", False)
     caller = {"model": None, "msgs": None, "json": None, "schema": None}
@@ -118,14 +157,32 @@ async def test_generate_feedback_real_grader_and_formatter_path(monkeypatch):
         caller["msgs"] = [system, user_text]
         caller["json"] = json_output
         caller["schema"] = json_schema
-        return "prose notes" if not json_output else '{"scores": {"clarity": 7, "relevance": 8, "structure": 6, "confidence": 5}, "verdict": "Solid.", "tips": ["Do X", "Do Y"]}'
+        return "prose notes" if not json_output else '{"scores": {"clarity": 7, "relevance": 8, "structure": 6, "confidence": 5}, "decision": "lean_hire", "certainty": 70, "verdict": "Solid.", "tips": ["Do X", "Do Y"]}'
+
+    monkeypatch.setattr(llm, "_completion", _completion)
+    out = await llm.generate_feedback([ChatMessage(role="user", content=f"hi {i}") for i in range(10)])
+    assert out is not None
+    assert all(1 <= out.scores[d] <= 10 for d in llm.FEEDBACK_DIMS)
+    assert (out.decision, out.certainty) == ("lean_hire", 70)
+    assert caller["json"] is True  # formatter hop requested JSON mode
+    assert caller["schema"] is llm.FEEDBACK_JSON_SCHEMA  # ... under the grammar schema when supported
+
+
+async def test_generate_feedback_keeps_scores_when_decision_drifts(monkeypatch):
+    # A bad decision label costs the badge, not the whole scoring run: the four dims still land.
+    monkeypatch.setattr(llm, "STUB_MODE", False)
+
+    async def _completion(system, user_text, *, json_output=False, **kw):
+        if json_output:
+            return '{"scores": {"clarity": 7, "relevance": 7, "structure": 7, "confidence": 7}, "decision": "Strong Hire", "certainty": 90, "verdict": "Fine.", "tips": ["A", "B"]}'
+        return "prose notes"
 
     monkeypatch.setattr(llm, "_completion", _completion)
     out = await llm.generate_feedback([ChatMessage(role="user", content="hi")])
-    assert out is not None
-    assert all(1 <= out.scores[d] <= 10 for d in llm.FEEDBACK_DIMS)
-    assert caller["json"] is True  # formatter hop requested JSON mode
-    assert caller["schema"] is llm.FEEDBACK_JSON_SCHEMA  # ... under the grammar schema when supported
+    assert out is not None and out.verdict == "Fine."
+    assert out.decision is None
+    # Orphan certainty is dropped with it, so the dashboard average stays over decided runs only.
+    assert out.certainty is None
 
 
 async def test_generate_feedback_recovers_from_out_of_range_scores(monkeypatch):

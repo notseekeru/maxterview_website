@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { type Feedback, getFeedback, type Interview, listInterviews } from "@/lib/api";
+import { isHiring } from "@/lib/interviewOptions";
 
 // Single source of truth for the dashboard home: one interviews fetch + the
 // per-completed-interview feedback needed for the dimension chart. Refresh once
@@ -42,6 +43,12 @@ export interface InterviewDims {
     scored: number;
     avgScore: number;
     scoreTrend: { label: string; score: number }[];
+    /** Subset of `completed` the model put on the hire/reject spectrum. */
+    decided: number;
+    /** Of `decided`, those on the hiring half (hire/lean_hire). */
+    hiring: number;
+    /** Mean certainty over decided runs, or null when none reported it. */
+    avgCertainty: number | null;
 }
 
 // Axis labels are built here (not in the chart) so the chart stays a pure renderer.
@@ -63,5 +70,11 @@ function computeDims(interviews: Interview[] | null): InterviewDims {
     const window = recent.slice(-20);
     const dates = window.map((i) => i.created_at.slice(0, 10));
     const scoreTrend = window.map((i) => ({ label: trendLabel(i.created_at, dates.filter((d) => d === i.created_at.slice(0, 10)).length > 1), score: i.score as number }));
-    return { total: list.length, completed: completed.length, scored: recent.length, avgScore, scoreTrend };
+    // Decisions are counted over their OWN denominator: an unscored or undecided run must
+    // not silently count as a non-hire, and pre-decision feedback rows have no decision.
+    const decided = completed.filter((i) => i.decision);
+    const hiring = decided.filter((i) => isHiring(i.decision));
+    const certainties = decided.map((i) => i.certainty).filter((c): c is number => typeof c === "number");
+    const avgCertainty = certainties.length === 0 ? null : Math.round(certainties.reduce((a, b) => a + b, 0) / certainties.length);
+    return { total: list.length, completed: completed.length, scored: recent.length, avgScore, scoreTrend, decided: decided.length, hiring: hiring.length, avgCertainty };
 }

@@ -1,6 +1,9 @@
 // Interview option vocabulary (mirrors backend app/models + app/levels).
 // Role presets are significant tech roles offered as quick picks; the free-text
-// input remains for anything not listed. Levels are the canonical seniority slugs.
+// input remains for anything not listed. Levels are the canonical seniority slugs,
+// decisions the canonical post-interview hire/reject spectrum.
+
+import type { Decision } from "@/lib/api";
 
 export const ROLE_PRESETS = [
     "Frontend Engineer",
@@ -40,4 +43,22 @@ export const LEVELS: { value: InterviewLevel; label: string }[] = [
 
 export function levelLabel(level: string): string {
     return LEVELS.find((l) => l.value === level)?.label ?? level;
+}
+
+// Post-interview decision vocabulary (mirrors backend app/models.DECISIONS, in spectrum
+// order). Labels stay short: they render under a four-segment bar.
+export const DECISIONS: { value: Decision; label: string }[] = [
+    { value: "reject", label: "Reject" },
+    { value: "lean_reject", label: "Lean reject" },
+    { value: "lean_hire", label: "Lean hire" },
+    { value: "hire", label: "Hire" },
+];
+
+export function decisionLabel(decision: string): string {
+    return DECISIONS.find((d) => d.value === decision)?.label ?? decision;
+}
+
+/** Right-of-centre half of the spectrum: the run would likely convert. */
+export function isHiring(decision?: string | null): boolean {
+    return decision === "hire" || decision === "lean_hire";
 }

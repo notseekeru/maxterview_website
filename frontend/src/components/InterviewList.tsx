@@ -3,8 +3,9 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import type { Interview } from "@/lib/api";
+import type { Decision, Interview } from "@/lib/api";
 import { levelLabel } from "@/lib/interviewOptions";
+import { DecisionChip } from "./DecisionVerdict";
 
 interface Props {
     interviews: Interview[];
@@ -87,7 +88,12 @@ export function InterviewList({ interviews, loading, error, onRefresh, onOpen, o
                             </p>
                             {/* Completed-without-score is a real state (scoring failed, no feedback
                                 row written) — offer the retry rather than a dead end. */}
-                            {typeof i.score === "number" ? <p className="text-xs text-muted-foreground">Score: {i.score}</p> : i.status === "completed" ? <p className="text-xs text-muted-foreground">Not scored</p> : null}
+                            <div className="flex flex-wrap items-center gap-2">
+                                {typeof i.score === "number" ? <span className="text-xs text-muted-foreground">Score: {i.score}</span> : i.status === "completed" ? <span className="text-xs text-muted-foreground">Not scored</span> : null}
+                                {/* Decision + certainty ride along with the score: a run can be a
+                                    mid score and still a clear hire, or the reverse. */}
+                                {i.decision && <DecisionChip decision={i.decision as Decision} certainty={i.certainty} />}
+                            </div>
                         </div>
                         <div className="flex shrink-0 items-center gap-2">
                             {typeof i.score !== "number" && i.status === "completed" && (

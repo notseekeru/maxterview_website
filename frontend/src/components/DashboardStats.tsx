@@ -16,7 +16,8 @@ interface Props {
 export function DashboardStats({ loading, dims, feedback, className }: Props) {
     if (loading) {
         return (
-            <div className={cn("grid grid-cols-1 gap-4 sm:grid-cols-3", className)}>
+            <div className={cn("grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4", className)}>
+                <Skeleton className="h-24" />
                 <Skeleton className="h-24" />
                 <Skeleton className="h-24" />
                 <Skeleton className="h-24" />
@@ -39,12 +40,15 @@ export function DashboardStats({ loading, dims, feedback, className }: Props) {
 
     return (
         <div className={cn("flex h-full flex-col space-y-4", className)}>
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
                 <Stat label="Interviews" value={String(dims.total)} />
                 <Stat label="Completed" value={String(dims.completed)} />
                 {/* A completed run can be permanently unscored (scoring failed). Say so, or
                     the average silently covers fewer runs than "Completed" claims. */}
                 <Stat label="Avg score" value={dims.scored ? dims.avgScore.toFixed(1) : "—"} hint={dims.scored && dims.scored < dims.completed ? `from ${dims.scored} of ${dims.completed} scored` : undefined} />
+                {/* Hire rate is over DECIDED runs only (same denominator honesty as Avg score),
+                    with mean certainty because 3 of 3 at 45% is not 3 of 3 at 95%. */}
+                <Stat label="Hire rate" value={dims.decided === 0 ? "—" : `${Math.round((dims.hiring / dims.decided) * 100)}%`} hint={dims.decided === 0 ? "no decided runs yet" : `${dims.hiring} of ${dims.decided} decided${dims.avgCertainty === null ? "" : ` · ${dims.avgCertainty}% mean certainty`}`} />
             </div>
             <div className="grid flex-1 grid-cols-1 gap-4 content-stretch lg:grid-cols-2">
                 <ScoreTrend data={dims.scoreTrend} />
