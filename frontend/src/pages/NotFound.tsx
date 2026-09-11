@@ -2,8 +2,8 @@ import { Link } from "react-router-dom";
 
 import { Button } from "@/components/ui/button";
 
-// Catch-all for unknown top-level paths (/foo) that match no client route.
-// Rendered inside <Gate> so signed-out users still hit the auth lightbox first.
+// Catch-all for unknown top-level paths (/foo) that match no client route. Reached only
+// via the catch-all <Route>, and still rendered inside <Gate> — auth runs first.
 export function NotFound() {
     return (
         <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-background p-6 text-center">

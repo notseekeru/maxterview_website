@@ -8,9 +8,7 @@ import { useInterviewData } from "@/hooks/useInterviewData";
 import { deleteInterview, regenerateFeedback } from "@/lib/api";
 import { clerkEnabled } from "@/lib/config";
 
-// /app (dashboard) — the shell index. One data source (useInterviewData) shared
-// by stats and history; creating an interview refreshes both and jumps into the
-// full-screen interview route.
+// /app (dashboard) — the shell index.
 export function AppHome() {
     const navigate = useNavigate();
     const { interviews, feedback, loading, error, refresh, dims } = useInterviewData();

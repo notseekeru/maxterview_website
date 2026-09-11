@@ -6,9 +6,9 @@ interface ProgressProps extends React.HTMLAttributes<HTMLDivElement> {
     value?: number;
 }
 
-// Bar fill is a width %, not a translateX reveal: the old `flex-1 w-full` child
-// sat in a non-flex parent (so `flex-1` was inert) and always rendered 100% wide,
-// relying on translateX clipping to fake the value.
+// Bar fill is a width %, not a translateX reveal. Do not "modernize" this to the
+// shadcn translateX form: a `flex-1 w-full` child in a non-flex parent renders 100%
+// wide and fakes the value by clipping.
 const Progress = React.forwardRef<HTMLDivElement, ProgressProps>(({ className, value, ...props }, ref) => {
     const pct = Math.min(100, Math.max(0, value ?? 0));
     return (

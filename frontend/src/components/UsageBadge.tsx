@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { createCheckoutSession, getUsage, openBillingPortal, type Usage } from "@/lib/api";
 import { clerkEnabled } from "@/lib/config";
 
-// M10: cheap quota-status badge (backed by GET /usage / MONETIZATION §3).
+// Quota-status badge (GET /usage, MONETIZATION §3).
 export function UsageBadge() {
     const [usage, setUsage] = useState<Usage | null>(null);
     const [error, setError] = useState(false);
@@ -26,9 +26,8 @@ export function UsageBadge() {
     if (error) return null;
     if (!usage) return <Badge variant="secondary">…</Badge>;
 
-    // Explicit tier label (Free/Premium) + DEV marker. `dev` is only reachable in
-    // no-Clerk mode (resolve_tier grants it solely to the DEV_USER identity), so
-    // its label replaces the shared-FREE read shown pre-fix.
+    // `dev` is only reachable in no-Clerk mode (resolve_tier grants it solely to the
+    // DEV_USER identity).
     const isDev = usage.tier === "dev";
     const tierBadge = usage.tier === "premium" ? <Badge>Premium</Badge> : isDev ? <Badge variant="outline">DEV</Badge> : <Badge variant="outline">Free</Badge>;
 
@@ -40,7 +39,7 @@ export function UsageBadge() {
     );
 }
 
-// M10: lockout / upsell notice with an "Upgrade" CTA when quota is exhausted.
+// Lockout / upsell notice with an "Upgrade" CTA when quota is exhausted.
 export function UpgradeNotice({ reason }: { reason: string }) {
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState(false);

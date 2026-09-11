@@ -35,10 +35,10 @@ export function InterviewChat({ interviewId, onExit }: Props) {
 
     // Reopening an existing (non-pending) run. POST /start 409s for BOTH in_progress and
     // completed runs, so read the authoritative status rather than inferring "completed"
-    // from the conflict (that made a live run render as finished + unscored). Completed
-    // runs show stored feedback, or flag that scoring never landed: 404 from /feedback is
-    // that case (the backend writes no row when generation fails) and is the same signal
-    // `finish()` sets after a fresh /complete, so both paths render one warning block.
+    // from the conflict. Completed runs show stored feedback, or flag that scoring never
+    // landed: 404 from /feedback is that case (the backend writes no row when generation
+    // fails) and is the same signal `finish()` sets after a fresh /complete, so both paths
+    // render one warning block.
     const loadExisting = useCallback(
         async (id: string) => {
             const [interview] = await Promise.all([getInterview(id), loadMessages()]);
@@ -64,14 +64,15 @@ export function InterviewChat({ interviewId, onExit }: Props) {
             } catch (e: unknown) {
                 if (!cancelled) {
                     const st = httpStatus(e);
-                    // NB: previously read `e.status`, which is undefined for axios errors, so this
-                    // branch never ran and reopening a run skipped both transcript and feedback.
+                    // NB: do NOT replace with `e.status` — axios nests the status at
+                    // response.status, so the top-level read is undefined and this branch
+                    // never runs (reopening a run then skips transcript + feedback).
                     if (st !== 409) {
                         setError("Could not start interview.");
                         setStatus("ready");
                     } else {
                         // Not pending (in_progress or completed) — let the interview's real
-                        // status drive the UI state instead of assuming "completed".
+                        // status drive the UI state.
                         setStatus(await loadExisting(interviewId));
                     }
                 }

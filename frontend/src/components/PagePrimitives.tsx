@@ -2,8 +2,7 @@ import type { ReactNode } from "react";
 import { Icon, type IconName } from "@/components/AppIcons";
 import { Separator } from "@/components/ui/separator";
 
-// Consistent inner-width wrapper + heading used by every sidebar page so the
-// shell rail and the content look cohesive across routes.
+// Consistent inner-width wrapper + heading used by every sidebar page.
 export function Page({ title, description, children, actions }: { title: string; description?: string; children: ReactNode; actions?: ReactNode }) {
     return (
         <div className="mx-auto w-full max-w-4xl space-y-6 px-4 py-6 sm:px-6">
@@ -19,8 +18,7 @@ export function Page({ title, description, children, actions }: { title: string;
     );
 }
 
-// Graceful stand-in for sections whose backend work is not built yet (see the
-// `AI HERE:` note next to any such route). Shows intent + a "coming soon" body.
+// Graceful stand-in for sections whose backend work is not built yet.
 export function ComingSoon({ icon, title, description }: { icon: IconName; title: string; description: string }) {
     return (
         <div className="flex min-h-[40vh] flex-col items-center justify-center gap-3 rounded-lg border border-dashed p-8 text-center">

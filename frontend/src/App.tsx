@@ -23,22 +23,16 @@ const InterviewRoute = lazy(() => import("@/pages/InterviewRoute").then((m) => (
 function App() {
     return (
         <BrowserRouter>
-            {/* App-wide: keep the stored theme applied on every route, not only
-                the System Settings page (fixes dark preference lost on Dashboard
-                or any hard page load landing outside the settings route). */}
             <AppThemeSync />
-            {/* Shows only when Clerk auth env is self-contradictory (bad key, or backend
+            {/* Shown only when Clerk auth env is self-contradictory (bad key, or backend
                 auth-gated but no usable pk_). Above <Routes> so it appears in every mode. */}
             <AuthMisconfigBanner />
             <Routes>
-                {/* Public marketing landing (M12). */}
                 <Route path="/" element={<Landing />} />
 
-                {/* Everything else is gated; the pathless Gate route renders the
-                    app/landing chrome around an <Outlet/> once (sign-in early-returns for
-                    small screens but keeps recursion). */}
+                {/* Gated subtree: this pathless route renders the shell/lightbox around an
+                    <Outlet/> — the recursion is intentional, do not flatten it. */}
                 <Route element={<Gate />}>
-                    {/* App area: persistent sidebar shell around Dashboard + sub-pages. */}
                     <Route path="/app" element={<AppShell />}>
                         <Route
                             index
@@ -49,17 +43,14 @@ function App() {
                             }
                         />
 
-                        {/* Top-level sidebar destinations. */}
                         <Route path="interviews" element={<InterviewsPage />} />
                         <Route path="analytics" element={<AnalyticsPage />} />
                         <Route path="resume" element={<ResumePage />} />
 
-                        {/* Settings group. */}
                         <Route path="settings/system" element={<SystemSettingsPage />} />
                         <Route path="settings/account" element={<AccountSettingsPage />} />
                         <Route path="settings/billing" element={<BillingPage />} />
 
-                        {/* Management group. */}
                         <Route path="manage/accounts" element={<ManageAccountsPage />} />
                         <Route path="manage/docs" element={<DocsPage />} />
 
@@ -74,7 +65,6 @@ function App() {
                         />
                     </Route>
 
-                    {/* Live interview / replay stays full-screen (not in the shell). */}
                     <Route
                         path="/interviews/:id"
                         element={
@@ -85,7 +75,7 @@ function App() {
                     />
                 </Route>
 
-                {/* Catch-all: unknown paths always show 404, regardless of auth state. */}
+                {/* Catch-all: 404 regardless of auth state. */}
                 <Route path="*" element={<NotFound />} />
             </Routes>
         </BrowserRouter>

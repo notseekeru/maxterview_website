@@ -17,9 +17,7 @@ interface Props {
 }
 
 export function CreateInterviewForm({ onCreated, variant = "compact", className }: Props) {
-    // Same component, context-aware density: "compact" is a tile that competes
-    // with dashboard siblings; "featured" sheds the width cap and lets Role +
-    // Topic span both columns so Level|Topic sit level with it on the hero page.
+    // "featured" sheds the width cap and lets Role + Topic span both columns.
     const featured = variant === "featured";
     const [role, setRole] = useState("");
     const [level, setLevel] = useState("any");

@@ -1,6 +1,5 @@
 // Light/dark/system theme, persisted to localStorage and applied as a `.dark`
-// class on <html> (matches the recharts `.dark` token convention in chart.tsx).
-// Framework-free — no theme provider dependency.
+// class on <html> (matches the recharts `.dark` convention in chart.tsx).
 
 export type Theme = "light" | "dark" | "system";
 
@@ -15,12 +14,11 @@ function systemPrefersDark(): boolean {
 }
 
 function effectiveDark(theme: Theme): boolean {
-    // "system" resolves against the OS preference at read time.
     const resolved: Theme = theme === "system" ? (systemPrefersDark() ? "dark" : "light") : theme;
     return resolved === "dark";
 }
 
-// Apply the resolved dark state to the document root. Inert under SSR (not used).
+// Inert under SSR (not used).
 export function applyTheme(theme: Theme): void {
     if (typeof document === "undefined") return;
     document.documentElement.classList.toggle("dark", effectiveDark(theme));

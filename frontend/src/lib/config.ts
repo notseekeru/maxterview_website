@@ -6,10 +6,8 @@ import { clerkEnabled, clerkPublishableKey } from "./authHealth";
 
 export { clerkEnabled, clerkPublishableKey };
 
-// The opening line shown at the top of a fresh interview thread. The interviewer is a
-// mock-interview coach, so we kick off by asking the candidate to share their resume /
-// background (the "first starting tool"). Exposed as a variable so it is easy to reword
-// or disable per-deployment; an env override keeps it reusable and scalable:
+// The opening line shown at the top of a fresh interview thread (mock-interview coach
+// kicks off by asking for the resume / background). Env-overridable per deployment:
 //   VITE_OPENING_ASKS_RESUME="<text>"  -> custom opening
 //   VITE_OPENING_ASKS_RESUME=""        -> hide the opening entirely
 const envOpening = import.meta.env.VITE_OPENING_ASKS_RESUME as string | undefined;

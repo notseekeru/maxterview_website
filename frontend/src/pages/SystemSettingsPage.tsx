@@ -12,16 +12,14 @@ const THEME_OPTIONS: { value: Theme; label: string; icon: "sun" | "moon" | "moni
     { value: "system", label: "System", icon: "monitor" },
 ];
 
-// /app/settings/system — per-user app preferences. Appearance (theme) is live;
-// the remaining cards are admin/ops-facing knobs that have no backend yet and
-// are rendered inert so the shape is visible (see `AI HERE:` per block).
+// /app/settings/system — per-user app preferences. Appearance (theme) is live; the
+// remaining cards are ops-facing knobs with no backend yet (inert, see `AI HERE:`).
 export function SystemSettingsPage() {
     const { theme, setTheme } = useTheme();
     const [model, setModel] = useState<string>("default");
 
     return (
         <Page title="System Settings" description="Appearance and behaviour defaults for your workspace.">
-            {/* Appearance — fully wired theme control. */}
             <Card>
                 <CardHeader>
                     <CardTitle>Appearance</CardTitle>

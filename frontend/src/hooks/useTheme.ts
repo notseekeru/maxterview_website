@@ -2,21 +2,19 @@ import { useCallback, useEffect, useState } from "react";
 
 import { applyTheme, readStoredTheme, storeTheme, type Theme } from "@/lib/theme";
 
-// React state around lib/theme. `setTheme` flips storage AND the DOM
-// synchronously (not via the mount effect below) so the choice lands even if
-// the calling page unmounts right after — the .dark class then survives any
-// SPA navigation.
+// React state around lib/theme. `setTheme` flips storage AND the DOM synchronously
+// (not via the mount effect below) so the choice survives a fast unmount + SPA nav.
 export function useTheme() {
     const [theme, setThemeState] = useState<Theme>(() => readStoredTheme());
 
-    // Re-apply on mount + whenever the stored choice changes (defensive: in case
-    // storage changed in another tab or the boot <script> was skipped).
+    // Defensive: covers another tab changing storage, or the boot <script> not running.
     useEffect(() => {
         applyTheme(theme);
     }, [theme]);
 
-    // When the user picks "system", also react to live OS preference changes.
     const mq = window.matchMedia?.("(prefers-color-scheme: dark)");
+    // When the user picks "system", also react to live OS preference changes —
+    // this listener is load-bearing, not dead code.
     useEffect(() => {
         if (theme !== "system" || !mq) return;
         const onChange = () => applyTheme("system");

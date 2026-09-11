@@ -45,8 +45,8 @@ export interface InterviewDims {
 }
 
 // Axis labels are built here (not in the chart) so the chart stays a pure renderer.
-// Same-day runs used to render identical "09-09" ticks; when a date repeats, the
-// label gains the run time to stay distinguishable.
+// When a date repeats the label gains the run time — same-day runs would otherwise
+// render identical "09-09" ticks.
 function trendLabel(iso: string, dateRepeats: boolean): string {
     const md = iso.slice(5, 10).replace("-", "/");
     return dateRepeats ? `${md} ${iso.slice(11, 16)}` : md;
@@ -56,7 +56,7 @@ function computeDims(interviews: Interview[] | null): InterviewDims {
     const list = interviews ?? [];
     // `completed` counts what the History rows label "completed" (status only). Scoring
     // can legitimately fail (scores schema/outage) leaving completed-without-score, so
-    // counting only scored runs made the tile read fewer than the rows showed.
+    // do NOT derive this tile from scored runs — it then reads fewer than the rows show.
     const completed = list.filter((i) => i.status === "completed");
     const recent = completed.filter((i) => typeof i.score === "number");
     const avgScore = recent.length === 0 ? 0 : recent.reduce((a, i) => a + (i.score as number), 0) / recent.length;

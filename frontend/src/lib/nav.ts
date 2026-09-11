@@ -1,5 +1,4 @@
-// Sidebar navigation model shared by the shell layout. Pure data-structure; the
-// renderer lives in components/AppShell.tsx. Kept framework-free for easy lint + test.
+// Sidebar navigation model shared by the shell layout. Renderer: components/AppShell.tsx.
 
 import type { IconName } from "@/components/AppIcons";
 
@@ -7,7 +6,6 @@ export interface NavItem {
     label: string;
     to: string;
     icon: IconName;
-    // Optional end-exact matching note; most entries are exact on `to`.
     index?: boolean;
 }
 
@@ -17,10 +15,6 @@ export interface NavSection {
     items: NavItem[];
 }
 
-// Information architecture:
-//   top-level: Dashboard, Interviews, Analytics, Resume
-//   group "Settings": System, Account
-//   group "Management": Managed accounts, Docs
 export const NAV: NavSection[] = [
     {
         id: "main",

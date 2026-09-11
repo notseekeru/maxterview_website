@@ -1,11 +1,7 @@
 import { BookOpen, ChartLine, CreditCard, FileText, LayoutDashboard, LogOut, type LucideIcon, Menu, MessageSquare, Monitor, Moon, Settings, ShieldCheck, Sun, User, Users, X } from "lucide-react";
 import type { ComponentProps } from "react";
 
-// ---------------------------------------------------------------- facade
-// Single typed icon namespace so pages/nav never import lucide directly. Adding
-// an icon here (name -> lucide component) makes it available app-wide; unused
-// MAP entries are retained because MAP is a static object, so this deliberately
-// serves the handful of nav/app icons we use. Swap/rename maps in one place.
+// Single typed icon namespace so pages/nav never import lucide directly.
 
 export type IconName = "dashboard" | "chat" | "chart" | "file" | "settings" | "user" | "users" | "shield" | "card" | "book" | "sun" | "moon" | "monitor" | "logout" | "menu" | "x";
 

@@ -18,8 +18,7 @@ createRoot(rootElement).render(
                 <App />
             </ClerkProvider>
         ) : (
-            // No Clerk key -> dev/no-auth mode (backed by the backend's DEV_USER).
-            // Matches the documented CLERK_ENABLED=false dev fallback.
+            // No Clerk key -> dev/no-auth mode (backend DEV_USER, CLERK_ENABLED=false).
             <App />
         )}
     </StrictMode>,

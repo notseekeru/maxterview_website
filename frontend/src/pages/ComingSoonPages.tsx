@@ -1,8 +1,6 @@
 import { ComingSoon, Page } from "@/components/PagePrimitives";
 
-// Placeholder routes whose backend work isn't built yet. Kept in one module so
-// adding the real page later is a drop-in rename; each still gets its own <Page>
-// title + empty-state (AI HERE: the only “logic” today is the nav entry landing).
+// Placeholder routes whose backend work isn't built yet.
 
 export function AnalyticsPage() {
     return (

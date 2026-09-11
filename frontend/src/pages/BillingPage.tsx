@@ -7,15 +7,12 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { chatTurns, createCheckoutSession, getUsage, openBillingPortal, type Tier, type Usage } from "@/lib/api";
 import { clerkEnabled } from "@/lib/config";
 
-// Dedicated billing / plan page (M10 frontend) at /app/settings/billing.
-// Side-by-side Free vs Premium cards + a current-plan summary. The Free card's
-// upgrade CTA posts to /billing/checkout (Stripe hosted checkout) and redirects;
-// the Premium card offers Stripe portal management. `dev` (no-Clerk-only) gets a
-// read-only summary and no upgrade path.
+// /app/settings/billing. Free vs Premium cards + current-plan summary. The upgrade
+// CTA posts to /billing/checkout (Stripe hosted); Premium gets Stripe portal mgmt.
+// `dev` (no-Clerk-only) gets a read-only summary and no upgrade path.
 
 export function BillingPage() {
-    // Fetch usage ONCE here and thread it down: Summary + both PlanCards share
-    // the same result, so a single page load issues one GET /usage (not three).
+    // One GET /usage feeds Summary + both PlanCards — do not hoist into each.
     const usageState = useUsage();
     return (
         <Page title="Billing & Plan" description="Your plan gates your daily chat-turn credits (all interviews). Compare tiers and manage your subscription.">
@@ -28,7 +25,7 @@ export function BillingPage() {
     );
 }
 
-// Free/premium real figures from MONETIZATION §0 (env-overridable server-side:
+// Free/premium figures from MONETIZATION §0 (env-overridable server-side:
 // FREE_CHAT_TURNS=10 / PREMIUM_CHAT_TURNS=250). `dev` (500) isn't marketed.
 export const PLANS: Record<"free" | "premium", { name: string; monthly: string; turns: number }> = {
     free: { name: "Free", monthly: "$0", turns: 10 },
@@ -53,8 +50,6 @@ function useUsage() {
 }
 
 const TIER_NAME: Record<Tier, string> = { free: "Free", premium: "Premium", dev: "Developer (dev)" };
-
-// --- current plan summary ---
 
 function Summary({ usage, failed, loading }: { usage: Usage | null; failed: boolean; loading: boolean }) {
     return (
@@ -81,8 +76,6 @@ function Summary({ usage, failed, loading }: { usage: Usage | null; failed: bool
     );
 }
 
-// --- tier card ---
-
 function PlanCard({ tier, usage }: { tier: "free" | "premium"; usage: Usage | null }) {
     const [busy, setBusy] = useState(false);
     const [ctaError, setCtaError] = useState(false);
@@ -90,7 +83,7 @@ function PlanCard({ tier, usage }: { tier: "free" | "premium"; usage: Usage | nu
     const isPremium = tier === "premium";
     const isCurrent = !!usage && usage.tier === tier;
 
-    // Redirect must follow real Stripe-hosted checkout/portal URLs.
+    // Stripe-hosted checkout/portal URLs must actually be followed.
     const go = async (open: () => Promise<string>) => {
         setBusy(true);
         setCtaError(false);
@@ -120,7 +113,6 @@ function PlanCard({ tier, usage }: { tier: "free" | "premium"; usage: Usage | nu
             </Button>
         );
     } else {
-        // Free user eyeing Premium, or (rare) premium user reverting to Free.
         cta = (
             <Button className="w-full" onClick={() => void go(createCheckoutSession)} disabled={busy || !usage}>
                 {busy ? "Opening Stripe…" : isPremium ? `Upgrade · ${plan.monthly}` : "Switch to Free"}

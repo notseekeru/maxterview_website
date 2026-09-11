@@ -11,9 +11,8 @@ export const api = axios.create({
     withCredentials: true, // send __session cookie for Clerk auth
 });
 
-// Surface the backend-is-auth-gated-but-browser-can't-login mismatch to the shell.
-// On any 401 whose detail is exactly the backend's `Missing credentials`, tell authHealth.
-// When the frontend also has no usable pk_ key the shell then shows the misconfig banner.
+// Surface the backend-auth-gated-but-browser-can't-login mismatch to the shell: on a
+// 401 whose detail is exactly the backend's `Missing credentials`, tell authHealth.
 api.interceptors.response.use(
     (r) => r,
     (err) => {
@@ -29,7 +28,7 @@ export function httpStatus(e: unknown): number | undefined {
     return (e as AxiosError)?.response?.status ?? (e as { status?: number })?.status;
 }
 
-// M10: a 402 signals a quota lockout (daily interview cap or chat-turn cap).
+// M10: a 402 signals a quota lockout (daily chat-turn cap).
 export function isQuotaError(e: unknown): boolean {
     return (e as AxiosError)?.response?.status === 402;
 }
@@ -66,13 +65,9 @@ export interface Feedback {
     created_at: string;
 }
 
-// Mirror GET /usage (MONETIZATION §3).
-// Backend returns EXACTLY:
-//   { "tier": tier, "chat_turns_per_day_<tier>": <int>, "chat_turns_used_today": <int>,
-//     "chat_turns_remaining_today": <int> }
-// The per-interview + daily-interview caps are gone: the only quota is a daily GLOBAL
-// chat-turn credits shared across ALL of the owner's interviews (plus `dev` for the
-// no-Clerk identity). The dynamic dial key is addressed via `chatTurns(usage)` below.
+// Mirror GET /usage (MONETIZATION §3). The only quota is a daily GLOBAL chat-turn
+// credit shared across ALL of the owner's interviews (plus `dev` for the no-Clerk
+// identity); the dynamic dial key is addressed via `chatTurns(usage)` below.
 
 export type Tier = "free" | "premium" | "dev";
 
@@ -83,7 +78,6 @@ export interface Usage {
     chat_turns_per_day_dev?: number;
 }
 
-// Access the per-tier daily turn dial for whatever tier the user is on.
 export function chatTurns(usage: Usage): number {
     return usage[`chat_turns_per_day_${usage.tier}`] ?? 0;
 }

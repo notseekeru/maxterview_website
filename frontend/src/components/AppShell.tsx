@@ -8,8 +8,7 @@ import { NAV, type NavItem } from "@/lib/nav";
 import { cn } from "@/lib/utils";
 
 // Persistent shell around the Dashboard + its sub-pages: a fixed left rail on
-// ≥lg screens and a slide-over drawer below (triggered by a top menu bar).
-// `/interviews/:id` keeps its own full-screen chrome and is not wrapped here.
+// ≥lg screens and a slide-over drawer below. `/interviews/:id` is not wrapped here.
 export function AppShell() {
     return (
         <div className="min-h-screen">
@@ -21,7 +20,6 @@ export function AppShell() {
                 </aside>
             </aside>
 
-            {/* content column */}
             <div className="flex min-h-screen flex-col lg:pl-60">
                 <MobileTopBar />
                 <main className="min-w-0 flex-1">
@@ -68,13 +66,11 @@ function RailItem({ item, onNavigate }: { item: NavItem; onNavigate: () => void 
 }
 
 // Account / session footer shown in the rail. Clerk => UserButton (avoids a
-// bespoke useUser + sign-out; the built-in menu covers manage + sign out). In
-// no-Clerk dev mode we render a quiet DEV tag.
+// bespoke useUser + sign-out). In no-Clerk dev mode we render a quiet DEV tag.
 function SessionFooter() {
     return clerkEnabled ? <UserButton /> : <DevTag />;
 }
 
-// No-Clerk dev mode has no session; render a quiet tag.
 function DevTag() {
     return (
         <div role="status" className="text-xs text-muted-foreground">
@@ -102,7 +98,6 @@ function MobileTopBar() {
 
             {open && (
                 <div className="fixed inset-0 z-50 lg:hidden" role="dialog" aria-modal="true" aria-label="Navigation">
-                    {/* Scrim click / Escape closes the drawer. */}
                     <button type="button" aria-label="Close navigation" className="absolute inset-0 bg-black/50" onClick={close} />
                     <div className="absolute inset-y-0 left-0 flex w-72 max-w-[85vw] flex-col border-r border-border bg-background">
                         <div className="flex h-14 items-center justify-between border-b border-border px-4">

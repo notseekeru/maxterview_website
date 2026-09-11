@@ -8,10 +8,8 @@ import { Card, CardDescription, CardFooter, CardHeader, CardTitle } from "@/comp
 import { chatTurns, getUsage, openBillingPortal, type Usage } from "@/lib/api";
 import { clerkEnabled } from "@/lib/config";
 
-// /app/settings/account — single-user account + plan. Rest of "account
-// management" (managed accounts) lives under /app/manage/accounts (a place for
-// multiple roles/tenants once D4's single-owner scoping is widened — see the
-// PRD "Future" notes). Here we show the auth + billing reality we already have.
+// /app/settings/account — single-user account + plan. Managed accounts live under
+// /app/manage/accounts (see the PRD "Future" notes).
 export function AccountSettingsPage() {
     const [usage, setUsage] = useState<Usage | null>(null);
     const load = useCallback(async () => setUsage(await getUsage()), []);
@@ -24,8 +22,7 @@ export function AccountSettingsPage() {
     return (
         <Page title="Account Settings" description="Your sign-in details and subscription.">
             {/* Plan — summary only; the full tiers + upgrade/portal surface lives on
-                /app/settings/billing (see BillingPage). Show what tier the user is on
-                and the daily chat-turn credit (all interviews) it grants. */}
+                /app/settings/billing. */}
             <Card>
                 <CardHeader className="flex-row items-center justify-between space-y-0">
                     <div>

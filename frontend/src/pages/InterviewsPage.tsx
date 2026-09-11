@@ -6,9 +6,7 @@ import { Page } from "@/components/PagePrimitives";
 import { useInterviewData } from "@/hooks/useInterviewData";
 import { deleteInterview, regenerateFeedback } from "@/lib/api";
 
-// /app/interviews — a management home for your sessions. Mirrors the Dashboard's
-// "New interview" panel so you can start a session here too, above the history.
-// Shares the same single data source as the Dashboard (useInterviewData).
+// /app/interviews — a management home for your sessions.
 export function InterviewsPage() {
     const navigate = useNavigate();
     const { interviews, loading, error, refresh } = useInterviewData();

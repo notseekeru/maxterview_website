@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 
-// / — public marketing landing (M12). Black/white aesthetic.
+// / — public marketing landing.
 export function Landing() {
     const navigate = useNavigate();
 

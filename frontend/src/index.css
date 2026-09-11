@@ -29,7 +29,7 @@
     --radius-3xl: calc(var(--radius, 0.5rem) + 16px);
 }
 
-/* Black/white monochrome aesthetic (deliberate choice 2026-*). */
+/* Black/white monochrome aesthetic. */
 :root {
     --background: #ffffff;
     --foreground: #000000;
@@ -58,9 +58,8 @@
     --radius: 0.625rem;
 }
 
-/* Dark mode palette. Mirrors the monochrome design; `.dark` is toggled on <html>
-   by lib/theme.ts, so all existing `var(--...)` tokens + the recharts `.dark`
-   convention (ui/chart.tsx) pick it up without per-component dark: classes. */
+/* Dark mode palette. `.dark` is toggled on <html> by lib/theme.ts, so all
+   `var(--...)` tokens + recharts' `.dark` convention (ui/chart.tsx) pick it up. */
 .dark {
     color-scheme: dark;
     --background: #0a0a0a;
