@@ -111,8 +111,8 @@ Use PLAIN PROSE. Do NOT wrap everything in JSON — you are the reviewer, a sepa
 # formatter runs on fresh, SHORT grader notes rather than the long raw transcript.
 FEEDBACK_PROMPT_V1 = """Convert the interview grader notes in your user message into a JSON object ONLY, exactly matching this shape:
 {"scores": {"clarity": 7, "relevance": 6, "structure": 8, "confidence": 5}, "verdict": "Overall assessment in 2-3 sentences.", "tips": ["tip one", "tip two"]}
-Rules: scores are integers 1-10 for exactly clarity/relevance/structure/confidence; verdict is 2-3 sentences; tips is an array of 2-4 short strings. Return ONLY the JSON object, no prose, no markdown."""
-
+Rules: scores are integers 1-10 for exactly clarity/relevance/structure/confidence - 1 is the FLOOR and means nothing usable was said
+(never emit 0 or any value outside 1-10, even when the notes say the candidate failed); verdict is 2-3 sentences; tips is an array of 2-4 short strings. Return ONLY the JSON object, no prose, no markdown."""
 
 # --- HTTP / streaming helpers ---
 
@@ -171,7 +171,37 @@ def _extract_delta(chunk: str) -> str:
 # If a response omits any dim we treat it as a failed structured-parse (never accept
 # partial scores) and give up on that attempt.
 FEEDBACK_DIMS = ("clarity", "relevance", "structure", "confidence")
+# Machine-readable twin of FEEDBACK_PROMPT_V1, sent as response_format=json_schema: backends
+# with grammar-constrained decoding (llama.cpp) then cannot drift the dim names or the 1-10
+# range at all. Backends that only support json_object (DeepSeek) 400 on it and _completion
+# transparently retries in plain JSON mode.
+FEEDBACK_JSON_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "scores": {
+            "type": "object",
+            "properties": {d: {"type": "integer", "minimum": 1, "maximum": 10} for d in FEEDBACK_DIMS},
+            "required": list(FEEDBACK_DIMS),
+            "additionalProperties": False,
+        },
+        "verdict": {"type": "string"},
+        "tips": {"type": "array", "items": {"type": "string"}, "minItems": 2, "maxItems": 4},
+    },
+    "required": ["scores", "verdict", "tips"],
+    "additionalProperties": False,
+}
 DEFAULT_TIPS = ["Use STAR format.", "Be more specific with metrics.", "Slow down and breathe."]
+
+
+def _shape(value) -> str:
+    """Content-free fingerprint of a payload for diagnosing schema drift (never the text)."""
+    if isinstance(value, dict):
+        return "{" + ",".join(f"{k}={_shape(v)}" for k, v in sorted(value.items())) + "}"
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return str(value)
+    if isinstance(value, (str, list)):
+        return f"{type(value).__name__}[{len(value)}]"
+    return type(value).__name__
 
 
 def _deterministic_summary() -> FeedbackSummary:
@@ -187,19 +217,39 @@ def _deterministic_summary() -> FeedbackSummary:
     )
 
 
+def _coerce_score(value) -> float | None:
+    """One dim's score, pulled into the declared 1-10 range, or None if not a number.
+
+    Tolerates the drift a small sampler emits on short/failed transcripts: numeric
+    strings ("7", "7/10") and out-of-range answers - the rubric floor is 1, so a model
+    that answers 0 for "the candidate said nothing" means the floor. Discarding the whole
+    verdict+tips payload over one digit is what produced the schema_mismatch 503s.
+    """
+    if isinstance(value, bool):
+        return None  # JSON true/false is not a score
+    if isinstance(value, str):
+        import re
+
+        try:
+            value = float(re.sub(r"\s*/\s*10$", "", value.strip()))
+        except ValueError:
+            return None
+    if not isinstance(value, (int, float)):
+        return None
+    return min(10.0, max(1.0, float(value)))
+
+
 def _valid_scores(value) -> dict | None:
     """All four dims present as 1-10 numbers, else None (never accept partial scores)."""
     if not isinstance(value, dict):
         return None
-    numeric = []
+    scores = {}
     for d in FEEDBACK_DIMS:
-        v = value.get(d)
-        if isinstance(v, bool) or not isinstance(v, (int, float)):
+        n = _coerce_score(value.get(d))
+        if n is None:
             return None
-        numeric.append((d, float(v)))
-    if not all(1 <= n <= 10 for _, n in numeric):
-        return None
-    return dict(numeric)
+        scores[d] = n
+    return scores
 
 
 async def _completion(
@@ -210,6 +260,11 @@ async def _completion(
     base_url: str,
     max_tokens: int,
     json_output: bool = False,
+    json_schema: dict | None = None,
+    # Greedy by default: the feedback hops are extraction (notes -> JSON), not writing,
+    # and server-default sampling (~0.8) decides rubric edges by coin flip - it emitted 0
+    # where the rubric floor is 1 often enough to 503 the generate endpoint.
+    temperature: float | None = 0.0,
 ) -> str | None:
     """One non-streaming completion. Returns the raw assistant text, or None on failure.
 
@@ -223,21 +278,39 @@ async def _completion(
         "max_tokens": max_tokens,
         **_chat_extras(),
     }
-    if json_output:
-        payload["response_format"] = {"type": "json_object"}
+    if temperature is not None:
+        payload["temperature"] = temperature
+    if json_output or json_schema:
+        payload["response_format"] = _json_format(json_schema)
     headers = {"Authorization": f"Bearer {LLM_API_KEY}"} if LLM_API_KEY else {}
-    try:
-        async with httpx.AsyncClient(base_url=base_url, timeout=httpx.Timeout(300.0)) as client:
-            resp = await client.post("/chat/completions", json=payload, headers=headers)
-            resp.raise_for_status()
-            content = resp.json()["choices"][0]["message"]["content"]
-    except Exception as exc:  # httpx.HTTPError + malformed/truncated response bodies
-        log.warning("llm.feedback.transport_error", reason=type(exc).__name__)
-        return None
+    # Second pass exists only for the schema-capable -> json_object downgrade.
+    bodies = [payload, {**payload, "response_format": _json_format(None)}] if json_schema else [payload]
+    for i, body in enumerate(bodies):
+        try:
+            async with httpx.AsyncClient(base_url=base_url, timeout=httpx.Timeout(300.0)) as client:
+                resp = await client.post("/chat/completions", json=body, headers=headers)
+                resp.raise_for_status()
+                content = resp.json()["choices"][0]["message"]["content"]
+            break
+        except httpx.HTTPStatusError as exc:
+            if i == 0 and len(bodies) == 2 and exc.response.status_code in (400, 404, 422):
+                log.info("llm.feedback.json_schema_unsupported", status=exc.response.status_code)
+                continue
+            log.warning("llm.feedback.transport_error", reason=type(exc).__name__, status=exc.response.status_code)
+            return None
+        except Exception as exc:  # httpx.HTTPError + malformed/truncated response bodies
+            log.warning("llm.feedback.transport_error", reason=type(exc).__name__)
+            return None
     if not isinstance(content, str) or not content.strip():
         log.warning("llm.feedback.empty_output")
         return None
     return content
+
+
+def _json_format(schema: dict | None) -> dict:
+    if schema is None:
+        return {"type": "json_object"}
+    return {"type": "json_schema", "json_schema": {"name": "feedback", "strict": True, "schema": schema}}
 
 
 async def _request_grader_notes(history: list[ChatMessage]) -> str | None:
@@ -289,6 +362,7 @@ async def _request_format(notes: str) -> FeedbackSummary | None:
             base_url=LLM_BASE_URL,
             max_tokens=LLM_MAX_FEEDBACK_TOKENS,
             json_output=True,
+            json_schema=FEEDBACK_JSON_SCHEMA,
         )
         if content is None:
             continue
@@ -299,7 +373,12 @@ async def _request_format(notes: str) -> FeedbackSummary | None:
         verdict = obj.get("verdict", "")
         scores = _valid_scores(obj.get("scores"))
         if scores is None:
-            log.warning("llm.feedback.schema_mismatch", field="scores", has_verdict=bool(verdict))
+            log.warning(
+                "llm.feedback.schema_mismatch",
+                field="scores",
+                has_verdict=bool(verdict),
+                shape=_shape(obj.get("scores")),
+            )
             continue
         if not isinstance(verdict, str) or not verdict.strip():
             log.warning("llm.feedback.schema_mismatch", field="verdict")

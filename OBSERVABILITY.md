@@ -34,6 +34,11 @@ Wiring intent (future code pass):
 - Add a FastAPI middleware/`logging` integration so every request emits one structured access log:
   `method`, `path`, `status`, `duration_ms`, `user` (`sub`), `interview_id` where present.
 - Log LLM calls (model, tokens, latency) and feedback generation at info/debug.
+  - Feedback-pipeline events: `llm.feedback.schema_mismatch` / `no_json` / `formatter_unavailable`
+    (warning/error), `json_schema_unsupported` (info — provider lacks grammar-constrained JSON so
+    the formatter downgrades to `json_object`). `schema_mismatch` carries a **content-free**
+    `shape=` fingerprint (keys + scalar values/lengths) instead of the model's text — same rule as
+    message bodies: shape is diagnosable without shipping the transcript anywhere.
 - **Never log secrets:** no `DATABASE_URL`, `LLM_API_KEY`, Clerk tokens, or message bodies that could
   contain them. Log user message **lengths/ids**, not content, at debug-only if at all.
 

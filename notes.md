@@ -12,7 +12,7 @@ general features:
 fix:
 
 - repair the prompt steps like i think it skips behavioral
-- the llm feedback scoring sometimes fails schema validation, logs say schema_mismatch field=scores has_verdict=True then formatter_unavailable and the generate endpoint 503s. happens on short transcripts (2 messages) but not sure if its only that. it is intermittent, retrying sometimes works. this is why an interview ends up completed with no score. the retry buttons recover it but the root cause is in the feedback generation/validation and probably the prompt or schema, not fixed yet.
+- ~~the llm feedback scoring sometimes fails schema validation, logs say schema_mismatch field=scores has_verdict=True then formatter_unavailable and the generate endpoint 503s. happens on short transcripts (2 messages) but not sure if its only that. it is intermittent, retrying sometimes works. this is why an interview ends up completed with no score. the retry buttons recover it but the root cause is in the feedback generation/validation and probably the prompt or schema, not fixed yet.~~ RESOLVED: the formatter hop sampled **0** where the rubric floor is 1 (json_object mode at server-default temp 0.8, so both retries failed identically) and the validator discarded a good verdict+tips over one digit. `llm.py`: greedy decoding + json_schema grammar (auto-downgrade for backends without it) + scores coerced to 1-10; `schema_mismatch` logs a content-free `shape=` fingerprint.
 - ~~one global quota reset might spike the db~~ RESOLVED: reset is lazy (UTC `day` is part of `turn_usage` PK, no cron/UPDATE) — see `billing.py` docstring + `abd1dc1`. Remaining watch-item is read amplification (1 SELECT per turn), not resets.
 
 infra:

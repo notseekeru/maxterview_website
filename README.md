@@ -97,6 +97,10 @@ elsewhere.
 > `/chat/completions` when called via httpx, so auto-feedback can come back empty against a local
 > llama.cpp (the streaming chat path is unaffected). Use a chat/OpenAI-compatible provider
 > (e.g. DeepSeek) for structured feedback output. See `backend/.env.example`.
+>
+> The stage-2 formatter asks for grammar-constrained JSON (`response_format=json_schema`, greedy
+> decoding) and transparently retries with `json_object` when a provider rejects the schema, so
+> dim-name / 1-10-range drift is no longer a scoring failure.
 
 ---
 
