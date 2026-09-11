@@ -25,6 +25,9 @@ async def init_pool() -> None:
             DATABASE_URL,
             min_size=0,
             max_size=10,
+            # A `-pooler` DSN means PgBouncer (transaction mode), which breaks asyncpg's implicit
+            # prepared statements. Off only there; direct hosts keep the cache.
+            statement_cache_size=0 if "-pooler" in DATABASE_URL else 10,
             init=_init_pool_on_connect,
         )
 
