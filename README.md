@@ -38,8 +38,12 @@ create → start → chat/stream (SSE) → … → complete → feedback
 - `POST /interviews/{id}/start` → `in_progress`
 - `POST /interviews/{id}/chat/stream` — **SSE**: user answer in, assistant reply streamed out
   (`event: message` / `done` / `error`). Persists both turns.
-- `POST /interviews/{id}/complete` → `completed` + auto-generated feedback
+- `POST /interviews/{id}/complete` → `completed` + auto-generated feedback (409 if no turn was ever
+  sent — an empty transcript is unscorable, so completion is refused instead of dead-ending a
+  completed interview with no score)
 - `GET /interviews/{id}/feedback` → scores / verdict / tips
+- `POST /interviews/{id}/feedback/generate` → (re)score a completed interview; 409 when it is not
+  completed or has no answers, 503 when the model is unavailable right now (retryable)
 - Every query is scoped to the owner (`ClerkUser.sub` / dev `DEV_USER`).
 
 ---

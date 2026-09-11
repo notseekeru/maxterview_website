@@ -162,6 +162,43 @@ def test_regenerate_feedback_rejects_incomplete_and_foreign(client):
     client.delete(f"/interviews/{pending_id}")
 
 
+def test_complete_requires_at_least_one_message(client):
+    # Regression: completing a never-chatted interview produced a "completed, scoring can
+    # never succeed" row (empty transcript -> 503 on every retry, no way back in).
+    iv = client.post("/interviews", json={"role": "Empty Complete"}).json()
+    iid = iv["id"]
+    assert client.post(f"/interviews/{iid}/start").status_code == 200
+    r = client.post(f"/interviews/{iid}/complete")
+    assert r.status_code == 409
+    assert client.get(f"/interviews/{iid}").json()["status"] == "in_progress"  # still resumable
+
+    client.post(f"/interviews/{iid}/chat/stream", json={"interview_id": iid, "content": "hi"})
+    assert client.post(f"/interviews/{iid}/complete").status_code == 200
+    client.delete(f"/interviews/{iid}")
+
+
+def test_regenerate_feedback_rejects_empty_transcript(client, monkeypatch):
+    # Legacy rows (completed before the /complete guard) must answer 409, not a 503 the retry
+    # button can never clear. The empty-but-completed state is unreachable via the API now,
+    # so stub the predicate instead of deleting rows behind the app's pool.
+    from app import main as main_mod
+
+    iv = client.post("/interviews", json={"role": "Empty Regen"}).json()
+    iid = iv["id"]
+    client.post(f"/interviews/{iid}/start")
+    client.post(f"/interviews/{iid}/chat/stream", json={"interview_id": iid, "content": "hi"})
+    assert client.post(f"/interviews/{iid}/complete").status_code == 200
+
+    async def _empty(_interview_id):
+        return False
+
+    monkeypatch.setattr(main_mod, "_has_transcript", _empty)
+    r = client.post(f"/interviews/{iid}/feedback/generate")
+    assert r.status_code == 409
+    assert "no answers" in r.json()["detail"]
+    client.delete(f"/interviews/{iid}")
+
+
 def test_regenerate_feedback_writes_when_model_recovers(client, monkeypatch):
     from app import llm
     from app import main as main_mod

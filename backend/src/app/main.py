@@ -135,8 +135,10 @@ async def complete_interview(
     interview_id: str,
     user: CurrentUser,
 ) -> dict:
+    # EXISTS guard in the same UPDATE (not a pre-check) so a foreign id still 404s, no extra
+    # round trip, and nothing can slip a turn in between. Mirrors _has_transcript().
     row = await fetchrow(
-        "UPDATE interviews SET status = 'completed', updated_at = now() WHERE id = $1 AND owner_id = $2 AND status = 'in_progress' RETURNING id::text, owner_id, role, topic, status, created_at, updated_at",
+        "UPDATE interviews SET status = 'completed', updated_at = now() WHERE id = $1 AND owner_id = $2 AND status = 'in_progress' AND EXISTS (SELECT 1 FROM messages m WHERE m.interview_id = interviews.id AND m.role <> 'system') RETURNING id::text, owner_id, role, topic, status, created_at, updated_at",
         interview_id,
         user.sub,
     )
@@ -201,6 +203,10 @@ async def regenerate_feedback(
     )
     if row is None or row["status"] != "completed":
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Interview is not completed")
+    # Legacy dead end: completed before the /complete guard existed, so there is nothing the
+    # model could ever grade. 409 (structural) beats a 503 the retry button can never clear.
+    if not await _has_transcript(interview_id):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Nothing to score yet: this interview has no answers.")
     row = await _generate_and_persist_feedback(interview_id)
     if row is None:
         raise HTTPException(
@@ -332,6 +338,13 @@ async def _require_interview_owned(interview_id: str, owner_id: str) -> None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Interview not found")
 
 
+async def _has_transcript(interview_id: str) -> bool:
+    """Any gradable turn? `system` rows are skipped by llm._format_transcript too, so an
+    interview holding only system framing grades to an empty transcript -> 503 forever."""
+    row = await fetchrow("SELECT 1 FROM messages WHERE interview_id = $1 AND role <> 'system' LIMIT 1", interview_id)
+    return row is not None
+
+
 async def _upsert_feedback(interview_id: str, scores: dict, verdict: str, tips: list):
     # Single write path for feedback: idempotent UPSERT on the UNIQUE interview_id.
     return await fetchrow(
@@ -377,4 +390,10 @@ async def _raise_complete_error(interview_id: str, owner_id: str) -> None:
     row = await fetchrow("SELECT status FROM interviews WHERE id = $1 AND owner_id = $2", interview_id, owner_id)
     if row is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Interview not found")
+    if row["status"] == "in_progress":
+        # In progress but the UPDATE matched nothing => no gradable turns.
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Nothing to score yet: send at least one message before completing.",
+        )
     raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Interview is not in progress")

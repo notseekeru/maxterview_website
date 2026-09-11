@@ -33,6 +33,13 @@ export function isQuotaError(e: unknown): boolean {
     return (e as AxiosError)?.response?.status === 402;
 }
 
+// FastAPI errors carry a human-readable `detail`; the backend writes those strings for this
+// UI (e.g. 409 "Nothing to score yet: …"), so prefer it over a generic message.
+export function apiDetail(e: unknown, fallback: string | null = null): string | null {
+    const d = (e as AxiosError<{ detail?: string }>)?.response?.data?.detail;
+    return typeof d === "string" && d ? d : fallback;
+}
+
 // --- types (mirror backend app/models.py) ---
 
 export interface Interview {

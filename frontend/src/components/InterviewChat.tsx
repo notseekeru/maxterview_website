@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
-import { completeInterview, type Feedback, getFeedback, getInterview, getMessages, httpStatus, type Message, regenerateFeedback, startInterview, streamChat } from "@/lib/api";
+import { apiDetail, completeInterview, type Feedback, getFeedback, getInterview, getMessages, httpStatus, type Message, regenerateFeedback, startInterview, streamChat } from "@/lib/api";
 import { OPENING_ASKS_RESUME } from "@/lib/config";
 import { FeedbackView } from "./FeedbackView";
 import { UpgradeNotice } from "./UsageBadge";
@@ -159,10 +159,13 @@ export function InterviewChat({ interviewId, onExit }: Props) {
         try {
             const fb = await loaded();
             setFeedback(fb);
-        } catch {
+        } catch (e: unknown) {
             // Feedback genuinely absent (or not ready after a scoring attempt). Keep the
             // completed view and offer a retry rather than a hard error or fabricated scores.
             setScoringTip(true);
+            // 409 = structural refusal (nothing left to score); 404/503 are retryable and the
+            // tip above already says so, so don't stack a jargon error line on top of it.
+            if (httpStatus(e) === 409) setError(apiDetail(e));
         }
     }
 
@@ -171,8 +174,8 @@ export function InterviewChat({ interviewId, onExit }: Props) {
         try {
             await completeInterview(interviewId);
             await finish(() => getFeedback(interviewId));
-        } catch {
-            setError("Failed to complete the interview.");
+        } catch (e: unknown) {
+            setError(apiDetail(e, "Failed to complete the interview."));
             setStatus("ready");
         } finally {
             setCompleting(false);
