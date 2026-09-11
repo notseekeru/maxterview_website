@@ -12,7 +12,7 @@ services:
       - ./backend/.env
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-maxterview}:${POSTGRES_PASSWORD:-maxterview}@postgres:5432/${POSTGRES_DB:-maxterview}
-      APP_ENV: development
+      APP_ENV: ${APP_ENV:-development}
     command: uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
     ports:
       - "${BACKEND_PORT:-8000}:8000"
