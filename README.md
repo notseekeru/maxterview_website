@@ -152,13 +152,21 @@ This repo is the **app source**; the gitops repo holds the Kubernetes manifests.
 
 1. **Build & push images** to GHCR as immutable SHAs — `ghcr.io/notseekeru/maxterview_backend` and
    `ghcr.io/notseekeru/maxterview_frontend`. The enabled CD pipeline does this automatically on green CI to `main`.
-2. **Add the GitOps manifests** (in the gitops repo, not here):
-   - `apps/maxterview/backend.yaml` + `frontend.yaml` + `kustomization.yaml` (Deployment + Service).
-   - `apps-of-apps/maxterview.yaml` (child Application, `prune` + `selfHeal`).
-   - `infra/maxterview-ingress.yaml` + a Cloudflare-tunnel DNS/route so a hostname reaches the cluster.
-   - a deployment mechanism pins the immutable `:${SHA}` tag Argo CD reconciles against.
-3. **Secrets** (`maxterview-secrets`, e.g. `DATABASE_URL`, `LLM_API_KEY`, Clerk keys) are created by the
-   Terraform installer from Infisical — same as the existing `diagram-secrets`/`ghcr-login` pattern.
+   > **Gap:** CD currently stops at the GHCR push. Deploying requires the same `kustomize edit set image`
+   > tag-bump job that `diagram`/`portfolio` have (see the gitops README's "Image versions"). Until that job
+   > exists here, the gitops tags must be bumped by hand.
+2. **Add the GitOps manifests** (in the gitops repo, not here), mirroring `apps/diagram/`:
+   - `apps/maxterview/backend.yaml` + `frontend.yaml` + `kustomization.yaml` (Deployment + Service,
+     `replicas: 1`, `revisionHistoryLimit: 2`, `imagePullSecrets: [ghcr-login]`, small memory/CPU requests).
+   - `apps-of-apps/maxterview.yaml` (child Application, `prune` + `selfHeal`) and an entry in the root
+     `kustomization.yaml`.
+   - `infra/maxterview-ingress.yaml` (host `maxterview.seekeru.tech`, `/api` → `backend:8000`,
+     `/` → `frontend:8080`) with the same `limit-rps`/CSP/CORS annotations as `diagram-ingress.yaml`,
+     plus its entry in `infra/kustomization.yaml`. The Cloudflare tunnel (`cloudflared.yaml`) is shared
+     infra and already routes `*.seekeru.tech`.
+3. **Secrets** (`maxterview-secrets`) are created by the **Terraform installer from Infisical** — same as the
+   existing `diagram-secrets`/`ghcr-login`/`cloudflared-token` pattern. Never `kubectl apply` them and never
+   commit them; Terraform owns them.
 
 **Database:** production runs against **Neon** (managed Postgres), not a DB pod in the cluster. There is no
 PVC, no StatefulSet, and no DB backup/upgrade work in-cluster.
@@ -173,7 +181,9 @@ PVC, no StatefulSet, and no DB backup/upgrade work in-cluster.
 - **Tradeoffs:** public-internet round trips (measure latency from wherever the app runs) and free-tier
   compute scale-to-zero, so the first query after idle is slower. In exchange you get durability,
   backups, and per-PR database branches for testing.
-- Local dev and CI are unaffected — they still use the Postgres container / service.
+- Local dev and CI keep the Postgres container / service; only the prod DSN changes. (`NEON_API_KEY`
+  for the MCP server also lives in root `.env`, which compose injects into the backend container — the app
+  never reads it, and it is separate from `DATABASE_URL`.)
 
 ### Driving Neon from an agent (MCP)
 
@@ -205,10 +215,10 @@ running shell (or tmux server) keeps the old environment until restarted.
 interactive confirmation; reads run ungated. **This key can mutate the production database** — the free
 basic key is account-wide, so there is no branch-level protection between the agent and prod data.
 
-**Ports/roles:** backend serves `:8000` (FastAPI), frontend serves `:8080` (nginx, static SPA). The frontend's
-`nginx.conf` proxies `/api` → `backend:8000` internally, so ingress can route `/` → frontend only (or
-`/api` → backend directly, mirroring the `diagram` ingress). Unlike `diagram`'s backend, maxterview's
-backend **has a `/health` route**, so its pods can use `httpGet` probes instead of `tcpSocket`.
+**Ports/roles:** backend serves `:8000` (FastAPI), frontend serves `:8080` (nginx, static SPA). Ingress routes
+`/api` → `backend` and `/` → `frontend` (two paths, exactly as `diagram` does); the frontend's `nginx.conf`
+`/api` proxy is a same-origin dev convenience, not the prod path. Because maxterview's backend **has a real
+`/health` route**, its pods take `httpGet` probes rather than `diagram`'s `tcpSocket`.
 
 > CD here is **enabled** and pushes images to GHCR, but until the gitops `apps/maxterview` manifests above
 > exist nothing reconciles them onto the cluster. CI/CD + scanning (Trivy) are live; only the GitOps adoption
