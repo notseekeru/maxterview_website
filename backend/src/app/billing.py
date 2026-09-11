@@ -11,6 +11,10 @@ Simple tier model: Free / Premium / dev(-only). Backend-authoritative.
 - **Quotas**: a single daily chat-turn credits per owner is the only gate — free = 10,
   premium = 250, dev = 500 (across ALL the owner's interviews in one UTC day). No
   per-interview cap and no token metering (decisions 2026-08-23 / this change).
+- **Reset is LAZY**: `day` is part of the `turn_usage` PK, so a new UTC day simply has no row yet;
+  the first turn inserts `(owner_id, today, 1)`. There is no cron/job and no global `UPDATE`. Do NOT
+  add a scheduled reset (e.g. `UPDATE turn_usage SET turns = 0 WHERE day < today`) — that turns
+  midnight into a whole-table write spike. Watch read amplification (1 SELECT per turn), not resets.
 """
 
 import os
