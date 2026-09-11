@@ -181,14 +181,13 @@ PVC, no StatefulSet, and no DB backup/upgrade work in-cluster.
 dashboard, no `neonctl`. This requires the `pi-mcp-adapter` extension (pi core has no MCP of its own).
 
 ```bash
-# .env.local (git-ignored — loaded automatically by direnv via .envrc)
+# .env (git-ignored — exported into the shell by direnv via .envrc)
 NEON_API_KEY=np_...
 ```
 
-Then `/mcp` inside pi to connect. Pi does **not** read `.env` files itself — direnv put the value
-into the shell environment, which is what the MCP adapter reads. **Open a new terminal** (or let
-direnv reload) after editing, so the var is in the environment pi inherits; direnv only exports into
-shells started after the change.
+Then open a **new terminal** and `/mcp` inside pi to connect. Pi does **not** read env files itself;
+direnv exports `.env` into the shell environment, which is what the MCP adapter reads — so an already
+running shell (or tmux server) keeps the old environment until restarted.
 
 `NEON_API_KEY` is an **API-scoped** key and is *not* `DATABASE_URL` (that is the separate DSN secret,
 §Deployment). Two device-level facts worth knowing:
@@ -197,7 +196,10 @@ shells started after the change.
   closed rather than writing them in plaintext. Headless Linux here has no Secret Service/keyring, so
   OAuth cannot complete; `bearerTokenEnv` is a plain `process.env` read and sidesteps this entirely.
 - **The key is per-device, the config is per-repo.** `.mcp.json` is committed and contains only the
-  *variable name*; each machine supplies its own `.env.local`. A file on one host does not reach another.
+  *variable name*; each machine supplies its own `.env`. A file on one host does not reach another.
+- **`.env` is `env_file`-loaded into the backend container**, so the key is injected there too. Harmless
+  in practice (that container already holds `DATABASE_URL`, i.e. direct prod DB access) but the app never
+  reads it — it exists only for the MCP adapter.
 
 `approveTools` gates destructive calls (`*delete*`, `*drop*`, `*reset*`, `*truncate*`) behind an
 interactive confirmation; reads run ungated. **This key can mutate the production database** — the free
