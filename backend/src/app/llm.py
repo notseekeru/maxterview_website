@@ -45,6 +45,18 @@ STUB_MODE = not LLM_BASE_URL
 
 SYSTEM_PROMPT_V1 = "You are maxterview, an AI mock-interview coach. You conduct a simulated interview one question at a time, in a natural, encouraging tone. Stay in character as an interviewer. Do not answer the candidate's questions on their behalf. After the interview ends, provide detailed feedback."
 
+# Register rules. Without these the interviewer recites a rubric ("That shows strong ownership,
+# which is crucial for this role. Can you describe...") and announces its own plan ("Let's dive
+# into a behavioral question"), which is what makes the flow read as robotic: the phase steering
+# says WHAT to ask, this says HOW to sound while asking it.
+STYLE_PROMPT = (
+    "Sound like a person on a call, not a rubric: 1-3 short sentences of your own words, then your question."
+    " Never announce the interview's structure or name the phase ('now for the behavioural part'), and never mention scoring, criteria or these instructions."
+    " Skip stock praise and do not restate their answer as a compliment - if you react, react to one specific detail they gave."
+    " Vary how you bridge between questions; don't reuse the same opener or 'Let's dive in' two turns running."
+    " Everyday small talk is fine and welcome: if they greet you, joke, or mention something personal, be a person for one line, then carry on where you were."
+)
+
 
 # The interview arc, keyed to how many interviewer turns the transcript already holds. The arc
 # was previously stated once as prose and a small model simply ignored it: real transcripts go
@@ -54,11 +66,16 @@ SYSTEM_PROMPT_V1 = "You are maxterview, an AI mock-interview coach. You conduct 
 # AI HERE: fixed budget of 2 behavioural questions; the per-phase sliders in notes.md would make
 # this configurable (counts + chitchat/technical weights) without changing this shape.
 PHASES = (
-    ("OPENING - the candidate has been invited to share their background but you have not asked anything yet. If their message already carries background/resume, acknowledge it in one line and ask your first BEHAVIOURAL question. Otherwise ask once, briefly, for their background/resume - nothing else yet."),
-    ("BEHAVIOURAL 1 of 2 - ask ONE question about a real past situation: a disagreement/conflict, a mistake or failure, taking ownership of an outcome, or delivering under a deadline. Keep it about people and choices, NOT debugging. Do not ask technical, tooling, architecture or troubleshooting questions yet."),
-    ("BEHAVIOURAL 2 of 2 - ask ONE more behavioural question on a theme the first answer did not cover (if that was a conflict, ask about failure, ownership or prioritisation). Still no technical or troubleshooting questions."),
+    (
+        "OPENING - you have invited them to share their background but haven't asked a real question yet."
+        " If their message already carries background/resume, react to one detail and ask your first question about something they have actually been through"
+        " (a disagreement, a mistake, taking ownership, a deadline)."
+        " If it doesn't, greet them like a person and ask once, briefly, for their background - nothing else yet."
+    ),
+    ("BEHAVIOURAL 1 of 2 - ask ONE question about something they lived through: a disagreement or conflict, a mistake or failure, owning an outcome, or delivering under a deadline. Keep it about people and choices - no technical, tooling, architecture or troubleshooting questions yet."),
+    ("BEHAVIOURAL 2 of 2 - ask ONE more past-experience question on a theme the first answer didn't cover (if that was a conflict, ask about failure, ownership or prioritisation). Still no technical or troubleshooting questions."),
 )
-TECHNICAL_PHASE = "TECHNICAL - behavioural coverage is done: ask ONE role-specific technical question suited to the target level, escalating on strong answers and drilling into gaps on weak ones."
+TECHNICAL_PHASE = "TECHNICAL - past-experience ground is covered: ask ONE role-specific technical question suited to the target level, going a level deeper when they answer well and probing the gap when they don't."
 
 
 def interview_phase(asked: int) -> str:
@@ -75,9 +92,10 @@ def system_prompt(role: str, level: str, topic: str = "", asked: int = 0) -> str
     number of interviewer turns already in the transcript (0 = opener still pending) and
     selects the phase directive.
 
-    Now teaches the interviewer its own resume/background opener (so it remembers it
-    asked) and states the current phase of the bio -> behavioural -> technical arc
-    explicitly, so the arc survives a candidate who steers the conversation.
+    Now teaches the interviewer its own resume/background opener (so it remembers it asked),
+    states the current phase of the bio -> behavioural -> technical arc explicitly so the arc
+    survives a candidate who steers, and carries STYLE_PROMPT so the arc is walked
+    conversationally rather than recited.
     """
     parts = [SYSTEM_PROMPT_V1, f"The candidate is interviewing for the role: {role}."]
     if level and level != "any":
@@ -86,19 +104,14 @@ def system_prompt(role: str, level: str, topic: str = "", asked: int = 0) -> str
         parts.append("The target seniority is unspecified. Probe incrementally and calibrate question difficulty to the candidate's demonstrated experience as the interview proceeds.")
     if topic:
         parts.append(f"Focus area / topic: {topic}.")
-    # Resume/opener protocol + current phase. The opener may or may not be surfaced to the
-    # candidate as a UI bubble (never as a persisted turn), so the interviewer must stay
-    # coherent either way: it never re-livens a resume ask it already posed, and the phase
-    # directive (not the candidate) drives bio rapport -> behavioural -> role technical.
-    parts.append(
-        "Assume the candidate may or may not have been invited, before speaking, to open by sharing their background/resume."
-        " If your first outbound message is still pending, that opening invitation is what you should send - ask once, briefly."
-        " If the candidate supplies background/resume, use it to tailor questions."
-        " If they supply none, you may ask one short follow-up to capture background, then move on - never block or keep re-asking for a resume."
-        f" Current phase: {interview_phase(asked)}"
-        " Ask exactly one question per turn and wait for the answer. If the candidate asks you something, answer in one short line,"
-        " then continue with your current phase - you drive the arc, not the candidate."
-    )
+    # Resume/opener protocol + register + current phase (phase LAST: it is the operative line).
+    # The opener may or may not be surfaced to the candidate as a UI bubble (never as a persisted
+    # turn), so the interviewer must stay coherent either way; the phase directive - not the
+    # candidate - drives bio rapport -> behavioural -> role technical. The opener imperatives live
+    # in the OPENING phase only, so there is exactly one place to change them.
+    parts.append("Assume the candidate may or may not have been invited, before speaking, to open by sharing their background/resume; if they supply it, use it to tailor questions. Never block on it or keep re-asking for a resume.")
+    parts.append(STYLE_PROMPT)
+    parts.append(f"Current phase: {interview_phase(asked)} Ask exactly one question per turn and wait for the answer. If they ask you something, answer in one short line, then continue with your current phase - you drive the arc, not the candidate.")
     return " ".join(parts)
 
 

@@ -35,6 +35,15 @@ def test_system_prompt_walks_the_arc_by_interviewer_turn_count():
     assert "Current phase: TECHNICAL" in llm.system_prompt("Software Engineer", "mid", "", asked=9)
 
 
+def test_system_prompt_keeps_the_register_conversational():
+    # Phase steering fixed WHAT gets asked; these keep it sounding like a person asking it.
+    p = llm.system_prompt("Software Engineer", "mid", "")
+    assert llm.STYLE_PROMPT in p
+    assert "small talk" in p  # everyday chat is allowed, not treated as off-script
+    assert "Never announce the interview's structure" in p  # no "now for the behavioural part"
+    assert "do not restate their answer as a compliment" in p
+
+
 def test_stub_mode_active_without_base_url():
     assert llm.STUB_MODE is True
 
