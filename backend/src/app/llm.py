@@ -16,11 +16,6 @@ LLM_API_KEY = os.getenv("LLM_API_KEY", "")
 
 # Two-stage feedback pipeline (grader -> formatter). Stage-1 (grader) reads the FULL
 # transcript and writes free-text analysis because a permissive chat model is unreliable
-# at emitting strict JSON over a long context; stage-2 (formatter) re-shapes that small,
-# fresh analysis into the exact schema where schema adherence is cheapest. Each stage can
-# ride a different model/provider: LLM_GRADER_* override the shared LLM_*_URL/MODEL when
-# set (e.g. prod points the grader at a stronger model and keeps the cheap one for the
-# formatter), else stage 1==stage 2==the single configured model.
 LLM_GRADER_BASE_URL = os.getenv("LLM_GRADER_BASE_URL", LLM_BASE_URL).rstrip("/")
 LLM_GRADER_MODEL = os.getenv("LLM_GRADER_MODEL", LLM_MODEL)
 
@@ -43,7 +38,6 @@ def _chat_extras() -> dict:
 
 
 # If no base URL is configured, the LLM runs in STUB mode (deterministic, no network).
-# This lets MVP dev and tests run without a model (D7 / MONETIZATION).
 STUB_MODE = not LLM_BASE_URL
 
 

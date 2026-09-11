@@ -6,10 +6,8 @@ from these. `any` ("None / Not sure") means the mock interviewer calibrates
 dynamically off the candidate's demonstrated answers instead of a fixed target.
 """
 
-# Canonical levels in increasing seniority order. `any` sorts first (no target).
 LEVELS: tuple[str, ...] = ("any", "intern", "junior", "mid", "senior", "staff", "principal")
 
-# Human label per slug (display + prompt phrasing). `any` reads as "Not sure".
 LABELS: dict[str, str] = {
     "any": "Any / Not sure",
     "intern": "Intern",
@@ -20,7 +18,6 @@ LABELS: dict[str, str] = {
     "principal": "Principal",
 }
 
-# Which rungs sit above/below a given slug (for relative prompts). Assumes sorted.
 _ORDER = {slug: idx for idx, slug in enumerate(LEVELS)}
 
 

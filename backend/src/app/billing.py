@@ -24,14 +24,12 @@ from app.models import ClerkUser
 
 # --- tier limits (env-overridable; MONETIZATION.md §0 placeholders) ---
 # Daily GLOBAL chat-turn credits PER OWNER (across all interviews in one UTC day),
-# reset at 00:00:00 UTC. No per-interview cap (removed). Resets each day: free = 10/day,
-# premium = 250/day, dev = 500/day (dev > premium).
+# reset at 00:00:00 UTC.
 FREE_CHAT_TURNS = int(os.getenv("FREE_CHAT_TURNS", "10"))
 PREMIUM_CHAT_TURNS = int(os.getenv("PREMIUM_CHAT_TURNS", "250"))
 DEV_CHAT_TURNS = int(os.getenv("DEV_CHAT_TURNS", "500"))  # dev > premium
 
 LIMITS = {
-    # Daily global chat-turn credits is the only quota (per-interview + daily-interview caps removed).
     "free": {"chat_turns": FREE_CHAT_TURNS},
     "premium": {"chat_turns": PREMIUM_CHAT_TURNS},
     "dev": {"chat_turns": DEV_CHAT_TURNS},
@@ -39,12 +37,6 @@ LIMITS = {
 
 
 async def resolve_tier(user: ClerkUser) -> str:
-    """Effective tier = ClerkUser.tier, escalated by an active premium subscription.
-
-    `dev` is granted only to the no-Clerk dev-fallback identity (DEV_USER). With
-    CLERK_ENABLED=false the only possible user IS that fixed identity (auth always returns
-    DEV_USER), and the D2 boot guard confines CLERK_ENABLED=false to development/test, so
-    `dev` is unreachable in production."""
     if not CLERK_ENABLED:
         return "dev"
     if user.tier == "premium":
@@ -54,7 +46,6 @@ async def resolve_tier(user: ClerkUser) -> str:
 
 
 def _quota(tier: str, what: str) -> float:
-    """Return the limit; raise if the tier has no configured quota for `what`."""
     limits = LIMITS.get(tier, LIMITS["free"])
     if what not in limits:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"No quota configured for tier={tier} {what}")
@@ -62,14 +53,10 @@ def _quota(tier: str, what: str) -> float:
 
 
 def _utc_day() -> date:
-    """The current UTC day as a `date` — the counter's daily reset bucket.
-    Returned as a `datetime.date` (NOT an ISO string) so asyncpg binds it natively
-    to the `turn_usage.day` DATE column."""
     return datetime.now(UTC).date()
 
 
 async def chat_turns_used(owner_id: str) -> int:
-    """Number of user turns this owner has used across all interviews today (UTC)."""
     row = await fetchrow(
         "SELECT turns FROM turn_usage WHERE owner_id = $1 AND day = $2",
         owner_id,
@@ -79,13 +66,11 @@ async def chat_turns_used(owner_id: str) -> int:
 
 
 async def chat_turn_remaining(tier: str, owner_id: str) -> int:
-    """Remaining GLOBAL user turns for this owner today (0 at/over the daily cap)."""
     limit = _quota(tier, "chat_turns")
     return max(0, int(limit) - await chat_turns_used(owner_id))
 
 
 async def bump_chat_turn(owner_id: str) -> None:
-    """Increment today's GLOBAL per-owner turn counter (called when a user turn is accepted)."""
     await fetchrow(
         "INSERT INTO turn_usage (owner_id, day, turns) VALUES ($1, $2, 1) ON CONFLICT (owner_id, day) DO UPDATE SET turns = turn_usage.turns + 1",
         owner_id,

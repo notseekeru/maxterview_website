@@ -13,13 +13,8 @@ from app.models import ChatMessage, ChatTurn, ClerkUser, Feedback, FeedbackCreat
 
 APP_ENV = os.getenv("APP_ENV", "development")
 
-# Bounded inline auto-retry for scoring a freshly-completed interview, so a transient
-# model outage does not silently leave it unscored. /complete re-runs the generator up to
-# this many times (it internally retries each stage) with a short sleep between attempts;
-# only after ALL attempts fail does the interview stay unscored and fall back to the user
-# pressing the manual regenerate button (POST /feedback/generate, unchanged).
 COMPLETE_MAX_FEEDBACK_ATTEMPTS = 3
-COMPLETE_FEEDBACK_BACKOFF_MS = 800  # pacing between auto attempts keeps the gen from hot-lopping
+COMPLETE_FEEDBACK_BACKOFF_MS = 800
 
 
 async def _backoff_sleep(ms: int) -> None:
@@ -77,8 +72,6 @@ async def create_interview(
     body: InterviewCreate,
     user: CurrentUser,
 ) -> dict:
-    # No daily-interview cap and no per-interview cap: interviews are unlimited at creation.
-    # The only gate is the owner's daily GLOBAL chat-turn credits (checked in chat/stream).
     row = await fetchrow(
         """
         INSERT INTO interviews (owner_id, role, level, topic)
@@ -133,7 +126,6 @@ async def start_interview(
         user.sub,
     )
     if row is None:
-        # Could be a foreign interview (404) or one already started (409).
         await _raise_start_error(interview_id, user.sub)
     return dict(row)
 
@@ -152,8 +144,6 @@ async def complete_interview(
         await _raise_complete_error(interview_id, user.sub)
     interview = dict(row)
 
-    # Auto-generate + persist feedback (decision: in `complete`) with a bounded inline
-    # retry: a transient model outage should not leave the interview silently unscored.
     await _auto_generate_and_persist_feedback(interview_id)
 
     return interview
@@ -167,7 +157,6 @@ async def list_messages(
     interview_id: str,
     user: CurrentUser,
 ) -> list[dict]:
-    # Verify the interview belongs to the user first (D4).
     await _require_interview_owned(interview_id, user.sub)
     rows = await fetch(
         "SELECT id::text, interview_id::text, role, content, created_at FROM messages WHERE interview_id = $1 ORDER BY created_at",
@@ -211,12 +200,6 @@ async def regenerate_feedback(
     interview_id: str,
     user: CurrentUser,
 ) -> dict:
-    """(Re)generate feedback for a COMPLETED interview from its stored transcript.
-
-    Recovery seam for change-1: real-mode scoring can fail (transport/schema -> no
-    feedback row written). This lets a caller re-run scoring later idempotently instead
-    of leaving the interview permanently unscored (re-POST /complete is a 409 once the
-    interview is 'completed', and POST /feedback needs a hand-built body)."""
     await _require_interview_owned(interview_id, user.sub)
     row = await fetchrow(
         "SELECT status FROM interviews WHERE id = $1 AND owner_id = $2",
@@ -225,8 +208,6 @@ async def regenerate_feedback(
     )
     if row is None or row["status"] != "completed":
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Interview is not completed")
-    # _generate_and_persist_feedback writes nothing on failure, so we can distinguish a
-    # successful (re)score (row returned) from an unavailable model (503 -> try later).
     row = await _generate_and_persist_feedback(interview_id)
     if row is None:
         raise HTTPException(
@@ -303,8 +284,6 @@ async def chat_stream(
     if interview["status"] != "in_progress":
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Interview is not in progress")
 
-    # Today's daily GLOBAL chat-turn cap per owner (no token metering). May 402 even
-    # mid-interview: the credits spans ALL the owner's interviews this UTC day.
     tier = await billing.resolve_tier(user)
     if await billing.chat_turn_remaining(tier, user.sub) == 0:
         raise HTTPException(
@@ -321,7 +300,6 @@ async def chat_stream(
     )
     user_msg_id = user_msg["id"] if user_msg else None
 
-    # Build the LLM context: system prompt + prior transcript, ordered.
     prior_rows = await fetch(
         "SELECT role, content FROM messages WHERE interview_id = $1 ORDER BY created_at",
         interview_id,
@@ -332,15 +310,13 @@ async def chat_stream(
     ]
 
     async def _stream_events():
-        # Stream real LLM deltas; on failure roll back the orphaned user message.
         collected: list[str] = []
         try:
             async for delta in llm.stream_chat(history):
                 if delta:
                     collected.append(delta)
                     yield f"event: message\ndata: {delta}\n\n"
-        except Exception as exc:  # LLM/network failure mid-stream
-            # Remove the just-inserted user message so no orphan transcript remains.
+        except Exception as exc:
             if user_msg_id:
                 await fetchrow(
                     "DELETE FROM messages WHERE id = $1 AND interview_id = $2",
@@ -349,7 +325,6 @@ async def chat_stream(
                 )
             yield f"event: error\ndata: {str(exc)}\n\n"
             return
-        # Persist the completed assistant turn so the transcript is complete.
         reply = "".join(collected).strip()
         await fetchrow(
             "INSERT INTO messages (interview_id, role, content) VALUES ($1, 'assistant', $2) RETURNING id",
@@ -383,13 +358,6 @@ async def _upsert_feedback(interview_id: str, scores: dict, verdict: str, tips: 
 
 
 async def _auto_generate_and_persist_feedback(interview_id: str) -> dict | None:
-    """Score a completed interview, auto-retrying up to COMPLETE_MAX_FEEDBACK_ATTEMPTS.
-
-    One full generation attempt per iteration (each stage already re-runs internally);
-    after every attempt the row is idempotently UPSERTED so a mid-run success is durable.
-    Returns the written feedback row, or None ONLY when every attempt failed -- the
-    interview then stays unscored and the manual regenerate button remains the fallback
-    (single-shot, unchanged). Bounded so a hot-lopping generator can never stall /complete."""
     for attempt in range(COMPLETE_MAX_FEEDBACK_ATTEMPTS):
         row = await _generate_and_persist_feedback(interview_id)
         if row is not None:
@@ -400,12 +368,6 @@ async def _auto_generate_and_persist_feedback(interview_id: str) -> dict | None:
 
 
 async def _generate_and_persist_feedback(interview_id: str) -> dict | None:
-    """Generate feedback from the transcript and write it (idempotent UPSERT).
-
-    Returns the written feedback row, or None when the model produced no usable feedback
-    (transport/schema failure after the retry). On None we write NOTHING rather than a
-    fabricated row, so the completed interview surfaces as genuinely unscored
-    (dashboard/history exclude it) instead of poisoning the score averages with fake 6s."""
     history_rows = await fetch(
         "SELECT role, content FROM messages WHERE interview_id = $1 ORDER BY created_at",
         interview_id,
@@ -413,8 +375,6 @@ async def _generate_and_persist_feedback(interview_id: str) -> dict | None:
     history = [ChatMessage(role=r["role"], content=r["content"]) for r in history_rows]
     summary = await llm.generate_feedback(history)
     if summary is None:
-        # Real-model path could not score this transcript. Leave feedback absent so the
-        # client can offer a retry instead of reading fabricated numbers as truth.
         return None
     return await _upsert_feedback(interview_id, summary.scores, summary.verdict, summary.tips)
 
