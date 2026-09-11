@@ -300,8 +300,11 @@ async def chat_stream(
         "SELECT role, content FROM messages WHERE interview_id = $1 ORDER BY created_at",
         interview_id,
     )
+    # Interviewer turns already asked -> which phase of the arc this reply belongs to (opener
+    # -> behavioural -> technical). Derived from the transcript, not stored on the interview.
+    asked = sum(1 for r in prior_rows if r["role"] == "assistant")
     history = [
-        ChatMessage(role="system", content=llm.system_prompt(interview["role"], interview["level"], interview["topic"])),
+        ChatMessage(role="system", content=llm.system_prompt(interview["role"], interview["level"], interview["topic"], asked=asked)),
         *[ChatMessage(role=r["role"], content=r["content"]) for r in prior_rows],
     ]
 

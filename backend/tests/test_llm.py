@@ -19,6 +19,22 @@ def test_system_prompt_calibrates_to_explicit_level():
     assert "mid-level experience band" in p
 
 
+def test_system_prompt_walks_the_arc_by_interviewer_turn_count():
+    # Regression: the arc used to be one prose sentence that a small model ignored, so real
+    # transcripts skipped straight from background to technical. Each turn now names its phase.
+    opener = llm.system_prompt("Software Engineer", "mid", "", asked=0)
+    assert "Current phase: OPENING" in opener
+
+    for asked in (1, 2):
+        behavioural = llm.system_prompt("Software Engineer", "mid", "", asked=asked)
+        assert "Current phase: BEHAVIOURAL" in behavioural
+        assert "Do not ask technical" in behavioural or "no technical" in behavioural
+
+    technical = llm.system_prompt("Software Engineer", "mid", "", asked=3)
+    assert "Current phase: TECHNICAL" in technical
+    assert "Current phase: TECHNICAL" in llm.system_prompt("Software Engineer", "mid", "", asked=9)
+
+
 def test_stub_mode_active_without_base_url():
     assert llm.STUB_MODE is True
 

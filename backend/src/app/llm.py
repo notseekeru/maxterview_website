@@ -46,16 +46,38 @@ STUB_MODE = not LLM_BASE_URL
 SYSTEM_PROMPT_V1 = "You are maxterview, an AI mock-interview coach. You conduct a simulated interview one question at a time, in a natural, encouraging tone. Stay in character as an interviewer. Do not answer the candidate's questions on their behalf. After the interview ends, provide detailed feedback."
 
 
-def system_prompt(role: str, level: str, topic: str = "") -> str:
+# The interview arc, keyed to how many interviewer turns the transcript already holds. The arc
+# was previously stated once as prose and a small model simply ignored it: real transcripts go
+# background -> "walk me through a time you troubleshooted X" (technical in story clothing) and
+# never cover behavioural ground. So each turn now carries ONE explicit phase directive, derived
+# deterministically from the transcript, including what NOT to ask yet.
+# AI HERE: fixed budget of 2 behavioural questions; the per-phase sliders in notes.md would make
+# this configurable (counts + chitchat/technical weights) without changing this shape.
+PHASES = (
+    ("OPENING - the candidate has been invited to share their background but you have not asked anything yet. If their message already carries background/resume, acknowledge it in one line and ask your first BEHAVIOURAL question. Otherwise ask once, briefly, for their background/resume - nothing else yet."),
+    ("BEHAVIOURAL 1 of 2 - ask ONE question about a real past situation: a disagreement/conflict, a mistake or failure, taking ownership of an outcome, or delivering under a deadline. Keep it about people and choices, NOT debugging. Do not ask technical, tooling, architecture or troubleshooting questions yet."),
+    ("BEHAVIOURAL 2 of 2 - ask ONE more behavioural question on a theme the first answer did not cover (if that was a conflict, ask about failure, ownership or prioritisation). Still no technical or troubleshooting questions."),
+)
+TECHNICAL_PHASE = "TECHNICAL - behavioural coverage is done: ask ONE role-specific technical question suited to the target level, escalating on strong answers and drilling into gaps on weak ones."
+
+
+def interview_phase(asked: int) -> str:
+    """Phase directive for the next interviewer turn, where `asked` = interviewer turns so far."""
+    return PHASES[asked] if asked < len(PHASES) else TECHNICAL_PHASE
+
+
+def system_prompt(role: str, level: str, topic: str = "", asked: int = 0) -> str:
     """Build the versioned system prompt for an interview.
 
     `role` is the target title; `level` is the target seniority slug from app.levels
     (e.g. 'mid', 'senior'); `any` means "Not sure": calibrate dynamically off the
-    candidate's demonstrated answers. `topic` is an optional focus area.
+    candidate's demonstrated answers. `topic` is an optional focus area. `asked` is the
+    number of interviewer turns already in the transcript (0 = opener still pending) and
+    selects the phase directive.
 
     Now teaches the interviewer its own resume/background opener (so it remembers it
-    asked) and the bio -> behavioural -> technical arc it should run even when the
-    candidate declines to share a resume.
+    asked) and states the current phase of the bio -> behavioural -> technical arc
+    explicitly, so the arc survives a candidate who steers the conversation.
     """
     parts = [SYSTEM_PROMPT_V1, f"The candidate is interviewing for the role: {role}."]
     if level and level != "any":
@@ -64,18 +86,18 @@ def system_prompt(role: str, level: str, topic: str = "") -> str:
         parts.append("The target seniority is unspecified. Probe incrementally and calibrate question difficulty to the candidate's demonstrated experience as the interview proceeds.")
     if topic:
         parts.append(f"Focus area / topic: {topic}.")
-    # Resume/opener protocol + flowing arc. The opener may or may not be surfaced to the
+    # Resume/opener protocol + current phase. The opener may or may not be surfaced to the
     # candidate as a UI bubble (never as a persisted turn), so the interviewer must stay
-    # coherent either way: it never re-livens a resume ask it already posed, and it always
-    # steers bio rapport -> behavioural -> role technical regardless of whether a resume is
-    # supplied (relevant for the grader's self-presentation rule, not a blocker in-chat).
+    # coherent either way: it never re-livens a resume ask it already posed, and the phase
+    # directive (not the candidate) drives bio rapport -> behavioural -> role technical.
     parts.append(
         "Assume the candidate may or may not have been invited, before speaking, to open by sharing their background/resume."
         " If your first outbound message is still pending, that opening invitation is what you should send - ask once, briefly."
         " If the candidate supplies background/resume, use it to tailor questions."
         " If they supply none, you may ask one short follow-up to capture background, then move on - never block or keep re-asking for a resume."
-        " Run the interview in this order: a short natural/bio rapport exchange, then behavioural questions about their past experience, then technical questions suited to the target role and level."
-        " Ask one question at a time and wait for each answer before moving on."
+        f" Current phase: {interview_phase(asked)}"
+        " Ask exactly one question per turn and wait for the answer. If the candidate asks you something, answer in one short line,"
+        " then continue with your current phase - you drive the arc, not the candidate."
     )
     return " ".join(parts)
 
