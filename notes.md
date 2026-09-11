@@ -7,11 +7,13 @@ general features:
 - the interview should contain additive prompts (wary of prompt injection), slidable level(level implemented but currently not sliding), company size (slidable but also can be only 1 same as level), cynicism(how kinda mean they are like kind with benefit of the doubt and neutral and mean because skeptical), toogle to turn on brutally honest mode, human mode (removes ai fluff, unstructured response, and remove ai phrasing and vocabulary) custom rubric maybe?(may need schema changes if custom rubric), and also custom chitchat, behavioral, technical sliders.
 - add more dimensions. eg (technicals, behavioural, culture, production, potential)
 - ssr for first page load and then client side for the rest of the website
+- have a rejected and hired state and certainty percentage state after interview because realistically in life its not just pass or fail, there is a spectrum of certainty and also a spectrum of rejection and hiring.
 
 fix:
 
 - repair the prompt steps like i think it skips behavioral
 - the llm feedback scoring sometimes fails schema validation, logs say schema_mismatch field=scores has_verdict=True then formatter_unavailable and the generate endpoint 503s. happens on short transcripts (2 messages) but not sure if its only that. it is intermittent, retrying sometimes works. this is why an interview ends up completed with no score. the retry buttons recover it but the root cause is in the feedback generation/validation and probably the prompt or schema, not fixed yet.
+- having one global quota reset might be bad for the server because the db might spike due to all the users hitting the db at the same time.
 
 infra:
 contemplating---
