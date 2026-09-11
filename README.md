@@ -181,18 +181,23 @@ PVC, no StatefulSet, and no DB backup/upgrade work in-cluster.
 dashboard, no `neonctl`. This requires the `pi-mcp-adapter` extension (pi core has no MCP of its own).
 
 ```bash
-export NEON_API_KEY='<Neon console → Account settings → API keys>'   # never committed
+# .env.local (git-ignored — loaded automatically by direnv via .envrc)
+NEON_API_KEY=np_...
 ```
 
-Then `/mcp` inside pi to connect. `NEON_API_KEY` is an **API-scoped** key and is *not* `DATABASE_URL`
-(that is the separate DSN secret, §Deployment). Two device-level facts worth knowing:
+Then `/mcp` inside pi to connect. Pi does **not** read `.env` files itself — direnv put the value
+into the shell environment, which is what the MCP adapter reads. **Open a new terminal** (or let
+direnv reload) after editing, so the var is in the environment pi inherits; direnv only exports into
+shells started after the change.
+
+`NEON_API_KEY` is an **API-scoped** key and is *not* `DATABASE_URL` (that is the separate DSN secret,
+§Deployment). Two device-level facts worth knowing:
 
 - **Auth is bearer, not OAuth.** The adapter keeps OAuth tokens in the OS credential store and fails
   closed rather than writing them in plaintext. Headless Linux here has no Secret Service/keyring, so
   OAuth cannot complete; `bearerTokenEnv` is a plain `process.env` read and sidesteps this entirely.
 - **The key is per-device, the config is per-repo.** `.mcp.json` is committed and contains only the
-  *variable name*; export the value on each machine (or via `.envrc`/direnv). Setting it once does not
-  propagate to another host.
+  *variable name*; each machine supplies its own `.env.local`. A file on one host does not reach another.
 
 `approveTools` gates destructive calls (`*delete*`, `*drop*`, `*reset*`, `*truncate*`) behind an
 interactive confirmation; reads run ungated. **This key can mutate the production database** — the free
