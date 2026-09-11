@@ -4,8 +4,9 @@ general features:
 
 - have resume feature with import resume with pdf with deps for maintanibility no hand rolling a pdf parser
 - and then after the resume feature we can add direct integration to interviews to just pull the resume in the imported by the user (have a toggle to have resume included in the new interview)
-- the interview should contain additive prompts (wary of prompt injection), slidable level(level implemented but currently not sliding), company size (slidable but also can be only 1 same as level), cynicism(how kinda mean they are like kind with benefit of the doubt and neutral and mean because skeptical), toogle to turn on brutally honest mode, human mode (removes ai fluff, unstructured response, and remove ai phrasing and vocabulary, custom rubric maybe?(may need schema changes if custom rubric), and also custom chitchat, behavioral, technical sliders.
+- the interview should contain additive prompts (wary of prompt injection), slidable level(level implemented but currently not sliding), company size (slidable but also can be only 1 same as level), cynicism(how kinda mean they are like kind with benefit of the doubt and neutral and mean because skeptical), toogle to turn on brutally honest mode, human mode (removes ai fluff, unstructured response, and remove ai phrasing and vocabulary) custom rubric maybe?(may need schema changes if custom rubric), and also custom chitchat, behavioral, technical sliders.
 - add more dimensions. eg (technicals, behavioural, culture, production, potential)
+- ssr for first page load and then client side for the rest of the website
 
 fix:
 
