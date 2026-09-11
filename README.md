@@ -152,9 +152,8 @@ This repo is the **app source**; the gitops repo holds the Kubernetes manifests.
 
 1. **Build & push images** to GHCR as immutable SHAs — `ghcr.io/notseekeru/maxterview_backend` and
    `ghcr.io/notseekeru/maxterview_frontend`. The enabled CD pipeline does this automatically on green CI to `main`.
-   > **Gap:** CD currently stops at the GHCR push. Deploying requires the same `kustomize edit set image`
-   > tag-bump job that `diagram`/`portfolio` have (see the gitops README's "Image versions"). Until that job
-   > exists here, the gitops tags must be bumped by hand.
+   The `kustomize edit set image` tag-bump job (what `diagram`/`portfolio` use) is part of the GitOps-adoption
+   milestone below, not wired yet.
 2. **Add the GitOps manifests** (in the gitops repo, not here), mirroring `apps/diagram/`:
    - `apps/maxterview/backend.yaml` + `frontend.yaml` + `kustomization.yaml` (Deployment + Service,
      `replicas: 1`, `revisionHistoryLimit: 2`, `imagePullSecrets: [ghcr-login]`, small memory/CPU requests).
@@ -220,9 +219,9 @@ basic key is account-wide, so there is no branch-level protection between the ag
 `/api` proxy is a same-origin dev convenience, not the prod path. Because maxterview's backend **has a real
 `/health` route**, its pods take `httpGet` probes rather than `diagram`'s `tcpSocket`.
 
-> CD here is **enabled** and pushes images to GHCR, but until the gitops `apps/maxterview` manifests above
-> exist nothing reconciles them onto the cluster. CI/CD + scanning (Trivy) are live; only the GitOps adoption
-> half remains to be added in the `notseekeru/gitops` repo.
+> The GitOps half is a **pending milestone** (not started, by design): images publish to GHCR, but nothing
+> reconciles onto the cluster until the `apps/maxterview` manifests + CD tag-bump job in the
+> `notseekeru/gitops` repo are added.
 
 ---
 

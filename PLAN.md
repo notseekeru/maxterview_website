@@ -86,7 +86,7 @@ graph TD
 - **Direct is sufficient because `replicas: 1`** (house style) → one pod holding ~10 pooled connections. The connection-storm problem this avoids only appears with many short-lived instances (serverless), which was explicitly rejected.
 - **`sslmode=require`** — the DSN crosses the public internet.
 - **Known tradeoff:** Pi → Neon is real network distance, and Neon free-tier compute scales to zero, so the first query after idle pays a cold-start. Measure before trusting it.
-- **Still missing in this repo:** the CD pipeline pushes images to GHCR but does **not** yet bump `apps/maxterview/kustomization.yaml` tags in the gitops repo, which is how `diagram`/`portfolio` deploy. That bump job (and the `apps/maxterview` manifests themselves, `maxterview-ingress.yaml`, the `apps-of-apps/maxterview.yaml` child app, and the `kustomization.yaml` entry) live in `notseekeru/gitops`.
+- **GitOps adoption is a pending milestone (by design, not a defect):** images publish to GHCR, but `apps/maxterview/*`, `infra/maxterview-ingress.yaml`, `apps-of-apps/maxterview.yaml`, the root `kustomization.yaml` entry, and the CD tag-bump job are not written yet. Nothing reconciles onto the cluster until they are.
 
 ## 4. Config & auth contract (guardrails)
 
