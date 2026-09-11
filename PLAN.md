@@ -81,11 +81,12 @@ graph TD
 - **Ingress carries rate limits + CSP + CORS** (`limit-rps`, `limit-burst`, cors-allow-origin `*.seekeru.tech`) — copied from `diagram-ingress.yaml`. This is the app's only rate limiting, so it is load-bearing, not decoration.
 - **Probes:** maxterview has a real `/health` route, so use **`httpGet`** (diagram must use `tcpSocket` because it lacks one).
 - **No Postgres pod in prod.** The DB is Neon — no PVC, no StatefulSet, nothing to back up or upgrade in-cluster.
-- **`DATABASE_URL` from `maxterview-secrets`**, created by Terraform from Infisical (never `kubectl`, never committed).
+- **`DATABASE_URL` from `maxterview-secrets`**, a k8s Secret created by Terraform (`~/terraform`) from Infisical. Unlike `diagram-secrets`, it is **not derivable** from `var.POSTGRES_PASSWORD` (the DSN is external/Neon), so it needs its own `var.NEON_DATABASE_URL` + secret resource in `infra/k3s/main.tf`, wired into `gitops_app`'s `depends_on`. Never `kubectl`, never committed.
 - **Use the DIRECT host** (`ep-<id>-<region>.aws.neon.tech`), **not** `-pooler`: the pooler is PgBouncer in transaction mode and breaks asyncpg's implicit prepared statements. `app/db.py` auto-detects a `-pooler` DSN and disables the cache, so switching later is safe — but direct needs no workaround.
 - **Direct is sufficient because `replicas: 1`** (house style) → one pod holding ~10 pooled connections. The connection-storm problem this avoids only appears with many short-lived instances (serverless), which was explicitly rejected.
 - **`sslmode=require`** — the DSN crosses the public internet.
 - **Known tradeoff:** Pi → Neon is real network distance, and Neon free-tier compute scales to zero, so the first query after idle pays a cold-start. Measure before trusting it.
+- **Credential lifecycle differs from `diagram`:** the `docs/incident-2026-09-03…` rotation runbook exists because a self-hosted role password can drift from its secret. Neon owns the role, so rotation happens in Neon + Infisical and re-apply — no `ALTER USER` step, and the mismatch failure mode does not apply.
 - **GitOps adoption is a pending milestone (by design, not a defect):** images publish to GHCR, but `apps/maxterview/*`, `infra/maxterview-ingress.yaml`, `apps-of-apps/maxterview.yaml`, the root `kustomization.yaml` entry, and the CD tag-bump job are not written yet. Nothing reconciles onto the cluster until they are.
 
 ## 4. Config & auth contract (guardrails)

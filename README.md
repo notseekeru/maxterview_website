@@ -163,9 +163,21 @@ This repo is the **app source**; the gitops repo holds the Kubernetes manifests.
      `/` → `frontend:8080`) with the same `limit-rps`/CSP/CORS annotations as `diagram-ingress.yaml`,
      plus its entry in `infra/kustomization.yaml`. The Cloudflare tunnel (`cloudflared.yaml`) is shared
      infra and already routes `*.seekeru.tech`.
-3. **Secrets** (`maxterview-secrets`) are created by the **Terraform installer from Infisical** — same as the
-   existing `diagram-secrets`/`ghcr-login`/`cloudflared-token` pattern. Never `kubectl apply` them and never
-   commit them; Terraform owns them.
+3. **Secrets**: `maxterview-secrets` must be **added to `~/terraform` (`infra/k3s/main.tf`)** — it cannot
+   copy `diagram_secrets`, because that secret *derives* `database_url` from `var.POSTGRES_PASSWORD` and
+   points at the in-cluster Postgres (`postgres.database.svc.cluster.local`). An external Neon DSN is not
+   derivable, so it needs:
+   - a new `var.NEON_DATABASE_URL` (sensitive) in `infra/k3s/variables.tf`, value set in **Infisical**
+     (never `secrets.tfvars`),
+   - a new `kubernetes_secret.maxterview_secrets` alongside `diagram_secrets`, carrying `database_url`
+     (plus Clerk/LLM/Stripe keys),
+   - that secret added to `kubectl_manifest.gitops_app`'s `depends_on` list, so the root App still applies
+     only after its secrets exist.
+   Never `kubectl apply` secrets and never commit them; Terraform owns them.
+
+   The in-cluster Postgres and its `postgres-credentials` secret stay as they are — they serve `diagram`.
+   maxterview does not consume them, so the `docs/incident-2026-09-03` rotation runbook does not apply:
+   Neon owns the role, so rotation is an Infisical change + re-apply, with no `ALTER USER` step.
 
 **Database:** production runs against **Neon** (managed Postgres), not a DB pod in the cluster. There is no
 PVC, no StatefulSet, and no DB backup/upgrade work in-cluster.

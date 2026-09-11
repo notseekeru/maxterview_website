@@ -22,7 +22,7 @@ DECIDED (see PLAN.md 3b + README Deployment):
 - matches the existing gitops shape (`apps/diagram`): replicas 1, `imagePullSecrets: [ghcr-login]`, terraform-owned `maxterview-secrets`, ingress `/api`->backend:8000 + `/`->frontend:8080. see PLAN.md 3b.
 - no DB pod in prod, so `DATABASE_URL` is an external secret and only compose-dev still composes it (D5 amended).
 - remaining risks: pi->neon latency + free-tier scale-to-zero cold start. measure before trusting it.
-- gitops adoption (manifests + CD tag-bump job) is a pending milestone, not started by design.
+- gitops adoption (manifests + CD tag-bump job) is a pending milestone, not started by design. same for the terraform side: `~/terraform` `infra/k3s/main.tf` needs a `NEON_DATABASE_URL` var + `maxterview-secrets` resource (cant reuse `diagram_secrets`, that one derives from POSTGRES_PASSWORD and points at the in-cluster pg).
 - dropped/optional:
   - terraform + helm with k3s + postgres pods pvc on raspi5 — no longer needed for the db (no pvc to babysit)
   - aws (rds + bedrock + ec2) — most work, most cost, no benefit at this scale
