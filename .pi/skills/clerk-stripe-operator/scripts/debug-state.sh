@@ -13,14 +13,14 @@ _ENGINE_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 BACKEND_URL="${BACKEND_URL:-http://localhost:8000}"
 
 echo "== backend health =="
-curl -fsS "$BACKEND_URL/health" || { echo "backend unreachable at $BACKEND_URL"; exit 1; }
+curl -fsS "$BACKEND_URL/api/health" || { echo "backend unreachable at $BACKEND_URL"; exit 1; }
 
 echo ""
-echo "== GET /usage (current caller tier/quota) =="
+echo "== GET /api/usage (current caller tier/quota) =="
 # Usage is identity-scoped; with no __session cookie the app returns DEV_USER (dev fallback). For a
 # real user, send the dev fallback only; a real run would carry its __session. We show DEV view if
 # CLERK disabled in backend. Just surface whatever it gives.
-curl -fsS "$BACKEND_URL/usage" || true; echo ""
+curl -fsS "$BACKEND_URL/api/usage" || true; echo ""
 
 echo ""
 echo "== subscriptions table (owner_id mapped; never prints secrets) =="
@@ -45,5 +45,5 @@ fi
 
 echo ""
 echo "== blurb =="
-echo "To verify a premium flip: complete a checkout/webhook, then GET /usage should read tier: premium."
+echo "To verify a premium flip: complete a checkout/webhook, then GET /api/usage should read tier: premium."
 echo "Remember nothing here touched or printed secrets."

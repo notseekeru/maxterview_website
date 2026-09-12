@@ -51,7 +51,7 @@ case "$MODE" in
       --data-urlencode "product_data[name]=maxterview premium test")
     pid=$(printf '%s' "$out" | sed -n 's/.*"id":"\(price_[^"]*\)".*/\1/p' | head -1)
     echo "new-price-id  ${pid:-FAILED}"
-    echo "  set STRIPE_PRICE_ID=$pid in backend/.env if you want the app's /billing/checkout to use it."
+    echo "  set STRIPE_PRICE_ID=$pid in backend/.env if you want the app's /api/billing/checkout to use it."
     ;;
   create-customer)
     echo "POST $API/customers"

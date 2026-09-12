@@ -51,18 +51,18 @@ def hcheck(cond, label):
 
 # Live model guard: if the backend is in STUB mode this test is meaningless.
 try:
-    health = json.loads(http("GET", "/health", timeout=10).read())
-    hcheck(health.get("status") == "ok", "/health ok")
+    health = json.loads(http("GET", "/api/health", timeout=10).read())
+    hcheck(health.get("status") == "ok", "/api/health ok")
 except Exception as e:
     raise SystemExit(f"backend unreachable at {BASE}: {e!r}")
 
 # 1. create
-iid = json.loads(http("POST", "/interviews", {"role": "LLM Smoke", "topic": "e2e"}).read())["id"]
+iid = json.loads(http("POST", "/api/interviews", {"role": "LLM Smoke", "topic": "e2e"}).read())["id"]
 print("created interview:", iid)
 hcheck(bool(iid), "interview id present")
 
 # 2. start
-http("POST", f"/interviews/{iid}/start")
+http("POST", f"/api/interviews/{iid}/start")
 print("started")
 try:
     # 3. chat/stream — read SSE via a chunked loop (a single full-body read() can stall on
@@ -71,7 +71,7 @@ try:
     budget = int(os.environ.get("LLM_SMOKE_STREAM_TIMEOUT", "600"))
     import time as _t
     r = urllib.request.urlopen(urllib.request.Request(
-        f"{BASE}/interviews/{iid}/chat/stream", data=body,
+        f"{BASE}/api/interviews/{iid}/chat/stream", data=body,
         headers={"Content-Type": "application/json"}), timeout=budget)
     sse, deadline = b"", _t.time() + budget
     while _t.time() < deadline:
@@ -95,26 +95,26 @@ finally:
     pass
 
 # 4. assistant turn persisted
-msgs = json.loads(http("GET", f"/interviews/{iid}/messages").read())
+msgs = json.loads(http("GET", f"/api/interviews/{iid}/messages").read())
 roles = [m["role"] for m in msgs]
 hcheck("user" in roles and "assistant" in roles, "user+assistant turns persisted")
 print("transcript persisted:", roles)
 
 # 5. complete (may take a while with a local model)
 complete_timeout = int(os.environ.get("LLM_SMOKE_COMPLETE_TIMEOUT", "600"))
-resp = http("POST", f"/interviews/{iid}/complete", timeout=complete_timeout)
+resp = http("POST", f"/api/interviews/{iid}/complete", timeout=complete_timeout)
 hcheck(resp.status == 200, "complete returns 200")
 print("completed")
 
 # 6. feedback persisted non-empty
-fb = json.loads(http("GET", f"/interviews/{iid}/feedback").read())
+fb = json.loads(http("GET", f"/api/interviews/{iid}/feedback").read())
 hcheck(bool(fb.get("verdict")), "feedback verdict present")
 hcheck(fb.get("scores"), "feedback scores present")
 hcheck(fb.get("tips"), "feedback tips present")
 print("feedback OK:", fb.get("scores"), "tips:", len(fb.get("tips") or []))
 
 # 7. cleanup: delete the test interview so history stays clean.
-http("DELETE", f"/interviews/{iid}", timeout=15)
+http("DELETE", f"/api/interviews/{iid}", timeout=15)
 print("deleted test interview:", iid)
 PY
 }

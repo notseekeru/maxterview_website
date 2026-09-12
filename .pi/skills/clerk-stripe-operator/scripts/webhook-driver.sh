@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# webhook-driver.sh — deliver a real Stripe test webhook event to the app's /billing/webhook.
+# webhook-driver.sh — deliver a real Stripe test webhook event to the app's /api/billing/webhook.
 #
 # Modes:
 #   --event=<type>                `stripe trigger <type>` through whatever `stripe listen` forwards.
 #   --events[=<type>]             list the newest real events (id/type/created) to pick from.
-#   --replay-event=<evt_id>       fetch that REAL event from the API and POST it to /billing/webhook
+#   --replay-event=<evt_id>       fetch that REAL event from the API and POST it to /api/billing/webhook
 #                                 signed with the app's own STRIPE_WEBHOOK_SECRET (no CLI/listen
 #                                 needed — the documented fallback for a machine with no listener).
 #
@@ -12,14 +12,14 @@
 # .completed, payment_intent.*) require --admin-destroy in both modes.
 #
 # Reads (never prints): STRIPE_WEBHOOK_SECRET (whsec_), STRIPE_SECRET_KEY. Backend root from
-# BACKEND_URL env or default http://localhost:8000. Webhook path is always /billing/webhook.
+# BACKEND_URL env or default http://localhost:8000. Webhook path is always /api/billing/webhook.
 set -euo pipefail
 _ENGINE_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=/dev/null
 . "$_ENGINE_DIR/_env.sh"
 
 BACKEND_URL="${BACKEND_URL:-http://localhost:8000}"
-WEBHOOK="$BACKEND_URL/billing/webhook"
+WEBHOOK="$BACKEND_URL/api/billing/webhook"
 API="https://api.stripe.com/v1"
 ADMINDESTROY=0
 EVENT=""
@@ -111,8 +111,8 @@ if [ -z "$EVENT" ]; then echo "usage: webhook-driver.sh --event=<type> | --event
 _require_admin "$EVENT"
 
 # Prefer the app being up.
-if ! curl -fsS "$BACKEND_URL/health" >/dev/null 2>&1; then
-  echo "warn: backend /health not reachable at $BACKEND_URL (still will attempt CLI trigger)."
+if ! curl -fsS "$BACKEND_URL/api/health" >/dev/null 2>&1; then
+  echo "warn: backend /api/health not reachable at $BACKEND_URL (still will attempt CLI trigger)."
 fi
 
 if command -v stripe >/dev/null 2>&1 && [ "$ONLY_REQ" = 0 ]; then

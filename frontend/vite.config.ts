@@ -15,11 +15,8 @@ export default defineConfig({
     },
     server: {
         proxy: {
-            "/api": {
-                target: "http://backend:8000",
-                // Backend routes are at root (/interviews), not under /api.
-                rewrite: (path) => path.replace(/^\/api/, ""),
-            },
+            // The app owns the /api prefix; forward the path unchanged.
+            "/api": "http://backend:8000",
         },
     },
 });

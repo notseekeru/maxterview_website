@@ -77,7 +77,7 @@ def stream_one_turn(iid, content):
     budget = int(os.environ.get("LLM_SMOKE_STREAM_TIMEOUT", "600"))
     body = json.dumps({"interview_id": iid, "content": content}).encode()
     r = urllib.request.urlopen(urllib.request.Request(
-        f"{BASE}/interviews/{iid}/chat/stream", data=body,
+        f"{BASE}/api/interviews/{iid}/chat/stream", data=body,
         headers={"Content-Type": "application/json"}), timeout=budget)
     sse, deadline = b"", _t.time() + budget
     while _t.time() < deadline:
@@ -96,24 +96,24 @@ def stream_one_turn(iid, content):
 
 
 # --- live guard: backend reachable and not STUB-without-model ---
-hcheck(http_status("GET", "/health", timeout=10)[0] == 200, "/health ok")
+hcheck(http_status("GET", "/api/health", timeout=10)[0] == 200, "/api/health ok")
 
 # 1. create -> pending  (+ list + get single)
-iid = json.loads(http("POST", "/interviews", {"role": "LLM Full Smoke", "topic": "lifecycle"}).read())["id"]
+iid = json.loads(http("POST", "/api/interviews", {"role": "LLM Full Smoke", "topic": "lifecycle"}).read())["id"]
 print("created:", iid)
 hcheck(bool(iid), "interview id present")
 
-c = json.loads(http("GET", f"/interviews/{iid}").read())
+c = json.loads(http("GET", f"/api/interviews/{iid}").read())
 hcheck(c["status"] == "pending", "new interview is pending")
 hcheck(c["role"] == "LLM Full Smoke", "role round-trips")
 
-lst = json.loads(http("GET", "/interviews").read())
+lst = json.loads(http("GET", "/api/interviews").read())
 hcheck(any(x["id"] == iid for x in lst), "interview appears in list")
 print("get + list OK")
 
 # 2. start -> in_progress
-hcheck(http_status("POST", f"/interviews/{iid}/start")[0] == 200, "start returns 200")
-c = json.loads(http("GET", f"/interviews/{iid}").read())
+hcheck(http_status("POST", f"/api/interviews/{iid}/start")[0] == 200, "start returns 200")
+c = json.loads(http("GET", f"/api/interviews/{iid}").read())
 hcheck(c["status"] == "in_progress", "status is in_progress after start")
 print("started -> in_progress")
 
@@ -135,7 +135,7 @@ for idx, content in enumerate(prompts, start=1):
     hcheck("event: message" in sse, f"turn {idx} emitted message deltas")
 
     # transcript must show user+assistant alternating in order
-    msgs = json.loads(http("GET", f"/interviews/{iid}/messages").read())
+    msgs = json.loads(http("GET", f"/api/interviews/{iid}/messages").read())
     roles = [m["role"] for m in msgs]
     expected = sum((["user", "assistant"] for _ in range(idx)), [])
     hcheck(roles == expected, f"turn {idx}: transcript roles {roles} == {expected}")
@@ -143,42 +143,42 @@ for idx, content in enumerate(prompts, start=1):
 
 # 4. complete -> completed (auto-feedback)
 complete_timeout = int(os.environ.get("LLM_SMOKE_COMPLETE_TIMEOUT", "600"))
-code, c = http_status("POST", f"/interviews/{iid}/complete", timeout=complete_timeout)
+code, c = http_status("POST", f"/api/interviews/{iid}/complete", timeout=complete_timeout)
 hcheck(code == 200, "complete returns 200")
 hcheck(c["status"] == "completed", "status is completed after complete")
 print("completed")
 
 # 5. guard: read-only after completed — chat/stream and start now 409
-code, _ = http_status("POST", f"/interviews/{iid}/chat/stream",
+code, _ = http_status("POST", f"/api/interviews/{iid}/chat/stream",
                       {"interview_id": iid, "content": "too late"})
 hcheck(code == 409, "chat/stream rejected with 409 after completed")
-code, _ = http_status("POST", f"/interviews/{iid}/start")
+code, _ = http_status("POST", f"/api/interviews/{iid}/start")
 hcheck(code == 409, "start rejected with 409 after completed")
 print("post-complete guards OK (409)")
 
 # 6. feedback: auto non-empty, then manual UPSERT (POST twice -> second wins)
-fb = json.loads(http("GET", f"/interviews/{iid}/feedback").read())
+fb = json.loads(http("GET", f"/api/interviews/{iid}/feedback").read())
 hcheck(bool(fb.get("verdict")), "auto feedback verdict present")
 hcheck(fb.get("scores"), "auto feedback scores present")
 hcheck(fb.get("tips"), "auto feedback tips present")
 print("auto feedback OK:", fb.get("scores"), "tips:", len(fb.get("tips") or []))
 
-code, fb2 = http_status("POST", f"/interviews/{iid}/feedback",
+code, fb2 = http_status("POST", f"/api/interviews/{iid}/feedback",
                         {"scores": {"clarity": 9, "relevance": 8, "structure": 7, "confidence": 9},
                          "verdict": "Manual overwrite verdict.", "tips": ["manual tip"]})
 hcheck(code == 201, "manual feedback POST returns 201")
-code, fb3 = http_status("POST", f"/interviews/{iid}/feedback",
+code, fb3 = http_status("POST", f"/api/interviews/{iid}/feedback",
                         {"scores": {"clarity": 1}, "verdict": "Second manual overwrite.", "tips": []})
 hcheck(code == 201, "second manual feedback POST returns 201 (UPSERT)")
-fb_final = json.loads(http("GET", f"/interviews/{iid}/feedback").read())
+fb_final = json.loads(http("GET", f"/api/interviews/{iid}/feedback").read())
 hcheck(fb_final["verdict"] == "Second manual overwrite.", "feedback UPSERT second write wins")
 hcheck(fb_final["scores"]["clarity"] == 1, "scores updated by UPSERT")
 print("feedback UPSERT OK")
 
 # 7. delete -> 204, verify gone -> 404
-code, _ = http_status("DELETE", f"/interviews/{iid}")
+code, _ = http_status("DELETE", f"/api/interviews/{iid}")
 hcheck(code == 204, "delete returns 204")
-code, _ = http_status("GET", f"/interviews/{iid}")
+code, _ = http_status("GET", f"/api/interviews/{iid}")
 hcheck(code == 404, "deleted interview is 404 on get")
 print("delete + gone OK")
 

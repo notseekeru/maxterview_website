@@ -23,7 +23,7 @@ class _Req:
 def test_health_is_never_throttled(monkeypatch):
     monkeypatch.setenv("RATE_LIMIT", "1/minute")
     with TestClient(app) as c:
-        assert [c.get("/health").status_code for _ in range(3)] == [200, 200, 200]
+        assert [c.get("/api/health").status_code for _ in range(3)] == [200, 200, 200]
 
 
 def test_client_is_throttled_past_the_window_budget(monkeypatch):
@@ -31,8 +31,8 @@ def test_client_is_throttled_past_the_window_budget(monkeypatch):
     # raise_server_exceptions=False: with no DB reachable these 500 instead of 200 — irrelevant,
     # the assertion is which ones are NOT throttled and that the third one is.
     with TestClient(app, raise_server_exceptions=False) as c:
-        assert 429 not in [c.get("/interviews").status_code for _ in range(2)]
-        throttled = c.get("/interviews")
+        assert 429 not in [c.get("/api/interviews").status_code for _ in range(2)]
+        throttled = c.get("/api/interviews")
     assert throttled.status_code == 429
     assert throttled.json()["detail"].startswith("Too many requests")
     assert throttled.headers["retry-after"] == "60"
@@ -53,7 +53,7 @@ def test_cors_stays_off_until_an_origin_is_listed():
 def test_chat_turn_length_is_bounded():
     with TestClient(app, raise_server_exceptions=False) as c:
         for bad in ("", "x" * 4001):
-            r = c.post("/interviews/x/chat/stream", json={"interview_id": "x", "content": bad})
+            r = c.post("/api/interviews/x/chat/stream", json={"interview_id": "x", "content": bad})
             assert r.status_code == 422, len(bad) if isinstance(bad, str) else bad
 
 
@@ -69,10 +69,10 @@ def test_cors_middleware_answers_preflight_only_for_listed_origins(monkeypatch):
         reloaded = importlib.reload(main_module)
         assert reloaded.CORS_ALLOW_ORIGINS == ["https://app.example", "https://other.example"]
         with TestClient(reloaded.app) as c:
-            allowed = c.options("/usage", headers={"Origin": "https://app.example", "Access-Control-Request-Method": "GET"})
+            allowed = c.options("/api/usage", headers={"Origin": "https://app.example", "Access-Control-Request-Method": "GET"})
             assert allowed.headers["access-control-allow-origin"] == "https://app.example"
             assert allowed.headers["access-control-allow-credentials"] == "true"
-            denied = c.options("/usage", headers={"Origin": "https://evil.example", "Access-Control-Request-Method": "GET"})
+            denied = c.options("/api/usage", headers={"Origin": "https://evil.example", "Access-Control-Request-Method": "GET"})
             assert "access-control-allow-origin" not in denied.headers
     finally:
         monkeypatch.delenv("CORS_ALLOW_ORIGINS")

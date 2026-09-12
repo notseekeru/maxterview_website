@@ -18,6 +18,8 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
+from app import API_PREFIX
+
 # Per client per minute. Generous on purpose: a real UI burst (dashboard, create, stream a turn)
 # is a handful of requests, and M10's turn caps already bound what a well-behaved client spends.
 DEFAULT = "120/minute"
@@ -57,10 +59,10 @@ def client_key(request: Request) -> str:
 
 
 class ClientRateLimitMiddleware(BaseHTTPMiddleware):
-    """/health is exempt: it is the probe/CD path, costs nothing, and must answer when the DB is down."""
+    """The health route is exempt: it is the probe/CD path, costs nothing, and must answer when the DB is down."""
 
     async def dispatch(self, request: Request, call_next):
-        if enabled() and request.url.path != "/health" and not await _limiter.hit(_item(spec()), client_key(request)):
+        if enabled() and request.url.path != f"{API_PREFIX}/health" and not await _limiter.hit(_item(spec()), client_key(request)):
             return JSONResponse(
                 {"detail": "Too many requests. Slow down and retry in a moment."},
                 status_code=429,

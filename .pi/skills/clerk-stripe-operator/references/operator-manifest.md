@@ -54,7 +54,7 @@ Stripe is form-encoded (`application/x-www-form-urlencoded`).
 | PaymentMethods | `POST /payment_methods`, `POST /payment_methods/{id}` (attach), `GET /customers/{id}/payment_methods` | attach to a test customer for the billing state machine. |
 | Subscriptions | `POST /subscriptions`, `GET /subscriptions/{id}`, `GET /v1/customers/{id}/subscriptions` | To make a `subscription` appear alone (no checkout) — set `customer`, `items`, `cancel_at` etc. |
 | Subscriptions (mutate) | `PATCH /subscriptions/{id}` (change `cancel_at`, `items[0][price]`, default_payment_method) | Lifecycle transitions are allowed by default; a true end/`DELETE` needs flag. |
-| Checkout/Portal | `POST /checkout/sessions` (returns hosted URL), `GET /sessions/{id}`, `POST /billing_portal/sessions` | For the app, prefer calling your OWN `/billing/checkout`+`/billing/portal` (they build from your env) rather than Stripe direct — less to keep in sync. |
+| Checkout/Portal | `POST /checkout/sessions` (returns hosted URL), `GET /sessions/{id}`, `POST /billing_portal/sessions` | For the app, prefer calling your OWN `/api/billing/checkout`+`/api/billing/portal` (they build from your env) rather than Stripe direct — less to keep in sync. |
 | Events / logs | `GET /events`, `GET /v1/events?type=customer.subscription.deleted` | read-only, diagnostic. |
 | CLI | `stripe trigger <event>`, `stripe listen --forward-to URL`, `stripe tokens` | Emits sandbox events to your webhook (useful w/o live CLI session). |
 
@@ -62,8 +62,8 @@ Stripe is form-encoded (`application/x-www-form-urlencoded`).
 `checkout.session.completed` → records `owner_id`(metadata)↦customer; then
 `customer.subscription.{created,updated}` → upserts `plan='premium'`, status from event;
 `customer.subscription.deleted` → flips row to `plan='free', status='canceled'`.
-To **prove entitlement** end-to-end, replay exactly these against your `/billing/webhook`, then
-`GET /usage` and read `tier`.
+To **prove entitlement** end-to-end, replay exactly these against your `/api/billing/webhook`, then
+`GET /api/usage` and read `tier`.
 
 **Guardrails**
 - `DELETE /v1/subscriptions/{id}`, `DELETE /v1/customers/{id}`, `DELETE /v1/prices/{id}` and any

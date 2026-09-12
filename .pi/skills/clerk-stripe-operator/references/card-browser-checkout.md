@@ -15,11 +15,11 @@ page, complete it with a **test card**, and assert the entitlement flip end to e
 
 The API layer makes the state (users, price, webhook events). This browser leg makes the **actual
 product flow** real: a user clicks Upgrade on the SPA, lands on Stripe's hosted page, pays with the
-test card, and Stripe posts the webhook back to the app. Assertions happen on your own `/usage` and
+test card, and Stripe posts the webhook back to the app. Assertions happen on your own `/api/usage` and
 `subscriptions`, which is the trustworthy signal.
 
 **Preconditions** (`need-keys.sh` all green):
-- Real `STRIPE_PRICE_ID` set (so `/billing/checkout` works), `FRONTEND_BASE_URL` set.
+- Real `STRIPE_PRICE_ID` set (so `/api/billing/checkout` works), `FRONTEND_BASE_URL` set.
 - Backend + frontend reachable (e.g. `docker compose -f compose.dev.yml up`, frontend at 5173).
 - Either (a) `CLERK_ENABLED=false` dev fallback mode means every call is `DEV_USER`, or
   (b) real Clerk via testing-token from `clerk-mint.sh` to authenticate the browser as a chosen user.
@@ -59,7 +59,7 @@ the backend returns `DEV_USER` for any request.
 ### 1. Drive the SPA to the Upgrade UX
 - `page.goto("{FRONTEND_BASE_URL}/app")`.
 - Expect the app/gated dashboard. Trigger Upgrade — the `UsageBadge`/`UpgradeNotice` button calls
-  `createCheckoutSession()` (SPA `POST /api/billing/checkout` → proxy strips `/api` → backend `POST /billing/checkout`), which returns a **real**
+  `createCheckoutSession()` (SPA `POST /api/billing/checkout` → backend route `POST /api/billing/checkout` — the app owns the prefix, nothing strips it), which returns a **real**
   `https://checkout.stripe.com/c/pay/...` URL. Catch the navigation or read the fetched URL.
 - Do **not** follow that URL from node; navigate to it in the browser (a popup/new tab is fine).
 
@@ -74,15 +74,15 @@ On the `checkout.stripe.com` page:
 
 ### 3. Let the webhook round-trip
 On success Stripe redirects to `{FRONTEND_BASE_URL}/app?upgrade=success`. With `stripe listen`
-forwarding to `{BACKEND}/billing/webhook` (see SKILL.md §3), Stripe posts real
+forwarding to `{BACKEND}/api/billing/webhook` (see SKILL.md §3), Stripe posts real
 `checkout.session.completed` then `customer.subscription.created/updated`. If you are **not** behind
 a running `stripe listen`, replay the equivalent with `.pi/skills/clerk-stripe-operator/scripts/webhook-driver.sh --event=customer.subscription.created`.
 
 ### 4. Assert entitlement
-- `GET {BACKEND}/usage` → expect `"tier": "premium"` for that owner.
+- `GET {BACKEND}/api/usage` → expect `"tier": "premium"` for that owner.
 - Or `debug-state.sh` to read the `subscriptions` row (`plan='premium', status='active'`).
 - For a teardown/rollback, run the deleted-event via `webhook-driver.sh --admin-destroy
-  --event=customer.subscription.deleted` and re-check `/usage` returns `free`.
+  --event=customer.subscription.deleted` and re-check `/api/usage` returns `free`.
 
 ## Resume / quit
 After asserting, if you minted a throwaway identity and want it gone, teardown:

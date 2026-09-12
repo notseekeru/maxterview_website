@@ -113,7 +113,7 @@ fi
 
 # 3) Session JWT (opt-in): the credential the BACKEND accepts as `Authorization: Bearer`. A
 #    testing token is only good for @clerk/testing's FAPI interception — for API-level proof
-#    (`GET /usage`, curl against /billing/*) you need a real session token JWT. Written to a file,
+#    (`GET /api/usage`, curl against /billing/*) you need a real session token JWT. Written to a file,
 #    never printed: it is a bearer credential for that throwaway user.
 if [ -n "$JWT_OUT" ]; then
   [ -n "$USER_ID" ] || { echo "refused: --session-jwt needs a resolved user (pass --user=)"; exit 4; }
@@ -128,5 +128,5 @@ if [ -n "$JWT_OUT" ]; then
   [ -n "$jwt" ] || { echo "refused: no jwt in session-token response"; exit 4; }
   (umask 077; printf '%s' "$jwt" > "$JWT_OUT")
   echo "session-jwt  $JWT_OUT (mode $(stat -c %a "$JWT_OUT"), ${#jwt} chars, ttl ${JWT_TTL}s)"
-  echo "  user $USER_ID session $SESSION_ID — use: curl -H \"Authorization: Bearer \$(cat $JWT_OUT)\" \${BACKEND_URL:-http://localhost:8000}/usage"
+  echo "  user $USER_ID session $SESSION_ID — use: curl -H \"Authorization: Bearer \$(cat $JWT_OUT)\" \${BACKEND_URL:-http://localhost:8000}/api/usage"
 fi

@@ -37,7 +37,7 @@ You use this skill when the user wants any of:
 4. Run the genuine end-to-end billing journey: authenticate a headless browser **as a throwaway
    Clerk user** (testing-token, no password typing), reach a real hosted Stripe checkout, complete
    it with a test card, and assert in the app that the user's tier flipped to `premium`.
-5. Read the resulting state (backend `subscriptions` table / `GET /usage`) to debug why a user
+5. Read the resulting state (backend `subscriptions` table / `GET /api/usage`) to debug why a user
    is or isn't `premium`.
 
 This is **NOT** for: running a hermetic/mocked billing test in CI (there is no fake state and no
@@ -60,8 +60,8 @@ used server-side / process-side. Frontend Clerk key is separate (see below).
 | `CLERK_FRONTEND_API` | for session/token | Clerk Frontend API host (`<instance>.clerk.accounts` / `.clerk.dev`) you authenticate into via publishable key | `${instance}.clerk.accounts` |
 | `CLERK_PUBLISHABLE_KEY_PREVIEW` | recom. | the `pk_...` that the frontend is configured with (frontend/.env `VITE_CLERK_PUBLISHABLE_KEY`) so the testing token targets the SAME instance | `pk_test_...` |
 | `STRIPE_SECRET_KEY` | for Stripe ops | Stripe **test** secret (`sk_test_...`) used to call `api.stripe.com/v1/` | `sk_test_...` |
-| `STRIPE_WEBHOOK_SECRET` | for webhook proof | `whsec_...` the backend uses to verify `/billing/webhook` signatures | `whsec_...` |
-| `STRIPE_PRICE_ID` | for checkout flow | the $9.99/mo premium **price** id; your `app/payments.py` requires it for `/billing/checkout` | `price_...` |
+| `STRIPE_WEBHOOK_SECRET` | for webhook proof | `whsec_...` the backend uses to verify `/api/billing/webhook` signatures | `whsec_...` |
+| `STRIPE_PRICE_ID` | for checkout flow | the $9.99/mo premium **price** id; your `app/payments.py` requires it for `/api/billing/checkout` | `price_...` |
 | `FRONTEND_BASE_URL` | for portal return | success/cancel + portal return URL the app uses | `http://localhost:5173` |
 
 Keys must already exist in the environment (e.g. `backend/.env` loaded by docker compose, or set in
@@ -111,7 +111,7 @@ Prereqs (only first time):
 stripe --version            # present?
 stripe login                # interactive, you, once
 # then later, in another shell/TMUX:
-stripe listen --forward-to http://localhost:8000/billing/webhook
+stripe listen --forward-to http://localhost:8000/api/billing/webhook
 # keep that running for the webhook tests; note the printed whsec_ and make it match
 # STRIPE_WEBHOOK_SECRET in backend/.env.
 ```
@@ -129,7 +129,7 @@ resources; the whole chain drives the app's real `payments.handle_webhook_event`
 1. **Key liveness**: `scripts/need-keys.sh` — all green.
 2. **Stripe test price exists (else create a throwaway)**: via REST (see manifest) or
    `scripts/stripe-stub.sh`. Read-only check: a `GET /v1/prices` for your `STRIPE_PRICE_ID`.
-3. **App reachable**: backend `GET /health` = 200 on the port it runs (default 8000); frontend
+3. **App reachable**: backend `GET /api/health` = 200 on the port it runs (default 8000); frontend
    dev server reachable at `FRONTEND_BASE_URL`.
 4. **Mint a throwaway Clerk identity + testing-token**: `scripts/clerk-mint.sh`. This creates a
    fresh test user (if asked), a session, and a **testing token** and prints a signed token TTL.
@@ -138,19 +138,19 @@ resources; the whole chain drives the app's real `payments.handle_webhook_event`
      origin's cookies so your app's `ClerkGate`/`ClerkProvider` authenticates as that identity.
 5. **Drive the app** up to `/app` → trigger the Upgrade/upgrade-UX. In no-Clerk mode the identity is
    `DEV_USER`; with real Clerk the token makes the browser that user.
-6. **Reach real Stripe hosted checkout**: `POST /billing/checkout` (real `sk_test_`) returns a real
+6. **Reach real Stripe hosted checkout**: `POST /api/billing/checkout` (real `sk_test_`) returns a real
    `https://checkout.stripe.com/...` URL. In a headless browser, finish it with Stripe test card
    `4242 4242 4242 4242`, any future exp, any CVC.
    - Stripe may pause for a challenge (bot defense): hand back to the human at the **one** card step
      and resume when they click through. Do not fight or retry automation attempts against it.
 7. **Webhook proof**: with `stripe listen` forwarding, Stripe sends real
    `checkout.session.completed` then `customer.subscription.created/updated`. If you are not behind
-   the CLI, you can replay those exact events against `/billing/webhook` with a valid signature
+   the CLI, you can replay those exact events against `/api/billing/webhook` with a valid signature
    (`scripts/webhook-driver.sh --events` to find the id, then `--replay-event=<evt_id>`), or
    `stripe trigger customer.subscription.created` (see [scripts/webhook-driver.sh](#scripts)). Then
-   assert the app sees the user as premium (`GET /usage` → `tier: premium`).
+   assert the app sees the user as premium (`GET /api/usage` → `tier: premium`).
 8. **State read**: `scripts/debug-state.sh` prints the latest `subscriptions` rows mapped to owner
-   and current `/usage`. Verifies the flip and helps you debug why a user is/isn't premium.
+   and current `/api/usage`. Verifies the flip and helps you debug why a user is/isn't premium.
 
 ---
 
@@ -169,7 +169,7 @@ Mechanism:
   to inject `__clerk_testing_token`) and signs the user in with **no UI** — the app's
   `<ClerkProvider>` then holds a real `__session`. Requires `CLERK_SECRET_KEY` in `process.env`.
 - A signed-in page yields an ~800-char `__session` cookie; the backend validates its JWT against
-  the dev JWKS and `/usage` resolves that real `sub`.
+  the dev JWKS and `/api/usage` resolves that real `sub`.
 
 Env / data realities learned:
 - Dev instances with username-in-requirements reject user create without a `username`
@@ -227,7 +227,7 @@ headlessly with `@clerk/testing/playwright` per the recipe above.
 
 Follow `references/card-browser-checkout.md` for the full walkthrough. Skeleton: mint identity
 (`clerk-mint.sh`) → browse `{FRONTEND_BASE_URL}/app` → trigger Upgrade → land on hosted Checkout →
-fill `4242 4242 4242 4242` → Stripe webhook back to `/billing/webhook` → assert `tier: premium`).
+fill `4242 4242 4242 4242` → Stripe webhook back to `/api/billing/webhook` → assert `tier: premium`).
 
 Two hard notes about this leg:
 - The browser is headless. Stripe's anti-bot may interrupt the card step; at that point **hand the
@@ -246,7 +246,7 @@ zero-touch.
 | `clerk-mint.sh` | Create a throwaway test user + print a testing-token; `--user=<id>` reuses an existing user, `--session-jwt[=path]` also mints a **session JWT** (what the backend takes as `Authorization: Bearer`) into `path` (mode 600) — never to stdout | No |
 | `stripe-stub.sh` | Create/read a throwaway Stripe price or customer against test account | No |
 | `webhook-driver.sh` | `--event=<type>` (via `stripe trigger` + a listening CLI), `--events[=<type>]` (list the newest REAL events), `--replay-event=<evt_id>` (fetch that real event and POST it signed with your `STRIPE_WEBHOOK_SECRET` — no listener needed) | No (fires events into the sandbox on purpose; state-ending types need `--admin-destroy`) |
-| `debug-state.sh` | Query backend `subscriptions`+`GET /usage` and print latest tier rows (read-only) | No |
+| `debug-state.sh` | Query backend `subscriptions`+`GET /api/usage` and print latest tier rows (read-only) | No |
 
 ### Destructive operations (requiring `--admin-destroy`)
 

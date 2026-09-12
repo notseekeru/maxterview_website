@@ -3,11 +3,11 @@ import os
 from contextlib import asynccontextmanager
 from typing import Annotated
 
-from fastapi import Depends, FastAPI, HTTPException, Request, status
+from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse, StreamingResponse
 
-from app import billing, llm, payments
+from app import API_PREFIX, billing, llm, payments
 from app.auth import CLERK_ENABLED, get_current_user
 from app.db import close_pool, fetch, fetchrow, init_pool
 from app.models import ChatMessage, ChatTurn, ClerkUser, Dials, Feedback, FeedbackCreate, Interview, InterviewCreate, Message
@@ -49,13 +49,17 @@ async def lifespan(_app: FastAPI):
 
 app = FastAPI(title="maxterview", lifespan=lifespan)
 
+# AI HERE: /api is owned here (matches diagram), not by the dev proxy or the ingress — every layer
+# passes the path through unchanged. Upgrade path: per-router prefixes if an admin/internal split lands.
+api = APIRouter(prefix=API_PREFIX)
+
 # Added first => innermost, so CORS stays outermost and its headers are still on a 429.
 app.add_middleware(ClientRateLimitMiddleware)
 if CORS_ALLOW_ORIGINS:
     app.add_middleware(CORSMiddleware, allow_origins=CORS_ALLOW_ORIGINS, allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 
 
-@app.get("/health")
+@api.get("/health")
 async def health() -> dict:
     # No DB call — CD smoke runs with a dummy DATABASE_URL and no Postgres.
     return {"status": "ok"}
@@ -74,7 +78,7 @@ DIAL_FIELDS = ("company_size", "cynicism", "brutally_honest", "human_mode", "mix
 INTERVIEW_COLS = "id::text, owner_id, role, level, topic, status, created_at, updated_at, " + ", ".join(DIAL_FIELDS)
 
 
-@app.get("/interviews", response_model=list[Interview])
+@api.get("/interviews", response_model=list[Interview])
 async def list_interviews(user: CurrentUser) -> list[dict]:
     # Include optional score/verdict by LEFT JOIN feedback (US5: history shows a score; avoids N+1).
     rows = await fetch(
@@ -95,7 +99,7 @@ async def list_interviews(user: CurrentUser) -> list[dict]:
     return [dict(r) for r in rows]
 
 
-@app.post("/interviews", response_model=Interview, status_code=status.HTTP_201_CREATED)
+@api.post("/interviews", response_model=Interview, status_code=status.HTTP_201_CREATED)
 async def create_interview(
     body: InterviewCreate,
     user: CurrentUser,
@@ -121,7 +125,7 @@ async def create_interview(
     return dict(row)
 
 
-@app.get("/interviews/{interview_id}", response_model=Interview)
+@api.get("/interviews/{interview_id}", response_model=Interview)
 async def get_interview(
     interview_id: str,
     user: CurrentUser,
@@ -136,7 +140,7 @@ async def get_interview(
     return dict(row)
 
 
-@app.delete("/interviews/{interview_id}", status_code=status.HTTP_204_NO_CONTENT)
+@api.delete("/interviews/{interview_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_interview(
     interview_id: str,
     user: CurrentUser,
@@ -150,7 +154,7 @@ async def delete_interview(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Interview not found")
 
 
-@app.post("/interviews/{interview_id}/start", response_model=Interview)
+@api.post("/interviews/{interview_id}/start", response_model=Interview)
 async def start_interview(
     interview_id: str,
     user: CurrentUser,
@@ -165,7 +169,7 @@ async def start_interview(
     return dict(row)
 
 
-@app.post("/interviews/{interview_id}/complete", response_model=Interview)
+@api.post("/interviews/{interview_id}/complete", response_model=Interview)
 async def complete_interview(
     interview_id: str,
     user: CurrentUser,
@@ -186,7 +190,7 @@ async def complete_interview(
     return interview
 
 
-@app.get("/interviews/{interview_id}/messages", response_model=list[Message])
+@api.get("/interviews/{interview_id}/messages", response_model=list[Message])
 async def list_messages(
     interview_id: str,
     user: CurrentUser,
@@ -199,7 +203,7 @@ async def list_messages(
     return [dict(r) for r in rows]
 
 
-@app.get("/interviews/{interview_id}/feedback", response_model=Feedback)
+@api.get("/interviews/{interview_id}/feedback", response_model=Feedback)
 async def get_feedback(
     interview_id: str,
     user: CurrentUser,
@@ -214,7 +218,7 @@ async def get_feedback(
     return dict(row)
 
 
-@app.post("/interviews/{interview_id}/feedback", response_model=Feedback, status_code=status.HTTP_201_CREATED)
+@api.post("/interviews/{interview_id}/feedback", response_model=Feedback, status_code=status.HTTP_201_CREATED)
 async def create_feedback(
     interview_id: str,
     body: FeedbackCreate,
@@ -225,7 +229,7 @@ async def create_feedback(
     return dict(row)
 
 
-@app.post("/interviews/{interview_id}/feedback/generate", response_model=Feedback)
+@api.post("/interviews/{interview_id}/feedback/generate", response_model=Feedback)
 async def regenerate_feedback(
     interview_id: str,
     user: CurrentUser,
@@ -254,7 +258,7 @@ async def regenerate_feedback(
 # --- usage ---
 
 
-@app.get("/usage")
+@api.get("/usage")
 async def get_usage(user: CurrentUser) -> dict:
     """Cheap quota status: tier + the daily GLOBAL chat-turn dial (per owner, all interviews)."""
     tier = await billing.resolve_tier(user)
@@ -271,17 +275,17 @@ async def get_usage(user: CurrentUser) -> dict:
 # --- billing (raw Stripe: checkout / portal / webhook) ---
 
 
-@app.post("/billing/checkout")
+@api.post("/billing/checkout")
 async def billing_checkout(user: CurrentUser) -> dict:
     return {"url": payments.create_checkout_session(user)}
 
 
-@app.post("/billing/portal", response_model=dict)
+@api.post("/billing/portal", response_model=dict)
 async def billing_portal(user: CurrentUser) -> dict:
     return {"url": await payments.create_portal_session(user)}
 
 
-@app.post("/billing/webhook")
+@api.post("/billing/webhook")
 async def billing_webhook(request: Request) -> PlainTextResponse:
     import stripe
 
@@ -298,7 +302,7 @@ async def billing_webhook(request: Request) -> PlainTextResponse:
 # --- SSE: interview chat streaming ---
 
 
-@app.post("/interviews/{interview_id}/chat/stream")
+@api.post("/interviews/{interview_id}/chat/stream")
 async def chat_stream(
     interview_id: str,
     body: ChatTurn,
@@ -467,3 +471,6 @@ async def _raise_complete_error(interview_id: str, owner_id: str) -> None:
             detail="Nothing to score yet: send at least one message before completing.",
         )
     raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Interview is not in progress")
+
+
+app.include_router(api)

@@ -18,7 +18,7 @@ Docs:
 
 ```
 Browser (React SPA) ── /api ──► nginx/Vite proxy ──► FastAPI ──► PostgreSQL 17
-                                      (strips /api)      │
+                                (path passthrough)   │
                                                          └──► LLM (OpenAI-compatible)
 ```
 
@@ -34,15 +34,15 @@ Browser (React SPA) ── /api ──► nginx/Vite proxy ──► FastAPI ─
 create → start → chat/stream (SSE) → … → complete → feedback
 ```
 
-- `POST /interviews` (create, role required) → `pending`
-- `POST /interviews/{id}/start` → `in_progress`
-- `POST /interviews/{id}/chat/stream` — **SSE**: user answer in, assistant reply streamed out
+- `POST /api/interviews` (create, role required) → `pending`
+- `POST /api/interviews/{id}/start` → `in_progress`
+- `POST /api/interviews/{id}/chat/stream` — **SSE**: user answer in, assistant reply streamed out
   (`event: message` / `done` / `error`). Persists both turns.
-- `POST /interviews/{id}/complete` → `completed` + auto-generated feedback (409 if no turn was ever
+- `POST /api/interviews/{id}/complete` → `completed` + auto-generated feedback (409 if no turn was ever
   sent — an empty transcript is unscorable, so completion is refused instead of dead-ending a
   completed interview with no score)
-- `GET /interviews/{id}/feedback` → scores / verdict / tips
-- `POST /interviews/{id}/feedback/generate` → (re)score a completed interview; 409 when it is not
+- `GET /api/interviews/{id}/feedback` → scores / verdict / tips
+- `POST /api/interviews/{id}/feedback/generate` → (re)score a completed interview; 409 when it is not
   completed or has no answers, 503 when the model is unavailable right now (retryable)
 - Every query is scoped to the owner (`ClerkUser.sub` / dev `DEV_USER`).
 
@@ -59,7 +59,7 @@ cp frontend/.env.example frontend/.env # VITE_* frontend vars
 make up                     # builds + starts postgres, backend, frontend   (dev only — prod uses Neon)
 ```
 
-- Backend API: http://localhost:8000 (`/health`)
+- Backend API: http://localhost:8000/api (`/api/health`)
 - Frontend UI: http://localhost:5173
 
 Then open the frontend, create an interview (role + optional topic), answer the AI's questions,
@@ -80,7 +80,7 @@ Run `need-keys.sh` to see which are set (names only):
 | UI/API with no auth at all (fast dev)                           | _(nothing)_                                                                               | —                                                      | default works (`CLERK_ENABLED=false` → `DEV_USER`)                                                                   |
 | Real Clerk sign-in button + JWT auth                            | `CLERK_ENABLED=true`, `CLERK_DOMAIN`, `CLERK_JWKS_URL`                                    | `frontend/.env` `VITE_CLERK_PUBLISHABLE_KEY=pk_test_…` | `make up`, visit `/app`, sign in                                                                                     |
 | Headless Clerk ops (mint users/sessions, drive the `clerk` CLI) | `CLERK_SECRET_KEY=sk_test_…`                                                              | —                                                      | `docker exec -e CLERK_SECRET_KEY="$CLERK_SECRET_KEY" maxterview_frontend_dev sh -c 'cd /tmp && npx clerk api users'` |
-| Stripe $9.99 checkout → premium row                             | `STRIPE_SECRET_KEY` (`sk_test_…`), `STRIPE_WEBHOOK_SECRET` (`whsec_…`), `STRIPE_PRICE_ID` | —                                                      | host `stripe` CLI: `stripe listen --forward-to localhost:8000/billing/webhook`, then upgrade in UI                   |
+| Stripe $9.99 checkout → premium row                             | `STRIPE_SECRET_KEY` (`sk_test_…`), `STRIPE_WEBHOOK_SECRET` (`whsec_…`), `STRIPE_PRICE_ID` | —                                                      | host `stripe` CLI: `stripe listen --forward-to localhost:8000/api/billing/webhook`, then upgrade in UI                   |
 | Real AI interviewer chat + auto-feedback                        | `LLM_BASE_URL`, `LLM_MODEL`, `LLM_API_KEY`                                                | —                                                      | empty → deterministic STUB (model-free tests/dev)                                                                    |
 | Observability                                                   | _(nothing yet)_                                                                           | —                                                      | `OBSERVABILITY.md` (docs-first, not wired)                                                                           |
 
@@ -143,7 +143,7 @@ against its per-service `.trivyignore.yaml` dated-ignore policy (`--ignore-unfix
 exceptions expire 2026-12-01). The frontend relies on the CD image scan (below), not a source-tree scan,
 as it ships only a static bundle. CD (`.github/workflows/cd-pipeline.yml`) runs on successful CI on `main`: it
 builds both prod images, **Trivy-image-scans** them, smoke-tests, and **pushes to GHCR** (`maxterview_backend`/
-`maxterview_frontend`). No GitOps repo is mutated here — deployment is adopted separately (see Deployment).
+`maxterview_frontend`), then a second job bumps the pinned tags in the `gitops` repo (see Deployment).
 **Renovate** (renovate.json, GitHub-hosted app) opens weekly grouped PRs for frontend npm, backend
 uv/pep621, Docker base images (digest-pinned), and GitHub Actions refs. Dependabot _alerts_ stay on;
 Native Dependabot update-stream is disabled.
@@ -159,26 +159,24 @@ This repo is the **app source**; the gitops repo holds the Kubernetes manifests.
 **How an app ships here (per the gitops repo's existing `portfolio` / `diagram` convention):**
 
 1. **Build & push images** to GHCR as immutable SHAs — `ghcr.io/notseekeru/maxterview_backend` and
-   `ghcr.io/notseekeru/maxterview_frontend`. The enabled CD pipeline does this automatically on green CI to `main`.
-   The `kustomize edit set image` tag-bump job (what `diagram`/`portfolio` use) is part of the GitOps-adoption
-   milestone below, not wired yet.
-2. **Add the GitOps manifests** (in the gitops repo, not here), mirroring `apps/diagram/`:
-   - `apps/maxterview/backend.yaml` + `frontend.yaml` + `kustomization.yaml` (Deployment + Service,
-     `replicas: 1`, `revisionHistoryLimit: 2`, `imagePullSecrets: [ghcr-login]`, small memory/CPU requests).
-   - `apps-of-apps/maxterview.yaml` (child Application, `prune` + `selfHeal`) and an entry in the root
-     `kustomization.yaml`.
-   - `infra/maxterview-ingress.yaml` (host `maxterview.seekeru.tech`, `/api` → `backend:8000`,
-     `/` → `frontend:8080`) with the same `limit-rps`/CSP/CORS annotations as `diagram-ingress.yaml`,
-     plus its entry in `infra/kustomization.yaml`. The Cloudflare tunnel (`cloudflared.yaml`) is shared
-     infra and already routes `*.seekeru.tech`.
-3. **Secrets**: `maxterview-secrets` must be **added to `~/terraform` (`infra/k3s/main.tf`)** — it cannot
-   copy `diagram_secrets`, because that secret *derives* `database_url` from `var.POSTGRES_PASSWORD` and
+   `ghcr.io/notseekeru/maxterview_frontend`. CD does this on green CI to `main`; a second job
+   (`update-gitops-repo`, key `MAXTERVIEW_SSH`) then runs `kustomize edit set image` and pushes the SHA
+   bump to `notseekeru/gitops`, which ArgoCD reconciles.
+2. **Manifests** live in the gitops repo, not here: `apps/maxterview/` (backend + frontend Deployments and
+   Services, `imagePullSecrets: [ghcr-login]`), `apps-of-apps/maxterview.yaml`, and
+   `infra/maxterview-ingress.yaml` (host `maxterview.seekeru.tech`, `/api` → `maxterview-prod-backend:8000`,
+   `/` → `maxterview-prod-frontend:8080`). The `/api` prefix is served by the **app** (`API_PREFIX` in
+   `backend/src/app/__init__.py`): no proxy or ingress rewrite strips it.
+3. **Secrets — still to do**: `maxterview-secrets` must be **added to `~/terraform` (`infra/k3s/main.tf`)** — it
+   cannot copy `diagram_secrets`, because that secret *derives* `database_url` from `var.POSTGRES_PASSWORD` and
    points at the in-cluster Postgres (`postgres.database.svc.cluster.local`). An external Neon DSN is not
    derivable, so it needs:
    - a new `var.NEON_DATABASE_URL` (sensitive) in `infra/k3s/variables.tf`, value set in **Infisical**
      (never `secrets.tfvars`),
-   - a new `kubernetes_secret.maxterview_secrets` alongside `diagram_secrets`, carrying `database_url`
-     (plus Clerk/LLM/Stripe keys),
+   - a new `kubernetes_secret.maxterview_secrets` alongside `diagram_secrets`, carrying `DATABASE_URL`
+     (plus Clerk/LLM/Stripe keys) with **UPPERCASE keys named exactly as the env vars the app reads** —
+     the Deployment injects the whole secret via `envFrom`, so `DATABASE_URL`, `CLERK_JWKS_URL`,
+     `LLM_API_KEY`, `STRIPE_WEBHOOK_SECRET`, … A malformed key name blocks the pod (`envFrom` is all-or-nothing).
    - that secret added to `kubectl_manifest.gitops_app`'s `depends_on` list, so the root App still applies
      only after its secrets exist.
    Never `kubectl apply` secrets and never commit them; Terraform owns them.
@@ -239,11 +237,11 @@ basic key is account-wide, so there is no branch-level protection between the ag
 **Ports/roles:** backend serves `:8000` (FastAPI), frontend serves `:8080` (nginx, static SPA). Ingress routes
 `/api` → `backend` and `/` → `frontend` (two paths, exactly as `diagram` does); the frontend's `nginx.conf`
 `/api` proxy is a same-origin dev convenience, not the prod path. Because maxterview's backend **has a real
-`/health` route**, its pods take `httpGet` probes rather than `diagram`'s `tcpSocket`.
+`/api/health` route**, its pods take `httpGet` probes rather than `diagram`'s `tcpSocket`.
 
-> The GitOps half is a **pending milestone** (not started, by design): images publish to GHCR, but nothing
-> reconciles onto the cluster until the `apps/maxterview` manifests + CD tag-bump job in the
-> `notseekeru/gitops` repo are added.
+> The GitOps half is **landed**: manifests + CD tag-bump job exist and CD pushes to `notseekeru/gitops`.
+> The app does not schedule until `maxterview-secrets` exists — that is step 3 above (Terraform + Infisical),
+> plus the first `MIGRATE_DATABASE_URL` migration (M17).
 
 ---
 
@@ -260,12 +258,12 @@ basic key is account-wide, so there is no branch-level protection between the ag
 ## Status
 
 - **M1–M9 done** (infra, backend, auth, API, LLM layer, tests, frontend app, verify + README).
-- **M10** (billing/monetization) — **shipped**: daily-global chat-turn quotas (free 10 / premium 250 / dev 500 per owner, UTC-day reset; no per-interview cap) + `GET /usage` + raw Stripe checkout/portal/webhook; no daily-interview cap; **`dev` tier wired 2026-08-25**; frontend tier labels + upsell/lockout notices + a dedicated **billing/plan page** (`/app/settings/billing`); **real payment test done 2026-09-06** (test-mode checkout → webhook → premium `subscriptions` row; fixed `_period_end` epoch→datetime 500); **live-Clerk tier proof 2026-09-12**: real Clerk session JWT + real test subscription → `/usage` `tier: premium`, `customer.subscription.deleted` → `free`. Nothing open in code (`MONETIZATION.md`).
+- **M10** (billing/monetization) — **shipped**: daily-global chat-turn quotas (free 10 / premium 250 / dev 500 per owner, UTC-day reset; no per-interview cap) + `GET /api/usage` + raw Stripe checkout/portal/webhook; no daily-interview cap; **`dev` tier wired 2026-08-25**; frontend tier labels + upsell/lockout notices + a dedicated **billing/plan page** (`/app/settings/billing`); **real payment test done 2026-09-06** (test-mode checkout → webhook → premium `subscriptions` row; fixed `_period_end` epoch→datetime 500); **live-Clerk tier proof 2026-09-12**: real Clerk session JWT + real test subscription → `/api/usage` `tier: premium`, `customer.subscription.deleted` → `free`. Nothing open in code (`MONETIZATION.md`).
 - **M11** (security) — docs-first done (threat model + accepted risks + pentest plan in PLAN §7) + Trivy/Renovate; **code pass shipped 2026-09-12**: per-client limiter (`RATE_LIMIT`, `/health` exempt), `CORS_ALLOW_ORIGINS` allow-list (off by default), prompt-injection guardrails + a 4000-char turn cap. Open: deployed pentest, `CLERK_AUDIENCE`.
 - **M12** (frontend polish) — **done (2026-08-24)**: public landing page, `/app` dashboard with stats + score charts, empty states, skeleton loaders, mobile-responsive layout, code-split routes (`/`, `/app`, `/interviews/:id`).
 - **M13** (observability) — docs-first done (`OBSERVABILITY.md`); structlog + Grafana Cloud (Loki for logs, **pure OTLP** metrics/traces → Prometheus) wiring pending.
 - **M14** (OKF / structured-output hardening) — **OKF not started**: no bundle exists, the interviewer's knowledge is still prompt strings. Its structured-output *prerequisite* shipped (2026-09-11): `response_format=json_schema` + greedy decoding on the grader→formatter surface. OKF bundles are the markdown+frontmatter format M15 RAG will ingest.
 - **M15** (RAG / retrieval-augmented interviewing) — future enhancement, not started (`PLAN.md`).
 - **M16** (live voice interview — TTS + STT + webcam illusion) — future enhancement, not started (`PLAN.md`).
-- **M17** (Neon environments & dedicated DB) — **decided 2026-09-12 (D11/D12), contract only, nothing provisioned**: prod/staging = separate Neon projects, branches disposable-only, app vs migrator DSN (`MIGRATE_DATABASE_URL` reserved), migrations via the in-cluster PreSync Job; prod `public` schema still empty. Blocked on the GitOps manifests.
+- **M17** (Neon environments & dedicated DB) — **decided 2026-09-12 (D11/D12), contract only, nothing provisioned**: prod/staging = separate Neon projects, branches disposable-only, app vs migrator DSN (`MIGRATE_DATABASE_URL` reserved), migrations via the in-cluster PreSync Job; prod `public` schema still empty. Blocked on `maxterview-secrets` landing in Terraform.
 - **M18** (load & performance testing) — docs-first, not built: staging-only k6 profiles, off-node generator, **STUB_MODE** for app capacity vs a real-model canary for provider capacity; single-VU runs measure the rate limiter (2 rps/client IP), so the unit is *concurrent open chats*. Needs M13 + staging (D13).
