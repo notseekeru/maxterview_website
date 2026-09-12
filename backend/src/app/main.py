@@ -8,10 +8,10 @@ from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse, StreamingResponse
 
-from app import API_PREFIX, billing, llm, payments
+from app import API_PREFIX, billing, byok, llm, payments
 from app.auth import CLERK_ENABLED, get_current_user
 from app.db import close_pool, fetch, fetchrow, init_pool
-from app.models import ChatMessage, ChatTurn, ClerkUser, Dials, Feedback, FeedbackCreate, Interview, InterviewCreate, Message
+from app.models import ChatMessage, ChatTurn, ClerkUser, Dials, Feedback, FeedbackCreate, Interview, InterviewCreate, LLMProvider, LLMProviderUpdate, Message
 from app.ratelimit import ClientRateLimitMiddleware
 
 APP_ENV = os.getenv("APP_ENV", "development")
@@ -39,6 +39,15 @@ if not CLERK_ENABLED and APP_ENV not in ("development", "test"):
     raise RuntimeError("CLERK_ENABLED=false is only allowed when APP_ENV is development or test; refusing to boot.")
 
 CurrentUser = Annotated[ClerkUser, Depends(get_current_user)]
+
+
+async def _llm_config(user: CurrentUser) -> llm.LLMConfig:
+    """Per-request LLM target: the owner's BYOK provider when one is saved, else the system
+    default. Nested on CurrentUser, so the JWT is still verified once per request."""
+    return await byok.resolve_config(user)
+
+
+LLMConfigDep = Annotated[llm.LLMConfig, Depends(_llm_config)]
 
 
 @asynccontextmanager
@@ -174,6 +183,7 @@ async def start_interview(
 async def complete_interview(
     interview_id: str,
     user: CurrentUser,
+    config: LLMConfigDep,
 ) -> dict:
     # EXISTS guard in the same UPDATE (not a pre-check) so a foreign id still 404s, no extra
     # round trip, and nothing can slip a turn in between. Mirrors _has_transcript().
@@ -186,7 +196,7 @@ async def complete_interview(
         await _raise_complete_error(interview_id, user.sub)
     interview = dict(row)
 
-    await _auto_generate_and_persist_feedback(interview_id)
+    await _auto_generate_and_persist_feedback(interview_id, config)
 
     return interview
 
@@ -234,6 +244,7 @@ async def create_feedback(
 async def regenerate_feedback(
     interview_id: str,
     user: CurrentUser,
+    config: LLMConfigDep,
 ) -> dict:
     await _require_interview_owned(interview_id, user.sub)
     row = await fetchrow(
@@ -247,7 +258,7 @@ async def regenerate_feedback(
     # model could ever grade. 409 (structural) beats a 503 the retry button can never clear.
     if not await _has_transcript(interview_id):
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Nothing to score yet: this interview has no answers.")
-    row = await _generate_and_persist_feedback(interview_id)
+    row = await _generate_and_persist_feedback(interview_id, config)
     if row is None:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -260,7 +271,7 @@ async def regenerate_feedback(
 
 
 @api.get("/usage")
-async def get_usage(user: CurrentUser) -> dict:
+async def get_usage(user: CurrentUser, config: LLMConfigDep) -> dict:
     """Cheap quota status: tier + the daily GLOBAL chat-turn dial (per owner, all interviews)."""
     tier = await billing.resolve_tier(user)
     chat = int(billing._quota(tier, "chat_turns"))
@@ -270,7 +281,36 @@ async def get_usage(user: CurrentUser) -> dict:
         f"chat_turns_per_day_{tier}": chat,
         "chat_turns_used_today": used,
         "chat_turns_remaining_today": max(0, chat - used),
+        # BYOK: the turns run on the owner's provider account, so the quota is not enforced
+        # (see chat_stream) and the UI says so instead of showing a stale number.
+        "byok": config.byok,
     }
+
+
+# --- settings: BYOK LLM provider (app/byok.py, BYOK.md) ---
+
+
+@api.get("/settings/llm", response_model=LLMProvider)
+async def get_llm_provider(user: CurrentUser) -> dict:
+    return await byok.public_view(user)
+
+
+@api.put("/settings/llm", response_model=LLMProvider)
+async def put_llm_provider(body: LLMProviderUpdate, user: CurrentUser) -> dict:
+    """Save the owner's provider. 503 when the deployment has no BYOK_ENCRYPTION_KEY."""
+    await byok.save(user.sub, body.base_url, body.model, body.api_key)
+    return await byok.public_view(user)
+
+
+@api.delete("/settings/llm", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_llm_provider(user: CurrentUser) -> None:
+    """Forget the owner's provider entirely; every call reverts to the system default."""
+    await byok.clear(user.sub)
+
+
+@api.post("/settings/llm/test")
+async def test_llm_provider(user: CurrentUser) -> dict:
+    return await byok.test(user)
 
 
 # --- billing (PayMongo subscriptions: subscribe / cancel / webhook) ---
@@ -317,6 +357,7 @@ async def chat_stream(
     interview_id: str,
     body: ChatTurn,
     user: CurrentUser,
+    config: LLMConfigDep,
 ) -> StreamingResponse:
     await _require_interview_owned(interview_id, user.sub)
     interview = await fetchrow(
@@ -346,14 +387,17 @@ async def chat_stream(
             detail="This interview has asked all of its questions. Press Complete to get your feedback, or start a new interview with a wider question mix.",
         )
 
-    tier = await billing.resolve_tier(user)
-    if await billing.chat_turn_remaining(tier, user.sub) == 0:
-        raise HTTPException(
-            status_code=status.HTTP_402_PAYMENT_REQUIRED,
-            detail="Daily chat-turn credits reached. Try again after midnight UTC, or upgrade to premium.",
-        )
+    # BYOK pays the provider, not us, so the daily cap does not apply and no turn is metered
+    # (see /usage). resolve_tier is skipped with it: nothing else in this path needs the tier.
+    if not config.byok:
+        tier = await billing.resolve_tier(user)
+        if await billing.chat_turn_remaining(tier, user.sub) == 0:
+            raise HTTPException(
+                status_code=status.HTTP_402_PAYMENT_REQUIRED,
+                detail="Daily chat-turn credits reached. Try again after midnight UTC, or upgrade to premium.",
+            )
 
-    await billing.bump_chat_turn(user.sub)
+        await billing.bump_chat_turn(user.sub)
 
     user_msg = await fetchrow(
         "INSERT INTO messages (interview_id, role, content) VALUES ($1, 'user', $2) RETURNING id::text",
@@ -385,7 +429,7 @@ async def chat_stream(
 
         collected: list[str] = []
         try:
-            async for delta in llm.stream_chat(history):
+            async for delta in llm.stream_chat(history, config):
                 if delta:
                     collected.append(delta)
                     yield f"event: message\ndata: {delta}\n\n"
@@ -438,9 +482,9 @@ async def _upsert_feedback(interview_id: str, scores: dict, verdict: str, tips: 
     )
 
 
-async def _auto_generate_and_persist_feedback(interview_id: str) -> dict | None:
+async def _auto_generate_and_persist_feedback(interview_id: str, config: llm.LLMConfig) -> dict | None:
     for attempt in range(COMPLETE_MAX_FEEDBACK_ATTEMPTS):
-        row = await _generate_and_persist_feedback(interview_id)
+        row = await _generate_and_persist_feedback(interview_id, config)
         if row is not None:
             return row
         if attempt < COMPLETE_MAX_FEEDBACK_ATTEMPTS - 1:
@@ -448,7 +492,7 @@ async def _auto_generate_and_persist_feedback(interview_id: str) -> dict | None:
     return None
 
 
-async def _generate_and_persist_feedback(interview_id: str) -> dict | None:
+async def _generate_and_persist_feedback(interview_id: str, config: llm.LLMConfig) -> dict | None:
     history_rows = await fetch(
         "SELECT role, content FROM messages WHERE interview_id = $1 ORDER BY created_at",
         interview_id,
@@ -456,7 +500,7 @@ async def _generate_and_persist_feedback(interview_id: str) -> dict | None:
     history = [ChatMessage(role=r["role"], content=r["content"]) for r in history_rows]
     # Dials come from the interview, not the caller: regenerate_feedback has no body to trust.
     row = await fetchrow(f"SELECT {', '.join(DIAL_FIELDS)} FROM interviews WHERE id = $1", interview_id)
-    summary = await llm.generate_feedback(history, Dials(**{k: row[k] for k in DIAL_FIELDS}) if row else None)
+    summary = await llm.generate_feedback(history, Dials(**{k: row[k] for k in DIAL_FIELDS}) if row else None, config)
     if summary is None:
         return None
     return await _upsert_feedback(interview_id, summary.scores, summary.verdict, summary.tips, summary.decision, summary.certainty)

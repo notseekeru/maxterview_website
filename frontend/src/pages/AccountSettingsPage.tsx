@@ -27,7 +27,13 @@ export function AccountSettingsPage() {
                 <CardHeader className="flex-row items-center justify-between space-y-0">
                     <div>
                         <CardTitle>Plan</CardTitle>
-                        <CardDescription className="mt-1">{usage?.tier === "dev" ? "Dev mode — no Clerk key; runs against the backend DEV_USER." : `You are on ${tierLabel}. ${usage ? `Daily chat turns (all interviews): ${chatTurns(usage)}.` : ""}`}</CardDescription>
+                        <CardDescription className="mt-1">
+                            {usage?.tier === "dev"
+                                ? "Dev mode — no Clerk key; runs against the backend DEV_USER."
+                                : usage?.byok
+                                  ? "Your own provider key pays for the turns, so the daily chat-turn limit does not apply."
+                                  : `You are on ${tierLabel}. ${usage ? `Daily chat turns (all interviews): ${chatTurns(usage)}.` : ""}`}
+                        </CardDescription>
                     </div>
                     <Badge variant={usage?.tier === "premium" ? "default" : "secondary"}>{tierLabel}</Badge>
                 </CardHeader>
@@ -44,6 +50,9 @@ export function AccountSettingsPage() {
                     )}
                     <Button asChild variant="ghost" size="sm">
                         <Link to="/app/settings/billing">See plans</Link>
+                    </Button>
+                    <Button asChild variant="ghost" size="sm">
+                        <Link to="/app/settings/system">Bring your own key</Link>
                     </Button>
                 </CardFooter>
             </Card>

@@ -34,6 +34,12 @@ export function UsageBadge() {
     return (
         <div className="flex items-center gap-2">
             {!clerkEnabled && !isDev && <Badge className="bg-muted text-muted-foreground">DEV</Badge>}
+            {/* BYOK: turns run on the user's own provider account, so the daily cap is not enforced. */}
+            {usage.byok && (
+                <Badge variant="secondary" title="Your own provider key pays for the turns; the daily chat-turn limit does not apply.">
+                    BYOK
+                </Badge>
+            )}
             {tierBadge}
         </div>
     );

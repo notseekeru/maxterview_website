@@ -1,5 +1,8 @@
 # maxterview
 
+[![CI](https://img.shields.io/github/actions/workflow/status/notseekeru/maxterview_website/ci-pipeline.yml?branch=main&label=CI)](https://github.com/notseekeru/maxterview_website/actions/workflows/ci-pipeline.yml)
+[![CD](https://img.shields.io/github/actions/workflow/status/notseekeru/maxterview_website/cd-pipeline.yml?branch=main&label=CD)](https://github.com/notseekeru/maxterview_website/actions/workflows/cd-pipeline.yml)
+
 **AI mock-interview coach** — practice interviews with an LLM that asks questions, gives
 per-question and end-of-interview feedback, and scores your performance. **MVP is text-based.**
 
@@ -10,6 +13,7 @@ Docs:
 
 - `PLAN.md` — technical decisions (D1–D12) and milestones (M1–M17)
 - `MONETIZATION.md` — billing spec (quotas + PayMongo subscriptions shipped; PayMongo sandbox proof pending)
+- `BYOK.md` — per-owner LLM provider keys (settings panel → `/app/settings/system`)
 - `OBSERVABILITY.md` — logging/error-tracking/metrics plan (doc-first M13)
 
 ---
@@ -75,14 +79,14 @@ Run `need-keys.sh` to see which are set (names only):
 ./.pi/skills/paymongo-operator/scripts/need-keys.sh   # set/missing, never values
 ```
 
-| Want this feature                                               | Set in `backend/.env`                                                                     | plus                                                   | how to run/verify                                                                                                    |
-| --------------------------------------------------------------- | ----------------------------------------------------------------------------------------- | ------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------- |
-| UI/API with no auth at all (fast dev)                           | _(nothing)_                                                                               | —                                                      | default works (`CLERK_ENABLED=false` → `DEV_USER`)                                                                   |
-| Real Clerk sign-in button + JWT auth                            | `CLERK_ENABLED=true`, `CLERK_DOMAIN`, `CLERK_JWKS_URL`                                    | `frontend/.env` `VITE_CLERK_PUBLISHABLE_KEY=pk_test_…` | `make up`, visit `/app`, sign in                                                                                     |
-| Headless Clerk ops (mint users/sessions, drive the `clerk` CLI) | `CLERK_SECRET_KEY=sk_test_…`                                                              | —                                                      | `docker exec -e CLERK_SECRET_KEY="$CLERK_SECRET_KEY" maxterview_frontend_dev sh -c 'cd /tmp && npx clerk api users'` |
-| PayMongo ₱499/mo subscription → premium row                     | `PAYMONGO_SECRET_KEY` (`sk_test_…`), `PAYMONGO_WEBHOOK_SECRET`, `PAYMONGO_PLAN_ID`        | —                                                      | upgrade in the UI → Maya page; dev instead: POST `/api/billing/webhook/simulate` (no tunnel, no keys)                     |
-| Real AI interviewer chat + auto-feedback                        | `LLM_BASE_URL`, `LLM_MODEL`, `LLM_API_KEY`                                                | —                                                      | empty → deterministic STUB (model-free tests/dev)                                                                    |
-| Observability                                                   | _(nothing yet)_                                                                           | —                                                      | `OBSERVABILITY.md` (docs-first, not wired)                                                                           |
+| Want this feature                                               | Set in `backend/.env`                                                              | plus                                                   | how to run/verify                                                                                                    |
+| --------------------------------------------------------------- | ---------------------------------------------------------------------------------- | ------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------- |
+| UI/API with no auth at all (fast dev)                           | _(nothing)_                                                                        | —                                                      | default works (`CLERK_ENABLED=false` → `DEV_USER`)                                                                   |
+| Real Clerk sign-in button + JWT auth                            | `CLERK_ENABLED=true`, `CLERK_DOMAIN`, `CLERK_JWKS_URL`                             | `frontend/.env` `VITE_CLERK_PUBLISHABLE_KEY=pk_test_…` | `make up`, visit `/app`, sign in                                                                                     |
+| Headless Clerk ops (mint users/sessions, drive the `clerk` CLI) | `CLERK_SECRET_KEY=sk_test_…`                                                       | —                                                      | `docker exec -e CLERK_SECRET_KEY="$CLERK_SECRET_KEY" maxterview_frontend_dev sh -c 'cd /tmp && npx clerk api users'` |
+| PayMongo ₱499/mo subscription → premium row                     | `PAYMONGO_SECRET_KEY` (`sk_test_…`), `PAYMONGO_WEBHOOK_SECRET`, `PAYMONGO_PLAN_ID` | —                                                      | upgrade in the UI → Maya page; dev instead: POST `/api/billing/webhook/simulate` (no tunnel, no keys)                |
+| Real AI interviewer chat + auto-feedback                        | `LLM_BASE_URL`, `LLM_MODEL`, `LLM_API_KEY`                                         | —                                                      | empty → deterministic STUB (model-free tests/dev)                                                                    |
+| Observability                                                   | _(nothing yet)_                                                                    | —                                                      | `OBSERVABILITY.md` (docs-first, not wired)                                                                           |
 
 Feature env values come from your Clerk app's **Development instance** (`.clerk.accounts.dev` /
 `pk_test_` / `sk_test_`) and PayMongo **test mode** — both are safe to use on `localhost`. The
@@ -168,7 +172,7 @@ This repo is the **app source**; the gitops repo holds the Kubernetes manifests.
    `/` → `maxterview-prod-frontend:8080`). The `/api` prefix is served by the **app** (`API_PREFIX` in
    `backend/src/app/__init__.py`): no proxy or ingress rewrite strips it.
 3. **Secrets — still to do**: `maxterview-secrets` must be **added to `~/terraform` (`infra/k3s/main.tf`)** — it
-   cannot copy `diagram_secrets`, because that secret *derives* `database_url` from `var.POSTGRES_PASSWORD` and
+   cannot copy `diagram_secrets`, because that secret _derives_ `database_url` from `var.POSTGRES_PASSWORD` and
    points at the in-cluster Postgres (`postgres.database.svc.cluster.local`). An external Neon DSN is not
    derivable, so it needs:
    - a new `var.NEON_DATABASE_URL` (sensitive) in `infra/k3s/variables.tf`, value set in **Infisical**
@@ -179,7 +183,7 @@ This repo is the **app source**; the gitops repo holds the Kubernetes manifests.
      `LLM_API_KEY`, `PAYMONGO_WEBHOOK_SECRET`, … A malformed key name blocks the pod (`envFrom` is all-or-nothing).
    - that secret added to `kubectl_manifest.gitops_app`'s `depends_on` list, so the root App still applies
      only after its secrets exist.
-   Never `kubectl apply` secrets and never commit them; Terraform owns them.
+     Never `kubectl apply` secrets and never commit them; Terraform owns them.
 
    The in-cluster Postgres and its `postgres-credentials` secret stay as they are — they serve `diagram`.
    maxterview does not consume them, so the `docs/incident-2026-09-03` rotation runbook does not apply:
@@ -190,14 +194,14 @@ This repo is the **app source**; the gitops repo holds the Kubernetes manifests.
 One map, so nobody re-derives it (the word "dev" alone means five different things in this stack —
 the secret store, the local stack, `APP_ENV`, the Clerk dev instance, and the `dev` billing tier):
 
-| Value | Home |
-|---|---|
+| Value                                                                      | Home                                                                                                               |
+| -------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
 | Deployed runtime config (`DATABASE_URL`, `CLERK_*`, `LLM_*`, `PAYMONGO_*`) | Infisical env **`prod`** (renamed from `dev` 2026-09-12) → Terraform → k8s Secret `maxterview-secrets` → `envFrom` |
-| Local dev runtime + dev Clerk/LLM/PayMongo keys | `backend/.env` (git-ignored) — prod and dev values are *supposed* to differ |
-| SPA build config (`VITE_CLERK_PUBLISHABLE_KEY`) | committed `frontend/.env.production` — public by design (D14) |
-| CI plumbing (gitops deploy key) | GitHub Actions secret `MAXTERVIEW_SSH` |
-| The Neon MCP's API key | root `.env` (direnv-exported; the app never reads it) |
-| Deployed objects | namespace **`maxterview`** (own namespace; diagram/portfolio still share `default`) |
+| Local dev runtime + dev Clerk/LLM/PayMongo keys                            | `backend/.env` (git-ignored) — prod and dev values are _supposed_ to differ                                        |
+| SPA build config (`VITE_CLERK_PUBLISHABLE_KEY`)                            | committed `frontend/.env.production` — public by design (D14)                                                      |
+| CI plumbing (gitops deploy key)                                            | GitHub Actions secret `MAXTERVIEW_SSH`                                                                             |
+| The Neon MCP's API key                                                     | root `.env` (direnv-exported; the app never reads it)                                                              |
+| Deployed objects                                                           | namespace **`maxterview`** (own namespace; diagram/portfolio still share `default`)                                |
 
 **Promotion is continuous:** every green `main` builds → Trivy-scans → smoke-tests → CD's
 `update-gitops-repo` job bumps the pinned tag in `gitops` → Argo syncs, and the PreSync Job applies
@@ -234,17 +238,17 @@ NEON_API_KEY=np_...
 
 The adapter reads the key **from `.env` at connect time**, not from `process.env`, so writing or rotating
 the key needs no restart of the shell or of pi — just `/mcp reconnect neon`. It must be launched with
-cwd = repo root (the path is relative), and `.envrc`/direnv still feeds the *rest* of the toolchain.
+cwd = repo root (the path is relative), and `.envrc`/direnv still feeds the _rest_ of the toolchain.
 
-`NEON_API_KEY` is an **API-scoped** key and is *not* `DATABASE_URL` (that is the separate DSN secret,
+`NEON_API_KEY` is an **API-scoped** key and is _not_ `DATABASE_URL` (that is the separate DSN secret,
 §Deployment). Two device-level facts worth knowing:
 
 - **Auth is bearer, not OAuth.** The adapter keeps OAuth tokens in the OS credential store and fails
   closed rather than writing them in plaintext. Headless Linux here has no Secret Service/keyring, so
   OAuth cannot complete; the `!command` secret (`bearerToken` runs a shell command, stdout = token)
   sidesteps this entirely. `bearerTokenEnv` is the equivalent when the key is already exported.
-- **The key is per-device, the config is per-repo.** `.mcp.json` is committed and holds only the *command
-  that reads* `.env`; each machine supplies its own `.env`. A file on one host does not reach another.
+- **The key is per-device, the config is per-repo.** `.mcp.json` is committed and holds only the _command
+  that reads_ `.env`; each machine supplies its own `.env`. A file on one host does not reach another.
 - **`.env` is `env_file`-loaded into the backend container**, so the key is injected there too. Harmless
   in practice (that container already holds `DATABASE_URL`, i.e. direct prod DB access) but the app never
   reads it — it exists only for the MCP adapter.
@@ -271,6 +275,9 @@ basic key is account-wide, so there is no branch-level protection between the ag
 - Clerk publishable keys are public; secret keys are admin-only (never in client code).
 - `NEON_API_KEY` (MCP, see "Driving Neon from an agent") lives only in git-ignored `.env` — `.mcp.json`
   commits the command that reads it, never a value.
+- **BYOK keys** (owner-supplied provider keys, `BYOK.md`) are Fernet-encrypted at rest under
+  `BYOK_ENCRYPTION_KEY` and never returned by the API — only the key's last 4 characters are
+  readable, for "which key is this?" in the settings panel.
 
 ---
 
@@ -279,10 +286,11 @@ basic key is account-wide, so there is no branch-level protection between the ag
 - **M1–M9 done** (infra, backend, auth, API, LLM layer, tests, frontend app, verify + README).
 - **M10** (billing/monetization) — **shipped**: daily-global chat-turn quotas (free 10 / premium 250 / dev 500 per owner, UTC-day reset; no per-interview cap) + `GET /api/usage` + PayMongo subscribe/cancel/webhook (Maya first payment; Stripe replaced 2026-09-12); no daily-interview cap; **`dev` tier wired 2026-08-25**; frontend tier labels + upsell/lockout notices + a dedicated **billing/plan page** (`/app/settings/billing`); **Postgres-proof 2026-09-12** (simulate endpoint → webhook → `premium/active` row with tz-aware period; `past_due`/`cancelled` downgrade; unsigned delivery 400). Sandbox transaction still owed — see `MONETIZATION.md` §3/§5.
 - **M11** (security) — docs-first done (threat model + accepted risks + pentest plan in PLAN §7) + Trivy/Renovate; **code pass shipped 2026-09-12**: per-client limiter (`RATE_LIMIT`, `/health` + `/billing/webhook` exempt), `CORS_ALLOW_ORIGINS` allow-list (off by default), prompt-injection guardrails + a 4000-char turn cap. Open: deployed pentest, `CLERK_AUDIENCE`.
+- **BYOK** (per-owner provider keys) — **shipped 2026-09-13**: `/app/settings/system` card → `GET/PUT/DELETE /api/settings/llm` + `/test`; Fernet-encrypted `llm_credentials` row per owner; one OpenAI-compatible target for interviewer + grader + formatter; BYOK turns bypass the daily chat-turn cap (`byok` on `/usage`); contract + threat notes in `BYOK.md`.
 - **M12** (frontend polish) — **done (2026-08-24)**: public landing page, `/app` dashboard with stats + score charts, empty states, skeleton loaders, mobile-responsive layout, code-split routes (`/`, `/app`, `/interviews/:id`).
 - **M13** (observability) — docs-first done (`OBSERVABILITY.md`); structlog + Grafana Cloud (Loki for logs, **pure OTLP** metrics/traces → Prometheus) wiring pending.
-- **M14** (OKF / structured-output hardening) — **OKF not started**: no bundle exists, the interviewer's knowledge is still prompt strings. Its structured-output *prerequisite* shipped (2026-09-11): `response_format=json_schema` + greedy decoding on the grader→formatter surface. OKF bundles are the markdown+frontmatter format M15 RAG will ingest.
+- **M14** (OKF / structured-output hardening) — **OKF not started**: no bundle exists, the interviewer's knowledge is still prompt strings. Its structured-output _prerequisite_ shipped (2026-09-11): `response_format=json_schema` + greedy decoding on the grader→formatter surface. OKF bundles are the markdown+frontmatter format M15 RAG will ingest.
 - **M15** (RAG / retrieval-augmented interviewing) — future enhancement, not started (`PLAN.md`).
 - **M16** (live voice interview — TTS + STT + webcam illusion) — future enhancement, not started (`PLAN.md`).
 - **M17** (Neon environments & dedicated DB) — **decided 2026-09-12 (D11/D12), contract only, nothing provisioned**: prod/staging = separate Neon projects, branches disposable-only, app vs migrator DSN (`MIGRATE_DATABASE_URL` reserved), migrations via the in-cluster PreSync Job; prod `public` schema still empty. **First-deploy open items:** push `maxterview_website` (CD bakes the SPA key + bumps the gitops tag off the pre-`/api` image), `make plan/apply MOD=k3s ENV=prod` (creates the `maxterview` namespace + `maxterview-secrets` + the `maxterview.seekeru.tech` tunnel hostname; needs a kubeconfig), a Clerk allowed-origin check for the app host, a Stripe dashboard endpoint, and Neon quota (no suspend on free). Migrations now run via the PreSync Job in `gitops` (`9f46bd3`); the namespace + secret land from `terraform` (`6727cf8`).
-- **M18** (load & performance testing) — docs-first, not built: staging-only k6 profiles, off-node generator, **STUB_MODE** for app capacity vs a real-model canary for provider capacity; single-VU runs measure the rate limiter (2 rps/client IP), so the unit is *concurrent open chats*. Needs M13 + staging (D13).
+- **M18** (load & performance testing) — docs-first, not built: staging-only k6 profiles, off-node generator, **STUB_MODE** for app capacity vs a real-model canary for provider capacity; single-VU runs measure the rate limiter (2 rps/client IP), so the unit is _concurrent open chats_. Needs M13 + staging (D13).

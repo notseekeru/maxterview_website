@@ -2,6 +2,7 @@ import { UserButton } from "@clerk/react";
 import { useCallback, useState } from "react";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { Icon } from "@/components/AppIcons";
+import { UsageBadge } from "@/components/UsageBadge";
 import { Button } from "@/components/ui/button";
 import { clerkEnabled } from "@/lib/config";
 import { NAV, type NavItem } from "@/lib/nav";
@@ -16,7 +17,12 @@ export function AppShell() {
                 <Brand />
                 <NavBody onNavigate={() => undefined} />
                 <aside className="mt-auto border-t border-border p-3">
-                    <SessionFooter />
+                    {/* Tier + BYOK state: the rail footer is the one shell-wide place that can
+                        show what plan/quota this session runs on (MONETIZATION §2). */}
+                    <div className="flex items-center justify-between gap-2">
+                        <UsageBadge />
+                        <SessionFooter />
+                    </div>
                 </aside>
             </aside>
 

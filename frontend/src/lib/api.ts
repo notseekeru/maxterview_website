@@ -124,6 +124,8 @@ export interface Usage {
     chat_turns_per_day_free?: number;
     chat_turns_per_day_premium?: number;
     chat_turns_per_day_dev?: number;
+    /** Turns run on the owner's own provider key, so the daily cap is not enforced. */
+    byok?: boolean;
 }
 
 export function chatTurns(usage: Usage): number {
@@ -194,6 +196,47 @@ export async function startSubscription(): Promise<string> {
 
 export async function cancelSubscription(): Promise<void> {
     await api.post("/billing/cancel");
+}
+
+// --- BYOK: per-user LLM provider (settings panel; mirrors backend app/byok.py, BYOK.md) ---
+
+export interface LLMProviderStatus {
+    /** False when the deployment has no BYOK_ENCRYPTION_KEY: the form is read-only then. */
+    enabled: boolean;
+    byok: boolean;
+    base_url: string;
+    model: string;
+    /** Last 4 characters of the saved key, so the user can tell WHICH key is stored. */
+    key_hint: string | null;
+    system: { configured: boolean; base_url: string; model: string };
+}
+
+export interface LLMProviderInput {
+    base_url: string;
+    model: string;
+    /** Omit/empty to keep the key already stored (base URL and model stay editable). */
+    api_key?: string;
+}
+
+export async function getLLMProvider(): Promise<LLMProviderStatus> {
+    const { data } = await api.get<LLMProviderStatus>("/settings/llm");
+    return data;
+}
+
+export async function saveLLMProvider(input: LLMProviderInput): Promise<LLMProviderStatus> {
+    const { data } = await api.put<LLMProviderStatus>("/settings/llm", input);
+    return data;
+}
+
+export async function clearLLMProvider(): Promise<void> {
+    await api.delete("/settings/llm");
+}
+
+// Probes the SAVED provider with a 1-token completion. Returns the backend's short reason
+// ("the provider rejected the API key (401)"), never a raw provider body.
+export async function testLLMProvider(): Promise<{ ok: boolean; detail: string }> {
+    const { data } = await api.post<{ ok: boolean; detail: string }>("/settings/llm/test");
+    return data;
 }
 
 // --- SSE chat stream ---

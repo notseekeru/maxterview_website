@@ -1,6 +1,7 @@
 import os
 import re
 from collections.abc import AsyncIterator
+from dataclasses import dataclass
 
 import httpx
 import structlog
@@ -29,6 +30,45 @@ LLM_MAX_FEEDBACK_TOKENS = int(os.getenv("LLM_MAX_FEEDBACK_TOKENS", "1024"))
 LLM_DISABLE_THINKING = os.getenv("LLM_DISABLE_THINKING", "true").lower() == "true"
 
 
+@dataclass(frozen=True)
+class LLMConfig:
+    """One OpenAI-compatible target: where a call goes and with whose key.
+
+    Threaded into every LLM call instead of the module globals, because the target became
+    per-owner as soon as BYOK existed (app/byok.py). `byok` marks user-supplied credentials:
+    they change WHO pays, which the chat quota and GET /usage branch on.
+    """
+
+    base_url: str
+    model: str
+    api_key: str = ""
+    grader_base_url: str = ""  # empty -> base_url (a BYOK owner gets one provider for both stages)
+    grader_model: str = ""  # empty -> model
+    byok: bool = False
+
+    @property
+    def stub(self) -> bool:
+        """No base URL -> deterministic stub mode (dev/seed/tests), no network."""
+        return not self.base_url
+
+
+# The deployment's own provider (env), used whenever an owner has no BYOK row.
+SYSTEM_CONFIG = LLMConfig(base_url=LLM_BASE_URL, model=LLM_MODEL, api_key=LLM_API_KEY, grader_base_url=LLM_GRADER_BASE_URL, grader_model=LLM_GRADER_MODEL)
+
+
+def grader_config(config: LLMConfig) -> LLMConfig:
+    """Scoring config for a chat config: LLM_GRADER_* when they differ, else the same provider."""
+    base_url = config.grader_base_url or config.base_url
+    model = config.grader_model or config.model
+    if (base_url, model) == (config.base_url, config.model):
+        return config
+    return LLMConfig(base_url=base_url, model=model, api_key=config.api_key)
+
+
+def _headers(config: LLMConfig) -> dict:
+    return {"Authorization": f"Bearer {config.api_key}"} if config.api_key else {}
+
+
 def _chat_extras() -> dict:
     # Qwen-family models emit a long reasoning pass before content, which can exceed
     # max_tokens and yield no answer. Disable thinking by default (safe: non-thinking
@@ -36,10 +76,6 @@ def _chat_extras() -> dict:
     if LLM_DISABLE_THINKING:
         return {"chat_template_kwargs": {"enable_thinking": False}}
     return {}
-
-
-# If no base URL is configured, the LLM runs in STUB mode (deterministic, no network).
-STUB_MODE = not LLM_BASE_URL
 
 
 # --- prompt registry (typed + versioned, per PLAN §4; never inlined in routers) ---
@@ -278,13 +314,13 @@ rounded UP past the evidence the notes describe; verdict is 2-3 sentences; tips 
 # --- HTTP / streaming helpers ---
 
 
-async def stream_chat(messages: list[ChatMessage]) -> AsyncIterator[str]:
+async def stream_chat(messages: list[ChatMessage], config: LLMConfig) -> AsyncIterator[str]:
     """Stream the assistant reply as incremental text deltas (SSE).
 
-    STUB_MODE: yields the last user message echoed back, tokenized by whitespace,
-    so the frontend wire-format can be tested without a live model.
+    In stub mode (no base URL) yields the last user message echoed back, tokenized by
+    whitespace, so the frontend wire-format can be tested without a live model.
     """
-    if STUB_MODE:
+    if config.stub:
         last = [_m for _m in messages if _m.role == "user"]
         reply = last[-1].content if last else "Understood. Tell me more."
         for token in reply.split(" "):
@@ -292,15 +328,14 @@ async def stream_chat(messages: list[ChatMessage]) -> AsyncIterator[str]:
         return
 
     payload = {
-        "model": LLM_MODEL,
+        "model": config.model,
         "messages": [m.model_dump() for m in messages],
         "stream": True,
         "max_tokens": LLM_MAX_TOKENS,
         **_chat_extras(),
     }
-    headers = {"Authorization": f"Bearer {LLM_API_KEY}"} if LLM_API_KEY else {}
-    async with httpx.AsyncClient(base_url=LLM_BASE_URL, timeout=httpx.Timeout(300.0, read=120.0)) as client:
-        async with client.stream("POST", "/chat/completions", json=payload, headers=headers) as resp:
+    async with httpx.AsyncClient(base_url=config.base_url, timeout=httpx.Timeout(300.0, read=120.0)) as client:
+        async with client.stream("POST", "/chat/completions", json=payload, headers=_headers(config)) as resp:
             resp.raise_for_status()
             async for line in resp.aiter_lines():
                 if not line or not line.startswith("data:"):
@@ -469,8 +504,7 @@ async def _completion(
     system: str,
     user_text: str,
     *,
-    model: str,
-    base_url: str,
+    config: LLMConfig,
     max_tokens: int,
     json_output: bool = False,
     json_schema: dict | None = None,
@@ -485,7 +519,7 @@ async def _completion(
     raises so a model outage can't 500 the caller that would otherwise leave an interview
     half-finished."""
     payload: dict = {
-        "model": model,
+        "model": config.model,
         "messages": [{"role": "system", "content": system}, {"role": "user", "content": user_text}],
         "stream": False,
         "max_tokens": max_tokens,
@@ -495,13 +529,12 @@ async def _completion(
         payload["temperature"] = temperature
     if json_output or json_schema:
         payload["response_format"] = _json_format(json_schema)
-    headers = {"Authorization": f"Bearer {LLM_API_KEY}"} if LLM_API_KEY else {}
     # Second pass exists only for the schema-capable -> json_object downgrade.
     bodies = [payload, {**payload, "response_format": _json_format(None)}] if json_schema else [payload]
     for i, body in enumerate(bodies):
         try:
-            async with httpx.AsyncClient(base_url=base_url, timeout=httpx.Timeout(300.0)) as client:
-                resp = await client.post("/chat/completions", json=body, headers=headers)
+            async with httpx.AsyncClient(base_url=config.base_url, timeout=httpx.Timeout(300.0)) as client:
+                resp = await client.post("/chat/completions", json=body, headers=_headers(config))
                 resp.raise_for_status()
                 content = resp.json()["choices"][0]["message"]["content"]
             break
@@ -526,10 +559,10 @@ def _json_format(schema: dict | None) -> dict:
     return {"type": "json_schema", "json_schema": {"name": "feedback", "strict": True, "schema": schema}}
 
 
-async def _request_grader_notes(history: list[ChatMessage], dials: Dials | None = None) -> str | None:
+async def _request_grader_notes(history: list[ChatMessage], dials: Dials | None, config: LLMConfig) -> str | None:
     """Stage 1: grade the FULL transcript in free text. Retries once on quirkiness.
 
-    Runs on LLM_GRADER_* (falls back to the shared model). Fresh prompt + role-labelled
+    Runs on the grader config (LLM_GRADER_*, falling back to the shared model). Fresh prompt + role-labelled
     transcript, so the heavy "read the whole thing" work is clean and schema-free — the
     model is far more reliable at prose critique than strict JSON over a long context."""
     transcript = _format_transcript(history)
@@ -540,8 +573,7 @@ async def _request_grader_notes(history: list[ChatMessage], dials: Dials | None 
         notes = await _completion(
             grader_prompt(dials),
             transcript,
-            model=LLM_GRADER_MODEL,
-            base_url=LLM_GRADER_BASE_URL,
+            config=grader_config(config),
             max_tokens=LLM_MAX_GRADER_TOKENS,
         )
         if notes is not None:
@@ -561,7 +593,7 @@ def _format_transcript(history: list[ChatMessage]) -> str:
     return "\n".join(lines)
 
 
-async def _request_format(notes: str) -> FeedbackSummary | None:
+async def _request_format(notes: str, config: LLMConfig) -> FeedbackSummary | None:
     """Stage 2: turn the grader's short notes into the exact JSON schema.
 
     Fresh, SMALL context (just the notes) is where schema adherence is cheap and reliable.
@@ -571,8 +603,7 @@ async def _request_format(notes: str) -> FeedbackSummary | None:
         content = await _completion(
             FEEDBACK_PROMPT_V1,
             notes,
-            model=LLM_MODEL,
-            base_url=LLM_BASE_URL,
+            config=config,
             max_tokens=LLM_MAX_FEEDBACK_TOKENS,
             json_output=True,
             json_schema=FEEDBACK_JSON_SCHEMA,
@@ -616,7 +647,7 @@ async def _request_format(notes: str) -> FeedbackSummary | None:
     return None
 
 
-async def generate_feedback(history: list[ChatMessage], dials: Dials | None = None) -> FeedbackSummary | None:
+async def generate_feedback(history: list[ChatMessage], dials: Dials | None, config: LLMConfig) -> FeedbackSummary | None:
     """Return structured feedback for a completed transcript, or None when it is genuinely
     unavailable.
 
@@ -633,14 +664,39 @@ async def generate_feedback(history: list[ChatMessage], dials: Dials | None = No
     Both paths pass through the evidence cap: the decision (hire/reject spectrum) comes from
     the model, the certainty ceiling from how much transcript there is to back it.
     """
-    if STUB_MODE:
+    if config.stub:
         log.warning("llm.feedback.stub_deterministic")
         return _apply_evidence_cap(_deterministic_summary(), history)
-    notes = await _request_grader_notes(history, dials)
+    notes = await _request_grader_notes(history, dials, config)
     if notes is None:
         return None
-    summary = await _request_format(notes)
+    summary = await _request_format(notes, config)
     return None if summary is None else _apply_evidence_cap(summary, history)
+
+
+async def test_provider(config: LLMConfig) -> tuple[bool, str]:
+    """Cheapest possible liveness probe for the BYOK settings panel (POST /settings/llm/test).
+
+    Returns a SHORT reason only. Never the provider's response body: it is untrusted text that
+    can echo the request, and the request carries the owner's key."""
+    if config.stub:
+        return False, "No base URL configured."
+    try:
+        async with httpx.AsyncClient(base_url=config.base_url, timeout=httpx.Timeout(20.0)) as client:
+            resp = await client.post(
+                "/chat/completions",
+                json={"model": config.model, "messages": [{"role": "user", "content": "ping"}], "max_tokens": 1, "stream": False},
+                headers=_headers(config),
+            )
+    except Exception as exc:
+        return False, f"Could not reach {config.base_url} ({type(exc).__name__})."
+    if resp.status_code in (401, 403):
+        return False, f"The provider rejected the API key (HTTP {resp.status_code})."
+    if resp.status_code == 404:
+        return False, "The provider or model was not found (404) - check the base URL and the model id."
+    if resp.status_code >= 400:
+        return False, f"The provider returned HTTP {resp.status_code}."
+    return True, f"{config.model} answered."
 
 
 def _extract_json_object(text: str) -> dict:

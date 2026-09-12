@@ -134,3 +134,34 @@ class ChatTurn(BaseModel):
     # M11 input bound: the candidate's turn is the one unbounded blob that reaches the model, so
     # cap it. 4000 chars is a long interview answer; mirror in the UI (api.ts MAX_TURN_CHARS).
     content: str = Field(min_length=1, max_length=4000)
+
+
+# --- BYOK provider settings (app/byok.py; see BYOK.md) ---
+
+
+class LLMProviderUpdate(BaseModel):
+    """Write from the settings panel. `api_key` empty = keep the stored key, so base URL and
+    model can be edited without re-pasting the secret."""
+
+    base_url: str = Field(min_length=1, max_length=300)
+    model: str = Field(min_length=1, max_length=200)
+    api_key: str = Field(default="", max_length=500)
+
+
+class SystemLLM(BaseModel):
+    """The deployment's own provider, shown so "System default" says which model you'd get."""
+
+    configured: bool
+    base_url: str = ""
+    model: str = ""
+
+
+class LLMProvider(BaseModel):
+    """BYOK status as the UI sees it: NEVER the key, only its last 4 characters as a hint."""
+
+    enabled: bool
+    byok: bool
+    base_url: str = ""
+    model: str = ""
+    key_hint: str | None = None
+    system: SystemLLM

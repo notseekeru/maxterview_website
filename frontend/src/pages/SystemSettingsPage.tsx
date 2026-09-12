@@ -1,5 +1,5 @@
-import { useState } from "react";
 import { Icon } from "@/components/AppIcons";
+import { LLMProviderCard } from "@/components/LLMProviderCard";
 import { Page } from "@/components/PagePrimitives";
 import { Card, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { useTheme } from "@/hooks/useTheme";
@@ -12,11 +12,11 @@ const THEME_OPTIONS: { value: Theme; label: string; icon: "sun" | "moon" | "moni
     { value: "system", label: "System", icon: "monitor" },
 ];
 
-// /app/settings/system — per-user app preferences. Appearance (theme) is live; the
-// remaining cards are ops-facing knobs with no backend yet (inert, see `AI HERE:`).
+// /app/settings/system — per-user app preferences. Appearance (theme) and the LLM provider
+// (BYOK, see LLMProviderCard) are live; the remaining cards are ops-facing knobs with no
+// backend yet (inert, see `AI HERE:`).
 export function SystemSettingsPage() {
     const { theme, setTheme } = useTheme();
-    const [model, setModel] = useState<string>("default");
 
     return (
         <Page title="System Settings" description="Appearance and behaviour defaults for your workspace.">
@@ -56,25 +56,10 @@ export function SystemSettingsPage() {
                 </CardFooter>
             </Card>
 
-            {/* Default LLM source — inert until we decide BYOK / model picker shape. */}
-            {/* AI HERE: exposing a model/provider toggle collides with (a) credential
-                storage (zero-touch policy in AGENTS.md) for user-owned keys, and (b) the
-                M10 free/premium token budgets in MONETIZATION.md. Deliberately kept as a
-                read-only "system default" until both are resolved (see PRD "BYOK"). */}
-            <Card>
-                <CardHeader>
-                    <CardTitle>Interview engine</CardTitle>
-                    <CardDescription>Which model drives mock interviews.</CardDescription>
-                </CardHeader>
-                <CardFooter>
-                    <label className="flex items-center gap-2 text-sm">
-                        <span className="text-muted-foreground">Provider:</span>
-                        <select value={model} onChange={(e) => setModel(e.target.value)} className="rounded-md border border-border bg-background px-2 py-1 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring">
-                            <option value="default">System default</option>
-                        </select>
-                    </label>
-                </CardFooter>
-            </Card>
+            {/* Default LLM source: BYOK. Free/premium alike can point interviews at their own
+                OpenAI-compatible provider; the key is encrypted at rest and never returned
+                (backend app/byok.py, BYOK.md). */}
+            <LLMProviderCard />
         </Page>
     );
 }

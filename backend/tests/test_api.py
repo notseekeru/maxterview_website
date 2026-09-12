@@ -315,7 +315,7 @@ def test_regenerate_feedback_writes_when_model_recovers(client, monkeypatch):
     assert client.get(f"/api/interviews/{iid}/feedback").status_code == 404  # genuinely absent
 
     # Later regenerate: model "recovers" -> row written; 404 turns into 200.
-    async def _ok(history, dials=None):
+    async def _ok(history, dials=None, config=None):
         return FeedbackSummary(scores={d: 7.0 for d in llm.FEEDBACK_DIMS}, verdict="Recovered", tips=["Keep going."])
 
     monkeypatch.setattr(llm, "generate_feedback", _ok)
@@ -328,7 +328,7 @@ def test_regenerate_feedback_writes_when_model_recovers(client, monkeypatch):
     client.delete(f"/api/interviews/{iid}")
 
 
-async def _always_none(history, dials=None):
+async def _always_none(history, dials=None, config=None):
     return None
 
 
@@ -343,7 +343,7 @@ def test_complete_auto_retries_then_leaves_unscored_when_always_none(client, mon
     monkeypatch.setattr(main_mod, "_backoff_sleep", _noop_sleep)
     attempts = {"n": 0}
 
-    async def _count_none(_history, dials=None):
+    async def _count_none(_history, dials=None, config=None):
         attempts["n"] += 1
         return None
 
@@ -370,7 +370,7 @@ def test_complete_auto_retry_stops_on_first_success(client, monkeypatch):
     monkeypatch.setattr(main_mod, "_backoff_sleep", _noop_sleep)
     attempts = {"n": 0}
 
-    async def _flaky(_history, dials=None):
+    async def _flaky(_history, dials=None, config=None):
         attempts["n"] += 1
         if attempts["n"] == 1:
             return None
@@ -391,3 +391,88 @@ def test_complete_auto_retry_stops_on_first_success(client, monkeypatch):
     assert fb.status_code == 200
     assert fb.json()["verdict"] == "Auto recovered"
     client.delete(f"/api/interviews/{iid}")
+
+
+# --- BYOK settings (app/byok.py, BYOK.md) ---
+
+
+def test_byok_chat_turn_skips_the_quota(client, monkeypatch):
+    # BYOK pays the provider, not us: the turn must pass with zero credits left and must not
+    # be metered. Both halves are asserted, since either one alone is a silent billing bug.
+    from cryptography.fernet import Fernet
+
+    from app import billing, byok, llm
+
+    monkeypatch.setenv("BYOK_ENCRYPTION_KEY", Fernet.generate_key().decode())
+    byok._fernet.cache_clear()
+    bumps = {"n": 0}
+
+    async def _no_quota(_tier, _owner):
+        return 0
+
+    async def _count_bump(_owner):
+        bumps["n"] += 1
+
+    async def _fake_stream(_history, config):
+        assert config.byok is True  # the owner's target, not the system one
+        yield "Sure - "
+
+    monkeypatch.setattr(billing, "chat_turn_remaining", _no_quota)
+    monkeypatch.setattr(billing, "bump_chat_turn", _count_bump)
+    monkeypatch.setattr(llm, "stream_chat", _fake_stream)
+    try:
+        client.put("/api/settings/llm", json={"base_url": "https://api.example.com/v1", "model": "m", "api_key": "sk-unit-test-key-abcd"})
+        iid = client.post("/api/interviews", json={"role": "BYOK quota"}).json()["id"]
+        client.post(f"/api/interviews/{iid}/start")
+        r = client.post(f"/api/interviews/{iid}/chat/stream", json={"interview_id": iid, "content": "hi"})
+        assert r.status_code == 200
+        assert "Sure - " in r.text
+        assert bumps["n"] == 0  # unmetered
+        assert client.get("/api/usage").json()["byok"] is True
+        client.delete(f"/api/interviews/{iid}")
+    finally:
+        client.delete("/api/settings/llm")
+        byok._fernet.cache_clear()
+
+
+def test_byok_settings_round_trip_without_ever_returning_the_key(client, monkeypatch):
+    from cryptography.fernet import Fernet
+
+    from app import byok
+
+    monkeypatch.setenv("BYOK_ENCRYPTION_KEY", Fernet.generate_key().decode())
+    byok._fernet.cache_clear()
+    key = "sk-unit-test-key-abcd"
+    try:
+        status = client.get("/api/settings/llm").json()
+        assert (status["enabled"], status["byok"]) == (True, False)
+        assert set(status["system"]) == {"configured", "base_url", "model"}
+
+        r = client.put("/api/settings/llm", json={"base_url": "https://api.example.com/v1/", "model": "some-model", "api_key": key})
+        assert r.status_code == 200
+        body = r.json()
+        assert (body["byok"], body["base_url"], body["model"], body["key_hint"]) == (True, "https://api.example.com/v1", "some-model", "abcd")
+        assert key not in r.text  # the write response carries the hint, never the key
+        assert key not in client.get("/api/settings/llm").text
+
+        # Editing base URL/model alone keeps the stored key (no re-paste).
+        assert client.put("/api/settings/llm", json={"base_url": "https://api.example.com/v1", "model": "another", "api_key": ""}).json()["model"] == "another"
+        assert client.delete("/api/settings/llm").status_code == 204
+        assert client.get("/api/settings/llm").json()["byok"] is False
+    finally:
+        client.delete("/api/settings/llm")  # never leave dev-user pointing at a fake provider
+        byok._fernet.cache_clear()
+
+
+def test_byok_write_is_refused_without_the_deployment_encryption_key(client, monkeypatch):
+    from app import byok
+
+    monkeypatch.delenv("BYOK_ENCRYPTION_KEY", raising=False)
+    byok._fernet.cache_clear()
+    try:
+        r = client.put("/api/settings/llm", json={"base_url": "https://api.example.com/v1", "model": "m", "api_key": "sk-unit-test-key-abcd"})
+        assert r.status_code == 503
+        assert "BYOK_ENCRYPTION_KEY" in r.json()["detail"]
+        assert client.get("/api/settings/llm").json()["enabled"] is False
+    finally:
+        byok._fernet.cache_clear()

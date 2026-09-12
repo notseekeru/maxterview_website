@@ -1,6 +1,5 @@
 # PLAN — maxterview
 
-[![CI](https://img.shields.io/github/actions/workflow/status/notseekeru/maxterview_website/ci-pipeline.yml?branch=main&label=CI)](https://github.com/notseekeru/maxterview_website/actions/workflows/ci-pipeline.yml) [![CD](https://img.shields.io/github/actions/workflow/status/notseekeru/maxterview_website/cd-pipeline.yml?branch=main&label=CD)](https://github.com/notseekeru/maxterview_website/actions/workflows/cd-pipeline.yml)
 
 **AI mock-interview coach** — practice interviews, LLM-generated questions/feedback/scoring, progress tracking. **MVP is text-only; voice is a later phase.**
 Stack: FastAPI + React/TS + Postgres. Dev: Docker Compose (3-file split).
@@ -13,7 +12,6 @@ Stack: FastAPI + React/TS + Postgres. Dev: Docker Compose (3-file split).
 > elsewhere. Decisions/status here are compact tables, not prose.
 > When a milestone ships, **delete** the section that predicted it (don't add a “shipped” note beside it). Docs-first-but-not-built files are debt: prune them once their code lands.
 > Before each session, `ls *.md` and drop anything whose header still claims an earlier milestone.
-> Last cleanup: 2026-08-25 (APPFLOW + SECURITY folded into §7) → 2026-09-06: removed `PRD.md` (stale vs shipped billing; product framing kept in README).
 >
 > **Change policy:** edit only when a decision, milestone, or guardrail changes. `Last updated: 2026-09-12`
 
@@ -50,7 +48,6 @@ Stack: FastAPI + React/TS + Postgres. Dev: Docker Compose (3-file split).
 | Frontend      | React + TS + Vite + Tailwind 4 + shadcn/ui + react-router (installed, M8 done). nginx reverse proxy, same-origin `/api`                                                                                                                                                                                                                                                                                                                                                                                 |
 | Packaging     | uv + `pyproject.toml` + `uv.lock`; dev deps in `[dependency-groups]`                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | Quality       | ruff, pytest (unit + integration vs Postgres), Biome (TS). Trivy 0.74 fs-scan in CI + image scan in CD (`.trivyignore.yaml` dated)                                                                                                                                                                                                                                                                                                                                                                      |
-| Runtime       | Docker Compose v2 (dev), `python:3.14-slim`                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 
 > Frontend toolchain (installed for M8): React 19.2 · Vite 8.1 · TypeScript 7.0 · Tailwind 4.3 · **react-router v7** · Biome 2.4 · node:lts-alpine · nginx-unprivileged 1.31-alpine. Tailwind 4 via `@tailwindcss/vite` + shadcn/ui (`@/*` alias, `components.json`).
 

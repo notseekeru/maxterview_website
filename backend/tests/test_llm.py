@@ -6,6 +6,10 @@ from httpx import Response
 from app import llm
 from app.models import ChatMessage, FeedbackSummary
 
+# Non-stub target for the feedback-pipeline tests: a base URL is what turns stub mode off
+# (llm.LLMConfig.stub). The `_completion` doubles below never reach the network.
+REAL = llm.LLMConfig(base_url="http://llm.test", model="qwen")
+
 
 def test_system_prompt_any_level_and_topic():
     p = llm.system_prompt("Software Engineer", "any", "System Design")
@@ -114,12 +118,12 @@ def test_system_prompt_keeps_the_register_conversational():
 
 
 def test_stub_mode_active_without_base_url():
-    assert llm.STUB_MODE is True
+    assert llm.SYSTEM_CONFIG.stub is True  # no LLM_BASE_URL in tests
 
 
 async def test_stub_stream_echoes_user():
     msgs = [ChatMessage(role="user", content="Tell me about yourself.")]
-    out = "".join([d async for d in llm.stream_chat(msgs)])
+    out = "".join([d async for d in llm.stream_chat(msgs, llm.SYSTEM_CONFIG)])
     assert "Tell me about yourself." in out
 
 
@@ -136,7 +140,7 @@ def test_chat_extras_disable_thinking_by_default():
 
 
 async def test_stub_feedback_is_deterministic():
-    f: FeedbackSummary = await llm.generate_feedback([ChatMessage(role="user", content="hi")])
+    f: FeedbackSummary = await llm.generate_feedback([ChatMessage(role="user", content="hi")], None, llm.SYSTEM_CONFIG)
     assert set(f.scores.keys()) == {"clarity", "relevance", "structure", "confidence"}
     assert f.verdict
     assert isinstance(f.tips, list) and len(f.tips) >= 1
@@ -218,18 +222,17 @@ def test_evidence_cap_clamps_model_certainty():
 
 
 async def test_generate_feedback_real_grader_and_formatter_path(monkeypatch):
-    monkeypatch.setattr(llm, "STUB_MODE", False)
     caller = {"model": None, "msgs": None, "json": None, "schema": None}
 
-    async def _completion(system, user_text, *, model, base_url, max_tokens, json_output=False, json_schema=None, **kw):
-        caller["model"] = model
+    async def _completion(system, user_text, *, config=None, max_tokens=None, json_output=False, json_schema=None, **kw):
+        caller["model"] = config.model
         caller["msgs"] = [system, user_text]
         caller["json"] = json_output
         caller["schema"] = json_schema
         return "prose notes" if not json_output else '{"scores": {"clarity": 7, "relevance": 8, "structure": 6, "confidence": 5}, "decision": "lean_hire", "certainty": 70, "verdict": "Solid.", "tips": ["Do X", "Do Y"]}'
 
     monkeypatch.setattr(llm, "_completion", _completion)
-    out = await llm.generate_feedback([ChatMessage(role="user", content=f"hi {i}") for i in range(10)])
+    out = await llm.generate_feedback([ChatMessage(role="user", content=f"hi {i}") for i in range(10)], None, REAL)
     assert out is not None
     assert all(1 <= out.scores[d] <= 10 for d in llm.FEEDBACK_DIMS)
     assert (out.decision, out.certainty) == ("lean_hire", 70)
@@ -239,7 +242,6 @@ async def test_generate_feedback_real_grader_and_formatter_path(monkeypatch):
 
 async def test_generate_feedback_keeps_scores_when_decision_drifts(monkeypatch):
     # A bad decision label costs the badge, not the whole scoring run: the four dims still land.
-    monkeypatch.setattr(llm, "STUB_MODE", False)
 
     async def _completion(system, user_text, *, json_output=False, **kw):
         if json_output:
@@ -247,7 +249,7 @@ async def test_generate_feedback_keeps_scores_when_decision_drifts(monkeypatch):
         return "prose notes"
 
     monkeypatch.setattr(llm, "_completion", _completion)
-    out = await llm.generate_feedback([ChatMessage(role="user", content="hi")])
+    out = await llm.generate_feedback([ChatMessage(role="user", content="hi")], None, REAL)
     assert out is not None and out.verdict == "Fine."
     assert out.decision is None
     # Orphan certainty is dropped with it, so the dashboard average stays over decided runs only.
@@ -256,7 +258,6 @@ async def test_generate_feedback_keeps_scores_when_decision_drifts(monkeypatch):
 
 async def test_generate_feedback_recovers_from_out_of_range_scores(monkeypatch):
     # Regression for the reported 503: verdict present, scores all 0 -> still writable.
-    monkeypatch.setattr(llm, "STUB_MODE", False)
     attempts = {"n": 0}
 
     async def _completion(system, user_text, *, json_output=False, **kw):
@@ -266,13 +267,12 @@ async def test_generate_feedback_recovers_from_out_of_range_scores(monkeypatch):
         return "prose notes"
 
     monkeypatch.setattr(llm, "_completion", _completion)
-    out = await llm.generate_feedback([ChatMessage(role="user", content="hello")])
+    out = await llm.generate_feedback([ChatMessage(role="user", content="hello")], None, REAL)
     assert attempts["n"] == 1  # no wasted retry
     assert out is not None and out.scores == {d: 1.0 for d in llm.FEEDBACK_DIMS}
 
 
 async def test_generate_feedback_formatter_retries_on_bad_schema(monkeypatch):
-    monkeypatch.setattr(llm, "STUB_MODE", False)
     attempts = {"n": 0}
 
     async def _completion(system, user_text, *, json_output=False, **kw):
@@ -284,7 +284,7 @@ async def test_generate_feedback_formatter_retries_on_bad_schema(monkeypatch):
         return "prose notes"
 
     monkeypatch.setattr(llm, "_completion", _completion)
-    out = await llm.generate_feedback([ChatMessage(role="user", content="hi")])
+    out = await llm.generate_feedback([ChatMessage(role="user", content="hi")], None, REAL)
     assert attempts["n"] == 2  # schema mismatch triggered the formatter retry
     assert out is not None and out.verdict == "Great."
 
@@ -292,7 +292,6 @@ async def test_generate_feedback_formatter_retries_on_bad_schema(monkeypatch):
 async def test_generate_feedback_returns_none_when_formatter_never_valid(monkeypatch):
     # Every formatter attempt (incl. retry) unusable -> None, so the caller writes NO
     # feedback rather than a fabricated 6-average.
-    monkeypatch.setattr(llm, "STUB_MODE", False)
     attempts = {"n": 0}
 
     async def _completion(system, user_text, *, json_output=False, **kw):
@@ -302,14 +301,13 @@ async def test_generate_feedback_returns_none_when_formatter_never_valid(monkeyp
         return "prose notes"
 
     monkeypatch.setattr(llm, "_completion", _completion)
-    out = await llm.generate_feedback([ChatMessage(role="user", content="hi")])
+    out = await llm.generate_feedback([ChatMessage(role="user", content="hi")], None, REAL)
     assert attempts["n"] == 2  # formatter exhausted its one retry
     assert out is None  # no fabricated feedback
 
 
 async def test_generate_feedback_returns_none_when_grader_fails(monkeypatch):
     # Grader retry never yields prose -> stop; the formatter JSON hop is never attempted.
-    monkeypatch.setattr(llm, "STUB_MODE", False)
     grader_attempts = {"n": 0}
     format_attempts = {"n": 0}
 
@@ -321,7 +319,7 @@ async def test_generate_feedback_returns_none_when_grader_fails(monkeypatch):
         return None
 
     monkeypatch.setattr(llm, "_completion", _completion)
-    out = await llm.generate_feedback([ChatMessage(role="user", content="hi")])
+    out = await llm.generate_feedback([ChatMessage(role="user", content="hi")], None, REAL)
     assert grader_attempts["n"] == 2  # grader retried once
     assert format_attempts["n"] == 0  # formatter never invoked
     assert out is None
@@ -337,8 +335,7 @@ async def test_completion_is_greedy_and_downgrades_json_schema_to_json_object():
         out = await llm._completion(
             "sys",
             "notes",
-            model="qwen",
-            base_url="http://llm.test",
+            config=REAL,
             max_tokens=64,
             json_output=True,
             json_schema=llm.FEEDBACK_JSON_SCHEMA,
@@ -356,6 +353,6 @@ async def test_completion_does_not_retry_repeated_server_errors():
     with respx.mock(base_url="http://llm.test") as mock:
         route = mock.post("/chat/completions")
         route.side_effect = [Response(500, json={"error": "boom"})]
-        out = await llm._completion("sys", "notes", model="qwen", base_url="http://llm.test", max_tokens=64, json_schema=llm.FEEDBACK_JSON_SCHEMA)
+        out = await llm._completion("sys", "notes", config=REAL, max_tokens=64, json_schema=llm.FEEDBACK_JSON_SCHEMA)
     assert out is None
     assert len(route.calls) == 1  # only the json-schema capability 400/404/422 is downgraded
