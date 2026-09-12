@@ -198,6 +198,7 @@ PVC, no StatefulSet, and no DB backup/upgrade work in-cluster.
   `suspend_timeout_seconds: 0` = scale-to-zero **off** (no cold start, but ≈182 CU-h/month idle vs the 100 CU-h
   free budget — set 300 s before deploy, M17); the free history window is 6 h, so snapshot before each prod
   migration. In exchange you get durability, backups, and disposable branches for testing.
+- **First prod deploy runs dev-shaped identity/payments:** Clerk *development* instance JWKS/domain + Stripe **test** keys, read from one Infisical environment (`dev`, `SECRETS_PATH=/consumers/terraform`). Swapping to the Clerk production instance and live Stripe keys is the pre-launch step (PLAN §7 accepted risks).
 - Local dev and CI keep the Postgres container / service; only the deployed DSNs change, and prod/staging are
   **separate Neon projects** (D11) — branches are disposable-only, inside staging. (`NEON_API_KEY`
   for the MCP server also lives in root `.env`, which compose injects into the backend container — the app
