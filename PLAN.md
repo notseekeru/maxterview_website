@@ -99,7 +99,7 @@ graph TD
 
 ## 5. Data model
 
-- `interviews` — `id` (UUID pk), `owner_id` (Clerk `sub`, FK+index), `role/topic`, `status` (pending\|in_progress\|completed), timestamps
+- `interviews` — `id` (UUID pk), `owner_id` (Clerk `sub`, FK+index), `role/topic`, `status` (pending\|in_progress\|completed), dials (`level`, `company_size`, `cynicism`, `brutally_honest`, `human_mode`, `mix_chitchat/behavioural/technical` - see `app/dials.py`; the mix values are per-kind question budgets, so the arc is chitchat -> opener -> behavioural -> technical -> a fixed closing line), timestamps
 - `messages` — `id`, `interview_id` (FK, cascade), `role` (user\|assistant\|system), `content`, `created_at`
 - `feedback` — `id`, `interview_id` (FK), per-dimension scores (Pydantic/JSONB), overall verdict, actionable tips, hire/reject `decision` (`reject`\|`lean_reject`\|`lean_hire`\|`hire`, NULL = undecided) + `certainty` 0-100 capped by evidence volume, `created_at`
 - All queries scoped to `owner_id`. Migrations: yoyo-migrations — `backend/migrations/*.sql` (whole file = up; separate `*.rollback.sql`, see D3) via `make migrate`/`rollback`.

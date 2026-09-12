@@ -20,6 +20,9 @@ export function InterviewChat({ interviewId, onExit }: Props) {
     const [error, setError] = useState<string | null>(null);
     const [feedback, setFeedback] = useState<Feedback | null>(null);
     const [quotaLocked, setQuotaLocked] = useState(false);
+    // The question mix is a budget: once it is spent the API refuses further turns (409) and the
+    // composer stops, leaving Complete as the only move.
+    const [interviewOver, setInterviewOver] = useState(false);
     const [completing, setCompleting] = useState(false); // 'Completing…' / 'Retry scoring…' spinner
     const [scoringTip, setScoringTip] = useState(false); // completed but feedback not ready yet
     const abortRef = useRef<AbortController | null>(null);
@@ -108,29 +111,36 @@ export function InterviewChat({ interviewId, onExit }: Props) {
 
         const ac = new AbortController();
         abortRef.current = ac;
+        // Local accumulator, deliberately not state: a fast reply (the canned closing line) delivers
+        // message+done in the same tick, before React re-renders, so a ref mirrored from state is
+        // still empty at "done" and the reply never reaches the transcript.
+        let buffer = "";
         try {
             await streamChat(
                 interviewId,
                 content,
                 (ev) => {
                     if (ev.kind === "message") {
-                        setAssistBuf((prev) => prev + ev.content);
+                        buffer += ev.content;
+                        setAssistBuf(buffer);
                     } else if (ev.kind === "done") {
-                        setMessages((m) => {
-                            if (!assistBufRef.current) return m;
-                            return [
+                        if (buffer) {
+                            setMessages((m) => [
                                 ...m,
                                 {
                                     id: `assistant-${Date.now()}`,
                                     interview_id: interviewId,
                                     role: "assistant",
-                                    content: assistBufRef.current,
+                                    content: buffer,
                                     created_at: new Date().toISOString(),
                                 },
-                            ];
-                        });
+                            ]);
+                        }
                         setAssistBuf("");
                         setStatus("ready");
+                        // The sign-off is the end of the run: stop the composer here rather than
+                        // letting the next message discover the same thing via a 409.
+                        if (ev.closing) setInterviewOver(true);
                     } else if (ev.kind === "error") {
                         setError(ev.message || "Streaming error.");
                         setStatus("ready");
@@ -140,17 +150,14 @@ export function InterviewChat({ interviewId, onExit }: Props) {
             );
         } catch (e: unknown) {
             if ((e as { name?: string })?.name !== "AbortError") {
-                if (httpStatus(e) === 402) setQuotaLocked(true);
+                const st = httpStatus(e);
+                if (st === 402) setQuotaLocked(true);
+                else if (st === 409) setInterviewOver(true);
                 else setError("Connection lost while streaming.");
             }
             setStatus("ready");
         }
     }
-
-    const assistBufRef = useRef("");
-    useEffect(() => {
-        assistBufRef.current = assistBuf;
-    }, [assistBuf]);
 
     async function finish(loaded: () => Promise<Feedback>) {
         setStatus("completed");
@@ -210,6 +217,14 @@ export function InterviewChat({ interviewId, onExit }: Props) {
                     <CardContent className="flex-1 overflow-y-auto space-y-3" ref={scrollRef}>
                         {error && <p className="text-sm text-destructive">{error}</p>}
                         {quotaLocked && <UpgradeNotice reason="your free chat turns ran out." />}
+                        {interviewOver && (
+                            <div role="status" className="rounded-lg border p-3 text-sm">
+                                <p className="font-medium">That was the whole interview.</p>
+                                <p className="mt-1 text-muted-foreground">
+                                    This run has asked every question in its mix, so there's nothing left to answer here. Press <span className="font-medium text-foreground">Complete</span> for your feedback, or start a new interview with a wider mix.
+                                </p>
+                            </div>
+                        )}
                         {status === "loading" && <p className="text-sm text-muted-foreground">Starting…</p>}
                         {messages.length === 0 && OPENING_ASKS_RESUME && <Bubble from="assistant" content={OPENING_ASKS_RESUME} />}
                         {messages.map((m) => (
@@ -232,17 +247,17 @@ export function InterviewChat({ interviewId, onExit }: Props) {
                         <Textarea
                             value={draft}
                             onChange={(e) => setDraft(e.target.value)}
-                            placeholder={status === "ready" ? "Type your answer to the interviewer..." : status === "streaming" ? "Waiting for the interviewer..." : "Starting…"}
+                            placeholder={interviewOver ? "Interview finished — press Complete" : status === "ready" ? "Type your answer to the interviewer..." : status === "streaming" ? "Waiting for the interviewer..." : "Starting…"}
                             onKeyDown={(e) => {
                                 if (e.key === "Enter" && !e.shiftKey && status === "ready") {
                                     e.preventDefault();
                                     void send();
                                 }
                             }}
-                            disabled={status === "completed"}
+                            disabled={status === "completed" || interviewOver}
                         />
                         <div className="flex flex-col gap-2">
-                            <Button onClick={() => void send()} disabled={status !== "ready" || !draft.trim()}>
+                            <Button onClick={() => void send()} disabled={status !== "ready" || !draft.trim() || interviewOver}>
                                 Send
                             </Button>
                             <Button variant="destructive" size="sm" onClick={() => void complete()} disabled={completing || status === "streaming" || status === "completed"}>

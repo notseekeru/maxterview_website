@@ -38,6 +38,87 @@ def client(migrated_db):
         yield c
 
 
+def test_interview_dials_round_trip_and_default(client):
+    c = client
+    # Defaults: neutral, human-sounding, 0 chitchat / 2 behavioural / max technical.
+    r = c.post("/interviews", json={"role": "Dials Default"})
+    assert r.status_code == 201
+    d = r.json()
+    assert (d["company_size"], d["cynicism"], d["brutally_honest"], d["human_mode"]) == ("any", "neutral", False, True)
+    assert (d["mix_chitchat"], d["mix_behavioural"], d["mix_technical"]) == (0, 2, 4)
+    c.delete(f"/interviews/{d['id']}")
+
+    # Every dial survives a create -> read, on all three read paths (room for the response_model's
+    # defaults to mask a query that forgot a column).
+    r = c.post(
+        "/interviews",
+        json={
+            "role": "Dials Round Trip",
+            "level": "staff",
+            "company_size": "51-200",
+            "cynicism": "skeptical",
+            "brutally_honest": True,
+            "human_mode": False,
+            "mix_chitchat": 1,
+            "mix_behavioural": 0,
+            "mix_technical": 3,
+        },
+    )
+    assert r.status_code == 201
+    iid = r.json()["id"]
+    expected = {"company_size": "51-200", "cynicism": "skeptical", "brutally_honest": True, "human_mode": False, "mix_chitchat": 1, "mix_behavioural": 0, "mix_technical": 3}
+    for payload in (r.json(), c.get(f"/interviews/{iid}").json(), next(i for i in c.get("/interviews").json() if i["id"] == iid)):
+        assert {k: payload[k] for k in expected} == expected
+
+    # start/complete echo the same row (their RETURNING used to drop columns, which the response
+    # model then silently filled from defaults). One request each: a second /start 409s, so these
+    # bodies must be captured before being indexed.
+    started = c.post(f"/interviews/{iid}/start").json()
+    assert {k: started[k] for k in expected} == expected
+    c.post(f"/interviews/{iid}/chat/stream", json={"interview_id": iid, "content": "hello"})
+    completed = c.post(f"/interviews/{iid}/complete").json()
+    assert {k: completed[k] for k in expected} == expected
+    c.delete(f"/interviews/{iid}")
+
+
+def test_chat_refuses_turns_after_the_question_mix_is_spent(client):
+    from app import llm
+
+    c = client
+    # Every budget on 0 -> the arc is opener + closing statement, so the THIRD turn is over the plan.
+    iv = c.post("/interviews", json={"role": "Mix Exhausted", "mix_chitchat": 0, "mix_behavioural": 0, "mix_technical": 0}).json()
+    iid = iv["id"]
+    c.post(f"/interviews/{iid}/start")
+    for i in range(2):
+        assert c.post(f"/interviews/{iid}/chat/stream", json={"interview_id": iid, "content": f"answer {i}"}).status_code == 200
+
+    used_before = c.get("/usage").json()["chat_turns_used_today"]
+    transcript_before = c.get(f"/interviews/{iid}/messages").json()
+    # The closing turn is canned and persisted, so the transcript ends the way it was displayed.
+    assert llm.CLOSING_MESSAGE in transcript_before[-1]["content"]
+    r = c.post(f"/interviews/{iid}/chat/stream", json={"interview_id": iid, "content": "one more thing"})
+    assert r.status_code == 409
+    assert "Press Complete" in r.json()["detail"]
+    # Refused BEFORE the model call, the chat credit, and the write: an over-plan turn must not
+    # cost a quota credit or leave an unanswered user turn in the transcript.
+    assert c.get("/usage").json()["chat_turns_used_today"] == used_before
+    assert c.get(f"/interviews/{iid}/messages").json() == transcript_before
+    c.delete(f"/interviews/{iid}")
+
+
+def test_interview_dials_reject_values_outside_the_vocabulary(client):
+    c = client
+    for bad in (
+        {"company_size": "1-10k"},
+        {"cynicism": "harsh"},
+        {"mix_chitchat": 5},
+        {"mix_technical": -1},
+        {"mix_behavioural": 2.5},
+    ):
+        r = c.post("/interviews", json={"role": "Bad Dials", **bad})
+        assert r.status_code == 422, bad
+
+
 def test_interview_lifecycle_owner_scoped(client):
     c = client
     r = c.post("/interviews", json={"role": "Software Engineer", "topic": "system design"})
@@ -234,7 +315,7 @@ def test_regenerate_feedback_writes_when_model_recovers(client, monkeypatch):
     assert client.get(f"/interviews/{iid}/feedback").status_code == 404  # genuinely absent
 
     # Later regenerate: model "recovers" -> row written; 404 turns into 200.
-    async def _ok(history):
+    async def _ok(history, dials=None):
         return FeedbackSummary(scores={d: 7.0 for d in llm.FEEDBACK_DIMS}, verdict="Recovered", tips=["Keep going."])
 
     monkeypatch.setattr(llm, "generate_feedback", _ok)
@@ -247,7 +328,7 @@ def test_regenerate_feedback_writes_when_model_recovers(client, monkeypatch):
     client.delete(f"/interviews/{iid}")
 
 
-async def _always_none(history):
+async def _always_none(history, dials=None):
     return None
 
 
@@ -262,7 +343,7 @@ def test_complete_auto_retries_then_leaves_unscored_when_always_none(client, mon
     monkeypatch.setattr(main_mod, "_backoff_sleep", _noop_sleep)
     attempts = {"n": 0}
 
-    async def _count_none(_history):
+    async def _count_none(_history, dials=None):
         attempts["n"] += 1
         return None
 
@@ -289,7 +370,7 @@ def test_complete_auto_retry_stops_on_first_success(client, monkeypatch):
     monkeypatch.setattr(main_mod, "_backoff_sleep", _noop_sleep)
     attempts = {"n": 0}
 
-    async def _flaky(_history):
+    async def _flaky(_history, dials=None):
         attempts["n"] += 1
         if attempts["n"] == 1:
             return None

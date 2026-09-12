@@ -3,7 +3,7 @@
 // input remains for anything not listed. Levels are the canonical seniority slugs,
 // decisions the canonical post-interview hire/reject spectrum.
 
-import type { Decision } from "@/lib/api";
+import type { CompanySize, Cynicism, Decision } from "@/lib/api";
 
 export const ROLE_PRESETS = [
     "Frontend Engineer",
@@ -61,4 +61,41 @@ export function decisionLabel(decision: string): string {
 /** Right-of-centre half of the spectrum: the run would likely convert. */
 export function isHiring(decision?: string | null): boolean {
     return decision === "hire" || decision === "lean_hire";
+}
+
+// Interview dressing dials (mirrors backend app/dials.py). Slider positions are ARRAY INDEXES, so
+// these orders are the API order and must not be re-sorted for display: company size runs
+// unspecified -> biggest, cynicism kind -> skeptical.
+export const COMPANY_SIZES: { value: CompanySize; label: string }[] = [
+    { value: "any", label: "Any / Not sure" },
+    { value: "1-10", label: "1-10" },
+    { value: "11-50", label: "11-50" },
+    { value: "51-200", label: "51-200" },
+    { value: "201-1k", label: "201-1,000" },
+    { value: "1k-5k", label: "1,000-5,000" },
+    { value: "5k+", label: "5,000+" },
+];
+
+/** Suffix for the company-size value caption; "any" reads as a phrase, not a headcount. */
+export function companySizeLabel(size: string): string {
+    if (size === "any") return "Any / Not sure";
+    return `${size} people`;
+}
+
+export const CYNICISM: { value: Cynicism; label: string; hint: string }[] = [
+    { value: "kind", label: "Kind", hint: "gives you the benefit of the doubt" },
+    { value: "neutral", label: "Neutral", hint: "neither talks you up nor tears you down" },
+    { value: "skeptical", label: "Skeptical", hint: "assumes a polished answer hides an unproven one" },
+];
+
+/** The chitchat/behavioural/technical sliders are question budgets, 0..MIX_MAX. */
+export const MIX_MAX = 4;
+export const MIX_FIELDS = [
+    { field: "mix_chitchat", label: "Chitchat", hint: "warm-up before the real questions" },
+    { field: "mix_behavioural", label: "Behavioural", hint: "past-experience questions" },
+    { field: "mix_technical", label: "Technical", hint: "role-specific questions" },
+] as const;
+
+export function mixCountLabel(n: number): string {
+    return n === 0 ? "none" : n === 1 ? "1 question" : `${n} questions`;
 }

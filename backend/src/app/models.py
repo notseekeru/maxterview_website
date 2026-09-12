@@ -3,11 +3,15 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from app import levels
+from app import dials, levels
 
 # Level slugs accepted on create, unpacked from the canonical levels vocabulary so the
 # API, DB CHECK, prompt, and frontend can never drift (see app/levels.py).
 Level = Literal[*levels.LEVELS]
+
+# Interview dressing dials, unpacked from app/dials.py (same anti-drift rule as Level).
+CompanySize = Literal[*dials.COMPANY_SIZES]
+Cynicism = Literal[*dials.CYNICISM]
 
 # Post-interview hire/reject SPECTRUM, left to right. Canonical slugs shared by the API
 # validation, the LLM JSON schema (llm.FEEDBACK_JSON_SCHEMA), the DB CHECK (migration
@@ -33,13 +37,30 @@ class ClerkUser(BaseModel):
 # --- interviews ---
 
 
-class InterviewCreate(BaseModel):
+class Dials(BaseModel):
+    """The interview's dressing knobs, shared by create + response so they cannot drift.
+
+    Defaults are what an unspecified interview has always got: neutral, human-sounding, two
+    behavioural questions and as much technical ground as the mix allows. `skeptical` raises
+    the interviewer's evidence bar, `brutally_honest` also reaches the grader (see llm.py).
+    """
+
+    company_size: CompanySize = "any"
+    cynicism: Cynicism = "neutral"
+    brutally_honest: bool = False
+    human_mode: bool = True
+    mix_chitchat: int = Field(default=0, ge=0, le=dials.MIX_MAX)
+    mix_behavioural: int = Field(default=2, ge=0, le=dials.MIX_MAX)
+    mix_technical: int = Field(default=dials.MIX_MAX, ge=0, le=dials.MIX_MAX)
+
+
+class InterviewCreate(Dials):
     role: str = Field(min_length=1, max_length=200)
     topic: str = Field(default="", max_length=500)
     level: Level = "any"
 
 
-class Interview(BaseModel):
+class Interview(Dials):
     id: str
     owner_id: str
     role: str

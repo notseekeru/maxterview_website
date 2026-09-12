@@ -42,7 +42,7 @@ export function apiDetail(e: unknown, fallback: string | null = null): string | 
 
 // --- types (mirror backend app/models.py) ---
 
-export interface Interview {
+export interface Interview extends InterviewDials {
     id: string;
     owner_id: string;
     role: string;
@@ -55,6 +55,37 @@ export interface Interview {
     verdict?: string | null;
     decision?: Decision | null;
     certainty?: number | null;
+}
+
+// Interview dressing dials (mirrors backend app/models.Dials + app/dials.py). The mix sliders are
+// QUESTION BUDGETS over the arc opening -> chitchat -> behavioural -> technical -> wrap-up, so 0
+// skips that kind rather than silencing it.
+export type CompanySize = "any" | "1-10" | "11-50" | "51-200" | "201-1k" | "1k-5k" | "5k+";
+export type Cynicism = "kind" | "neutral" | "skeptical";
+
+export interface InterviewDials {
+    company_size: CompanySize;
+    cynicism: Cynicism;
+    /** Names weaknesses as they appear, and leads the feedback with them. */
+    brutally_honest: boolean;
+    /** Human register (contractions, no AI/corporate vocabulary); off = businesslike. */
+    human_mode: boolean;
+    mix_chitchat: number;
+    mix_behavioural: number;
+    mix_technical: number;
+}
+
+export interface InterviewInput extends InterviewDials {
+    role: string;
+    topic?: string;
+    level: string;
+}
+
+// The dials arrive together (the create form owns them), so one object beats nine positional args
+// where swapping two same-typed numbers would compile and silently change the interview.
+export async function createInterview(input: InterviewInput): Promise<Interview> {
+    const { data } = await api.post<Interview>("/interviews", input);
+    return data;
 }
 
 export interface Message {
@@ -100,11 +131,6 @@ export function chatTurns(usage: Usage): number {
 }
 
 // --- interviews ---
-
-export async function createInterview(role: string, topic = "", level: string = "any"): Promise<Interview> {
-    const { data } = await api.post<Interview>("/interviews", { role, topic, level });
-    return data;
-}
 
 export async function listInterviews(): Promise<Interview[]> {
     const { data } = await api.get<Interview[]>("/interviews");
@@ -171,7 +197,7 @@ export async function openBillingPortal(): Promise<string> {
 // --- SSE chat stream ---
 // The backend streams SSE deltas; we consume them with native fetch streaming.
 
-export type StreamEvent = { kind: "message"; content: string } | { kind: "done" } | { kind: "error"; message: string };
+export type StreamEvent = { kind: "message"; content: string } | { kind: "done"; closing?: boolean } | { kind: "error"; message: string };
 
 export async function streamChat(interviewId: string, content: string, onEvent: (e: StreamEvent) => void, { signal }: { signal?: AbortSignal } = {}): Promise<void> {
     const res = await fetch(`${BASE}/interviews/${interviewId}/chat/stream`, {
@@ -222,6 +248,15 @@ function dispatchFrame(frame: string, onEvent: (e: StreamEvent) => void) {
     const data = dataLines.join("\n");
 
     if (eventName === "error") onEvent({ kind: "error", message: data });
-    else if (eventName === "done") onEvent({ kind: "done" });
-    else onEvent({ kind: "message", content: data });
+    else if (eventName === "done") {
+        // `closing` marks the sign-off turn: the server will refuse anything after it, so the UI can
+        // end the run now instead of letting the user type into a 409.
+        let closing = false;
+        try {
+            closing = Boolean((JSON.parse(data || "{}") as { closing?: unknown }).closing);
+        } catch {
+            closing = false;
+        }
+        onEvent({ kind: "done", closing });
+    } else onEvent({ kind: "message", content: data });
 }

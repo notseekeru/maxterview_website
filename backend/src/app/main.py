@@ -9,7 +9,7 @@ from fastapi.responses import PlainTextResponse, StreamingResponse
 from app import billing, llm, payments
 from app.auth import CLERK_ENABLED, get_current_user
 from app.db import close_pool, fetch, fetchrow, init_pool
-from app.models import ChatMessage, ChatTurn, ClerkUser, Feedback, FeedbackCreate, Interview, InterviewCreate, Message
+from app.models import ChatMessage, ChatTurn, ClerkUser, Dials, Feedback, FeedbackCreate, Interview, InterviewCreate, Message
 
 APP_ENV = os.getenv("APP_ENV", "development")
 
@@ -47,12 +47,23 @@ async def health() -> dict:
 # --- interviews (all scoped to owner_id, D4) ---
 
 
+# The interview dressing dials, as pydantic field names. Identical in the DB, so one tuple serves
+# the `Dials(**row)` build, the columns of every interview read, and nothing can drift between them.
+DIAL_FIELDS = ("company_size", "cynicism", "brutally_honest", "human_mode", "mix_chitchat", "mix_behavioural", "mix_technical")
+
+# Interview row columns for every SELECT/RETURNING that builds an `Interview`. Shared because
+# `Interview` fills an absent field from its default, so a query that forgets a dial would answer
+# 200 with a WRONG value ('neutral' for a run created skeptical) rather than an error.
+INTERVIEW_COLS = "id::text, owner_id, role, level, topic, status, created_at, updated_at, " + ", ".join(DIAL_FIELDS)
+
+
 @app.get("/interviews", response_model=list[Interview])
 async def list_interviews(user: CurrentUser) -> list[dict]:
     # Include optional score/verdict by LEFT JOIN feedback (US5: history shows a score; avoids N+1).
     rows = await fetch(
-        """
+        f"""
         SELECT i.id::text, i.owner_id, i.role, i.level, i.topic, i.status, i.created_at, i.updated_at,
+               {", ".join(f"i.{c}" for c in DIAL_FIELDS)},
                f.verdict AS verdict, f.decision AS decision, f.certainty AS certainty,
                CASE WHEN jsonb_typeof(f.scores) = 'object' THEN
                  (SELECT round(avg(v.value::numeric)::numeric, 1) FROM jsonb_each_text(f.scores) AS v)
@@ -74,14 +85,21 @@ async def create_interview(
 ) -> dict:
     row = await fetchrow(
         """
-        INSERT INTO interviews (owner_id, role, level, topic)
-        VALUES ($1, $2, $3, $4)
-        RETURNING id::text, owner_id, role, level, topic, status, created_at, updated_at
-        """,
+        INSERT INTO interviews (owner_id, role, level, topic, company_size, cynicism, brutally_honest, human_mode, mix_chitchat, mix_behavioural, mix_technical)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+        RETURNING """
+        + INTERVIEW_COLS,
         user.sub,
         body.role,
         body.level,
         body.topic,
+        body.company_size,
+        body.cynicism,
+        body.brutally_honest,
+        body.human_mode,
+        body.mix_chitchat,
+        body.mix_behavioural,
+        body.mix_technical,
     )
     return dict(row)
 
@@ -92,7 +110,7 @@ async def get_interview(
     user: CurrentUser,
 ) -> dict:
     row = await fetchrow(
-        "SELECT id::text, owner_id, role, level, topic, status, created_at, updated_at FROM interviews WHERE id = $1 AND owner_id = $2",
+        f"SELECT {INTERVIEW_COLS} FROM interviews WHERE id = $1 AND owner_id = $2",
         interview_id,
         user.sub,
     )
@@ -121,7 +139,7 @@ async def start_interview(
     user: CurrentUser,
 ) -> dict:
     row = await fetchrow(
-        "UPDATE interviews SET status = 'in_progress', updated_at = now() WHERE id = $1 AND owner_id = $2 AND status = 'pending' RETURNING id::text, owner_id, role, topic, status, created_at, updated_at",
+        "UPDATE interviews SET status = 'in_progress', updated_at = now() WHERE id = $1 AND owner_id = $2 AND status = 'pending' RETURNING " + INTERVIEW_COLS,
         interview_id,
         user.sub,
     )
@@ -138,7 +156,7 @@ async def complete_interview(
     # EXISTS guard in the same UPDATE (not a pre-check) so a foreign id still 404s, no extra
     # round trip, and nothing can slip a turn in between. Mirrors _has_transcript().
     row = await fetchrow(
-        "UPDATE interviews SET status = 'completed', updated_at = now() WHERE id = $1 AND owner_id = $2 AND status = 'in_progress' AND EXISTS (SELECT 1 FROM messages m WHERE m.interview_id = interviews.id AND m.role <> 'system') RETURNING id::text, owner_id, role, topic, status, created_at, updated_at",
+        "UPDATE interviews SET status = 'completed', updated_at = now() WHERE id = $1 AND owner_id = $2 AND status = 'in_progress' AND EXISTS (SELECT 1 FROM messages m WHERE m.interview_id = interviews.id AND m.role <> 'system') RETURNING " + INTERVIEW_COLS,
         interview_id,
         user.sub,
     )
@@ -271,7 +289,7 @@ async def chat_stream(
 ) -> StreamingResponse:
     await _require_interview_owned(interview_id, user.sub)
     interview = await fetchrow(
-        "SELECT id::text, role, level, topic, status FROM interviews WHERE id = $1 AND owner_id = $2",
+        f"SELECT {INTERVIEW_COLS} FROM interviews WHERE id = $1 AND owner_id = $2",
         interview_id,
         user.sub,
     )
@@ -279,6 +297,23 @@ async def chat_stream(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Interview not found")
     if interview["status"] != "in_progress":
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Interview is not in progress")
+
+    prior_rows = await fetch(
+        "SELECT role, content FROM messages WHERE interview_id = $1 ORDER BY created_at",
+        interview_id,
+    )
+    # Interviewer turns already asked -> which phase of the arc this reply belongs to (chitchat
+    # -> opener -> behavioural -> technical -> closing). Derived from the transcript, not stored.
+    asked = sum(1 for r in prior_rows if r["role"] == "assistant")
+    dials = Dials(**{k: interview[k] for k in DIAL_FIELDS})
+    # The question mix is a real budget: once the arc is spent the interview is over, so refuse the
+    # turn BEFORE spending a chat credit or a model call on it. The closing statement itself was
+    # the previous turn (see llm.is_closing_turn); this is what makes it final.
+    if llm.is_interview_finished(asked, dials):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="This interview has asked all of its questions. Press Complete to get your feedback, or start a new interview with a wider question mix.",
+        )
 
     tier = await billing.resolve_tier(user)
     if await billing.chat_turn_remaining(tier, user.sub) == 0:
@@ -296,19 +331,27 @@ async def chat_stream(
     )
     user_msg_id = user_msg["id"] if user_msg else None
 
-    prior_rows = await fetch(
-        "SELECT role, content FROM messages WHERE interview_id = $1 ORDER BY created_at",
-        interview_id,
-    )
-    # Interviewer turns already asked -> which phase of the arc this reply belongs to (opener
-    # -> behavioural -> technical). Derived from the transcript, not stored on the interview.
-    asked = sum(1 for r in prior_rows if r["role"] == "assistant")
     history = [
-        ChatMessage(role="system", content=llm.system_prompt(interview["role"], interview["level"], interview["topic"], asked=asked)),
+        ChatMessage(role="system", content=llm.system_prompt(interview["role"], interview["level"], interview["topic"], asked=asked, dials=dials)),
         *[ChatMessage(role=r["role"], content=r["content"]) for r in prior_rows],
+        ChatMessage(role="user", content=body.content),
     ]
 
     async def _stream_events():
+        # Closing turn: the interviewer's sign-off is canned, not sampled (see llm.CLOSING_MESSAGE).
+        # Still streamed as one message event so the client needs no special case, and still
+        # persisted, so the transcript ends the way it was displayed.
+        if llm.is_closing_turn(asked, dials):
+            await fetchrow(
+                "INSERT INTO messages (interview_id, role, content) VALUES ($1, 'assistant', $2) RETURNING id",
+                interview_id,
+                llm.CLOSING_MESSAGE,
+            )
+            yield f"event: message\ndata: {llm.CLOSING_MESSAGE}\n\n"
+            # Tells the client the run is over in the same frame it renders the sign-off.
+            yield 'event: done\ndata: {"closing": true}\n\n'
+            return
+
         collected: list[str] = []
         try:
             async for delta in llm.stream_chat(history):
@@ -380,7 +423,9 @@ async def _generate_and_persist_feedback(interview_id: str) -> dict | None:
         interview_id,
     )
     history = [ChatMessage(role=r["role"], content=r["content"]) for r in history_rows]
-    summary = await llm.generate_feedback(history)
+    # Dials come from the interview, not the caller: regenerate_feedback has no body to trust.
+    row = await fetchrow(f"SELECT {', '.join(DIAL_FIELDS)} FROM interviews WHERE id = $1", interview_id)
+    summary = await llm.generate_feedback(history, Dials(**{k: row[k] for k in DIAL_FIELDS}) if row else None)
     if summary is None:
         return None
     return await _upsert_feedback(interview_id, summary.scores, summary.verdict, summary.tips, summary.decision, summary.certainty)
