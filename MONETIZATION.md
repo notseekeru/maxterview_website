@@ -68,18 +68,35 @@ Implementation: **raw httpx against PayMongo** (chosen over Xendit — see §7 �
 - `POST /billing/checkout` — creates the PayMongo subscription and returns the **Maya** URL for its
   first payment. PayMongo has no hosted "subscribe" page, so the first invoice's Payment Intent is
   attached to a `paymaya` PaymentMethod and the customer is redirected; every later cycle is charged
-  by PayMongo from that vaulted method.
+  by PayMongo from that vaulted method. **409s instead of creating a second subscription** while the
+  current one still covers a paid period, or while a first payment is pending inside PayMongo's 24h
+  window (`payments._resubscribe_block`) — PayMongo bills each subscription on a customer
+  independently, and this route is reachable even though the UI hides the button.
 - `POST /billing/cancel` — PayMongo has **no billing portal**, so cancelling is ours: `DELETE` the
   subscription and mark the row `cancelled` (the paid period keeps serving, §6).
 - `POST /billing/webhook` — verifies `Paymongo-Signature` (HMAC-SHA256 of `"{t}.{raw_body}"` with the
-  endpoint's secret, 5-minute replay window, fail-closed) then upserts `subscriptions`.
+  endpoint's secret, fail-closed) then upserts `subscriptions`. Timestamps outside
+  `PAYMONGO_SIGNATURE_TOLERANCE_S` (default 300 s) are rejected as replays — but that rejection is
+  **logged** (`paymongo.webhook_signature.stale`) because a genuine event dropped this way would
+  leave a paying user un-entitled, so the window must be tunable without a code change.
+- Rate limiting: `/billing/webhook` is **exempt** (`app/ratelimit.py`) — a retry storm from the
+  provider's IPs shares one client key, and a 429 there would silently drop entitlement.
 - `POST /billing/webhook/simulate` — **dev/test only** (404s when `APP_ENV=production`). Replaces
   `stripe listen`: PayMongo has no CLI, and requiring a tunnel for local webhooks is friction we skip.
-- Env: `PAYMONGO_SECRET_KEY`, `PAYMONGO_WEBHOOK_SECRET`, `PAYMONGO_PLAN_ID`, `FRONTEND_BASE_URL`.
+- Env: `PAYMONGO_SECRET_KEY`, `PAYMONGO_WEBHOOK_SECRET`, `PAYMONGO_PLAN_ID`, `FRONTEND_BASE_URL`
+  (optional: `PAYMONGO_SIGNATURE_TOLERANCE_S`).
 
 **Event → entitlement map:** `subscription.activated|updated` upserts `plan`/`status`/
-`current_period_end` (`cancelled`/`incomplete_cancelled` → `free`); `invoice.paid` sets `active`
-(recovers `past_due`); `invoice.payment_failed` sets `past_due`; draft/open invoice churn is ignored.
+`current_period_end` (`cancelled`/`incomplete_cancelled` → `free`); `invoice.paid` sets `active` but
+only from `past_due`/`unpaid`/`incomplete` — it deliberately does **not** resurrect a cancelled or
+24h-expired subscription (PayMongo keeps open invoices collectible after a cancel);
+`invoice.payment_failed` sets `past_due`; draft/open invoice churn is ignored.
+
+**Ordering:** subscription events resolve the owner **only** by `provider_subscription_id`;
+`provider_customer_id` is a fallback for id-less events only. PayMongo documents out-of-order
+delivery, so a late `cancelled` for a subscription the user already replaced must not match the
+customer and overwrite the live row (it is logged as `paymongo.webhook.unknown_subscription`).
+Duplicates are safe: every write is an idempotent `ON CONFLICT (owner_id)` upsert.
 
 **Before live keys work (both are account-level, not self-service):** email support@paymongo.com to
 enable **Subscriptions** and **Card Vaulting**; a Fully Verified account needs DTI + BIR 2303 for a PH
@@ -93,7 +110,9 @@ Maya** (PayMongo does not support GCash recurring, so GCash users cannot subscri
 **Verification (2026-09-12):** no sandbox transaction yet. Proven instead against real Postgres
 through the simulate endpoint: `activated` → `premium/active` with a tz-aware `current_period_end`,
 `past_due` → `premium/past_due` (not entitled), `invoice.paid` → recovered `premium/active`,
-`cancelled` → `free/cancelled`; an unsigned delivery to `/billing/webhook` is rejected 400.
+`cancelled` → `free/cancelled`; an unsigned delivery to `/billing/webhook` is rejected 400; 130 rapid
+webhook deliveries produce zero 429s while `/api/usage` starts 429ing at the 120/min budget; a
+stale-subscription event leaves the live row untouched.
 
 **Frontend (2026-08-24 → 09-06):** header tier labels (`UsageBadge`) + lockout/upsell notice (`UpgradeNotice` on 402) wired to the subscribe flow, and a dedicated **billing/plan page** (`/app/settings/billing`) with Free vs Premium cards, current-plan summary, an Upgrade → `/billing/checkout` CTA, and in-app **Cancel** (no provider portal exists). See PLAN §8 M10.
 

@@ -101,6 +101,9 @@ To exercise the **real** HMAC path (`Paymongo-Signature`, not the simulate short
    Customer, the Subscription (`incomplete`), then attaches a `paymaya` PaymentMethod to the
    **first invoice's** Payment Intent and returns the Maya URL. Maya is the only redirect-capable
    method PayMongo supports for subscriptions — cards would need card vaulting + a PCI-scoped form.
+   A **409** here means the stored subscription still covers a paid period, or a first payment is
+   pending inside the 24h window — deliberate (a second `POST /v1/subscriptions` would be a second
+   charge), so don't "fix" it by clearing the row.
 3. **Pay within 24h** — the customer completes Maya. PayMongo then charges every later cycle itself.
    Unpaid after 24h → `incomplete_cancelled`.
 4. **Webhooks** — `payment_token.activation`/`payment_session.completed` are ignored;
@@ -119,8 +122,9 @@ Full guided run, including the browser leg: `references/maya-browser-checkout.md
 `Paymongo-Signature: t=<unix>,te=<hmac>,li=<hmac>`, where the HMAC is **SHA-256 over `"{t}.{raw_body}"`
 keyed by the endpoint's secret**. `te` is the test-mode slot, `li` the live one; an endpoint
 registered in test mode leaves `li` empty, and the handler accepts **either** populated slot. The
-handler also rejects a timestamp older than **5 minutes** (replay window) and fails closed when
-`PAYMONGO_WEBHOOK_SECRET` is unset. Sign by hand:
+handler also rejects a timestamp older than `PAYMONGO_SIGNATURE_TOLERANCE_S` (default **300 s**; raise
+it if `paymongo.webhook_signature.stale` shows up in the logs — that means a real delivery is being
+dropped) and fails closed when `PAYMONGO_WEBHOOK_SECRET` is unset. Sign by hand:
 
 ```bash
 t=$(date +%s); sig=$(printf '%s.' "$t" | cat - body.json | openssl dgst -sha256 -hmac "$PAYMONGO_WEBHOOK_SECRET" | awk '{print $NF}')

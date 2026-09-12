@@ -71,8 +71,10 @@ A 400 on `POST /v1/subscriptions` with a valid test key usually means the first.
 - `DELETE` on a customer/subscription/plan, `--drop-customer`, and any event that downgrades
   (`subscription.updated --status=cancelled`, `invoice.payment_failed`) → require `--admin-destroy`.
 - Delivery is authenticated by HMAC of `"{t}.{raw_body}"` with the endpoint secret (`te` for test,
-  `li` for live slots); the handler also enforces a 5-minute replay window and fails closed when
-  `PAYMONGO_WEBHOOK_SECRET` is unset. Deleting a customer makes any vaulted card unusable.
+  `li` for live slots); the handler also enforces a replay window (`PAYMONGO_SIGNATURE_TOLERANCE_S`,
+  default 300 s, logged when it rejects) and fails closed when `PAYMONGO_WEBHOOK_SECRET` is unset.
+  `/billing/webhook` is rate-limit exempt on purpose. Deleting a customer makes any vaulted card
+  unusable.
 - Maya's hosted page is a real redirect, not an embeddable widget; there is no test-card number to
   type and the account's own Maya means must be used to complete it.
 
