@@ -1,10 +1,10 @@
 # MONETIZATION — Payment & Billing
 
-> **Model: Free / Premium + dev-only.** Billing spec for **M10**. **Shipped:** quota backend + raw
-> Stripe (2026-08-24/25); billing/plan page + **real payment test** (2026-09-06) — test-mode
-> checkout → webhook → premium `subscriptions` row, signature-verified. **Live Clerk identity
-> verified 2026-09-12: real Clerk session → real test subscription → `/usage` reads
-> `tier: premium`, and `customer.subscription.deleted` returns it to `free`.
+> **Model: Free / Premium + dev-only.** Billing spec for **M10**. **Shipped:** quota backend;
+> provider-managed recurring on **PayMongo** (PHP-only, ₱499/mo, Maya first payment), which replaced
+> the raw-Stripe implementation on 2026-09-12. The webhook → `subscriptions` → `resolve_tier` path is
+> proven end-to-end against Postgres (every status transition, fail-closed signature), but **no
+> PayMongo sandbox transaction has run yet** — that needs an account with Subscriptions enabled.
 > **Source of truth for decisions:** PLAN.md D10 (and D4 for owner-scoping). Planner status in PLAN.md §8.
 
 ## 0. Limits & model (env-configurable, not hardcoded)
@@ -12,7 +12,7 @@
 |                                           | Free                       | Premium                        | dev                        |
 | ----------------------------------------- | -------------------------- | ------------------------------ | -------------------------- |
 | Interviews (creation)                     | **unlimited**              | **unlimited**                  | **unlimited**              |
-| Price                                     | $0                         | **$9.99/mo** (monthly only)    | $0                         |
+| Price                                     | ₱0                         | **₱499/mo** (monthly only)     | ₱0                         |
 | Chat turns / day (GLOBAL, all interviews) | **10** (`FREE_CHAT_TURNS`) | **250** (`PREMIUM_CHAT_TURNS`) | **500** (`DEV_CHAT_TURNS`) |
 | Free trial                                | none                       | —                              | —                          |
 
@@ -24,7 +24,7 @@
   no-Clerk dev-fallback identity (`CLERK_ENABLED=false`) resolves to `dev` with caps above premium;
   confines to dev/test and never persists in `subscriptions` (details in PLAN D10).
 - **Feedback not feature-gated** — same quality across tiers. Turn cap is the cost-control lever.
-- Billing **monthly only**, single-user (D4). Stripe handles tax (no merchant-of-record).
+- Billing **monthly only**, single-user (D4). PayMongo bills in PHP only; we handle tax (no merchant-of-record).
 
 ## 1. The `tier` claim & its source of truth (entitlement)
 
@@ -58,27 +58,46 @@ Implemented in `app/billing.py` + `app/main.py`.
   **Free / Premium / DEV tier label** (`UsageBadge`). `dev` is returned by the no-Clerk
   dev-fallback identity (see §0).
 
-## 3. Billing provider — raw Stripe (backend shipped 2026-08-24)
+## 3. Billing provider — PayMongo subscriptions (swapped 2026-09-12)
 
-Implementation: **raw Stripe** (chosen over Clerk-billing for ownership, learning, and scale).
+Implementation: **raw httpx against PayMongo** (chosen over Xendit — see §7 — and over an MoR for now).
 
 **Shipped (backend):**
 
-- `app/payments.py` — Stripe client, hosted Checkout Session, billing portal, and the webhook handler.
-- `POST /billing/checkout` — creates a monthly subscription Checkout Session (metadata `owner_id`), returns its URL.
-- `POST /billing/portal` — returns the Stripe billing portal URL for the user's customer.
-- `POST /billing/webhook` — verifies `stripe-signature`, then idempotently upserts `subscriptions` on
-  `checkout.session.completed` / `customer.subscription.created|updated|deleted`.
-- Env: `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRICE_ID`, `FRONTEND_BASE_URL` (no secrets committed).
-- **Prod webhook endpoint — not created yet (verified 2026-09-12):** `GET /v1/webhook_endpoints` returns **none**, and the account reports `charges_enabled: false`. The `whsec_` in Infisical is therefore the `stripe listen` CLI secret: fine for local forwarding, **wrong for prod** (signature verification fails on every real delivery). Before billing is live: create a dashboard endpoint for `https://maxterview.seekeru.tech/api/billing/webhook` (`checkout.session.completed`, `customer.subscription.*`) and put *its* secret into `STRIPE_WEBHOOK_SECRET`. Live-mode keys additionally require account activation.
+- `app/payments.py` — the provider module: subscription start, cancel, webhook verify + handle.
+- `POST /billing/checkout` — creates the PayMongo subscription and returns the **Maya** URL for its
+  first payment. PayMongo has no hosted "subscribe" page, so the first invoice's Payment Intent is
+  attached to a `paymaya` PaymentMethod and the customer is redirected; every later cycle is charged
+  by PayMongo from that vaulted method.
+- `POST /billing/cancel` — PayMongo has **no billing portal**, so cancelling is ours: `DELETE` the
+  subscription and mark the row `cancelled` (the paid period keeps serving, §6).
+- `POST /billing/webhook` — verifies `Paymongo-Signature` (HMAC-SHA256 of `"{t}.{raw_body}"` with the
+  endpoint's secret, 5-minute replay window, fail-closed) then upserts `subscriptions`.
+- `POST /billing/webhook/simulate` — **dev/test only** (404s when `APP_ENV=production`). Replaces
+  `stripe listen`: PayMongo has no CLI, and requiring a tunnel for local webhooks is friction we skip.
+- Env: `PAYMONGO_SECRET_KEY`, `PAYMONGO_WEBHOOK_SECRET`, `PAYMONGO_PLAN_ID`, `FRONTEND_BASE_URL`.
 
-**Business rules:** monthly only, $9.99/mo, no annual, no tiers; multi-currency via Stripe local pricing;
-Stripe calculates tax, we remit; no merchant-of-record. Requires Stripe account + keys in prod Secret
-(zero-touch on credentials).
+**Event → entitlement map:** `subscription.activated|updated` upserts `plan`/`status`/
+`current_period_end` (`cancelled`/`incomplete_cancelled` → `free`); `invoice.paid` sets `active`
+(recovers `past_due`); `invoice.payment_failed` sets `past_due`; draft/open invoice churn is ignored.
 
-**Frontend (2026-08-24 → 09-06):** header tier labels (`UsageBadge`) + lockout/upsell notice (`UpgradeNotice` on 402) wired to checkout/portal, and a dedicated **billing/plan page** (`/app/settings/billing`) with Free vs Premium cards, current-plan summary, and an Upgrade → `/billing/checkout` CTA. See PLAN §8 M10.
+**Before live keys work (both are account-level, not self-service):** email support@paymongo.com to
+enable **Subscriptions** and **Card Vaulting**; a Fully Verified account needs DTI + BIR 2303 for a PH
+sole proprietorship. Charges are PHP-only and PayMongo collects `first_name`/`last_name`/`email` per
+customer (unique email), which Clerk supplies.
 
-**Payment test (2026-09-06):** real test-mode Checkout Session URL returned; live `stripe listen` delivered signature-verified `customer.subscription.*` events → a **`premium`/`active` `subscriptions` row** (found+fixed `_period_end` passing Stripe's epoch int where asyncpg needs a `datetime` — it used to 500). Residual: only a live Clerk identity surfaces `premium` in `/usage`; until `CLERK_ENABLED=true`, dev-mode users see `dev`. Until live, `subscriptions` rows can be seeded directly and `resolve_tier` honors them.
+**Business rules:** monthly only, ₱499/mo, no annual, no tiers; recurring is limited to **cards and
+Maya** (PayMongo does not support GCash recurring, so GCash users cannot subscribe); we remit tax
+(no merchant-of-record).
+
+**Verification (2026-09-12):** no sandbox transaction yet. Proven instead against real Postgres
+through the simulate endpoint: `activated` → `premium/active` with a tz-aware `current_period_end`,
+`past_due` → `premium/past_due` (not entitled), `invoice.paid` → recovered `premium/active`,
+`cancelled` → `free/cancelled`; an unsigned delivery to `/billing/webhook` is rejected 400.
+
+**Frontend (2026-08-24 → 09-06):** header tier labels (`UsageBadge`) + lockout/upsell notice (`UpgradeNotice` on 402) wired to the subscribe flow, and a dedicated **billing/plan page** (`/app/settings/billing`) with Free vs Premium cards, current-plan summary, an Upgrade → `/billing/checkout` CTA, and in-app **Cancel** (no provider portal exists). See PLAN §8 M10.
+
+**Stripe-era payment test (2026-09-06, superseded):** the previous provider returned a hosted Checkout Session URL and delivered signature-verified `customer.subscription.*` events into a `premium`/`active` row; that run is what exposed the epoch-vs-`datetime` binding bug, and the same guard is kept in `payments._period_end` for PayMongo's `next_billing_schedule` date. Residual: until `CLERK_ENABLED=true`, dev-mode users resolve to `dev` rather than premium; `subscriptions` rows can be seeded directly and `resolve_tier` honors them (`ENTITLED_STATUSES` + `current_period_end`).
 
 ## 4. Phase-2 schema (shipped with M10 backend)
 
@@ -89,7 +108,10 @@ Applied in `backend/migrations/0002_billing.sql`:
 CREATE TABLE IF NOT EXISTS subscriptions (
     id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     owner_id            TEXT NOT NULL UNIQUE,        -- Clerk sub (D4)
-    stripe_id           TEXT NOT NULL DEFAULT '',
+    provider            TEXT NOT NULL DEFAULT 'paymongo',   -- 0008: provider-agnostic (D10)
+    provider_customer_id TEXT NOT NULL DEFAULT '',           -- cus_… (renamed from stripe_id)
+    provider_subscription_id TEXT NOT NULL DEFAULT '',       -- subs_… (cancel + webhook owner lookup)
+    provider_plan_id    TEXT NOT NULL DEFAULT '',            -- plan_…
     plan                TEXT NOT NULL DEFAULT 'free' CHECK (plan IN ('free','premium')),
     status              TEXT NOT NULL DEFAULT 'active',
     current_period_end  TIMESTAMPTZ,
@@ -117,20 +139,39 @@ CREATE TABLE IF NOT EXISTS turn_usage (
 
 | Shipped                                                                                                                                                      | Open                                                                                                      |
 | ------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------- |
-| Backend: `billing.py`, `payments.py` (checkout/portal/webhook), `0002_billing` migration                                                                     | **Nothing blocking in code.** Production config still owed: `CLERK_ENABLED=true` (live), a Stripe **dashboard webhook endpoint** whose `whsec_` replaces the CLI secret, and live-mode activation (`charges_enabled: false` today — see §3) |
+| Backend: `billing.py`, `payments.py` (subscribe/cancel/webhook + dev simulate), `0002`/`0008` migrations                                                                     | **Nothing blocking in code.** Production config still owed: `CLERK_ENABLED=true` (live), PayMongo **Subscriptions + Card Vaulting enabled by support**, a real webhook endpoint whose secret lands in `PAYMONGO_WEBHOOK_SECRET`, and a Fully Verified account (DTI + BIR) for live keys |
 | Caps: daily GLOBAL chat-turn per owner (free 10 / premium 250 / dev 500, UTC-day reset; `0004_global_chat_turns`); no per-interview / no daily-interview cap | —                                                                                                         |
 | Frontend: usage badge, upsell/lockout notices, billing/plan page (`/app/settings/billing`)                                                                   | —                                                                                                         |
-| Real payment test (2026-09-06) + `_period_end` datetime fix                                                                                                  | —                                                                                                         |
-| **Live-Clerk tier proof (2026-09-12):** real Clerk session JWT + real test subscription → `premium` in `/usage`; deleted → `free`                            | —                                                                                                         |
+| **Postgres-proof (2026-09-12):** activated/past_due/invoice.paid/payment_failed/cancelled transitions + fail-closed signature                                                                  | **PayMongo sandbox proof** (real plan/customer/subscription + Maya first payment) once keys exist                        |
 
-## 6. Cancellation & billing terms (M10, deferred with Stripe)
+## 6. Cancellation & billing terms (M10, PayMongo)
 
 - **Cancellation → access till end of the current paid period, no refunds.**
 - **Refund (2026-08-16): 3-day voluntary refund window**; after 3 days no voluntary refunds.
 - **Chargebacks/disputes:** separate from refunds — on a chargeback, downgrade to free immediately and
-  respond via Stripe's dispute flow. A refund policy does not stop chargebacks.
+  respond via PayMongo's dispute flow. A refund policy does not stop chargebacks.
 - **Failed renewal / card declined:** **immediate downgrade, no grace**. No paid time remains.
 - Enforced via `subscriptions.status` / `current_period_end`; lockout at period end.
 - **Stale-JWT holes:** on downgrade, either (a) refresh/stamp the JWT, or (b) consult server-side
   `subscriptions` (recommended — `resolve_tier` already does). On upgrade, Clerk must force a JWT
   refresh so "I paid and it didn't unlock" doesn't become a support ticket.
+
+## 7. Provider decision record (2026-09-12)
+
+**Xendit — rejected.** Its published PH rate card adds a **₱11 Processing Fee per transaction
+*attempt*** (failed charges and refunds included) on top of method fees, and — fatal at this stage — a
+**USD 50 (~₱2,850)/month Monthly Minimum Fee** whenever the monthly invoice is under USD 50 (effective
+2026-09-01 for merchants contracted to Xendit Philippines Inc., 2026-10-01 elsewhere). At ₱499/mo the
+per-cycle fee is ~₱28, so the floor only stops biting near **~100 paying subscribers**; at 20 subs it
+would take roughly a quarter of revenue. It also requires a registered entity, and authenticates
+webhooks with a static `x-callback-token` instead of an HMAC over the raw body.
+
+**PayMongo — chosen.** No setup fee, no monthly minimum, cards 3.125% + ₱13.39, Maya 1.79%, GCash
+2.23%, QR Ph 1.34%, and correctly signed webhooks. Accepted trade-offs: Subscriptions + Card Vaulting
+are enabled by support (not self-service), recurring covers cards and Maya only, and there is no
+billing portal — we own cancel.
+
+**Global/USD later.** PayMongo is PHP-only and PH-rail-only, so USD pricing for non-PH buyers needs a
+merchant-of-record (Paddle / Lemon Squeezy / Polar: they remit VAT and pay out to an unregistered PH
+individual, which is the only option before DTI/BIR exists). The seam is `payments.py` plus the
+`subscriptions.provider*` columns (D10) — a second module, not a rewrite.

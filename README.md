@@ -9,7 +9,7 @@ run with Docker Compose. Frontend: Tailwind 4 + shadcn/ui + react-router.
 Docs:
 
 - `PLAN.md` — technical decisions (D1–D12) and milestones (M1–M17)
-- `MONETIZATION.md` — billing spec (quotas + raw Stripe + billing plan page shipped; real payment test done 2026-09-06; live-Clerk premium view open)
+- `MONETIZATION.md` — billing spec (quotas + PayMongo subscriptions shipped; PayMongo sandbox proof pending)
 - `OBSERVABILITY.md` — logging/error-tracking/metrics plan (doc-first M13)
 
 ---
@@ -54,7 +54,7 @@ Requires Docker + Docker Compose v2. Copy the example env and (optionally) fill 
 
 ```bash
 cp .env.example .env                  # compose/infra only: APP_ENV, POSTGRES_*, ports
-cp backend/.env.example backend/.env  # backend runtime: CLERK, LLM, quotas, STRIPE
+cp backend/.env.example backend/.env  # backend runtime: CLERK, LLM, quotas, PAYMONGO
 cp frontend/.env.example frontend/.env # VITE_* frontend vars
 make up                     # builds + starts postgres, backend, frontend   (dev only — prod uses Neon)
 ```
@@ -72,7 +72,7 @@ Everything below reads git-ignored env in `backend/.env` (backend) or `frontend/
 Run `need-keys.sh` to see which are set (names only):
 
 ```bash
-./.pi/skills/clerk-stripe-operator/scripts/need-keys.sh   # set/missing/live, never values
+./.pi/skills/paymongo-operator/scripts/need-keys.sh   # set/missing, never values
 ```
 
 | Want this feature                                               | Set in `backend/.env`                                                                     | plus                                                   | how to run/verify                                                                                                    |
@@ -80,18 +80,18 @@ Run `need-keys.sh` to see which are set (names only):
 | UI/API with no auth at all (fast dev)                           | _(nothing)_                                                                               | —                                                      | default works (`CLERK_ENABLED=false` → `DEV_USER`)                                                                   |
 | Real Clerk sign-in button + JWT auth                            | `CLERK_ENABLED=true`, `CLERK_DOMAIN`, `CLERK_JWKS_URL`                                    | `frontend/.env` `VITE_CLERK_PUBLISHABLE_KEY=pk_test_…` | `make up`, visit `/app`, sign in                                                                                     |
 | Headless Clerk ops (mint users/sessions, drive the `clerk` CLI) | `CLERK_SECRET_KEY=sk_test_…`                                                              | —                                                      | `docker exec -e CLERK_SECRET_KEY="$CLERK_SECRET_KEY" maxterview_frontend_dev sh -c 'cd /tmp && npx clerk api users'` |
-| Stripe $9.99 checkout → premium row                             | `STRIPE_SECRET_KEY` (`sk_test_…`), `STRIPE_WEBHOOK_SECRET` (`whsec_…`), `STRIPE_PRICE_ID` | —                                                      | host `stripe` CLI: `stripe listen --forward-to localhost:8000/api/billing/webhook`, then upgrade in UI                   |
+| PayMongo ₱499/mo subscription → premium row                     | `PAYMONGO_SECRET_KEY` (`sk_test_…`), `PAYMONGO_WEBHOOK_SECRET`, `PAYMONGO_PLAN_ID`        | —                                                      | upgrade in the UI → Maya page; dev instead: POST `/api/billing/webhook/simulate` (no tunnel, no keys)                     |
 | Real AI interviewer chat + auto-feedback                        | `LLM_BASE_URL`, `LLM_MODEL`, `LLM_API_KEY`                                                | —                                                      | empty → deterministic STUB (model-free tests/dev)                                                                    |
 | Observability                                                   | _(nothing yet)_                                                                           | —                                                      | `OBSERVABILITY.md` (docs-first, not wired)                                                                           |
 
 Feature env values come from your Clerk app's **Development instance** (`.clerk.accounts.dev` /
-`pk_test_` / `sk_test_`) and Stripe **test mode** — both are safe to use on `localhost`. The
+`pk_test_` / `sk_test_`) and PayMongo **test mode** — both are safe to use on `localhost`. The
 production `pk_live_…` / `sk_live_…` keys are locked to `seekeru.tech` and will be rejected
 elsewhere.
 
 > **You do NOT need** `clerk auth login`, `clerk link`, or a `CLERK_PLATFORM_API_KEY` to use any
 > repo feature. Those Platform/admin tools manage apps/domains (a beta, dashboard-only capability)
-> and add nothing here — the instance `CLERK_SECRET_KEY` (Backend API) plus the `stripe` CLI cover
+> and add nothing here — the instance `CLERK_SECRET_KEY` (Backend API) plus `curl` and the PayMongo dashboard cover
 > everything an operator needs. Avoid the dead-ends: NixOS can't run the npm-global `clerk` binary,
 > and the container's OAuth loopback isn't reachable from a host browser.
 
@@ -133,7 +133,7 @@ make prod-build / prod-up / prod-logs / prod-down  (prod-style)
 
 - **Backend** (pytest): `make test`. Integration tests hit a real Postgres, self-migrate via yoyo,
   and force LLM STUB_MODE (model-free). Tests cover auth (JWT/JWKS negative cases), interview
-  lifecycle, owner-scoping, LLM streaming/extraction, and M10 billing (quotas + Stripe webhooks).
+  lifecycle, owner-scoping, LLM streaming/extraction, and M10 billing (quotas + PayMongo webhook status map).
 - **Frontend**: `npm run typecheck`, `npm run build`, `npx biome check .` (in the frontend container).
 - **LLM smoke**: `scripts/llm-smoke-full.sh` walks the whole lifecycle against a live model.
 
@@ -174,9 +174,9 @@ This repo is the **app source**; the gitops repo holds the Kubernetes manifests.
    - a new `var.NEON_DATABASE_URL` (sensitive) in `infra/k3s/variables.tf`, value set in **Infisical**
      (never `secrets.tfvars`),
    - a new `kubernetes_secret.maxterview_secrets` alongside `diagram_secrets`, carrying `DATABASE_URL`
-     (plus Clerk/LLM/Stripe keys) with **UPPERCASE keys named exactly as the env vars the app reads** —
+     (plus Clerk/LLM/PayMongo keys) with **UPPERCASE keys named exactly as the env vars the app reads** —
      the Deployment injects the whole secret via `envFrom`, so `DATABASE_URL`, `CLERK_JWKS_URL`,
-     `LLM_API_KEY`, `STRIPE_WEBHOOK_SECRET`, … A malformed key name blocks the pod (`envFrom` is all-or-nothing).
+     `LLM_API_KEY`, `PAYMONGO_WEBHOOK_SECRET`, … A malformed key name blocks the pod (`envFrom` is all-or-nothing).
    - that secret added to `kubectl_manifest.gitops_app`'s `depends_on` list, so the root App still applies
      only after its secrets exist.
    Never `kubectl apply` secrets and never commit them; Terraform owns them.
@@ -192,8 +192,8 @@ the secret store, the local stack, `APP_ENV`, the Clerk dev instance, and the `d
 
 | Value | Home |
 |---|---|
-| Deployed runtime config (`DATABASE_URL`, `CLERK_*`, `LLM_*`, `STRIPE_*`) | Infisical env **`prod`** (renamed from `dev` 2026-09-12) → Terraform → k8s Secret `maxterview-secrets` → `envFrom` |
-| Local dev runtime + dev Clerk/LLM/Stripe keys | `backend/.env` (git-ignored) — prod and dev values are *supposed* to differ |
+| Deployed runtime config (`DATABASE_URL`, `CLERK_*`, `LLM_*`, `PAYMONGO_*`) | Infisical env **`prod`** (renamed from `dev` 2026-09-12) → Terraform → k8s Secret `maxterview-secrets` → `envFrom` |
+| Local dev runtime + dev Clerk/LLM/PayMongo keys | `backend/.env` (git-ignored) — prod and dev values are *supposed* to differ |
 | SPA build config (`VITE_CLERK_PUBLISHABLE_KEY`) | committed `frontend/.env.production` — public by design (D14) |
 | CI plumbing (gitops deploy key) | GitHub Actions secret `MAXTERVIEW_SSH` |
 | The Neon MCP's API key | root `.env` (direnv-exported; the app never reads it) |
@@ -216,7 +216,7 @@ PVC, no StatefulSet, and no DB backup/upgrade work in-cluster.
   `suspend_timeout_seconds: 0` = scale-to-zero **off** (no cold start, but ≈182 CU-h/month idle vs the 100 CU-h
   free budget — set 300 s before deploy, M17); the free history window is 6 h, so snapshot before each prod
   migration. In exchange you get durability, backups, and disposable branches for testing.
-- **Identity is prod-grade, payments are not:** the backend verifies against the Clerk **production** instance (`clerk.seekeru.tech`, JWKS live) and the SPA's committed `pk_live_` (`frontend/.env.production`, public by design — D14) names the same instance. Stripe is **test-mode** (`charges_enabled: false`, no dashboard webhook endpoint yet), and every deployed value comes from one Infisical environment (`dev`, `SECRETS_PATH=/consumers/terraform`). Pre-launch swaps: Stripe live keys + endpoint secret (PLAN §7, `MONETIZATION.md` §3).
+- **Identity is prod-grade, payments are not:** the backend verifies against the Clerk **production** instance (`clerk.seekeru.tech`, JWKS live) and the SPA's committed `pk_live_` (`frontend/.env.production`, public by design — D14) names the same instance. PayMongo is **test-mode** (live keys need a Fully Verified account; Subscriptions + Card Vaulting are enabled by support, not self-service), and every deployed value comes from one Infisical environment (`dev`, `SECRETS_PATH=/consumers/terraform`). Pre-launch swaps: PayMongo live keys + endpoint secret (PLAN §7, `MONETIZATION.md` §3).
 - Local dev and CI keep the Postgres container / service; only the deployed DSNs change, and prod/staging are
   **separate Neon projects** (D11) — branches are disposable-only, inside staging. (`NEON_API_KEY`
   for the MCP server also lives in root `.env`, which compose injects into the backend container — the app
@@ -277,7 +277,7 @@ basic key is account-wide, so there is no branch-level protection between the ag
 ## Status
 
 - **M1–M9 done** (infra, backend, auth, API, LLM layer, tests, frontend app, verify + README).
-- **M10** (billing/monetization) — **shipped**: daily-global chat-turn quotas (free 10 / premium 250 / dev 500 per owner, UTC-day reset; no per-interview cap) + `GET /api/usage` + raw Stripe checkout/portal/webhook; no daily-interview cap; **`dev` tier wired 2026-08-25**; frontend tier labels + upsell/lockout notices + a dedicated **billing/plan page** (`/app/settings/billing`); **real payment test done 2026-09-06** (test-mode checkout → webhook → premium `subscriptions` row; fixed `_period_end` epoch→datetime 500); **live-Clerk tier proof 2026-09-12**: real Clerk session JWT + real test subscription → `/api/usage` `tier: premium`, `customer.subscription.deleted` → `free`. Nothing open in code (`MONETIZATION.md`).
+- **M10** (billing/monetization) — **shipped**: daily-global chat-turn quotas (free 10 / premium 250 / dev 500 per owner, UTC-day reset; no per-interview cap) + `GET /api/usage` + PayMongo subscribe/cancel/webhook (Maya first payment; Stripe replaced 2026-09-12); no daily-interview cap; **`dev` tier wired 2026-08-25**; frontend tier labels + upsell/lockout notices + a dedicated **billing/plan page** (`/app/settings/billing`); **Postgres-proof 2026-09-12** (simulate endpoint → webhook → `premium/active` row with tz-aware period; `past_due`/`cancelled` downgrade; unsigned delivery 400). Sandbox transaction still owed — see `MONETIZATION.md` §3/§5.
 - **M11** (security) — docs-first done (threat model + accepted risks + pentest plan in PLAN §7) + Trivy/Renovate; **code pass shipped 2026-09-12**: per-client limiter (`RATE_LIMIT`, `/health` exempt), `CORS_ALLOW_ORIGINS` allow-list (off by default), prompt-injection guardrails + a 4000-char turn cap. Open: deployed pentest, `CLERK_AUDIENCE`.
 - **M12** (frontend polish) — **done (2026-08-24)**: public landing page, `/app` dashboard with stats + score charts, empty states, skeleton loaders, mobile-responsive layout, code-split routes (`/`, `/app`, `/interviews/:id`).
 - **M13** (observability) — docs-first done (`OBSERVABILITY.md`); structlog + Grafana Cloud (Loki for logs, **pure OTLP** metrics/traces → Prometheus) wiring pending.
