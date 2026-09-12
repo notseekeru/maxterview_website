@@ -96,6 +96,24 @@ async def _api(method: str, path: str, **kwargs) -> dict:
     return res.json()
 
 
+async def _try_variants(variants: list, attempt) -> dict:
+    """Run `attempt` on each variant, returning the first accepted response.
+
+    AI HERE: hedges two documented-but-unguaranteed PayMongo shapes that could not be exercised
+    before launch (no activated account) — the invoice-list path prefix and whether a server-side
+    attach tolerates `client_key`. Each retry logs `paymongo.variant_retry`; collapse this to the
+    winning variant once a sandbox run proves which one it is.
+    """
+    for i, variant in enumerate(variants):
+        try:
+            return await attempt(variant)
+        except HTTPException:
+            if i == len(variants) - 1:
+                raise
+            log.warning("paymongo.variant_retry", variant_index=i)
+    raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Payment provider error")
+
+
 async def start_subscription(user: ClerkUser) -> str:
     """Create the subscription and return the Maya URL for its first payment.
 
@@ -128,18 +146,12 @@ async def start_subscription(user: ClerkUser) -> str:
     # AI HERE: one extra GET for `client_key` so the attach body satisfies both the secret-key and
     # the public-key flow. Drop it once a sandbox attach proves the key is unnecessary.
     intent = await _api("GET", f"/v1/payment_intents/{intent_id}")
-    attach = await _api(
-        "POST",
-        f"/v1/payment_intents/{intent_id}/attach",
-        json={
-            "data": {
-                "attributes": {
-                    "payment_method": method["data"]["id"],
-                    "client_key": intent["data"]["attributes"]["client_key"],
-                    "return_url": f"{FRONTEND_BASE_URL}/app?upgrade=pending",
-                }
-            }
-        },
+    body = {"payment_method": method["data"]["id"], "return_url": f"{FRONTEND_BASE_URL}/app?upgrade=pending"}
+    attach = await _try_variants(
+        # `client_key` is documented for the public-key attach and is a browser-safe token, so send it
+        # first (matching the only documented shape) and fall back to a secret-key-only body.
+        [{**body, "client_key": intent["data"]["attributes"]["client_key"]}, body],
+        lambda attrs: _api("POST", f"/v1/payment_intents/{intent_id}/attach", json={"data": {"attributes": attrs}}),
     )
     url = ((attach.get("data", {}).get("attributes", {}).get("next_action") or {}).get("redirect") or {}).get("url")
     if not url:
@@ -191,7 +203,9 @@ async def _ensure_customer(user: ClerkUser) -> str:
 
 async def _first_invoice_intent(subs_id: str) -> str:
     """PayMongo generates the first invoice with the subscription; its Payment Intent goes to Maya."""
-    invoices = await _api("GET", "/subscriptions/invoices", params={"resource_id": subs_id, "limit": 1, "order": "desc"})
+    params = {"resource_id": subs_id, "limit": 1, "order": "desc"}
+    # The docs list the collection endpoint both with and without the `/v1` prefix, so try both.
+    invoices = await _try_variants(["/v1/subscriptions/invoices", "/subscriptions/invoices"], lambda path: _api("GET", path, params=params))
     rows = invoices.get("data") or []
     intent = ((rows[0] if rows else {}).get("attributes") or {}).get("payment_intent") or {}
     if not intent.get("id"):

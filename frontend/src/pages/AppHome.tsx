@@ -4,6 +4,7 @@ import { CreateInterviewForm } from "@/components/CreateInterviewForm";
 import { DashboardStats } from "@/components/DashboardStats";
 import { InterviewList } from "@/components/InterviewList";
 import { Page } from "@/components/PagePrimitives";
+import { UpgradePendingNotice } from "@/components/UpgradePendingNotice";
 import { useInterviewData } from "@/hooks/useInterviewData";
 import { deleteInterview, regenerateFeedback } from "@/lib/api";
 import { clerkEnabled } from "@/lib/config";
@@ -30,6 +31,9 @@ export function AppHome() {
     return (
         <Page title="Dashboard" description="Start a new session or review how you're doing.">
             {!clerkEnabled && <p className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">Dev mode (no Clerk key) — requests run against the backend&apos;s DEV_USER. Set VITE_CLERK_PUBLISHABLE_KEY to enable real Clerk auth.</p>}
+
+            {/* The Maya return_url lands here (?upgrade=pending); it renders nothing otherwise. */}
+            <UpgradePendingNotice />
 
             <section className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
                 <div className="flex flex-col gap-2">

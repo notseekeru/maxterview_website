@@ -11,9 +11,11 @@ import time
 from datetime import UTC, date, datetime
 
 import pytest
+from fastapi import HTTPException
 
 from app import billing, payments
 from app.billing import _quota, resolve_tier
+from app.models import ClerkUser
 
 
 class _User:
@@ -274,8 +276,6 @@ async def test_invoice_paid_recovers_subscription_via_subscription_id(monkeypatc
 async def test_ensure_customer_reuses_only_this_providers_id(monkeypatch):
     """0008 renamed Stripe's `stripe_id` into `provider_customer_id`, so a pre-swap row still holds a
     Stripe `cus_…`; reusing it would send PayMongo a customer it never issued."""
-    from app.models import ClerkUser
-
     user = ClerkUser(sub="u1", email="a@b.co", name="A B")
     seen = {}
 
@@ -360,3 +360,85 @@ def test_period_end_tolerates_provider_date_shapes():
     assert p._period_end(date(2026, 10, 14)) == datetime(2026, 10, 14, tzinfo=UTC)
     assert p._period_end(1788678469).year == datetime.fromtimestamp(1788678469, tz=UTC).year
     assert p._period_end("") is None and p._period_end("not-a-date") is None
+
+
+# --- documented-but-unexercised PayMongo shapes (see payments._try_variants) ---
+
+
+def _configure(monkeypatch):
+    monkeypatch.setattr(payments, "SECRET_KEY", "sk_test_x")
+    monkeypatch.setattr(payments, "PLAN_ID", "plan_x")
+
+
+async def test_try_variants_returns_the_first_accepted_variant():
+    calls = []
+
+    async def attempt(variant):
+        calls.append(variant)
+        return {"ok": variant}
+
+    assert await payments._try_variants(["a", "b"], attempt) == {"ok": "a"}
+    assert calls == ["a"]  # no speculative second call
+
+
+async def test_try_variants_falls_back_then_reraises_the_last_failure():
+    async def second_works(variant):
+        if variant == "a":
+            raise HTTPException(status_code=502, detail="no")
+        return {"ok": variant}
+
+    assert await payments._try_variants(["a", "b"], second_works) == {"ok": "b"}
+
+    async def never(_variant):
+        raise HTTPException(status_code=502, detail="no")
+
+    with pytest.raises(HTTPException):
+        await payments._try_variants(["a", "b"], never)
+
+
+async def test_first_invoice_intent_falls_back_to_the_unversioned_path(monkeypatch):
+    """The docs list the invoice collection both with and without `/v1`."""
+    seen = []
+
+    async def _api(method, path, **kwargs):
+        seen.append(path)
+        if path.startswith("/v1"):
+            raise HTTPException(status_code=502, detail="404")
+        return {"data": [{"attributes": {"payment_intent": {"id": "pi_1"}}}]}
+
+    monkeypatch.setattr(payments, "_api", _api)
+    assert await payments._first_invoice_intent("subs_1") == "pi_1"
+    assert seen == ["/v1/subscriptions/invoices", "/subscriptions/invoices"]
+
+
+async def test_first_invoice_intent_without_an_intent_is_a_502(monkeypatch):
+    async def _api(*_a, **_k):
+        return {"data": []}
+
+    monkeypatch.setattr(payments, "_api", _api)
+    with pytest.raises(HTTPException) as exc:
+        await payments._first_invoice_intent("subs_1")
+    assert exc.value.status_code == 502
+
+
+async def test_start_subscription_needs_an_email_and_a_free_slot(monkeypatch):
+    _configure(monkeypatch)
+    with pytest.raises(HTTPException) as no_email:
+        await payments.start_subscription(ClerkUser(sub="u", email=None, name="A"))
+    assert no_email.value.status_code == 409
+
+    async def _covered(_q, _sub):
+        return _row(current_period_end=datetime(2027, 1, 1, tzinfo=UTC))
+
+    monkeypatch.setattr(payments, "fetchrow", _covered)
+    with pytest.raises(HTTPException) as covered:
+        await payments.start_subscription(ClerkUser(sub="u", email="a@b.co", name="A B"))
+    assert covered.value.status_code == 409
+
+
+async def test_start_subscription_refuses_without_config(monkeypatch):
+    monkeypatch.setattr(payments, "SECRET_KEY", "")
+    monkeypatch.setattr(payments, "PLAN_ID", "")
+    with pytest.raises(HTTPException) as exc:
+        await payments.start_subscription(ClerkUser(sub="u", email="a@b.co"))
+    assert exc.value.status_code == 503
