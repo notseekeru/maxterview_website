@@ -185,6 +185,24 @@ This repo is the **app source**; the gitops repo holds the Kubernetes manifests.
    maxterview does not consume them, so the `docs/incident-2026-09-03` rotation runbook does not apply:
    Neon owns the role, so rotation is an Infisical change + re-apply, with no `ALTER USER` step.
 
+### Where a value lives
+
+One map, so nobody re-derives it (the word "dev" alone means five different things in this stack —
+the secret store, the local stack, `APP_ENV`, the Clerk dev instance, and the `dev` billing tier):
+
+| Value | Home |
+|---|---|
+| Deployed runtime config (`DATABASE_URL`, `CLERK_*`, `LLM_*`, `STRIPE_*`) | Infisical env **`prod`** (being renamed from `dev`) → Terraform → k8s Secret `maxterview-secrets` → `envFrom` |
+| Local dev runtime + dev Clerk/LLM/Stripe keys | `backend/.env` (git-ignored) — prod and dev values are *supposed* to differ |
+| SPA build config (`VITE_CLERK_PUBLISHABLE_KEY`) | committed `frontend/.env.production` — public by design (D14) |
+| CI plumbing (gitops deploy key) | GitHub Actions secret `MAXTERVIEW_SSH` |
+| The Neon MCP's API key | root `.env` (direnv-exported; the app never reads it) |
+| Deployed objects | namespace **`maxterview`** (own namespace; diagram/portfolio still share `default`) |
+
+**Promotion is continuous:** every green `main` builds → Trivy-scans → smoke-tests → CD's
+`update-gitops-repo` job bumps the pinned tag in `gitops` → Argo syncs, and the PreSync Job applies
+migrations before the pods roll. No manual promotion step; CI is the gate.
+
 **Database:** production runs against **Neon** (managed Postgres), not a DB pod in the cluster. There is no
 PVC, no StatefulSet, and no DB backup/upgrade work in-cluster.
 
@@ -266,5 +284,5 @@ basic key is account-wide, so there is no branch-level protection between the ag
 - **M14** (OKF / structured-output hardening) — **OKF not started**: no bundle exists, the interviewer's knowledge is still prompt strings. Its structured-output *prerequisite* shipped (2026-09-11): `response_format=json_schema` + greedy decoding on the grader→formatter surface. OKF bundles are the markdown+frontmatter format M15 RAG will ingest.
 - **M15** (RAG / retrieval-augmented interviewing) — future enhancement, not started (`PLAN.md`).
 - **M16** (live voice interview — TTS + STT + webcam illusion) — future enhancement, not started (`PLAN.md`).
-- **M17** (Neon environments & dedicated DB) — **decided 2026-09-12 (D11/D12), contract only, nothing provisioned**: prod/staging = separate Neon projects, branches disposable-only, app vs migrator DSN (`MIGRATE_DATABASE_URL` reserved), migrations via the in-cluster PreSync Job; prod `public` schema still empty. **First-deploy open items:** push `maxterview_website` (CD bakes the SPA key + bumps the gitops tag off the pre-`/api` image), `make plan/apply MOD=k3s ENV=dev` (creates `maxterview-secrets` + the `maxterview.seekeru.tech` tunnel hostname; needs a kubeconfig), a Clerk allowed-origin check for the app host, a Stripe dashboard endpoint, and Neon quota (no suspend on free).
+- **M17** (Neon environments & dedicated DB) — **decided 2026-09-12 (D11/D12), contract only, nothing provisioned**: prod/staging = separate Neon projects, branches disposable-only, app vs migrator DSN (`MIGRATE_DATABASE_URL` reserved), migrations via the in-cluster PreSync Job; prod `public` schema still empty. **First-deploy open items:** push `maxterview_website` (CD bakes the SPA key + bumps the gitops tag off the pre-`/api` image), `make plan/apply MOD=k3s ENV=prod` (creates `maxterview-secrets` + the `maxterview.seekeru.tech` tunnel hostname; needs a kubeconfig), a Clerk allowed-origin check for the app host, a Stripe dashboard endpoint, and Neon quota (no suspend on free). Migrations now run via the PreSync Job in `gitops` (`9f46bd3`); the namespace + secret land from `terraform` (`6727cf8`).
 - **M18** (load & performance testing) — docs-first, not built: staging-only k6 profiles, off-node generator, **STUB_MODE** for app capacity vs a real-model canary for provider capacity; single-VU runs measure the rate limiter (2 rps/client IP), so the unit is *concurrent open chats*. Needs M13 + staging (D13).
