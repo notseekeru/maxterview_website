@@ -16,6 +16,11 @@ CLERK_DOMAIN = os.getenv("CLERK_DOMAIN", "")
 CLERK_JWKS_URL = os.getenv("CLERK_JWKS_URL", "")
 CLERK_AUDIENCE = os.getenv("CLERK_AUDIENCE", "")
 
+# Clerk stamps `iat` from ITS clock and PyJWT rejects `iat > now` outright, so an app a fraction of a
+# second behind 401s a brand-new session's FIRST request (verified live 2026-09-12: fresh session
+# JWT -> 401, same token -> 200 one second later). This leeway also applies to `nbf`/`exp`.
+JWT_LEEWAY_S = 10
+
 # Fixed identity used only when CLERK_ENABLED=false (dev/test only — main.py guard enforces).
 DEV_USER = ClerkUser(sub="dev-user", email="dev@example.com", name="Dev User")
 
@@ -82,6 +87,7 @@ def verify_jwt(token: str, jwks: dict) -> ClerkUser:
             algorithms=["RS256"],
             audience=CLERK_AUDIENCE or None,
             issuer=CLERK_DOMAIN,
+            leeway=JWT_LEEWAY_S,
             options=options,
         )
     except jwt.PyJWTError as exc:

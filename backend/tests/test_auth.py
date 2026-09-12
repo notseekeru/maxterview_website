@@ -39,9 +39,9 @@ def keypair():
     return pem, jwks
 
 
-def _make_token(priv_pem, *, kid="test-kid", sub="user_123", exp=None, iss=None, aud=None, alg="RS256"):
+def _make_token(priv_pem, *, kid="test-kid", sub="user_123", exp=None, iss=None, aud=None, alg="RS256", iat=None):
     now = int(time.time())
-    payload = {"sub": sub, "iss": iss or "https://test.clerk.accounts", "iat": now, "exp": exp or now + 3600}
+    payload = {"sub": sub, "iss": iss or "https://test.clerk.accounts", "iat": iat or now, "exp": exp or now + 3600}
     if aud:
         payload["aud"] = aud
     return jwt.encode(payload, priv_pem, algorithm=alg, headers={"kid": kid, "alg": alg})
@@ -109,6 +109,17 @@ def test_verify_expired(keypair):
         verify_jwt(token, jwks)
     assert exc.type.__name__ == "HTTPException"
     assert exc.value.status_code == 401
+
+
+def test_verify_tolerates_a_freshly_issued_token_from_ahead_of_our_clock(keypair):
+    # Live 2026-09-12: Clerk stamps `iat` from its own clock, PyJWT rejects iat > now outright, so a
+    # brand-new session 401'd its FIRST request and worked one second later. Leeway must cover that
+    # rounding without covering real skew: a token from a minute in the future still fails.
+    priv_pem, jwks = keypair
+    assert verify_jwt(_make_token(priv_pem, iat=int(time.time()) + 1), jwks).sub == "user_123"
+    with pytest.raises(Exception) as exc:
+        verify_jwt(_make_token(priv_pem, iat=int(time.time()) + 60), jwks)
+    assert exc.type.__name__ == "HTTPException" and exc.value.status_code == 401
 
 
 def test_verify_wrong_issuer(keypair):
