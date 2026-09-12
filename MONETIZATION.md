@@ -2,8 +2,9 @@
 
 > **Model: Free / Premium + dev-only.** Billing spec for **M10**. **Shipped:** quota backend + raw
 > Stripe (2026-08-24/25); billing/plan page + **real payment test** (2026-09-06) — test-mode
-> checkout → webhook → premium `subscriptions` row, signature-verified; a live Clerk identity
-> (`CLERK_ENABLED=true`) is the one remaining requirement to surface `premium` in `/usage`.
+> checkout → webhook → premium `subscriptions` row, signature-verified. **Live Clerk identity
+> verified 2026-09-12: real Clerk session → real test subscription → `/usage` reads
+> `tier: premium`, and `customer.subscription.deleted` returns it to `free`.
 > **Source of truth for decisions:** PLAN.md D10 (and D4 for owner-scoping). Planner status in PLAN.md §8.
 
 ## 0. Limits & model (env-configurable, not hardcoded)
@@ -113,12 +114,13 @@ CREATE TABLE IF NOT EXISTS turn_usage (
 
 ## 5. M10 handoff
 
-| Shipped                                                                                                                                                      | Open                                                                                                                     |
-| ------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------ |
-| Backend: `billing.py`, `payments.py` (checkout/portal/webhook), `0002_billing` migration                                                                     | **Live Clerk billing** (`CLERK_ENABLED=true` + JWT `tier` template/domain) so a real user surfaces `premium` in `/usage` |
-| Caps: daily GLOBAL chat-turn per owner (free 10 / premium 250 / dev 500, UTC-day reset; `0004_global_chat_turns`); no per-interview / no daily-interview cap | —                                                                                                                        |
-| Frontend: usage badge, upsell/lockout notices, billing/plan page (`/app/settings/billing`)                                                                   | —                                                                                                                        |
-| Real payment test (2026-09-06) + `_period_end` datetime fix                                                                                                  | —                                                                                                                        |
+| Shipped                                                                                                                                                      | Open                                                                                                      |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------- |
+| Backend: `billing.py`, `payments.py` (checkout/portal/webhook), `0002_billing` migration                                                                     | **Nothing blocking.** Production still needs `CLERK_ENABLED=true` + the prod Clerk domain/JWKS + Stripe live keys (pre-ship config, not code) |
+| Caps: daily GLOBAL chat-turn per owner (free 10 / premium 250 / dev 500, UTC-day reset; `0004_global_chat_turns`); no per-interview / no daily-interview cap | —                                                                                                         |
+| Frontend: usage badge, upsell/lockout notices, billing/plan page (`/app/settings/billing`)                                                                   | —                                                                                                         |
+| Real payment test (2026-09-06) + `_period_end` datetime fix                                                                                                  | —                                                                                                         |
+| **Live-Clerk tier proof (2026-09-12):** real Clerk session JWT + real test subscription → `premium` in `/usage`; deleted → `free`                            | —                                                                                                         |
 
 ## 6. Cancellation & billing terms (M10, deferred with Stripe)
 
