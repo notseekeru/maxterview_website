@@ -70,6 +70,7 @@ Implementation: **raw Stripe** (chosen over Clerk-billing for ownership, learnin
 - `POST /billing/webhook` — verifies `stripe-signature`, then idempotently upserts `subscriptions` on
   `checkout.session.completed` / `customer.subscription.created|updated|deleted`.
 - Env: `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRICE_ID`, `FRONTEND_BASE_URL` (no secrets committed).
+- **Prod webhook endpoint — not created yet (verified 2026-09-12):** `GET /v1/webhook_endpoints` returns **none**, and the account reports `charges_enabled: false`. The `whsec_` in Infisical is therefore the `stripe listen` CLI secret: fine for local forwarding, **wrong for prod** (signature verification fails on every real delivery). Before billing is live: create a dashboard endpoint for `https://maxterview.seekeru.tech/api/billing/webhook` (`checkout.session.completed`, `customer.subscription.*`) and put *its* secret into `STRIPE_WEBHOOK_SECRET`. Live-mode keys additionally require account activation.
 
 **Business rules:** monthly only, $9.99/mo, no annual, no tiers; multi-currency via Stripe local pricing;
 Stripe calculates tax, we remit; no merchant-of-record. Requires Stripe account + keys in prod Secret
@@ -116,7 +117,7 @@ CREATE TABLE IF NOT EXISTS turn_usage (
 
 | Shipped                                                                                                                                                      | Open                                                                                                      |
 | ------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------- |
-| Backend: `billing.py`, `payments.py` (checkout/portal/webhook), `0002_billing` migration                                                                     | **Nothing blocking.** Production still needs `CLERK_ENABLED=true` + the prod Clerk domain/JWKS + Stripe live keys (pre-ship config, not code) |
+| Backend: `billing.py`, `payments.py` (checkout/portal/webhook), `0002_billing` migration                                                                     | **Nothing blocking in code.** Production config still owed: `CLERK_ENABLED=true` (live), a Stripe **dashboard webhook endpoint** whose `whsec_` replaces the CLI secret, and live-mode activation (`charges_enabled: false` today — see §3) |
 | Caps: daily GLOBAL chat-turn per owner (free 10 / premium 250 / dev 500, UTC-day reset; `0004_global_chat_turns`); no per-interview / no daily-interview cap | —                                                                                                         |
 | Frontend: usage badge, upsell/lockout notices, billing/plan page (`/app/settings/billing`)                                                                   | —                                                                                                         |
 | Real payment test (2026-09-06) + `_period_end` datetime fix                                                                                                  | —                                                                                                         |
