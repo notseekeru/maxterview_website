@@ -145,7 +145,8 @@ resources; the whole chain drives the app's real `payments.handle_webhook_event`
      and resume when they click through. Do not fight or retry automation attempts against it.
 7. **Webhook proof**: with `stripe listen` forwarding, Stripe sends real
    `checkout.session.completed` then `customer.subscription.created/updated`. If you are not behind
-   the CLI, you can replay those exact events against `/billing/webhook` with a valid signature, or
+   the CLI, you can replay those exact events against `/billing/webhook` with a valid signature
+   (`scripts/webhook-driver.sh --events` to find the id, then `--replay-event=<evt_id>`), or
    `stripe trigger customer.subscription.created` (see [scripts/webhook-driver.sh](#scripts)). Then
    assert the app sees the user as premium (`GET /usage` → `tier: premium`).
 8. **State read**: `scripts/debug-state.sh` prints the latest `subscriptions` rows mapped to owner
@@ -219,7 +220,7 @@ signed-in user (tier billing page) rather than mint a token.
 The account-administration scripts above call Clerk/Stripe HTTP APIs and the Stripe CLI **directly**
 (no MCP, no browser). The one genuinely browser-y step — clicking Upgrade in the SPA and
 **paying on the real `checkout.stripe.com` page with the Stripe test card** — is driven through a
-**host-direct playwright** browser (browser-MCP is notes-only / not wired — see `hermetic-e2e`). Drive
+**host-direct playwright** browser (the wired `playwright` MCP server is the primary path — see `hermetic-e2e`). Drive
 real browser with the same host-direct `playwright-core` + nix chromium mechanism documented in the
 `hermetic-e2e` skill (resolve paths from `/nix/store` at runtime; no host npm install), and sign in
 headlessly with `@clerk/testing/playwright` per the recipe above.
@@ -242,9 +243,9 @@ zero-touch.
 | Command | Effect | Destructive-by-default? |
 |---|---|---|
 | `need-keys.sh` | Report which Clerk/Stripe env vars are set (never values) + go/no-go | No |
-| `clerk-mint.sh` | Create a throwaway test user + session + print a testing-token; keys on env | No |
+| `clerk-mint.sh` | Create a throwaway test user + print a testing-token; `--user=<id>` reuses an existing user, `--session-jwt[=path]` also mints a **session JWT** (what the backend takes as `Authorization: Bearer`) into `path` (mode 600) — never to stdout | No |
 | `stripe-stub.sh` | Create/read a throwaway Stripe price or customer against test account | No |
-| `webhook-driver.sh` | Replay/`stripe trigger` a chosen webhook event against your `/billing/webhook`; useful when no `stripe listen` is present | No (fires events into sandbox on purpose) |
+| `webhook-driver.sh` | `--event=<type>` (via `stripe trigger` + a listening CLI), `--events[=<type>]` (list the newest REAL events), `--replay-event=<evt_id>` (fetch that real event and POST it signed with your `STRIPE_WEBHOOK_SECRET` — no listener needed) | No (fires events into the sandbox on purpose; state-ending types need `--admin-destroy`) |
 | `debug-state.sh` | Query backend `subscriptions`+`GET /usage` and print latest tier rows (read-only) | No |
 
 ### Destructive operations (requiring `--admin-destroy`)
