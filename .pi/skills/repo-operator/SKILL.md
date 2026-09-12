@@ -4,9 +4,9 @@ description: >-
   Top-level "infra-hands" skill for the maxterview monorepo. When the user (or an agent) needs to
   operate or debug the running app and its auth/billing infra, load this FIRST. It gives one command
   surface to bring up and down the dev stack, read frontend/backend logs, reconcile the backend/.env
-  Clerk/Stripe config (flagging exactly which secret is missing with the single paste step), query
-  the database, drive the real test-mode Clerk and Stripe accounts, run a browser walkthrough, and
-  see the repo at a glance. Binds to (does not duplicate) ./.pi/skills/clerk-stripe-operator AND
+  Clerk/PayMongo config (flagging exactly which secret is missing with the single paste step), query
+  the database, drive the real test-mode Clerk and PayMongo accounts, run a browser walkthrough, and
+  see the repo at a glance. Binds to (does not duplicate) ./.pi/skills/paymongo-operator AND
   ./.pi/skills/hermetic-e2e. Use when the user asks anything like "why is X failing", "start the
   app", "show logs", "set up a test user", "show webhooks", "what tier is this user", or "run the
   onboarding".
@@ -15,7 +15,7 @@ description: >-
 # maxterview repo operator (infra-hands)
 
 You are operating a real app: FastAPI backend + React (Vite) frontend + Postgres, with **Clerk**
-auth and **Stripe** billing. This is the whole-console playbook an AI loads to act — not to
+auth and **PayMongo** billing. This is the whole-console playbook an AI loads to act — not to
 narrate. Everything here is real infra you can actually reach from this repo.
 
 ## Key facts (from the repo)
@@ -25,34 +25,35 @@ narrate. Everything here is real infra you can actually reach from this repo.
     via `compose.yml` + `compose.dev.yml`/`compose.prod.yml`. Project name `maxterview-dev`.
   - Makefile conveniences: `make up`, `down`, `logs`, `psql`, `shell`, `exec`, `migrate`, `test-llm`.
   - Host ports: backend `8000`, frontend `5173`, postgres `5432`.
-- **Config**: Clerk/Stripe/LLM live in git-ignored `backend/.env` (backend reads it via compose).
+- **Config**: Clerk/PayMongo/LLM live in git-ignored `backend/.env` (backend reads it via compose).
   Frontend `VITE_CLERK_PUBLISHABLE_KEY` lives in `frontend/.env` (git-ignored). Root `.env` is
   infra-only (POSTGRES_*, ports, APP_ENV).
 - **No Clerk key enabled ⇒ the frontend falls into "no-Clerk dev mode"** (`clerkEnabled=false`),
   which lets you drive the whole auth-gated UI against the backend's `DEV_USER`. This is the fastest
-  way to reproduce most UI/behaviour issues WITHOUT any Clerk/Stripe credentials.
+  way to reproduce most UI/behaviour issues WITHOUT any Clerk/PayMongo credentials.
 - **Backend surfaces**: `/health`, `/interviews`, `/interviews/{id}` (+`/start`,`/complete`,
   `/messages`, `/feedback`), `/usage`, `/billing/checkout`, `/billing/portal`, `/billing/webhook`,
   `/interviews/{id}/chat/stream` (SSE).
 - **Auth**: JWT verified against Clerk JWKS when `CLERK_ENABLED=true`; `__session` cookie primary,
   `Authorization: Bearer` accepted. When `CLERK_ENABLED=false` (dev/test only) a fixed `DEV_USER`.
 - **Billing model (MONETIZATION.md)**: free/premium tiers from chat-turn caps; real entitlement via
-  Stripe events → `subscriptions` table → `resolve_tier`. When Stripe keys are unset, `/billing/*`
-  curls 503.
+  PayMongo webhook events → `subscriptions` table → `resolve_tier`. When `PAYMONGO_*` keys are unset,
+  `/billing/checkout` and `/billing/cancel` return 503; the dev-only
+  `/billing/webhook/simulate` still proves the entitlement path.
 
 ## Built-in companion skills (load on demand, don't duplicate)
 
-- `./pi`-discoverable **clerk-stripe-operator** → real test-mode Clerk user/session mint + Stripe
-  price/customer/webhook/state — gives you API hands on both accounts (curl), with live-key refusal
-  and `--admin-destroy` gating. Use for "set up a test user", "show webhooks/customers/price",
-  "make it premium", "tear that test user down".
+- `./pi`-discoverable **paymongo-operator** → real test-mode Clerk user/session mint + PayMongo
+  plan/customer/subscription/webhook/state — gives you API hands on both accounts (curl), with
+  live-key refusal and `--admin-destroy` gating. Use for "set up a test user", "show
+  webhooks/customers/plan", "make it premium", "tear that test user down".
 - **hermetic-e2e** → drive a real headless browser against the running frontend. Primary: wired
   `playwright` MCP server (nixpkgs `playwright-mcp` via `.mcp.json`; ref-based `browser_*`, or
   `mcpScript` for multi-step). Secondary: host-direct canned runners `e2e.cjs` (asserts
   onboarding+Complete, PASS/FAIL; `--feedback`) and `inspect.cjs` (dumps DOM per stage), sharing
   `scripts/store.cjs`. Use MCP for interactivity, runners for deterministic assertions. Hermetic
   DEV_USER needs backend at CLERK_ENABLED=false; real-Clerk stacks sign in headlessly first
-  (clerk-stripe-operator). (Not a deterministic CI spec.)
+  (paymongo-operator). (Not a deterministic CI spec.)
 
 ## Quick console (run from repo root)
 
@@ -78,7 +79,7 @@ curl -s http://localhost:8000/usage; echo     # tier for the current (DEV_USER) 
 ## Feature enablement — what to initialize first on a fresh device
 
 Every repo feature gates on some git-ignored env value. On a new clone you set ONLY what you
-need; nothing is required for everything. Read each key from its account dashboard (Clerk/Stripe);
+need; nothing is required for everything. Read each key from its account dashboard (Clerk/PayMongo);
 keep secrets sealed (zero-touch) — say which var is missing, never the value.
 
 | Feature | git-ignored file + var | Value you set once | Notes |
@@ -87,21 +88,21 @@ keep secrets sealed (zero-touch) — say which var is missing, never the value.
 | Real Clerk sign-in (UI button) + JWT auth | `backend/.env` → `CLERK_ENABLED=true`, `CLERK_DOMAIN`, `CLERK_JWKS_URL`; `frontend/.env` → `VITE_CLERK_PUBLISHABLE_KEY` | the .accounts.dev HTTPS URL + its JWKS + the `pk_test_…` | public, not secrets; best on the **Development** instance |
 | Headless Clerk ops (mint users/sessions/tokens, read users) — the CLI + mint script | `backend/.env` → `CLERK_SECRET_KEY` | `sk_test_…` (instance secret, Backend API) | this is what drives `clerk` Backend-API commands + `clerk-mint.sh`. The backend itself does NOT read it (JWT verify is public JWKS only). |
 | Clerk CLI shell (needs the tool only) | nix flake (`nix develop .`) has `nodejs`; `clerk` run via container `npx` | — | `docker exec maxterview_frontend_dev sh -c 'npx clerk …'` or `clerk api` with `CLERK_SECRET_KEY` |
-| Stripe checkout → premium webhook row | `backend/.env` → `STRIPE_SECRET_KEY` (`sk_test_`), `STRIPE_WEBHOOK_SECRET` (`whsec_` from `stripe listen`), `STRIPE_PRICE_ID` | test-mode secret + webhook secret + a monthly price id | `stripe` CLI on host (flake) starts the listener; the `whsec_` must match the backend config |
+| PayMongo subscription → premium webhook row | `backend/.env` → `PAYMONGO_SECRET_KEY` (`sk_test_`), `PAYMONGO_WEBHOOK_SECRET` (that endpoint's secret), `PAYMONGO_PLAN_ID` | test-mode secret + webhook secret + the ₱499/mo plan id | no CLI/listener exists — deliver events with `webhook-driver.sh` (signed) or `--simulate` |
 | LLM interview chat / feedback | `backend/.env` → `LLM_BASE_URL`, `LLM_MODEL`, `LLM_API_KEY` (or empty = STUB) | OpenAI-compatible base/model/key | no key → deterministic stub |
 | Observability | OBSERVABILITY.md | n/a | docs-first, not wired |
 
 **Not needed** on any device: `clerk auth login`, `clerk link`, or a `CLERK_PLATFORM_API_KEY`.
 That Platform/admin path requires an account opted into the Platform API beta (many accounts
 show no such page) and, where present, its dashboard-only creation. It manages apps/domains —
-NOT needed to run the app, sign in, mint users, or accept Stripe subscriptions. Everything an
-operator/agent needs runs off the instance `CLERK_SECRET_KEY` (Backend API) + the Stripe test
+NOT needed to run the app, sign in, mint users, or accept PayMongo subscriptions. Everything an
+operator/agent needs runs off the instance `CLERK_SECRET_KEY` (Backend API) + the PayMongo test
 keys above.
 
 Fast reproducible check that feature env is in place (lists set/missing names only):
 
 ```bash
-./.pi/skills/clerk-stripe-operator/scripts/need-keys.sh
+./.pi/skills/paymongo-operator/scripts/need-keys.sh
 ```
 
 ## Reading config (zero-touch) and the one paste-step
@@ -110,10 +111,10 @@ Do NOT cat secrets or print secret values. Determine *presence* only. The operat
 `need-keys.sh` does exactly this; run it:
 
 ```bash
-./.pi/skills/clerk-stripe-operator/scripts/need-keys.sh
+./.pi/skills/paymongo-operator/scripts/need-keys.sh
 ```
 
-It reports, for each Clerk/Stripe/optional var, set / missing / present-but-live — and prints WITH
+It reports, for each Clerk/PayMongo/optional var, set / missing / present-but-live — and prints WITH
 placeholders only the paste template for what's actually missing. It never reveals a value. The
 human keeps every secret sealed; you only ever say "please add `X` to `backend/.env`" if a step
 truly needs one and it isn't set.
@@ -125,20 +126,21 @@ Remember the two runtime modes:
   plus the Clerk `sk_test` operator secret to mint sessions/users for headless browser auth
   (@clerk/testing) on real-Clerk stacks.
 
-## Acting on the Clerk/Stripe sandbox
+## Acting on the Clerk/PayMongo sandbox
 
-Use child skill `clerk-stripe-operator` for real account operations, not hand-rolled curl. Recall:
+Use child skill `paymongo-operator` for real account operations, not hand-rolled curl. Recall:
 it refuses `*_live_*`, and anything destructive requires `--admin-destroy`. Representative calls:
 
 ```bash
 # config health + list the fields you need human paste into backend/.env:
-./.pi/skills/clerk-stripe-operator/scripts/need-keys.sh
+./.pi/skills/paymongo-operator/scripts/need-keys.sh
 # mint a throwaway test user + session/testing-token (idempotent-ish; prints user-id):
-./.pi/skills/clerk-stripe-operator/scripts/clerk-mint.sh --email=qa@example.com
-# webhook to flip that user's entitlement row to premium (uses real Stripe sandbox via CLI listen):
-./.pi/skills/clerk-stripe-operator/scripts/webhook-driver.sh --event=customer.subscription.created
+./.pi/skills/paymongo-operator/scripts/clerk-mint.sh --email=qa@example.com
+# webhook to flip that user's entitlement row to premium (no listener/CLI exists for PayMongo;
+# --simulate needs no secret, the default signed mode proves the HMAC path):
+./.pi/skills/paymongo-operator/scripts/webhook-driver.sh --simulate --event=subscription.activated --customer=cus_x --subscription=subs_x
 # read the subscriptions rows + /usage to prove who's premium (read-only debug-state):
-./.pi/skills/clerk-stripe-operator/scripts/debug-state.sh
+./.pi/skills/paymongo-operator/scripts/debug-state.sh
 ```
 
 ## Browser drive (see hermetic-e2e for full detail)
@@ -156,10 +158,11 @@ from the flake devShell; needs pi running inside `nix develop`). Use ref-based `
   ```
   Backend must be `CLERK_ENABLED=false`. Check posture first: `curl -s -o /dev/null -w "%{http_code}" localhost:8000/usage`
   → 200 means DEV_USER (hermetic); 401 means real-Clerk (not hermetic).
-- **Real-Clerk headless sign-in:** use the `clerk-stripe-operator` skill → `@clerk/testing/playwright`
+- **Real-Clerk headless sign-in:** use the `paymongo-operator` skill → `@clerk/testing/playwright`
   (`clerkSetup` + `clerk.signIn`) with a throwaway minted user, then render the auth-gated route.
-  Real hosted Stripe Checkout still needs real keys and a human at the card step — see
-  `references/card-browser-checkout.md`; do NOT loop-automate Stripe's bot checks.
+  Real Maya first payment still needs real keys and a human at the wallet step — see
+  `references/maya-browser-checkout.md`; do NOT loop-automate that handoff (and use
+  `webhook-driver.sh --simulate` when you only need the entitlement assertion).
 
 Never hand-roll a brand-new browser harness when the committed runner / clerk skill cover it.
 
@@ -171,10 +174,10 @@ Never hand-roll a brand-new browser harness when the committed runner / clerk sk
 3. Once you see the failing API response/log line, either fix config/env (point the human at the
    one line to add, or set in backend/.env if it's a non-secret like APP_ENV) or adjust the code,
    then re-verify via the same request/log path.
-4. Only pull in Clerk-stripe-operator when the failure truly crosses into account state (e.g.
-   webhook signature, tier not flipping, checkout 503, missing price) — do not touch real accounts
+4. Only pull in the paymongo-operator skill when the failure truly crosses into account state (e.g.
+   webhook signature, tier not flipping, checkout 503, missing plan) — do not touch real accounts
    for every dev bug.
-5. Ask the user before any action that mutates persistent Clerk/Stripe sandbox state unless you
+5. Ask the user before any action that mutates persistent Clerk/PayMongo sandbox state unless you
    already have explicit go-ahead or it is the obviously-safe throwaway op.
 
 ## Verify then commit (always after applying code changes)
@@ -215,5 +218,5 @@ Then commit per the repo's AGENTS.md policy:
 - ZERO TOUCH on secrets: presence-check only; never print/commit/log a key. Paste-steps always stay
   manual for the human.
 - Never run against `sk_live_`/`whsec_live_`. Live key presence is a red flag: stop and surface it.
-- Browser/automation never defeats Stripe anti-bot; a human completes the real card step.
+- Browser/automation never completes a real Maya payment; a human finishes the wallet step.
 - This repo's own rules: atomic commits, no command that risks uncommitted data, security first.

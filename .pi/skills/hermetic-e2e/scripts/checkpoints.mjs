@@ -6,9 +6,9 @@
 // chromium from the nix store). See SKILL.md for both paths and their tradeoffs.
 //
 // Hermetic: run the app pointed at the no-Clerk dev fallback (frontend WITHOUT a VITE_CLERK_
-// PUBLISHABLE_KEY => clerkEnabled=false, backend returns DEV_USER). No Clerk/Stripe keys needed.
+// PUBLISHABLE_KEY => clerkEnabled=false, backend returns DEV_USER). No Clerk/PayMongo keys needed.
 // If the backend runs CLERK_ENABLED=true (real Clerk), sign the page in headlessly first via the
-// clerk-stripe-operator skill, or you will hit the signed-out gate instead of the dashboard.
+// paymongo-operator skill, or you will hit the signed-out gate instead of the dashboard.
 //
 // Precondition: the dev stack is up and reachable (make up), frontend at the BASE below.
 // This file exports the labelled checkpoint array an agent asserts against while driving the browser

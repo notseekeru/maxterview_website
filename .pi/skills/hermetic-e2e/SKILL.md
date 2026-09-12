@@ -10,7 +10,7 @@ description: >-
   the runners for DETERMINISTIC assertions — MCP tool calls have no assert/fail semantics. Covers
   onboarding -> /app -> create interview -> chat -> Complete-scoring. Hermetic when the backend runs
   CLERK_ENABLED=false (no-Clerk DEV_USER); if real Clerk, sign in headlessly first via
-  clerk-stripe-operator. Use to reproduce/eyeball onboarding / new-interview / complete-scoring in a
+  paymongo-operator. Use to reproduce/eyeball onboarding / new-interview / complete-scoring in a
   browser, or after frontend/backend changes.
 ---
 
@@ -112,7 +112,7 @@ nix develop . -c node .pi/skills/hermetic-e2e/scripts/inspect.cjs   # see resolv
 - Auth posture FIRST:
   - **Hermetic DEV_USER:** backend `CLERK_ENABLED=false` => `/usage` returns 200 anonymously. (Fastest.)
   - **Real Clerk:** backend `CLERK_ENABLED=true` => `/usage` 401s. Sign the page in headlessly first
-    (see Real-Clerk section; needs `clerk-stripe-operator`).
+    (see Real-Clerk section; needs `paymongo-operator`).
 - A host `node` that can read `/nix/store`: `nix develop .`. CJS `require`, not ESM `import from <expr>`.
 - Store artifacts present (resolved at runtime by `store.cjs` — never hardcode a hash; nix GCs old
   ones). Flake pins `playwright` + `chromium` + `playwright-mcp`, so a fresh `nix develop` provides
@@ -163,7 +163,7 @@ do not guess from the snapshot alone.
 ## Real-Clerk posture (NOT hermetic)
 
 If `CLERK_ENABLED=true`, `/app` is behind a signed-out gate. Don't claim hermetic; use
-`clerk-stripe-operator`: mint a throwaway user (`clerk-mint.sh --email=…`), sign in headlessly with
+`paymongo-operator`: mint a throwaway user (`clerk-mint.sh --email=…`), sign in headlessly with
 `@clerk/testing/playwright` (`clerk.signIn`) until a real `__session` cookie exists, drive the routes,
 then tear down (`clerk-mint.sh --admin-destroy --teardown --user=<id>`). Don't mix postures in one run.
 
@@ -215,7 +215,7 @@ make exec    # full gate: frontend typecheck+build+biome; backend ruff+pytest
 ## Guardrails
 
 - Test data only; created interviews are real DEV_USER rows (delete via History / `DELETE`).
-- Hermetic path never touches Clerk/Stripe keys. Real-Clerk leg via `clerk-stripe-operator`
+- Hermetic path never touches Clerk/PayMongo keys. Real-Clerk leg via `paymongo-operator`
   (headless sign-in; real hosted Checkout needs a human at the card step). No mixing postures.
 - No host `npm install`, no committed store hashes — resolve at runtime. `.playwright-mcp/` is
   gitignored throwaway output; never commit it. It is written relative to pi's **cwd**, so runs in

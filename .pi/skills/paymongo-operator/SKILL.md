@@ -1,304 +1,154 @@
 ---
-name: clerk-stripe-operator
+name: paymongo-operator
 description: >-
-  Operates the real (test-mode) Clerk and Stripe accounts for maxterview from the CLI, so the
-  user never has to open the Clerk or Stripe dashboards to configure, inspect, seed, or reset
-  the billing/auth sandbox. Lets an agent (pi or similar), or a human, read/create full test
-  state, build a Clerk testing-token/session so a browser can authenticate as a throwaway user,
-  drive a real Stripe checkout and (re)deliver real webhook events to the app, and prove
-  entitlement flips in the backend (interview chat quotas / billing tiers). Load when the user
-  wants to set up, debug, or reset Clerk+Stripe test state for maxterview, or to run the real
-  checkout->webhook->tier journey without visiting stripes.com/clerk.com.
+  Operates the real (test-mode) Clerk and PayMongo accounts for maxterview so the user never has to
+  open the Clerk or PayMongo dashboards to configure, inspect, seed, or reset the auth/billing
+  sandbox. Lets an agent (pi or similar), or a human, read/create real test state, mint a Clerk
+  testing session so a browser authenticates as a throwaway user, create a real ₱499/mo PayMongo
+  subscription, drive its Maya first payment, deliver signed (or simulated) webhook events, and
+  prove the entitlement flip in the backend (chat quotas / premium tier). Load when the user wants
+  to set up, debug, or reset Clerk+PayMongo test state for maxterview, or to run the real
+  subscribe->webhook->tier journey without visiting paymongo.com or clerk.com.
 ---
 
-# Clerk + Stripe operator (maxterview)
+# Clerk + PayMongo operator (maxterview)
 
-Hands the model full administrative read/write over the **test-mode** Clerk and Stripe accounts
-that back the maxterview monorepo, entirely through their APIs and env vars. Purpose: let an AI
-(and the repo owner) configure, inspect, seed, and tear down sandbox state **without ever opening
-the Clerk or Stripe dashboards**, and to prove the real subscription lifecycle flows end-to-end.
+Full administrative read/write over the **test-mode** Clerk and PayMongo accounts behind the
+maxterview monorepo, through their APIs and env vars. Purpose: let an AI (and the repo owner)
+configure, inspect, seed, and tear down sandbox state **without opening a dashboard**, and prove the
+real subscription lifecycle end-to-end.
 
-> **Security is load-bearing here.** This skill reaches a live Clerk `sk_test_` secret key and a
-> live Stripe `sk_test_`/`whsec_`. These are real (test-mode) accounts. Treat them like production
-> credentials: never echo them, never commit them, never put them in logs, never send them to a
-> non-authorized third party. Follow section [Zero-touch + guardrails](#zero-touch--guardrails).
+> **Security is load-bearing.** This skill reaches a live Clerk `sk_test_` and a live PayMongo
+> `sk_test_` + webhook secret. They are real accounts. Never echo them, never commit them, never log
+> them, never send them anywhere. See [Zero-touch + guardrails](#zero-touch--guardrails).
 
 ---
 
-## 1. Scope of this skill
+## 1. What actually works right now (read this before promising anything)
 
-You use this skill when the user wants any of:
+| Keys present | You can do | You cannot do |
+| --- | --- | --- |
+| none (`backend/.env` empty) | Full dev proof: `/api/billing/webhook/simulate` (dev/test only) drives `subscriptions` → `resolve_tier` → `/api/usage`. Works offline, no tunnel, no keys. | Touch PayMongo at all. |
+| `PAYMONGO_SECRET_KEY` (test) | Create plan/customer/subscription, mint the Maya redirect, receive real webhook deliveries (if a public URL exists), replay/craft signed events. | Take real money. Live keys need a Fully Verified account. |
+| live keys | Real ₱499/mo billing. | — |
 
-1. Stop hand-fiddling the Clerk/Stripe dashboards for the billing/auth sandbox of maxterview.
-2. Create/inspect/reset Clerk test **users, sessions, sign-in/testing tokens, instances, and
-   JWT templates** on their real test instance.
-3. Create/inspect/reset Stripe test **prices, customers, subscriptions, checkout/portal
-   sessions, events/logs** on their real test-mode Stripe account.
-4. Run the genuine end-to-end billing journey: authenticate a headless browser **as a throwaway
-   Clerk user** (testing-token, no password typing), reach a real hosted Stripe checkout, complete
-   it with a test card, and assert in the app that the user's tier flipped to `premium`.
-5. Read the resulting state (backend `subscriptions` table / `GET /api/usage`) to debug why a user
-   is or isn't `premium`.
-
-This is **NOT** for: running a hermetic/mocked billing test in CI (there is no fake state and no
-CI money path), testing anonymous/guest flows, or doing anything against **live** (non-`sk_live_` /
-`whsec_live`) resources.
+**Two PayMongo account-level features are NOT self-service** and both block the real journey until
+enabled: **Subscriptions** and **Card Vaulting** — email `support@paymongo.com`. Verify these before
+debugging anything else; a 400 on `POST /v1/subscriptions` with an otherwise valid key usually means
+this.
 
 ---
 
 ## 2. Where keys and state live
 
-Clerk and Stripe config is environment-driven already; the skill only **reads** those env vars.
-They are NOT created or stored by this skill.
+- `backend/.env` (git-ignored) is the runtime source: `PAYMONGO_SECRET_KEY`, `PAYMONGO_WEBHOOK_SECRET`,
+  `PAYMONGO_PLAN_ID`, `FRONTEND_BASE_URL`, plus `CLERK_*` and quotas.
+- The scripts load it via `scripts/_env.sh`, which exports **names only** — it never prints a value.
+  Process env wins over the file, matching compose semantics.
+- Entitlement state is the `subscriptions` row (owner_id → provider ids, `plan`, `status`,
+  `current_period_end`). `billing.resolve_tier` is the only reader; `payments.py` is the only writer.
+- `status` is the entitlement lever: `active`/`cancelled` are entitled **only until
+  `current_period_end`**; `past_due`/`unpaid` are not entitled at all (MONETIZATION §6: a failed
+  renewal revokes immediately, a cancellation keeps the already-paid period).
 
-Put these in the **git-ignored** `backend/.env` (same file the app already reads). They are only
-used server-side / process-side. Frontend Clerk key is separate (see below).
+---
 
-| Env var | Required | Meaning | Example |
-|---|---|---|---|
-| `CLERK_SECRET_KEY` | for Clerk ops | Clerk **test** secret key (`sk_test_...`) used to call `api.clerk.com/v1/` | `sk_test_...` |
-| `CLERK_FRONTEND_API` | for session/token | Clerk Frontend API host (`<instance>.clerk.accounts` / `.clerk.dev`) you authenticate into via publishable key | `${instance}.clerk.accounts` |
-| `CLERK_PUBLISHABLE_KEY_PREVIEW` | recom. | the `pk_...` that the frontend is configured with (frontend/.env `VITE_CLERK_PUBLISHABLE_KEY`) so the testing token targets the SAME instance | `pk_test_...` |
-| `STRIPE_SECRET_KEY` | for Stripe ops | Stripe **test** secret (`sk_test_...`) used to call `api.stripe.com/v1/` | `sk_test_...` |
-| `STRIPE_WEBHOOK_SECRET` | for webhook proof | `whsec_...` the backend uses to verify `/api/billing/webhook` signatures | `whsec_...` |
-| `STRIPE_PRICE_ID` | for checkout flow | the $9.99/mo premium **price** id; your `app/payments.py` requires it for `/api/billing/checkout` | `price_...` |
-| `FRONTEND_BASE_URL` | for portal return | success/cancel + portal return URL the app uses | `http://localhost:5173` |
-
-Keys must already exist in the environment (e.g. `backend/.env` loaded by docker compose, or set in
-the shell). Run `scripts/need-keys.sh` — it will print exactly which of the above are present and
-which are missing, and the *paste-me template* for the missing ones. It never prints any value.
-
-
-**Driving the `clerk` CLI on this repo (no browser login needed for backend ops):** run the
-CLI in the frontend container (it has node + can `npx clerk`), and authenticate it with the
-instance `sk_test_` (`CLERK_SECRET_KEY`) exported so it can call the Backend API:
+## 3. Key liveness (never prints values)
 
 ```bash
-# user / session / token / client APIs all work via the instance secret:
-docker exec -e CLERK_SECRET_KEY="$CLERK_SECRET_KEY" maxterview_frontend_dev sh -c \
-  'cd /tmp && npx clerk api users limit=1'        # e.g. list users
-# scope reference: `npx clerk api ls` lists every Backend-API route it can call
-# (users, sessions, clients, templates…).
-# The container CLI also mints via clerk-mint.sh (scripts/) using only CLERK_SECRET_KEY.
+./.pi/skills/paymongo-operator/scripts/need-keys.sh
 ```
 
-`clerk auth login` / `clerk link` / `CLERK_PLATFORM_API_KEY` control the *Platform/admin* surface
-(apps, domains, JWT-templates). That beta capability is often NOT present on an account and is
-dashboard-only; it is not needed to run the app, sign a user in, mint users/sessions, or accept
-Stripe subscriptions. If your account shows no Platform-key page, do not chase it — the Backend
-API (`sk_test_`) + the mint scripts cover every repo feature.
-
-The backend only reaches Stripe/clerk when these are populated; with `CLERK_ENABLED=false` the app
-runs in the no-Clerk dev-fallback. That is fine for most UI debugging but does **not** exercise
-real Clerk auth or the real webhook. For genuine operator work you need `CLERK_ENABLED=true` +
-`CLERK_DOMAIN`/`CLERK_JWKS_URL`/`CLERK_AUDIENCE`.
+Reports set / missing / present-but-LIVE for every var, and prints a paste-me template for the gaps.
+Live keys are refused by every script in this skill.
 
 ---
 
-## 3. One-time environment setup
+## 4. The dev proof (no keys, no tunnel, always available)
 
-Prereqs (only first time):
+PayMongo has **no CLI equivalent to `stripe listen`**, and requiring a tunnel for local webhooks is
+friction we skip. `POST /api/billing/webhook/simulate` (404s unless `APP_ENV` is `development`/`test`)
+runs the exact handler the signed endpoint runs:
 
 ```bash
-# 1. Check what the environment already has (never prints values):
-.pi/skills/clerk-stripe-operator/scripts/need-keys.sh
+# premium flip
+curl -sS -X POST localhost:8000/api/billing/webhook/simulate -H 'Content-Type: application/json' -d '{
+  "data":{"type":"subscription.activated","livemode":false,"data":{"id":"subs_demo","type":"subscription",
+  "attributes":{"id":"subs_demo","customer_id":"cus_demo","plan_id":"plan_demo","status":"active",
+  "next_billing_schedule":"2026-10-14"}}}}'
 
-# 2. If CloudFree/dev not set, add the missing clerk/stripe test vars to backend/.env per
-#    the template the script prints, and (for real Clerk browser auth) flip the instance so the
-#    frontend is pointed at it AND backend CLERK_ENABLED=true in dev.
-
-# 3. For a real webhook round-trip, the Stripe CLI must be installed and logged-in once:
-stripe --version            # present?
-stripe login                # interactive, you, once
-# then later, in another shell/TMUX:
-stripe listen --forward-to http://localhost:8000/api/billing/webhook
-# keep that running for the webhook tests; note the printed whsec_ and make it match
-# STRIPE_WEBHOOK_SECRET in backend/.env.
+./.pi/skills/paymongo-operator/scripts/debug-state.sh   # → plan/status/current_period_end
 ```
 
-After that the skill is usable. `need-keys.sh` is the single read-only liveness check.
+A subscription event only lands when the owner can be resolved, so seed the row first
+(`INSERT INTO subscriptions (owner_id, provider_customer_id) VALUES ('dev-user','cus_demo')`) — that
+is exactly the state `start_subscription` leaves behind before the redirect.
 
----
-
-## 4. Correct ordering of the full real-billing journey
-
-High-signal debugging/verification path. Each step talks to the real account; none mutates live
-resources; the whole chain drives the app's real `payments.handle_webhook_event` → `subscriptions`
-→ `billing.resolve_tier`.
-
-1. **Key liveness**: `scripts/need-keys.sh` — all green.
-2. **Stripe test price exists (else create a throwaway)**: via REST (see manifest) or
-   `scripts/stripe-stub.sh`. Read-only check: a `GET /v1/prices` for your `STRIPE_PRICE_ID`.
-3. **App reachable**: backend `GET /api/health` = 200 on the port it runs (default 8000); frontend
-   dev server reachable at `FRONTEND_BASE_URL`.
-4. **Mint a throwaway Clerk identity + testing-token**: `scripts/clerk-mint.sh`. This creates a
-   fresh test user (if asked), a session, and a **testing token** and prints a signed token TTL.
-   - For Playwright/@clerk/testing use `setupClerkTestingToken`-style flows with the testing
-     template id; for a raw browser you set Clerk's `__session` from the token on the target
-     origin's cookies so your app's `ClerkGate`/`ClerkProvider` authenticates as that identity.
-5. **Drive the app** up to `/app` → trigger the Upgrade/upgrade-UX. In no-Clerk mode the identity is
-   `DEV_USER`; with real Clerk the token makes the browser that user.
-6. **Reach real Stripe hosted checkout**: `POST /api/billing/checkout` (real `sk_test_`) returns a real
-   `https://checkout.stripe.com/...` URL. In a headless browser, finish it with Stripe test card
-   `4242 4242 4242 4242`, any future exp, any CVC.
-   - Stripe may pause for a challenge (bot defense): hand back to the human at the **one** card step
-     and resume when they click through. Do not fight or retry automation attempts against it.
-7. **Webhook proof**: with `stripe listen` forwarding, Stripe sends real
-   `checkout.session.completed` then `customer.subscription.created/updated`. If you are not behind
-   the CLI, you can replay those exact events against `/api/billing/webhook` with a valid signature
-   (`scripts/webhook-driver.sh --events` to find the id, then `--replay-event=<evt_id>`), or
-   `stripe trigger customer.subscription.created` (see [scripts/webhook-driver.sh](#scripts)). Then
-   assert the app sees the user as premium (`GET /api/usage` → `tier: premium`).
-8. **State read**: `scripts/debug-state.sh` prints the latest `subscriptions` rows mapped to owner
-   and current `/api/usage`. Verifies the flip and helps you debug why a user is/isn't premium.
-
----
-
-### Fully-headless Clerk auth (verified 2026-09-06)
-
-The old `.mcp.json` Playwright binary was garbage-collected (ENOENT); our browser automation is
-host-direct (see `hermetic-e2e`). The supported headless sign-in below is `@clerk/testing/playwright`
-run on the **host** (not the Alpine app container —
-its bundled chromium is glibc/Debian and will not run under Alpine's musl). The repo flake's
-devShell now ships `nodejs` for this. It needs a real dev-instance `sk_test_` + `pk_test_.
-
-Mechanism:
-- `clerkSetup({ publishableKey, secretKey, frontendApiUrl })` mints a Clerk **testing token** and
-  sets `CLERK_FAPI`/`CLERK_TESTING_TOKEN` in `process.env` (it returns `undefined`).
-- `clerk.signIn({ page, emailAddress })` arms `setupClerkTestingToken` (route-intercepts the FAPI
-  to inject `__clerk_testing_token`) and signs the user in with **no UI** — the app's
-  `<ClerkProvider>` then holds a real `__session`. Requires `CLERK_SECRET_KEY` in `process.env`.
-- A signed-in page yields an ~800-char `__session` cookie; the backend validates its JWT against
-  the dev JWKS and `/api/usage` resolves that real `sub`.
-
-Env / data realities learned:
-- Dev instances with username-in-requirements reject user create without a `username`
-  (422 `form_data_missing:["username"]`). `clerk-mint.sh` now auto-derives one.
-- User API ids are `user_…`; the `idn_…` ids in the same payload are *identifications*, not the
-  user id. `clerk-mint.sh` now parses the real `user_…` id.
-- Clerk **Platform API key** (`CLERK_PLATFORM_API_KEY`) is the headless/agent alternative to
-  `clerk auth login` (avoids the browser), but **creating that key is itself dashboard-only**
-  and it manages account apps/domains, not sessions. For minting app/user sessions you need the
-  instance `sk_test_` (Backend API `api.clerk.com/v1`).
-- Backend Clerk JWT verification uses only the public JWKS URL + CLERK_DOMAIN — the backend does
-  **not** read `CLERK_SECRET_KEY`. The secret is only needed for Backend API calls (user mint).
-
-**Bare-bones runnable recipe (self-contained, ~1 min):**
-```bash
-# one-time host setup (gitignored scratch dir; not committed):
-mkdir -p /tmp/clerk-e2e && cd /tmp/clerk-e2e && npm init -y >/dev/null && npm i @clerk/testing playwright
-nix develop /path/to/maxterview_website   # puts nodejs on PATH (flake ships nodejs)
-# export dev-instance creds (never echoed):
-set -a; . /path/to/maxterview_website/backend/.env; set +a   # CLERK_SECRET_KEY
-PUB=$(grep '^VITE_CLERK_PUBLISHABLE_KEY=' /path/to/maxterview_website/frontend/.env | cut -d= -f2-)
-# minimal script (signs in the app with NO UI, asserts a session cookie):
-cat > headless.mjs <<'EOF'
-import { chromium } from 'playwright';
-import { clerk, clerkSetup } from '@clerk/testing/playwright';
-const PUB = process.env.PUB;
-const b = await chromium.launch({ headless: true, executablePath: process.env.CHROME_PATH || 'chromium' });
-try {
-  await clerkSetup({ publishableKey: PUB, secretKey: process.env.CLERK_SECRET_KEY, frontendApiUrl: process.env.FAPI });
-  const p = await b.newPage();
-  await p.goto(process.env.APP || 'http://localhost:5173/');
-  await p.waitForFunction(() => window.Clerk && window.Clerk.loaded);
-  await clerk.signIn({ page: p, emailAddress: process.env.E2E_EMAIL || 'e2e.operator@example.com' });
-  await p.waitForTimeout(3000);
-  const s = (await p.context().cookies()).find((c) => c.name === '__session');
-  console.log(s ? 'E2E OK: __session len ' + s.value.length : 'E2E FAIL: no session');
-} finally { await b.close(); }
-EOF
-# chromium must be a host/glibc build on PATH (e.g. `nix shell nixpkgs#chromium`) or set CHROME_PATH.
-FAPI='https://known-polecat-16.clerk.accounts.dev' PUB="$PUB" CHROME_PATH="$CHROME_PATH" node headless.mjs
-```
-The minimal flow above is the whole trick: `clerkSetup` mints a testing token, `clerk.signIn`
-arms the FAPI route interceptor and signs in with no UI. `clerk-mint.sh` already covers the
-user-create + token; the browser leg above is only needed when you must assert the SPA as a
-signed-in user (tier billing page) rather than mint a token.
-### Browser leg (host-direct): completing the real hosted Checkout
-
-The account-administration scripts above call Clerk/Stripe HTTP APIs and the Stripe CLI **directly**
-(no MCP, no browser). The one genuinely browser-y step — clicking Upgrade in the SPA and
-**paying on the real `checkout.stripe.com` page with the Stripe test card** — is driven through a
-**host-direct playwright** browser (the wired `playwright` MCP server is the primary path — see `hermetic-e2e`). Drive
-real browser with the same host-direct `playwright-core` + nix chromium mechanism documented in the
-`hermetic-e2e` skill (resolve paths from `/nix/store` at runtime; no host npm install), and sign in
-headlessly with `@clerk/testing/playwright` per the recipe above.
-
-Follow `references/card-browser-checkout.md` for the full walkthrough. Skeleton: mint identity
-(`clerk-mint.sh`) → browse `{FRONTEND_BASE_URL}/app` → trigger Upgrade → land on hosted Checkout →
-fill `4242 4242 4242 4242` → Stripe webhook back to `/api/billing/webhook` → assert `tier: premium`).
-
-Two hard notes about this leg:
-- The browser is headless. Stripe's anti-bot may interrupt the card step; at that point **hand the
-  visible browser back to the human to finish** (don't retry loops).
-- This is an **interactive journey**, not a CI spec runner. It exercises the real Upgrade button +
-  real hosted Checkout; full automation of the actual money step is not something Stripe permits.
-## 5. Commands / scripts
-
-Run from repo root. Scripts live in `.pi/skills/clerk-stripe-operator/scripts/`. They are **read
-and print only** unless you pass the explicit destructive flag (below). All env reads are
-zero-touch.
-
-| Command | Effect | Destructive-by-default? |
-|---|---|---|
-| `need-keys.sh` | Report which Clerk/Stripe env vars are set (never values) + go/no-go | No |
-| `clerk-mint.sh` | Create a throwaway test user + print a testing-token; `--user=<id>` reuses an existing user, `--session-jwt[=path]` also mints a **session JWT** (what the backend takes as `Authorization: Bearer`) into `path` (mode 600) — never to stdout | No |
-| `stripe-stub.sh` | Create/read a throwaway Stripe price or customer against test account | No |
-| `webhook-driver.sh` | `--event=<type>` (via `stripe trigger` + a listening CLI), `--events[=<type>]` (list the newest REAL events), `--replay-event=<evt_id>` (fetch that real event and POST it signed with your `STRIPE_WEBHOOK_SECRET` — no listener needed) | No (fires events into the sandbox on purpose; state-ending types need `--admin-destroy`) |
-| `debug-state.sh` | Query backend `subscriptions`+`GET /api/usage` and print latest tier rows (read-only) | No |
-
-### Destructive operations (requiring `--admin-destroy`)
-
-The skill grants **read + create + mutate subscription lifecycle** by default. **Delete / teardown /
-permanently destructive calls** (e.g. `DELETE /v1/subscriptions/{id}`, `DELETE /v1/users/{id}`,
-force-disabling a user, wiping a customer) MUST be preceeded by one explicit flag so a debugging
-run can never accidentally wipe real (test) state. **Every destructive invocation** must carry it.
+To exercise the **real** HMAC path (`Paymongo-Signature`, not the simulate shortcut):
 
 ```bash
-.pi/skills/clerk-stripe-operator/scripts/webhook-driver.sh --admin-destroy --event customer.subscription.deleted
-.pi/skills/clerk-stripe-operator/scripts/clerk-mint.sh --admin-destroy --teardown --user <id>
-.pi/skills/clerk-stripe-operator/scripts/stripe-stub.sh --admin-destroy --drop --customer <id>
+./.pi/skills/paymongo-operator/scripts/webhook-driver.sh --event=subscription.activated --customer=cus_demo
 ```
 
-- Without the flag any destructive-looking call is refused with a clear message (it prints: "refused:
-  destructive op requires --admin-destroy").
-- With the flag, the skill still prints exactly the DELETE it is about to perform and the target id
-  before doing it.
+---
+
+## 5. Correct ordering of the real billing journey (needs test keys)
+
+1. **Plan** — once per price. `POST /v1/subscriptions/plans` with
+   `{name, amount: 49900, currency: "PHP", interval: "month", interval_count: 1}` → `plan_…` →
+   put it in `PAYMONGO_PLAN_ID`. (`scripts/paymongo-stub.sh --create-plan`)
+2. **App-side start** — `POST /api/billing/checkout` as the signed-in user. It creates the
+   Customer, the Subscription (`incomplete`), then attaches a `paymaya` PaymentMethod to the
+   **first invoice's** Payment Intent and returns the Maya URL. Maya is the only redirect-capable
+   method PayMongo supports for subscriptions — cards would need card vaulting + a PCI-scoped form.
+3. **Pay within 24h** — the customer completes Maya. PayMongo then charges every later cycle itself.
+   Unpaid after 24h → `incomplete_cancelled`.
+4. **Webhooks** — `payment_token.activation`/`payment_session.completed` are ignored;
+   `subscription.activated` flips the row to `premium/active`; `invoice.paid` recovers a `past_due`;
+   `invoice.payment_failed` → `past_due`; `subscription.updated{status:cancelled}` → `free/cancelled`.
+5. **Assert** — `debug-state.sh`, or `GET /api/usage` as that user (`tier: premium`).
+6. **Cancel** — `POST /api/billing/cancel` (PayMongo has no billing portal); the paid period keeps
+   serving until `current_period_end`.
+
+Full guided run, including the browser leg: `references/maya-browser-checkout.md`.
 
 ---
 
-## 6. Reference: endpoint + guardrail catalog
+## 6. Webhook signature (what the endpoint enforces)
 
-The audited map of every Clerk/Stripe resource this skill can touch, with exact HTTP verbs, the ids
-they affect, and the guardrail for each, lives in `references/operator-manifest.md`. Read it before
-writing new scripting so you reuse the exact endpoints and don't reinvent auth. When in doubt, ask
-the repo owner before a call that has a `DELETE` or `?cancel_at`/unschedule that could affect a
-customer's standing test subscription.
+`Paymongo-Signature: t=<unix>,te=<hmac>,li=<hmac>`, where the HMAC is **SHA-256 over `"{t}.{raw_body}"`
+keyed by the endpoint's secret**. `te` is the test-mode slot, `li` the live one; an endpoint
+registered in test mode leaves `li` empty, and the handler accepts **either** populated slot. The
+handler also rejects a timestamp older than **5 minutes** (replay window) and fails closed when
+`PAYMONGO_WEBHOOK_SECRET` is unset. Sign by hand:
 
----
-
-## 7. Read vs write guard matrix (summary)
-
-| Action | Allowed by default? |
-|---|---|
-| `GET` lists / details (users, prices, customers, subscriptions, events) | ✅ |
-| Create throwaway user/session/testing-token/price/customer/subscription | ✅ |
-| Mutate subscription lifecycle: activate, cancel-at, transition past_due<->active, change default PM | ✅ |
-| `DELETE`/destroy a user, subscription, customer, or wipe test data | ❌ needs `--admin-destroy` |
-| Anything against **live** (`live` keys / `run:live`) | ❌ never |
+```bash
+t=$(date +%s); sig=$(printf '%s.' "$t" | cat - body.json | openssl dgst -sha256 -hmac "$PAYMONGO_WEBHOOK_SECRET" | awk '{print $NF}')
+curl -sS -X POST localhost:8000/api/billing/webhook -H "Paymongo-Signature: t=$t,te=$sig" \
+  -H 'Content-Type: application/json' --data-binary @body.json
+```
 
 ---
+
+## 7. Scripts
+
+| Script | Purpose |
+| --- | --- |
+| `need-keys.sh` | Key liveness; paste-me template; refuses live keys. |
+| `clerk-mint.sh` | Mint/refresh a Clerk user + testing session so a browser can sign in headlessly. |
+| `paymongo-stub.sh` | Read/create a throwaway plan or customer on the real test account (`--create-plan`, `--create-customer`); `--drop` needs `--admin-destroy`. |
+| `webhook-driver.sh` | Craft a PayMongo event and deliver it: `--simulate` (dev endpoint) or signed to `/api/billing/webhook`. Destructive types need `--admin-destroy`. |
+| `debug-state.sh` | Read-only state dump: `/api/health`, `/api/usage`, newest `subscriptions` rows. |
 
 ## 8. Zero-touch + guardrails
 
-- **Never** print, log, dump, or paste a secret/key. `need-keys.sh` only prints "set"/"missing".
-- Secret values live only in `backend/.env` / process env, git-ignored. Do not write them elsewhere.
-- Bulk test runs that would tear down many rows in one call: prefer explicit, idempotent, small
-  steps over mass `DELETE`s.
-- When a test Stripe card is needed, it is ALWAYS the documented test card `4242 4242 4242 4242`
-  (any future exp / any CVC). Never a real card.
-- If `need-keys.sh` shows the account keys are live (`_live_`) for an operation that is not
-  explicitly authorized as such, stop and flag it.
-- The skill may act on `sk_test_`/`whsec_`/`sk_test_clerk` at your explicit direction. It never acts
-  on `sk_live_`.
+- **Never print, cat, or echo a key.** Only `set`/`missing`/`live` status.
+- **Refuse live keys** (`*_live_*`) in every script; `debug-state.sh` never runs destructive SQL.
+- **`--admin-destroy` gate** on anything that drops provider state or ends a subscription.
+- Ask before mutating persistent sandbox state unless the user asked for exactly that.
+- Report a paymongo.com support dependency plainly instead of pretending a 400 is a code bug.
+
+## 9. References
+
+- `references/operator-manifest.md` — endpoint + read/write/guard catalog (Clerk + PayMongo).
+- `references/maya-browser-checkout.md` — the browser leg that completes the real Maya payment.

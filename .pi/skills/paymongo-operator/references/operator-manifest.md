@@ -1,9 +1,9 @@
-# Clerk + Stripe operator — endpoint & guardrail manifest
+# Clerk + PayMongo operator — endpoint & guardrail manifest
 
-Audited map of the real Clerk and Stripe (both **test as default**) resources this skill can touch,
+Audited map of the real Clerk and PayMongo (both **test as default**) resources this skill can touch,
 with exact HTTP verbs and their idempotence/danger. Keys are read from the environment; this file is
-the write-upsheet the model consults before composing any operational call. Everything here is
-CRUD-able **only when an `sk_test_`/`sk_secret_test_` is passed**. Live keys (`_live_`) are refused
+the write-up sheet the model consults before composing any operational call. Everything here is
+CRUD-able **only when an `sk_test_` is passed**. Live keys (`_live_`) are refused
 by convention (see Guardrails / §8 SKILL.md).
 
 Hard rules that apply everywhere:
@@ -29,7 +29,7 @@ Base: pass header `Authorization: Bearer $CLERK_SECRET_KEY`. All params JSON, ho
 | Testing tokens | create via **testing-token template** (see your Clerk template id) — produce a signed token the SDK recognizes | This is the key to browser-auth on dev and **prod** instances alike. Needs the testing-token template id from the dashboard. |
 | Sign-in tokens | `POST /sign_in_tokens`, `POST /sign_in_tokens/{id}/revoke` | Magic-link style tokens. |
 | Instances | `GET /instances` | Read-only (useful to discover the instance). |
-| JWT templates | `GET /jwt_templates` (list claims), create a template that adds you a custom `tier` claim if desired | Note: to honor `owners require it`, your app default uses `ClerkUser.tier`; easiest is storing premium in subscriptions table via Stripe events (this repo already does). |
+| JWT templates | `GET /jwt_templates` (list claims), create a template that adds you a custom `tier` claim if desired | Note: to honor `owners require it`, your app default uses `ClerkUser.tier`; easiest is storing premium in subscriptions table via PayMongo webhook events (this repo already does). |
 | Allow lists | `GET /allowlist_identifiers`, `POST`, `DELETE` | not usually needed. |
 
 **Guardrails**
@@ -41,40 +41,40 @@ Base: pass header `Authorization: Bearer $CLERK_SECRET_KEY`. All params JSON, ho
 
 ---
 
-## B. Stripe (api.stripe.com/v1)
+## B. PayMongo (api.paymongo.com)
 
-Base: `https://api.stripe.com/v1`, header `Authorization: Bearer $STRIPE_SECRET_KEY`.
-Stripe is form-encoded (`application/x-www-form-urlencoded`).
+Base: `https://api.paymongo.com`, header `Authorization: Basic base64("$PAYMONGO_SECRET_KEY:")`
+(note the **empty password**), JSON bodies (`application/json`). Amounts are **centavos**
+(49900 = ₱499). PHP is the only subscription currency.
 
 | Resource | Endpoints | Notes / guardrail |
 |---|---|---|
-| Prices | `GET /prices`, `POST /prices`, `GET /prices/{id}` | `POST` create a throwaway `price_` when none — fine. To reuse your product param set, prefer your mapped premium `price_` in env. |
-| Products | `GET /products`, `POST /products` | only if building a brand new price. |
-| Customers | `GET /customers`, `POST /customers` | Create is fine; links `owner_id` to Customer. |
-| PaymentMethods | `POST /payment_methods`, `POST /payment_methods/{id}` (attach), `GET /customers/{id}/payment_methods` | attach to a test customer for the billing state machine. |
-| Subscriptions | `POST /subscriptions`, `GET /subscriptions/{id}`, `GET /v1/customers/{id}/subscriptions` | To make a `subscription` appear alone (no checkout) — set `customer`, `items`, `cancel_at` etc. |
-| Subscriptions (mutate) | `PATCH /subscriptions/{id}` (change `cancel_at`, `items[0][price]`, default_payment_method) | Lifecycle transitions are allowed by default; a true end/`DELETE` needs flag. |
-| Checkout/Portal | `POST /checkout/sessions` (returns hosted URL), `GET /sessions/{id}`, `POST /billing_portal/sessions` | For the app, prefer calling your OWN `/api/billing/checkout`+`/api/billing/portal` (they build from your env) rather than Stripe direct — less to keep in sync. |
-| Events / logs | `GET /events`, `GET /v1/events?type=customer.subscription.deleted` | read-only, diagnostic. |
-| CLI | `stripe trigger <event>`, `stripe listen --forward-to URL`, `stripe tokens` | Emits sandbox events to your webhook (useful w/o live CLI session). |
+| Plans | `POST /v1/subscriptions/plans`, `GET /v1/subscriptions/plans` | Create the ₱499/mo premium plan once (`scripts/paymongo-stub.sh --create-plan`); the id goes in `PAYMONGO_PLAN_ID`. |
+| Customers | `POST /v1/customers`, `GET /v1/customers`, `DELETE /v1/customers/{id}` | Email is **unique per customer** — reuse the id stored in `subscriptions.provider_customer_id`; never create a second one for the same owner. |
+| Subscriptions | `POST /v1/subscriptions`, `GET /v1/subscriptions/{id}`, `DELETE /v1/subscriptions/{id}` | Create generates the **first invoice immediately** (24h to pay it or it self-cancels to `incomplete_cancelled`). `DELETE` is immediate — but our `cancel_subscription` keeps the paid period entitled until `current_period_end`. |
+| Subscription invoices | `GET /subscriptions/invoices?resource_id=subs_…`, `POST /v1/subscriptions/invoices/{id}/pay` | The invoice carries `payment_intent.{id,status}` — the first invoice's intent is what the Maya payment attaches to. |
+| Payment intents | `GET /v1/payment_intents/{id}`, `POST /v1/payment_intents/{id}/attach` | Attach with `payment_method` + `client_key` + `return_url`; the response's `next_action.redirect.url` is the customer-facing redirect. |
+| Payment methods | `POST /v1/payment_methods` | Only `{type: "paymaya"}` here — no card data ever reaches this repo (vaulting would need PayMongo.js + PCI scope). |
+| Webhooks | dashboard (Developers → Webhooks) or `POST /v1/webhooks` | One endpoint for `/api/billing/webhook`; the signature key is that endpoint's secret, not the API key. There is **no events API and no CLI**, so replay/`--simulate` is how you re-deliver. |
 
-**Specific events your backend consumes** (see `backend/src/app/payments.py`, `handle_webhook_event`):
-`checkout.session.completed` → records `owner_id`(metadata)↦customer; then
-`customer.subscription.{created,updated}` → upserts `plan='premium'`, status from event;
-`customer.subscription.deleted` → flips row to `plan='free', status='canceled'`.
-To **prove entitlement** end-to-end, replay exactly these against your `/api/billing/webhook`, then
-`GET /api/usage` and read `tier`.
+**Account-level prerequisites (not self-service):** email support@paymongo.com to enable
+**Subscriptions** and **Card Vaulting**, and to reach Fully Verified (DTI + BIR 2303) for live keys.
+A 400 on `POST /v1/subscriptions` with a valid test key usually means the first.
+
+**Events the backend consumes** (`backend/src/app/payments.py`, `handle_webhook_event`):
+`subscription.activated|updated` → upsert `plan`/`status`/`current_period_end`; `invoice.paid` →
+`active` (recovers `past_due`); `invoice.payment_failed` → `past_due`; draft/open invoice churn
+(`invoice.created|finalized|updated`) is ignored. Envelope parsing tolerates both PayMongo shapes
+(`data.attributes.*` and `data.*`).
 
 **Guardrails**
-- `DELETE /v1/subscriptions/{id}`, `DELETE /v1/customers/{id}`, `DELETE /v1/prices/{id}` and any
-  `?active=false` on a price/product → require `--admin-destroy`.
-- `stripe trigger customer.subscription.deleted` deletes a real (test) sub for a customer —
-  in this repo it maps to the user row flipping back to free. That is destructive to test state ⇒
-  also gate with `--admin-destroy`.
-- Stripe hosted checkout is **not** a reliable pure-bot path (anti-bot). Only reach real cards via
-  the user-driven browser handoff at the card step; otherwise keep asserts to the webhook/state side.
-- Test card is always `4242 4242 4242 4242` (any future exp/CVC), or the extra `4000 0025 0000 3155`
-  for SCA challenge if you must exercise it.
+- `DELETE` on a customer/subscription/plan, `--drop-customer`, and any event that downgrades
+  (`subscription.updated --status=cancelled`, `invoice.payment_failed`) → require `--admin-destroy`.
+- Delivery is authenticated by HMAC of `"{t}.{raw_body}"` with the endpoint secret (`te` for test,
+  `li` for live slots); the handler also enforces a 5-minute replay window and fails closed when
+  `PAYMONGO_WEBHOOK_SECRET` is unset. Deleting a customer makes any vaulted card unusable.
+- Maya's hosted page is a real redirect, not an embeddable widget; there is no test-card number to
+  type and the account's own Maya means must be used to complete it.
 
 ---
 
@@ -83,9 +83,9 @@ To **prove entitlement** end-to-end, replay exactly these against your `/api/bil
 | Verb class | Examples | Default policy |
 |---|---|---|
 | Read | GET lists/details on both | ✅ allowed |
-| Create | new user/token/session, price/customer/subscription, checkout/portal session | ✅ allowed |
+| Create | new user/token/session, plan/customer/subscription, payment method attach | ✅ allowed |
 | Mutate lifecycle | cancel_at, PM attach, tier-relevant status flips | ✅ allowed |
-| Destroy | DELETE user/sub/customer/price, trigger `*.deleted` | ❌ `--admin-destroy` |
+| Destroy | DELETE user/sub/customer/plan, status→cancelled events | ❌ `--admin-destroy` |
 | Live | any `_live_` key | ❌ never auto |
 
 ## D. Extra caution (repo specifics)
@@ -94,5 +94,8 @@ To **prove entitlement** end-to-end, replay exactly these against your `/api/bil
   itself needs `CLERK_DOMAIN`, `CLERK_JWKS_URL`. Do not mistake the operator secret for app config.
 - The `subscriptions` table's `owner_id` is the Clerk `sub`. Keep your test users' `sub`; everything
   maps on it.
-- Write scripting against the env-produced `STRIPE_PRICE_ID` / `FRONTEND_BASE_URL`; hardcoding a
-  `price_` is brittle (prices can be recreated).
+- Write scripting against the env-produced `PAYMONGO_PLAN_ID` / `FRONTEND_BASE_URL`; hardcoding a
+  `plan_` is brittle (plans can be recreated).
+- Entitlement lives in `subscriptions.status` **plus** `current_period_end`: `active`/`cancelled` are
+  entitled only while the period is in the future, `past_due`/`unpaid` never are. A row can look
+  "premium" and still not grant access — check both columns before calling it a bug.

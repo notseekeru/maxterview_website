@@ -1,130 +1,106 @@
 #!/usr/bin/env bash
-# webhook-driver.sh — deliver a real Stripe test webhook event to the app's /api/billing/webhook.
+# webhook-driver.sh — deliver a PayMongo billing event to the app.
 #
-# Modes:
-#   --event=<type>                `stripe trigger <type>` through whatever `stripe listen` forwards.
-#   --events[=<type>]             list the newest real events (id/type/created) to pick from.
-#   --replay-event=<evt_id>       fetch that REAL event from the API and POST it to /api/billing/webhook
-#                                 signed with the app's own STRIPE_WEBHOOK_SECRET (no CLI/listen
-#                                 needed — the documented fallback for a machine with no listener).
+# Two delivery modes:
+#   (default)    POST /api/billing/webhook signed with PAYMONGO_WEBHOOK_SECRET
+#                (`Paymongo-Signature: t=<unix>,te=<hmac-sha256 of "{t}.{raw_body}">`) — this
+#                exercises the real signature check.
+#   --simulate   POST /api/billing/webhook/simulate, the dev/test-only shortcut that skips the
+#                signature. PayMongo has no `stripe listen` equivalent, so this (plus this script's
+#                signed mode) is how local webhooks get tested without a tunnel.
 #
-# Safety: types that end real (test) app state on delivery (subscription.deleted, checkout.session
-# .completed, payment_intent.*) require --admin-destroy in both modes.
+# Examples:
+#   webhook-driver.sh --event=subscription.activated --customer=cus_1 --subscription=subs_1
+#   webhook-driver.sh --event=subscription.updated --status=past_due --subscription=subs_1
+#   webhook-driver.sh --event=subscription.invoice.paid --subscription=subs_1
+#   webhook-driver.sh --simulate --event=subscription.updated --status=cancelled --subscription=subs_1 --admin-destroy
 #
-# Reads (never prints): STRIPE_WEBHOOK_SECRET (whsec_), STRIPE_SECRET_KEY. Backend root from
-# BACKEND_URL env or default http://localhost:8000. Webhook path is always /api/billing/webhook.
+# Reads (never prints): PAYMONGO_WEBHOOK_SECRET. Backend root from BACKEND_URL (default
+# http://localhost:8000). A subscription event needs an existing `subscriptions` row whose
+# provider ids match --customer/--subscription, otherwise the handler can't resolve an owner and
+# deliberately writes nothing.
 set -euo pipefail
 _ENGINE_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=/dev/null
 . "$_ENGINE_DIR/_env.sh"
 
 BACKEND_URL="${BACKEND_URL:-http://localhost:8000}"
-WEBHOOK="$BACKEND_URL/api/billing/webhook"
-API="https://api.stripe.com/v1"
 ADMINDESTROY=0
+SIMULATE=0
 EVENT=""
-REPLAY_EVENT=""
-LIST_EVENTS=0
-ONLY_REQ=0   # set to just request creation (skip waiting)
+CUSTOMER="cus_demo"
+SUBSCRIPTION="subs_demo"
+STATUS="active"
+PLAN="plan_demo"
+NEXT_BILLING="2026-10-14"
+AMOUNT=49900
 
 for a in "$@"; do
   case "$a" in
     --admin-destroy) ADMINDESTROY=1 ;;
+    --simulate) SIMULATE=1 ;;
     --event=*) EVENT="${a#--event=}" ;;
-    --events) LIST_EVENTS=1 ;;
-    --events=*) LIST_EVENTS=1; EVENT="${a#--events=}" ;;
-    --replay-event=*) REPLAY_EVENT="${a#--replay-event=}" ;;
-    --req-only) ONLY_REQ=1 ;;
+    --customer=*) CUSTOMER="${a#--customer=}" ;;
+    --subscription=*) SUBSCRIPTION="${a#--subscription=}" ;;
+    --status=*) STATUS="${a#--status=}" ;;
+    --plan=*) PLAN="${a#--plan=}" ;;
+    --next-billing=*) NEXT_BILLING="${a#--next-billing=}" ;;
     *) echo "unexpected arg: $a"; exit 2 ;;
   esac
 done
 
+# Ending or downgrading entitlement is destructive to test state.
 _destructive() {
-  case "$1" in
-    customer.subscription.deleted|checkout.session.completed|customer.deleted|payment_intent.*) return 0 ;;
-    *) return 1 ;;
-  esac
+  [ "$STATUS" = "cancelled" ] || [ "$STATUS" = "incomplete_cancelled" ] || [ "$EVENT" = "subscription.invoice.payment_failed" ]
 }
-_require_admin() {
-  if _destructive "$1" && [ "$ADMINDESTROY" != 1 ]; then
-    echo "refused: '$1' is destructive to test state; add --admin-destroy"
-    exit 3
-  fi
-}
-
-# The event's `type` is the LAST one in the payload (nested objects carry their own `type`), and a
-# StoredEvent is one long JSON line — node when present, else the last match on that line.
-node_or_grep_type() {
-  if command -v node >/dev/null 2>&1; then
-    node -e 'let s="";process.stdin.on("data",(d)=>s+=d).on("end",()=>process.stdout.write(JSON.parse(s).type))' < "$1"
-  else
-    grep -o '"type": *"[^"]*"' "$1" | tail -1 | sed -E 's/.*"([^"]*)"$/\1/'
-  fi
-}
-
-if [ -z "${STRIPE_SECRET_KEY:-}" ]; then echo "refused: STRIPE_SECRET_KEY unset"; exit 1; fi
-case "$STRIPE_SECRET_KEY" in *_live_*) echo "refused: live Stripe key"; exit 1;; esac
-AUTH="Authorization: Bearer $STRIPE_SECRET_KEY"
-
-# --- list real events (read-only) -------------------------------------------------------------
-if [ "$LIST_EVENTS" = 1 ]; then
-  if [ -z "${STRIPE_WEBHOOK_SECRET:-}" ]; then echo "warn: STRIPE_WEBHOOK_SECRET unset — --replay-event will refuse"; fi
-  q="$API/events?limit=10"
-  [ -n "$EVENT" ] && q="$q&type=$EVENT"
-  echo "== newest real Stripe events =="
-  if command -v node >/dev/null 2>&1; then
-    curl -fsS -H "$AUTH" "$q" | node -e '
-      let s = "";
-      process.stdin.on("data", (d) => (s += d)).on("end", () => {
-        for (const e of JSON.parse(s).data) console.log(`  ${e.id}  ${e.type.padEnd(42)} ${new Date(e.created * 1000).toISOString().replace(/\.\d+Z$/, "Z")}`);
-      });'
-  else
-    # No node on this host: the ids alone are all --replay-event needs.
-    curl -fsS -H "$AUTH" "$q" | grep -o '"id": *"evt_[^"]*"' | sed -E 's/.*"(evt_[^"]*)"/  \1/'
-  fi
-  echo "  deliver one: $0 --replay-event=<evt_id>   (add --admin-destroy if it is destructive)"
-  exit 0
+if _destructive && [ "$ADMINDESTROY" != 1 ]; then
+  echo "refused: '$EVENT' (status=$STATUS) ends or downgrades entitlement; add --admin-destroy"
+  exit 3
 fi
 
-# --- replay a real event, signed with the app's own whsec -------------------------------------
-if [ -n "$REPLAY_EVENT" ]; then
-  if [ -z "${STRIPE_WEBHOOK_SECRET:-}" ]; then echo "refused: STRIPE_WEBHOOK_SECRET unset (needed to sign)"; exit 1; fi
-  body=$(mktemp); trap 'rm -f "$body"' EXIT; chmod 600 "$body"
-  curl -fsS -H "$AUTH" "$API/events/$REPLAY_EVENT" -o "$body" || { echo "refused: no such event $REPLAY_EVENT"; exit 4; }
-  etype=$(node_or_grep_type "$body")
-  [ -n "$etype" ] || { echo "refused: could not read type of $REPLAY_EVENT"; exit 4; }
-  _require_admin "$etype"
+case "$EVENT" in
+  subscription.activated|subscription.updated|subscription.past_due|subscription.unpaid|\
+  subscription.invoice.created|subscription.invoice.finalized|subscription.invoice.updated|\
+  subscription.invoice.paid|subscription.invoice.payment_failed) ;;
+  "") echo "usage: webhook-driver.sh --event=<type> [--simulate] [--subscription=subs_x] [--customer=cus_x] [--status=active|past_due|cancelled] [--admin-destroy]"; exit 2 ;;
+  *) echo "refused: unsupported event '$EVENT' (see usage for the handled set)"; exit 2 ;;
+esac
+
+# Build the resource the handler switches on: `subscription` for subscription.*, `invoice` for
+# subscription.invoice.* (invoice events carry the subscription id as `resource_id`).
+if [ "${EVENT#subscription.invoice.}" != "$EVENT" ]; then
+  RESOURCE="invoice"
+  ATTRS=$(printf '{"id":"inv_demo","amount":%s,"currency":"PHP","resource_id":"%s","status":"%s","due_date":"2026-09-14"}' \
+    "$AMOUNT" "$SUBSCRIPTION" "$STATUS")
+else
+  RESOURCE="subscription"
+  ATTRS=$(printf '{"id":"%s","customer_id":"%s","plan_id":"%s","status":"%s","next_billing_schedule":"%s"}' \
+    "$SUBSCRIPTION" "$CUSTOMER" "$PLAN" "$STATUS" "$NEXT_BILLING")
+fi
+
+body=$(mktemp); trap 'rm -f "$body"' EXIT; chmod 600 "$body"
+# The newer envelope shape (data.type/livemode/data); the handler also accepts the older
+# data.attributes.* one, and this script exists to exercise the documented one.
+printf '{"data":{"type":"%s","livemode":false,"data":{"id":"%s","type":"%s","attributes":%s}}}' \
+  "$EVENT" "$SUBSCRIPTION" "$RESOURCE" "$ATTRS" > "$body"
+
+if [ "$SIMULATE" = 1 ]; then
+  url="$BACKEND_URL/api/billing/webhook/simulate"
+  echo "POST $url  ($EVENT, unsigned — dev/test only)"
+  code=$(curl -sS -o /tmp/webhook-driver.out -w '%{http_code}' -X POST "$url" \
+    -H 'Content-Type: application/json' --data-binary "@$body")
+else
+  if [ -z "${PAYMONGO_WEBHOOK_SECRET:-}" ]; then echo "refused: PAYMONGO_WEBHOOK_SECRET unset (needed to sign); use --simulate"; exit 1; fi
+  url="$BACKEND_URL/api/billing/webhook"
   t=$(date +%s)
-  # Sign over the exact bytes we POST (t.payload, HMAC-SHA256) — the same scheme stripe listen uses.
-  sig=$({ printf '%s.' "$t"; cat "$body"; } | openssl dgst -sha256 -hmac "$STRIPE_WEBHOOK_SECRET" | awk '{print $NF}')
-  echo "POST $WEBHOOK  (replay $etype $REPLAY_EVENT, real object, signed with STRIPE_WEBHOOK_SECRET)"
-  code=$(curl -sS -o /tmp/webhook-replay.out -w '%{http_code}' -X POST "$WEBHOOK" \
-    -H "Content-Type: application/json" -H "stripe-signature: t=$t,v1=$sig" --data-binary "@$body")
-  echo "  -> HTTP $code $(head -c 200 /tmp/webhook-replay.out)"
-  rm -f /tmp/webhook-replay.out
-  [ "$code" = 200 ] || exit 5
-  exit 0
+  # Sign over the exact bytes we POST: HMAC-SHA256 of "{t}.{raw_body}", keyed by the endpoint secret.
+  sig=$( { printf '%s.' "$t"; cat "$body"; } | openssl dgst -sha256 -hmac "$PAYMONGO_WEBHOOK_SECRET" | awk '{print $NF}')
+  echo "POST $url  ($EVENT, signed te=…)"
+  code=$(curl -sS -o /tmp/webhook-driver.out -w '%{http_code}' -X POST "$url" \
+    -H 'Content-Type: application/json' -H "Paymongo-Signature: t=$t,te=$sig" --data-binary "@$body")
 fi
 
-# --- trigger via the Stripe CLI (needs `stripe listen` forwarding) ------------------------------
-if [ -z "$EVENT" ]; then echo "usage: webhook-driver.sh --event=<type> | --events[=<type>] | --replay-event=<evt_id> [--admin-destroy]"; exit 2; fi
-_require_admin "$EVENT"
-
-# Prefer the app being up.
-if ! curl -fsS "$BACKEND_URL/api/health" >/dev/null 2>&1; then
-  echo "warn: backend /api/health not reachable at $BACKEND_URL (still will attempt CLI trigger)."
-fi
-
-if command -v stripe >/dev/null 2>&1 && [ "$ONLY_REQ" = 0 ]; then
-  echo "delivering existing/triggered event '$EVENT' to $WEBHOOK via 'stripe listen'..."
-  echo "  -> run \`stripe listen --forward-to $WEBHOOK\` in another pane if not already running."
-  stripe trigger "$EVENT" || {
-    echo "  note: 'stripe trigger' error (or event not a CLI-triggerable type). Falling back to API replay."
-  }
-  exit 0
-fi
-
-echo "warn: no interactive stripe-listen forward detected; event relay depends on backend reachable"
-echo "  via a running \`stripe listen --forward-to $WEBHOOK\`. Re-run with stripe listen up, or use"
-echo "  --events then --replay-event=<evt_id> to deliver a real event with no listener."
-exit 0
+echo "  -> HTTP $code $(head -c 200 /tmp/webhook-driver.out)"
+rm -f /tmp/webhook-driver.out
+[ "$code" = 200 ] || exit 5
+echo "  then: $_ENGINE_DIR/debug-state.sh   (or GET /api/usage as that user)"

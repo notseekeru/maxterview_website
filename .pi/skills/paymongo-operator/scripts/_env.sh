@@ -12,7 +12,7 @@
 #   # shellcheck source=/dev/null
 #   . "$SCRIPT_DIR/_env.sh"
 
-# Determine the repo root (parent of .pi/skills/clerk-stripe-operator/scripts/).
+# Determine the repo root (parent of .pi/skills/paymongo-operator/scripts/).
 _ENGINE_CORE_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../../../.." && pwd)"
 _ENGINE_ROOT_ENV="$_ENGINE_CORE_DIR/.env"
 _ENGINE_BACKEND_ENV="$_ENGINE_CORE_DIR/backend/.env"

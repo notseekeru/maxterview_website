@@ -33,7 +33,7 @@ if [ -n "${DATABASE_URL:-}" ] || [ -n "${PSQL_DSN:-}" ]; then
   if command -v psql >/dev/null 2>&1; then
     PGPASSWORD="$(printf '%s' "$uri_psql" | sed -E 's#.*://[^:]*:([^@]*)@.*#\1#')" \
       psql "$uri_psql" -c \
-      "SELECT owner_id, stripe_id IS NOT NULL AND stripe_id <> '' AS has_stripe, plan, status, current_period_end FROM subscriptions ORDER BY updated_at DESC LIMIT 10;" 2>/dev/null \
+      "SELECT owner_id, provider, provider_customer_id, provider_subscription_id, plan, status, current_period_end FROM subscriptions ORDER BY updated_at DESC LIMIT 10;" 2>/dev/null \
       || echo "  (psql failed; run `make psql` and query manually. DB rows: SELECT owner_id, plan, status FROM subscriptions;)"
   else
     echo "  (psql not on PATH; open `make psql` and run: SELECT owner_id, plan, status FROM subscriptions;)"
@@ -45,5 +45,7 @@ fi
 
 echo ""
 echo "== blurb =="
-echo "To verify a premium flip: complete a checkout/webhook, then GET /api/usage should read tier: premium."
-echo "Remember nothing here touched or printed secrets."
+echo "To verify a premium flip: deliver a subscription event (webhook-driver.sh) or complete a real"
+echo "first payment, then GET /api/usage should read tier: premium. Remember: 'cancelled' stays"
+echo "entitled until current_period_end; 'past_due' is not entitled at all."
+echo "Nothing here touched or printed secrets."
