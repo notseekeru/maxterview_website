@@ -189,7 +189,7 @@ This repo is the **app source**; the gitops repo holds the Kubernetes manifests.
 PVC, no StatefulSet, and no DB backup/upgrade work in-cluster.
 
 - `DATABASE_URL` comes from the `maxterview-secrets` Secret — use Neon's **direct** host
-  (`ep-<id>.c-<cell>.<region>.aws.neon.tech`, e.g. `ep-falling-firefly-axn22iz4.c-4.us-east-2.aws.neon.tech`) with `?sslmode=require`, **not** the `-pooler` host.
+  (`ep-<id>.c-<cell>.<region>.aws.neon.tech`, e.g. `ep-tiny-hall-b3e0wb3g.c-4.ap-southeast-1.aws.neon.tech`) with `?sslmode=require`, **not** the `-pooler` host.
 - The direct host needs zero code changes: the backend is one long-running pod holding ~10 pooled
   connections. Neon's pooler only matters when many short-lived instances share a DB (serverless) —
   and `app/db.py` already auto-detects a `-pooler` DSN (`statement_cache_size=0`) if you ever switch.
