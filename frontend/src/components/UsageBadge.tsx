@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { createCheckoutSession, getUsage, openBillingPortal, type Usage } from "@/lib/api";
+import { getUsage, startSubscription, type Usage } from "@/lib/api";
 import { clerkEnabled } from "@/lib/config";
 
 // Quota-status badge (GET /usage, MONETIZATION §3).
@@ -48,7 +48,7 @@ export function UpgradeNotice({ reason }: { reason: string }) {
         setBusy(true);
         setError(false);
         try {
-            const url = await createCheckoutSession();
+            const url = await startSubscription();
             window.location.assign(url);
         } catch {
             setError(true);
@@ -65,13 +65,14 @@ export function UpgradeNotice({ reason }: { reason: string }) {
             </div>
             <div className="flex items-center gap-3">
                 <Button size="sm" onClick={() => void upgrade()} disabled={busy}>
-                    {busy ? "Opening checkout…" : "Upgrade to Premium"}
+                    {busy ? "Opening Maya…" : "Upgrade to Premium"}
                 </Button>
-                <button type="button" className="text-xs text-muted-foreground underline underline-offset-2" onClick={() => void openBillingPortal()}>
+                {/* No provider portal exists; plan management (incl. cancel) lives on the billing page. */}
+                <a href="/app/settings/billing" className="text-xs text-muted-foreground underline underline-offset-2">
                     Manage billing
-                </button>
+                </a>
             </div>
-            {error && <p className="text-xs text-destructive">Checkout is unavailable right now. Try again in a moment.</p>}
+            {error && <p className="text-xs text-destructive">Payment is unavailable right now. Try again in a moment.</p>}
         </div>
     );
 }

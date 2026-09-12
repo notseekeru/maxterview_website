@@ -4,7 +4,8 @@ Simple tier model: Free / Premium / dev(-only). Backend-authoritative.
 
 - **Entitlement (`tier`)**: source of truth is `ClerkUser.tier` (JWT claim), merged with any
   active `premium` row in the `subscriptions` table so billing can elevate even when the JWT is
-  stale. Default `"free"`.
+  stale. Default `"free"`. A cancelled subscription keeps its already-paid period (MONETIZATION
+  §6: access to the end of the paid period, no refunds) — `past_due`/`unpaid` revoke immediately.
 - **`dev` tier**: only for the no-Clerk dev-fallback identity (`CLERK_ENABLED=false`, i.e. the
   fixed `DEV_USER`). `main.py`'s D2 guard refuses to boot with `CLERK_ENABLED=false` outside
   development/test, so `dev` can never leak to production. Never persisted in `subscriptions`.
@@ -38,13 +39,28 @@ LIMITS = {
     "dev": {"chat_turns": DEV_CHAT_TURNS},
 }
 
+# Statuses that still serve time the customer paid for. `cancelled` is here on purpose: PayMongo
+# cancels immediately but the current invoice stays paid, so access runs to `current_period_end`.
+ENTITLED_STATUSES = ("active", "cancelled")
+
 
 async def resolve_tier(user: ClerkUser) -> str:
     if not CLERK_ENABLED:
         return "dev"
     if user.tier == "premium":
         return "premium"
-    row = await fetchrow("SELECT plan FROM subscriptions WHERE owner_id = $1 AND plan = 'premium' AND status = 'active'", user.sub)
+    # No scheduled job lapses a subscription: the period is checked at read time, so an expired
+    # `current_period_end` (or a `past_due`/`unpaid` status) downgrades on the next call.
+    row = await fetchrow(
+        """
+        SELECT plan FROM subscriptions
+        WHERE owner_id = $1 AND plan = 'premium'
+          AND status = ANY($2::text[])
+          AND (current_period_end IS NULL OR current_period_end > now())
+        """,
+        user.sub,
+        list(ENTITLED_STATUSES),
+    )
     return "premium" if row else "free"
 
 

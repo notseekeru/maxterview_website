@@ -4,11 +4,12 @@ import { Page } from "@/components/PagePrimitives";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
-import { chatTurns, createCheckoutSession, getUsage, openBillingPortal, type Tier, type Usage } from "@/lib/api";
+import { cancelSubscription, chatTurns, getUsage, startSubscription, type Tier, type Usage } from "@/lib/api";
 import { clerkEnabled } from "@/lib/config";
 
-// /app/settings/billing. Free vs Premium cards + current-plan summary. The upgrade
-// CTA posts to /billing/checkout (Stripe hosted); Premium gets Stripe portal mgmt.
+// /app/settings/billing. Free vs Premium cards + current-plan summary. The upgrade CTA posts to
+// /billing/checkout, which answers with PayMongo's Maya page for the first payment; PayMongo has no
+// billing portal, so Premium cancels in-app and keeps access to the end of the paid period.
 // `dev` (no-Clerk-only) gets a read-only summary and no upgrade path.
 
 export function BillingPage() {
@@ -25,11 +26,13 @@ export function BillingPage() {
     );
 }
 
-// Free/premium figures from MONETIZATION §0 (env-overridable server-side:
+// Free/premium figures from MONETIZATION §0 (turn caps are env-overridable server-side:
 // FREE_CHAT_TURNS=10 / PREMIUM_CHAT_TURNS=250). `dev` (500) isn't marketed.
+// PayMongo subscriptions are PHP-only, so the price is stated in pesos (app/billing plans are
+// created with amount=49900).
 export const PLANS: Record<"free" | "premium", { name: string; monthly: string; turns: number }> = {
-    free: { name: "Free", monthly: "$0", turns: 10 },
-    premium: { name: "Premium", monthly: "$9.99/mo", turns: 250 },
+    free: { name: "Free", monthly: "₱0", turns: 10 },
+    premium: { name: "Premium", monthly: "₱499/mo", turns: 250 },
 };
 
 // --- shared data hook ---
@@ -83,7 +86,7 @@ function PlanCard({ tier, usage }: { tier: "free" | "premium"; usage: Usage | nu
     const isPremium = tier === "premium";
     const isCurrent = !!usage && usage.tier === tier;
 
-    // Stripe-hosted checkout/portal URLs must actually be followed.
+    // PayMongo's Maya page is a real redirect we must follow.
     const go = async (open: () => Promise<string>) => {
         setBusy(true);
         setCtaError(false);
@@ -95,13 +98,31 @@ function PlanCard({ tier, usage }: { tier: "free" | "premium"; usage: Usage | nu
         }
     };
 
+    // Cancelling is our own endpoint (no provider portal), so confirm first: the user keeps the
+    // period they already paid for.
+    const stop = async () => {
+        if (!window.confirm("Cancel Premium? You keep access until the end of the period you already paid for.")) return;
+        setBusy(true);
+        setCtaError(false);
+        try {
+            await cancelSubscription();
+            window.location.reload();
+        } catch {
+            setCtaError(true);
+            setBusy(false);
+        }
+    };
+
+    const onPremium = usage?.tier === "premium";
     let cta: ReactNode;
-    if (isCurrent) {
-        cta = isPremium ? (
-            <Button className="w-full" variant="outline" onClick={() => void go(openBillingPortal)} disabled={busy || !usage}>
-                {busy ? "Opening…" : "Manage billing (Stripe)"}
+    if (isCurrent && isPremium) {
+        cta = (
+            <Button className="w-full" variant="outline" onClick={() => void stop()} disabled={busy || !usage}>
+                {busy ? "Cancelling…" : "Cancel subscription"}
             </Button>
-        ) : (
+        );
+    } else if (isCurrent) {
+        cta = (
             <Button className="w-full" disabled>
                 Your current plan
             </Button>
@@ -112,10 +133,17 @@ function PlanCard({ tier, usage }: { tier: "free" | "premium"; usage: Usage | nu
                 Dev mode — no upgrade
             </Button>
         );
+    } else if (!isPremium && onPremium) {
+        // Downgrading means cancelling: there is no portal to hand this off to.
+        cta = (
+            <Button className="w-full" variant="outline" onClick={() => void stop()} disabled={busy || !usage}>
+                {busy ? "Cancelling…" : "Cancel Premium"}
+            </Button>
+        );
     } else {
         cta = (
-            <Button className="w-full" onClick={() => void go(createCheckoutSession)} disabled={busy || !usage}>
-                {busy ? "Opening Stripe…" : isPremium ? `Upgrade · ${plan.monthly}` : "Switch to Free"}
+            <Button className="w-full" onClick={() => void go(startSubscription)} disabled={busy || !usage}>
+                {busy ? "Opening Maya…" : `Upgrade · ${plan.monthly}`}
             </Button>
         );
     }

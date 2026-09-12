@@ -184,14 +184,16 @@ export async function getUsage(): Promise<Usage> {
     return data;
 }
 
-export async function createCheckoutSession(): Promise<string> {
+// Both hit our billing surface: /billing/checkout returns a URL we must follow (the Maya page for
+// the subscription's first payment — PayMongo has no hosted subscribe page), and there is no
+// provider portal, so cancelling is our own endpoint.
+export async function startSubscription(): Promise<string> {
     const { data } = await api.post<{ url: string }>("/billing/checkout");
     return data.url;
 }
 
-export async function openBillingPortal(): Promise<string> {
-    const { data } = await api.post<{ url: string }>("/billing/portal");
-    return data.url;
+export async function cancelSubscription(): Promise<void> {
+    await api.post("/billing/cancel");
 }
 
 // --- SSE chat stream ---

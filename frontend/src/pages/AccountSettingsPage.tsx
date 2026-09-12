@@ -5,7 +5,7 @@ import { Page } from "@/components/PagePrimitives";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
-import { chatTurns, getUsage, openBillingPortal, type Usage } from "@/lib/api";
+import { chatTurns, getUsage, type Usage } from "@/lib/api";
 import { clerkEnabled } from "@/lib/config";
 
 // /app/settings/account — single-user account + plan. Managed accounts live under
@@ -21,8 +21,8 @@ export function AccountSettingsPage() {
 
     return (
         <Page title="Account Settings" description="Your sign-in details and subscription.">
-            {/* Plan — summary only; the full tiers + upgrade/portal surface lives on
-                /app/settings/billing. */}
+            {/* Plan — summary only; the full tiers, upgrade and cancel surface lives on
+                /app/settings/billing (PayMongo has no billing portal to link out to). */}
             <Card>
                 <CardHeader className="flex-row items-center justify-between space-y-0">
                     <div>
@@ -38,8 +38,8 @@ export function AccountSettingsPage() {
                         </Button>
                     )}
                     {usage?.tier === "premium" && (
-                        <Button variant="outline" size="sm" onClick={() => void openBillingPortal()}>
-                            Manage billing
+                        <Button asChild variant="outline" size="sm">
+                            <Link to="/app/settings/billing">Manage billing</Link>
                         </Button>
                     )}
                     <Button asChild variant="ghost" size="sm">

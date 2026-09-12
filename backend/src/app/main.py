@@ -1,4 +1,5 @@
 import asyncio
+import json
 import os
 from contextlib import asynccontextmanager
 from typing import Annotated
@@ -272,30 +273,39 @@ async def get_usage(user: CurrentUser) -> dict:
     }
 
 
-# --- billing (raw Stripe: checkout / portal / webhook) ---
+# --- billing (PayMongo subscriptions: subscribe / cancel / webhook) ---
 
 
 @api.post("/billing/checkout")
 async def billing_checkout(user: CurrentUser) -> dict:
-    return {"url": payments.create_checkout_session(user)}
+    """Start the premium subscription; returns the Maya URL for the first payment."""
+    return {"url": await payments.start_subscription(user)}
 
 
-@api.post("/billing/portal", response_model=dict)
-async def billing_portal(user: CurrentUser) -> dict:
-    return {"url": await payments.create_portal_session(user)}
+@api.post("/billing/cancel", response_model=dict)
+async def billing_cancel(user: CurrentUser) -> dict:
+    """Stop future billing. PayMongo has no billing portal, so this is our cancel path."""
+    await payments.cancel_subscription(user)
+    return {"ok": True}
 
 
 @api.post("/billing/webhook")
 async def billing_webhook(request: Request) -> PlainTextResponse:
-    import stripe
+    raw = await request.body()
+    if not payments.verify_signature(raw, request.headers.get("paymongo-signature", "")):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid signature")
+    await payments.handle_webhook_event(json.loads(raw))
+    return PlainTextResponse("ok")
 
-    payload = await request.body()
-    sig = request.headers.get("stripe-signature", "")
-    try:
-        event = stripe.Webhook.construct_event(payload, sig, payments.STRIPE_WEBHOOK_SECRET)
-    except (ValueError, stripe.SignatureVerificationError):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid signature") from None
-    await payments.handle_webhook_event(event.to_dict())
+
+# `stripe listen` has no PayMongo equivalent, and requiring a tunnel for local webhooks is friction
+# we do not want. Same guard shape as the no-Clerk fallback (D2): unreachable wherever the app
+# boots with APP_ENV=production.
+@api.post("/billing/webhook/simulate")
+async def billing_webhook_simulate(event: dict) -> PlainTextResponse:
+    if APP_ENV not in ("development", "test"):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
+    await payments.handle_webhook_event(event)
     return PlainTextResponse("ok")
 
 

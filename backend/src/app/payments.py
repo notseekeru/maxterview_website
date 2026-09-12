@@ -1,137 +1,300 @@
-"""M10 raw Stripe payment flow (MONETIZATION.md §4).
+"""M10 billing provider — PayMongo (MONETIZATION.md §3).
 
-Checkout -> Stripe -> webhook -> subscriptions table -> resolve_tier upgrades the user.
+Provider-managed recurring, PHP-only, Maya as the first-payment rail:
 
-Entitlement is driven by SUBSCRIPTION events (customer.subscription.created/updated/deleted),
-which reliably follow checkout. Owner->subscription mapping:
-  - checkout.session.completed carries `owner_id` in metadata -> we record customer+owner.
-  - customer.subscription.* events are upserted onto the matching row.
+    subscribe → Customer → Subscription(incomplete) → first-invoice Payment Intent
+              → attach PaymentMethod(paymaya) → Maya hosted page → return_url
+              → webhook subscription.* → `subscriptions` row → resolve_tier upgrades
 
-Config (env, zero-touch on credentials):
-  STRIPE_SECRET_KEY     required for checkout/portal; used only server-side.
-  STRIPE_WEBHOOK_SECRET required to verify webhook signatures.
-  STRIPE_PRICE_ID       the premium monthly price id (e.g. price_xxx).
-  FRONTEND_BASE_URL     success/cancel + portal return URLs.
+Config (env, zero-touch on credentials — never defaulted, never logged):
+  PAYMONGO_SECRET_KEY      sk_test_/sk_live_  server-side only
+  PAYMONGO_WEBHOOK_SECRET  whsec_…  HMAC key of the /billing/webhook endpoint
+  PAYMONGO_PLAN_ID         plan_…   premium monthly (₱499)
+  FRONTEND_BASE_URL        first-payment return URL
+
+Raw httpx on purpose: six endpoints; an SDK would only add a dependency to rotate.
+
+Provider seam (D10): this module plus the `subscriptions.provider*` columns are the whole
+provider-specific surface. `billing.resolve_tier` is provider-blind, so adding a second provider
+(e.g. a merchant-of-record for global/USD) is one module plus one migration.
 """
 
+import hashlib
+import hmac
 import os
-from datetime import UTC, datetime
+import time
+from datetime import UTC, date, datetime
 
-import stripe
+import httpx
+import structlog
 from fastapi import HTTPException, status
 
+from app.db import fetchrow
 from app.models import ClerkUser
 
-STRIPE_SECRET_KEY = os.getenv("STRIPE_SECRET_KEY", "")
-STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET", "")
-STRIPE_PRICE_ID = os.getenv("STRIPE_PRICE_ID", "")
+log = structlog.get_logger(__name__)
+
+API_BASE = "https://api.paymongo.com"
+SECRET_KEY = os.getenv("PAYMONGO_SECRET_KEY", "")
+WEBHOOK_SECRET = os.getenv("PAYMONGO_WEBHOOK_SECRET", "")
+PLAN_ID = os.getenv("PAYMONGO_PLAN_ID", "")
 FRONTEND_BASE_URL = os.getenv("FRONTEND_BASE_URL", "http://localhost:5173")
+PROVIDER = "paymongo"
+
+# Replay window for `Paymongo-Signature` (docs call this optional; it is cheap on a money endpoint).
+SIGNATURE_TOLERANCE_S = 300
+
+# Provider statuses that mean "no more money is coming" -> the row stops being premium. The other
+# statuses stay `premium` so `past_due`/`unpaid` can recover on a later invoice.paid.
+TERMINAL_STATUSES = ("cancelled", "incomplete_cancelled")
 
 
-def _client() -> stripe.StripeClient:
-    if not STRIPE_SECRET_KEY:
+def _require_config() -> None:
+    if not SECRET_KEY or not PLAN_ID:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Billing is not configured")
-    return stripe.StripeClient(STRIPE_SECRET_KEY)
 
 
-def create_checkout_session(user: ClerkUser) -> str:
-    """Return a hosted checkout URL for the premium monthly plan."""
-    if not STRIPE_PRICE_ID:
-        raise HTTPException(status_code=503, detail="Billing price is not configured")
-    session = _client().checkout.sessions.create(
-        params={
-            "mode": "subscription",
-            # Only prefill when the JWT carries a real email; NEVER fall back to the sub claim
-            # (user_xxx is not an email -> Stripe rejects). Stripe collects it at checkout.
-            **({"customer_email": user.email} if (user.email or "").__contains__("@") else {}),
-            "line_items": [{"price": STRIPE_PRICE_ID, "quantity": 1}],
-            "success_url": f"{FRONTEND_BASE_URL}/app?upgrade=success",
-            "cancel_url": f"{FRONTEND_BASE_URL}/app?upgrade=cancelled",
-            "metadata": {"owner_id": user.sub},
-        }
+async def _api(method: str, path: str, **kwargs) -> dict:
+    """One PayMongo call. Basic auth = secret key + empty password."""
+    async with httpx.AsyncClient(base_url=API_BASE, auth=(SECRET_KEY, ""), timeout=20) as client:
+        res = await client.request(method, path, **kwargs)
+    if res.status_code >= 400:
+        # Log the provider body (it explains 400s that would otherwise be opaque); never return it
+        # to the client — it can echo request metadata.
+        log.warning("paymongo.request_failed", method=method, path=path, status=res.status_code, body=res.text[:500])
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Payment provider error")
+    return res.json()
+
+
+async def start_subscription(user: ClerkUser) -> str:
+    """Create the subscription and return the Maya URL for its first payment.
+
+    PayMongo has no hosted "subscribe" page: the first invoice's Payment Intent must be attached
+    to a PaymentMethod. Maya is the only redirect-capable method PayMongo supports for
+    subscriptions, so the first payment is a redirect and every later cycle is charged by PayMongo.
+    """
+    _require_config()
+    # PayMongo keys customers by a unique email; the Clerk `sub` claim is not an email.
+    if "@" not in (user.email or ""):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Add an email to your account before upgrading")
+
+    customer_id = await _ensure_customer(user)
+    sub = await _api(
+        "POST",
+        "/v1/subscriptions",
+        json={"data": {"attributes": {"plan_id": PLAN_ID, "customer_id": customer_id}}},
     )
-    return session["url"]
+    subs_id = sub["data"]["id"]
+    # Record the ids *before* the redirect: the customer may never come back from Maya, and the
+    # webhook that follows needs a row to resolve the owner from.
+    await _upsert(user.sub, customer_id, subs_id, PLAN_ID, "premium", "incomplete", None)
+
+    intent_id = await _first_invoice_intent(subs_id)
+    method = await _api("POST", "/v1/payment_methods", json={"data": {"attributes": {"type": "paymaya"}}})
+    # AI HERE: one extra GET for `client_key` so the attach body satisfies both the secret-key and
+    # the public-key flow. Drop it once a sandbox attach proves the key is unnecessary.
+    intent = await _api("GET", f"/v1/payment_intents/{intent_id}")
+    attach = await _api(
+        "POST",
+        f"/v1/payment_intents/{intent_id}/attach",
+        json={
+            "data": {
+                "attributes": {
+                    "payment_method": method["data"]["id"],
+                    "client_key": intent["data"]["attributes"]["client_key"],
+                    "return_url": f"{FRONTEND_BASE_URL}/app?upgrade=pending",
+                }
+            }
+        },
+    )
+    url = ((attach.get("data", {}).get("attributes", {}).get("next_action") or {}).get("redirect") or {}).get("url")
+    if not url:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Payment provider returned no redirect URL")
+    return url
 
 
-async def create_portal_session(user: ClerkUser) -> str:
-    """Return a Stripe billing-portal URL for the user's existing subscription."""
-    row = await _subscription_row(user.sub)
-    if row is None or not row["stripe_id"]:
+async def cancel_subscription(user: ClerkUser) -> None:
+    """Stop billing immediately; the paid-for period keeps serving (see ENTITLED_STATUSES).
+
+    PayMongo has no billing portal, so this is our own cancel path. Open invoices stay collectible.
+    """
+    row = await fetchrow("SELECT provider_subscription_id FROM subscriptions WHERE owner_id = $1", user.sub)
+    subs_id = (row or {}).get("provider_subscription_id") or ""
+    if not subs_id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No subscription found")
-    portal = _client().billing_portal.sessions.create(params={"customer": row["stripe_id"], "return_url": f"{FRONTEND_BASE_URL}/app"})
-    return portal["url"]
+    _require_config()
+    await _api("DELETE", f"/v1/subscriptions/{subs_id}")
+    await fetchrow(
+        "UPDATE subscriptions SET plan = 'premium', status = 'cancelled', updated_at = now() WHERE owner_id = $1 RETURNING id",
+        user.sub,
+    )
 
 
-async def _subscription_row(owner_id: str):
-    from app.db import fetchrow
+async def _ensure_customer(user: ClerkUser) -> str:
+    """Reuse the owner's PayMongo customer, creating it on first upgrade."""
+    row = await fetchrow("SELECT provider_customer_id FROM subscriptions WHERE owner_id = $1", user.sub)
+    existing = (row or {}).get("provider_customer_id") or ""
+    if existing:
+        return existing
+    name = (user.name or "").strip().split(" ", 1)
+    customer = await _api(
+        "POST",
+        "/v1/customers",
+        json={
+            "data": {
+                "attributes": {
+                    "first_name": name[0] or "Maxterview",
+                    "last_name": name[1] if len(name) > 1 else "Member",
+                    "email": user.email,
+                }
+            }
+        },
+    )
+    return customer["data"]["id"]
 
-    return await fetchrow("SELECT * FROM subscriptions WHERE owner_id = $1", owner_id)
+
+async def _first_invoice_intent(subs_id: str) -> str:
+    """PayMongo generates the first invoice with the subscription; its Payment Intent goes to Maya."""
+    invoices = await _api("GET", "/subscriptions/invoices", params={"resource_id": subs_id, "limit": 1, "order": "desc"})
+    rows = invoices.get("data") or []
+    intent = ((rows[0] if rows else {}).get("attributes") or {}).get("payment_intent") or {}
+    if not intent.get("id"):
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Payment provider returned no first invoice")
+    return intent["id"]
 
 
-async def _upsert(owner_id: str, stripe_id: str, status_str: str, period_end) -> None:
-    from app.db import fetchrow
+# --- webhooks ---
 
+
+def verify_signature(raw_body: bytes, header: str) -> bool:
+    """`Paymongo-Signature: t=<unix>,te=<hmac>,li=<hmac>` over f"{t}.{raw_body}".
+
+    `te`/`li` are computed with this endpoint's secret for test- and live-mode deliveries; an
+    endpoint registered in test mode leaves the other empty, so accept whichever is populated.
+    """
+    if not WEBHOOK_SECRET or not header:
+        return False
+    parts = dict(part.split("=", 1) for part in header.split(",") if "=" in part)
+    stamp = parts.get("t", "")
+    given = [v for key in ("te", "li") if (v := parts.get(key, ""))]
+    if not stamp or not given:
+        return False
+    try:
+        if abs(time.time() - int(stamp)) > SIGNATURE_TOLERANCE_S:
+            return False
+    except ValueError:
+        return False
+    expected = hmac.new(WEBHOOK_SECRET.encode(), f"{stamp}.".encode() + raw_body, hashlib.sha256).hexdigest()
+    return any(hmac.compare_digest(expected, candidate) for candidate in given)
+
+
+def _envelope(event: dict) -> tuple[str, dict, bool]:
+    """PayMongo has shipped two webhook envelopes; both carry {type, livemode, data}.
+
+    1. {"data": {"attributes": {"type": …, "livemode": …, "data": {resource}}}}  (events reference)
+    2. {"data": {"type": …, "livemode": …, "data": {resource}}}                  (checkout docs)
+    """
+    outer = event.get("data") or {}
+    attrs = outer.get("attributes") if isinstance(outer.get("attributes"), dict) else outer
+    return attrs.get("type", ""), (attrs.get("data") or {}), bool(attrs.get("livemode"))
+
+
+async def handle_webhook_event(event: dict) -> None:
+    etype, resource, _livemode = _envelope(event)
+    attrs = resource.get("attributes") or {}
+    if resource.get("type") == "subscription":
+        await _on_subscription(attrs)
+    elif resource.get("type") == "invoice":
+        await _on_invoice(etype, attrs)
+    # invoice.created/finalized/updated are draft/open churn: no entitlement change, no write.
+
+
+async def _on_subscription(attrs: dict) -> None:
+    subs_id = attrs.get("id") or ""
+    owner = await _owner_for(subscription_id=subs_id, customer_id=attrs.get("customer_id") or "")
+    if not owner:
+        return
+    status_str = attrs.get("status") or ""
+    await _upsert(
+        owner,
+        attrs.get("customer_id") or "",
+        subs_id,
+        attrs.get("plan_id") or "",
+        "free" if status_str in TERMINAL_STATUSES else "premium",
+        status_str,
+        _period_end(attrs.get("next_billing_schedule")),
+    )
+
+
+async def _on_invoice(etype: str, attrs: dict) -> None:
+    owner = await _owner_for(subscription_id=attrs.get("resource_id") or "")
+    if not owner:
+        return
+    if etype == "subscription.invoice.paid":
+        # The strongest "money arrived" signal — it also recovers a past_due/unpaid subscription.
+        # `current_period_end` is left to the subscription events, which carry next_billing_schedule.
+        await fetchrow(
+            "UPDATE subscriptions SET plan = 'premium', status = 'active', updated_at = now() WHERE owner_id = $1 RETURNING id",
+            owner,
+        )
+    elif etype == "subscription.invoice.payment_failed":
+        await fetchrow(
+            "UPDATE subscriptions SET status = 'past_due', updated_at = now() WHERE owner_id = $1 RETURNING id",
+            owner,
+        )
+
+
+async def _owner_for(*, subscription_id: str = "", customer_id: str = "") -> str | None:
+    """Resolve the Clerk owner from PayMongo ids — invoice events carry only the subscription id."""
+    if subscription_id:
+        row = await fetchrow("SELECT owner_id FROM subscriptions WHERE provider_subscription_id = $1 LIMIT 1", subscription_id)
+        if row:
+            return row["owner_id"]
+    if customer_id:
+        row = await fetchrow("SELECT owner_id FROM subscriptions WHERE provider_customer_id = $1 LIMIT 1", customer_id)
+        if row:
+            return row["owner_id"]
+    return None
+
+
+async def _upsert(owner_id: str, customer_id: str, subs_id: str, plan_id: str, plan: str, status_str: str, period_end) -> None:
     await fetchrow(
         """
-        INSERT INTO subscriptions (owner_id, stripe_id, plan, status, current_period_end)
-        VALUES ($1, $2, 'premium', $3, $4)
+        INSERT INTO subscriptions (owner_id, provider, provider_customer_id, provider_subscription_id, provider_plan_id, plan, status, current_period_end)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
         ON CONFLICT (owner_id) DO UPDATE SET
-            stripe_id = EXCLUDED.stripe_id,
+            provider = EXCLUDED.provider,
+            provider_customer_id = EXCLUDED.provider_customer_id,
+            provider_subscription_id = EXCLUDED.provider_subscription_id,
+            provider_plan_id = EXCLUDED.provider_plan_id,
             plan = EXCLUDED.plan,
             status = EXCLUDED.status,
-            current_period_end = EXCLUDED.current_period_end,
+            current_period_end = COALESCE(EXCLUDED.current_period_end, subscriptions.current_period_end),
             updated_at = now()
         RETURNING id
         """,
         owner_id,
-        stripe_id,
+        PROVIDER,
+        customer_id,
+        subs_id,
+        plan_id,
+        plan,
         status_str,
         period_end,
     )
 
 
-async def handle_webhook_event(event: dict) -> None:
-    from app.db import fetchrow
-
-    etype = event.get("type", "")
-    obj = event.get("data", {}).get("object", {})
-
-    if etype == "checkout.session.completed":
-        # Record owner->customer so later subscription events can resolve the owner.
-        owner_id = (obj.get("metadata") or {}).get("owner_id")
-        customer = obj.get("customer")
-        if owner_id and customer:
-            await _upsert(owner_id, customer, "active", None)
-
-    elif etype in ("customer.subscription.created", "customer.subscription.updated"):
-        customer = obj.get("customer")
-        status_str = "active" if obj.get("status") in ("active", "trialing") else obj.get("status", "unknown")
-        period_end = _period_end(obj)
-        # Resolve owner: prefer the owner already stored with this customer id.
-        row = await fetchrow("SELECT owner_id FROM subscriptions WHERE stripe_id = $1 LIMIT 1", customer)
-        owner_id = row["owner_id"] if row else (obj.get("metadata") or {}).get("owner_id")
-        if owner_id:
-            await _upsert(owner_id, customer, status_str, period_end)
-
-    elif etype == "customer.subscription.deleted":
-        customer = obj.get("customer")
-        row = await fetchrow("SELECT owner_id FROM subscriptions WHERE stripe_id = $1 LIMIT 1", customer)
-        if row:
-            await fetchrow(
-                "UPDATE subscriptions SET plan='free', status='canceled' WHERE owner_id = $1 RETURNING id",
-                row["owner_id"],
-            )
-
-
-def _period_end(sub: dict):
-    items = sub.get("items", {}).get("data", [])
-    pe = sub.get("current_period_end")
-    for it in items:
-        if it.get("current_period_end"):
-            pe = it["current_period_end"]
-            break
-    # Stripe sends epoch seconds (int); asyncpg needs a tz-aware datetime for the
-    # timestamptz column.
-    if isinstance(pe, datetime):
-        return pe
-    return datetime.fromtimestamp(pe, tz=UTC) if pe is not None else None
+def _period_end(value) -> datetime | None:
+    """`next_billing_schedule` is a YYYY-MM-DD date; asyncpg needs tz-aware for timestamptz."""
+    if not value:
+        return None
+    if isinstance(value, datetime):
+        return value if value.tzinfo else value.replace(tzinfo=UTC)
+    if isinstance(value, date):
+        return datetime(value.year, value.month, value.day, tzinfo=UTC)
+    if isinstance(value, (int, float)):
+        return datetime.fromtimestamp(value, tz=UTC)
+    try:
+        return datetime.strptime(value, "%Y-%m-%d").replace(tzinfo=UTC)
+    except (TypeError, ValueError):
+        return None
