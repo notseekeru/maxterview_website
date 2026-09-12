@@ -45,8 +45,8 @@ Wiring intent (future code pass):
 ### 2. Log aggregation + metrics — Grafana Cloud (Loki + Prometheus + Grafana)
 
 Single-vendor observability layer:
-- **Loki** ingests the JSON structlog output. In the k3s cluster, a single **Alloy** agent (DaemonSet)
-  ships pod stdout to Loki; label by `app`, `pod`, `env`.
+- **Loki** ingests the JSON structlog output. In the k3s cluster, a single **Alloy** agent (**DaemonSet, not a sidecar**) ships pod stdout to Loki; label by `app`, `pod`, `env`. A DaemonSet is one agent per node tailing every pod's stdout and exposing node-level metrics; a per-pod sidecar duplicates the agent per workload and still needs manifests.
+- **Escape hatch (M13 is not hostage to GitOps):** the backend can push OTLP straight to Grafana Cloud's OTLP gateway (and Loki's push API) using the same `OTEL_EXPORTER_OTLP_*` env + token — identical exporter code, no Alloy and no cluster manifest, at the cost of `pod`/`node` metadata and node/pod metrics until the DaemonSet lands.
 - **Prometheus (Grafana Cloud managed metrics)** receives **metrics via pure OTLP** from the backend
   (no HTTP `/metrics` scrape path).
 - **Grafana dashboards:** request rate / latency / error rate over time, panel filters by
@@ -116,12 +116,19 @@ to Alloy. Instrument in the same request middleware, so every signal carries the
 
 ## Rollout order
 
-1. **structlog JSON logging (foundation)** — cheap, unblocks everything (Design §1).
-2. **Probes** — add readiness + startup probes; use `httpGet` in the gitops deployments (Design §4).
+**Blocker split (corrected 2026-09-12):** M13 is two halves, not one chain. Steps that are app-local are
+compose-verifiable today; the cluster half needs the gitops **`infra/`** layer (Alloy DaemonSet + a
+Terraform-created `grafana-cloud` Secret) — which is shared plumbing, does **not** depend on
+`apps/maxterview`, and can land first. Only the probes step waits on `apps/maxterview` (with M17).
+
+1. **structlog JSON logging (foundation)** — cheap, unblocks everything (Design §1). **App-local, no cluster.**
+2. **Probes** — add readiness + startup probes; use `httpGet` in the gitops deployments (Design §4). **Needs `gitops/apps/maxterview`.**
 3. **Grafana Cloud connect** — provision the tenant + secret; deploy **Alloy** as a k8s DaemonSet
    (OTLP forward + stdout→Loki); wire the backend OpenTelemetry **OTLP exporter** (Design §2-3).
-4. **Dashboards + infra integration** — app request/latency/error panels + k8s resource dashboards (Design §4).
-5. **Alerts + log shaping** — alert rules + contact points; enforce free-tier retention/volume caps (Design §5).
+   Exporter + dev verification: **app-local** (direct OTLP to Grafana Cloud is the documented escape hatch).
+   DaemonSet + secret: **needs `gitops/infra/`.**
+4. **Dashboards + infra integration** — app request/latency/error panels + k8s resource dashboards (Design §4). **Needs Alloy + the Grafana Cloud k8s integration.**
+5. **Alerts + log shaping** — alert rules + contact points; enforce free-tier retention/volume caps (Design §5). **Mostly UI-side once 1-4 land.**
 
 ```mermaid
 flowchart LR
