@@ -26,6 +26,8 @@ DEFAULT = "120/minute"
 _storage = MemoryStorage()
 _limiter = FixedWindowRateLimiter(_storage)
 
+_EXEMPT = frozenset({f"{API_PREFIX}/health", f"{API_PREFIX}/billing/webhook"})
+
 
 @lru_cache(maxsize=8)
 def _item(spec: str):
@@ -59,10 +61,14 @@ def client_key(request: Request) -> str:
 
 
 class ClientRateLimitMiddleware(BaseHTTPMiddleware):
-    """The health route is exempt: it is the probe/CD path, costs nothing, and must answer when the DB is down."""
+    """Two routes are exempt. `/health` is the probe/CD path: it costs nothing and must answer when
+    the DB is down. `/billing/webhook` is HMAC-authenticated and money-bearing — a provider retry
+    storm (every subscriber renewing at midnight, from a handful of provider IPs sharing one client
+    key) must never be 429'd out of applying entitlement.
+    """
 
     async def dispatch(self, request: Request, call_next):
-        if enabled() and request.url.path != f"{API_PREFIX}/health" and not await _limiter.hit(_item(spec()), client_key(request)):
+        if enabled() and request.url.path not in _EXEMPT and not await _limiter.hit(_item(spec()), client_key(request)):
             return JSONResponse(
                 {"detail": "Too many requests. Slow down and retry in a moment."},
                 status_code=429,

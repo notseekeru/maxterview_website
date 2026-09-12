@@ -207,9 +207,55 @@ async def test_subscription_cancelled_drops_to_free(monkeypatch):
 
 
 async def test_subscription_event_with_unknown_subscription_is_ignored(monkeypatch):
+    """A stale/unknown subscription id must NOT fall back to the customer: out-of-order delivery is
+    documented by PayMongo, and a late `cancelled` for a replaced subscription would otherwise
+    overwrite the live row and downgrade a paying customer."""
     calls = _capture(monkeypatch, owner=None)
     await payments.handle_webhook_event(_subscription_event("subscription.activated"))
     assert not any("INSERT INTO subscriptions" in q for q, _ in calls)
+    assert not any("provider_customer_id" in q for q, _ in calls)
+
+
+# --- duplicate-subscription guard (a second POST /v1/subscriptions is a second charge) ---
+
+
+def _row(**kw) -> dict:
+    return {
+        "plan": "premium",
+        "status": "active",
+        "current_period_end": datetime(2026, 10, 14, tzinfo=UTC),
+        "updated_at": datetime(2026, 9, 12, tzinfo=UTC),
+        **kw,
+    }
+
+
+NOW = datetime(2026, 9, 12, 12, tzinfo=UTC)
+
+
+def test_resubscribe_allowed_when_nothing_is_stored():
+    assert payments._resubscribe_block(None, NOW) == ""
+
+
+def test_resubscribe_blocked_inside_a_paid_period():
+    # Day 10 of 30: still paying for this period, whatever the status is.
+    for status in ("active", "past_due", "unpaid", "cancelled"):
+        assert payments._resubscribe_block(_row(status=status), NOW) != "", status
+
+
+def test_resubscribe_allowed_once_the_period_lapsed():
+    lapsed = _row(status="cancelled", current_period_end=datetime(2026, 9, 1, tzinfo=UTC))
+    assert payments._resubscribe_block(lapsed, NOW) == ""
+    # A lapsed row that was already downgraded to free is clear too.
+    assert payments._resubscribe_block(_row(plan="free", status="cancelled", current_period_end=None), NOW) == ""
+
+
+def test_resubscribe_blocked_while_the_first_payment_is_pending():
+    # `incomplete` inside PayMongo's 24h window: the Maya link issued earlier is still live.
+    pending = _row(plan="premium", status="incomplete", current_period_end=None, updated_at=NOW)
+    assert payments._resubscribe_block(pending, NOW) != ""
+    # Past 24h PayMongo has self-cancelled it, so a fresh subscription is the correct retry.
+    stale = _row(plan="premium", status="incomplete", current_period_end=None, updated_at=datetime(2026, 9, 11, 6, tzinfo=UTC))
+    assert payments._resubscribe_block(stale, NOW) == ""
 
 
 async def test_invoice_paid_recovers_subscription_via_subscription_id(monkeypatch):
@@ -220,6 +266,37 @@ async def test_invoice_paid_recovers_subscription_via_subscription_id(monkeypatc
     assert "provider_subscription_id" in lookup and args[0] == "subs_123"
     update = calls[-1]
     assert "status = 'active'" in update[0] and update[1][0] == "paying-user"
+    # Guarded recovery: a cancelled or 24h-expired subscription must NOT be resurrected by a late
+    # invoice payment (PayMongo keeps open invoices collectible after a cancel).
+    assert "status IN ('past_due', 'unpaid', 'incomplete')" in update[0]
+
+
+async def test_ensure_customer_reuses_only_this_providers_id(monkeypatch):
+    """0008 renamed Stripe's `stripe_id` into `provider_customer_id`, so a pre-swap row still holds a
+    Stripe `cus_…`; reusing it would send PayMongo a customer it never issued."""
+    from app.models import ClerkUser
+
+    user = ClerkUser(sub="u1", email="a@b.co", name="A B")
+    seen = {}
+
+    async def _api(method, path, **kwargs):
+        seen["path"] = path
+        return {"data": {"id": "cus_new"}}
+
+    monkeypatch.setattr(payments, "_api", _api)
+
+    async def _stale(_q, _sub):
+        return {"provider": "stripe", "provider_customer_id": "cus_from_stripe"}
+
+    monkeypatch.setattr(payments, "fetchrow", _stale)
+    assert await payments._ensure_customer(user) == "cus_new"
+    assert seen["path"] == "/v1/customers"
+
+    async def _mine(_q, _sub):
+        return {"provider": "paymongo", "provider_customer_id": "cus_pm"}
+
+    monkeypatch.setattr(payments, "fetchrow", _mine)
+    assert await payments._ensure_customer(user) == "cus_pm"
 
 
 async def test_invoice_payment_failed_marks_past_due(monkeypatch):

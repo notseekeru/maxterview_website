@@ -12,7 +12,7 @@ Config (env, zero-touch on credentials — never defaulted, never logged):
   PAYMONGO_PLAN_ID         plan_…   premium monthly (₱499)
   FRONTEND_BASE_URL        first-payment return URL
 
-Raw httpx on purpose: six endpoints; an SDK would only add a dependency to rotate.
+Raw httpx on purpose: seven endpoints; an SDK would only add a dependency to rotate.
 
 Provider seam (D10): this module plus the `subscriptions.provider*` columns are the whole
 provider-specific surface. `billing.resolve_tier` is provider-blind, so adding a second provider
@@ -42,11 +42,41 @@ FRONTEND_BASE_URL = os.getenv("FRONTEND_BASE_URL", "http://localhost:5173")
 PROVIDER = "paymongo"
 
 # Replay window for `Paymongo-Signature` (docs call this optional; it is cheap on a money endpoint).
-SIGNATURE_TOLERANCE_S = 300
+# Env-overridable because a rejected fresh-or-not judgement call here means a paying customer is left
+# locked out until the next retry — every rejection is logged so it is diagnosable, not silent.
+SIGNATURE_TOLERANCE_S = int(os.getenv("PAYMONGO_SIGNATURE_TOLERANCE_S", "300"))
 
 # Provider statuses that mean "no more money is coming" -> the row stops being premium. The other
 # statuses stay `premium` so `past_due`/`unpaid` can recover on a later invoice.paid.
 TERMINAL_STATUSES = ("cancelled", "incomplete_cancelled")
+
+# Mirrors PayMongo's own first-payment window: an `incomplete` subscription self-cancels 24h after
+# its first invoice, so past that point a fresh subscription is the correct retry.
+FIRST_PAYMENT_WINDOW_H = 24
+
+
+def _resubscribe_block(row: dict | None, now: datetime | None = None) -> str:
+    """Why this owner must NOT start another subscription ('' = clear to start).
+
+    PayMongo bills each subscription on a customer independently, so a second
+    `POST /v1/subscriptions` is a second charge — and `/billing/checkout` is reachable directly even
+    though the UI hides the button once premium.
+    """
+    if not row:
+        return ""
+    now = now or datetime.now(UTC)
+    if row.get("status") == "incomplete":
+        # Checked before the period branch: an incomplete subscription has no period yet, and while
+        # the Maya link is alive a second subscription is a second charge for the same first month.
+        started = row.get("updated_at")
+        if started is None or (now - started).total_seconds() < FIRST_PAYMENT_WINDOW_H * 3600:
+            return "A first payment is already pending — finish it, or retry after it expires (24h)"
+        return ""
+    period_end = row.get("current_period_end")
+    if row.get("plan") == "premium" and (period_end is None or period_end > now):
+        # active, past_due, or cancelled-with-time-left — all still inside a period they paid for.
+        return "Your subscription already covers the current period"
+    return ""
 
 
 def _require_config() -> None:
@@ -77,6 +107,10 @@ async def start_subscription(user: ClerkUser) -> str:
     # PayMongo keys customers by a unique email; the Clerk `sub` claim is not an email.
     if "@" not in (user.email or ""):
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Add an email to your account before upgrading")
+    existing = await fetchrow("SELECT plan, status, current_period_end, updated_at FROM subscriptions WHERE owner_id = $1", user.sub)
+    block = _resubscribe_block(existing)
+    if block:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=block)
 
     customer_id = await _ensure_customer(user)
     sub = await _api(
@@ -132,9 +166,11 @@ async def cancel_subscription(user: ClerkUser) -> None:
 
 async def _ensure_customer(user: ClerkUser) -> str:
     """Reuse the owner's PayMongo customer, creating it on first upgrade."""
-    row = await fetchrow("SELECT provider_customer_id FROM subscriptions WHERE owner_id = $1", user.sub)
+    row = await fetchrow("SELECT provider, provider_customer_id FROM subscriptions WHERE owner_id = $1", user.sub)
     existing = (row or {}).get("provider_customer_id") or ""
-    if existing:
+    # Only trust an id this provider issued: 0008 renamed Stripe's `stripe_id` into
+    # `provider_customer_id`, so a pre-swap row still carries a `cus_…` PayMongo never saw.
+    if existing and (row or {}).get("provider") == PROVIDER:
         return existing
     name = (user.name or "").strip().split(" ", 1)
     customer = await _api(
@@ -178,14 +214,22 @@ def verify_signature(raw_body: bytes, header: str) -> bool:
     stamp = parts.get("t", "")
     given = [v for key in ("te", "li") if (v := parts.get(key, ""))]
     if not stamp or not given:
+        log.warning("paymongo.webhook_signature.malformed", header=header[:80])
         return False
     try:
-        if abs(time.time() - int(stamp)) > SIGNATURE_TOLERANCE_S:
+        age = abs(time.time() - int(stamp))
+        if age > SIGNATURE_TOLERANCE_S:
+            # Worth a loud log: a genuine event rejected here (provider retries reusing an old `t`)
+            # would leave a paying user un-entitled until the next delivery.
+            log.warning("paymongo.webhook_signature.stale", age_s=int(age), tolerance_s=SIGNATURE_TOLERANCE_S)
             return False
     except ValueError:
         return False
     expected = hmac.new(WEBHOOK_SECRET.encode(), f"{stamp}.".encode() + raw_body, hashlib.sha256).hexdigest()
-    return any(hmac.compare_digest(expected, candidate) for candidate in given)
+    if any(hmac.compare_digest(expected, candidate) for candidate in given):
+        return True
+    log.warning("paymongo.webhook_signature.mismatch", livemode_slot=bool(parts.get("li")))
+    return False
 
 
 def _envelope(event: dict) -> tuple[str, dict, bool]:
@@ -211,7 +255,16 @@ async def handle_webhook_event(event: dict) -> None:
 
 async def _on_subscription(attrs: dict) -> None:
     subs_id = attrs.get("id") or ""
-    owner = await _owner_for(subscription_id=subs_id, customer_id=attrs.get("customer_id") or "")
+    # Strict on purpose: only the subscription id currently stored on the row may resolve an owner.
+    # Falling back to `customer_id` here would let a STALE event (out-of-order delivery is documented
+    # by PayMongo: a late `cancelled` for a subscription the user already replaced) overwrite the live
+    # row — downgrading a paying customer and pointing their row at a dead subscription.
+    owner = await _owner_for(subscription_id=subs_id)
+    if not owner:
+        if subs_id:
+            log.info("paymongo.webhook.unknown_subscription", subscription_id=subs_id, status=attrs.get("status"))
+            return
+        owner = await _owner_for(customer_id=attrs.get("customer_id") or "")
     if not owner:
         return
     status_str = attrs.get("status") or ""
@@ -231,10 +284,16 @@ async def _on_invoice(etype: str, attrs: dict) -> None:
     if not owner:
         return
     if etype == "subscription.invoice.paid":
-        # The strongest "money arrived" signal — it also recovers a past_due/unpaid subscription.
+        # The strongest "money arrived" signal — it recovers a lapsed-but-live subscription. It does
+        # NOT resurrect a cancelled or 24h-expired one: those are deliberate end states, and a
+        # cancelled subscription can still have collectible open invoices (PayMongo keeps them).
         # `current_period_end` is left to the subscription events, which carry next_billing_schedule.
         await fetchrow(
-            "UPDATE subscriptions SET plan = 'premium', status = 'active', updated_at = now() WHERE owner_id = $1 RETURNING id",
+            """
+            UPDATE subscriptions SET plan = 'premium', status = 'active', updated_at = now()
+            WHERE owner_id = $1 AND status IN ('past_due', 'unpaid', 'incomplete')
+            RETURNING id
+            """,
             owner,
         )
     elif etype == "subscription.invoice.payment_failed":
