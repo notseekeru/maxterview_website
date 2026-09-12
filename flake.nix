@@ -21,6 +21,7 @@
         {
           default = pkgs.mkShell {
             packages = with pkgs; [
+              infisical # infisical for cloud secrets source of truth
               stripe-cli # Stripe sandbox CLI: `stripe login`, `stripe listen`, `stripe trigger`, ...
               curl # the clerk-stripe-operator scripts shell out to curl
               nodejs # host runtime for the @clerk/testing + Playwright headless Clerk e2e
