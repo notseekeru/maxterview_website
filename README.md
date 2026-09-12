@@ -214,18 +214,19 @@ dashboard, no `neonctl`. This requires the `pi-mcp-adapter` extension (pi core h
 NEON_API_KEY=np_...
 ```
 
-Then open a **new terminal** and `/mcp` inside pi to connect. Pi does **not** read env files itself;
-direnv exports `.env` into the shell environment, which is what the MCP adapter reads — so an already
-running shell (or tmux server) keeps the old environment until restarted.
+The adapter reads the key **from `.env` at connect time**, not from `process.env`, so writing or rotating
+the key needs no restart of the shell or of pi — just `/mcp reconnect neon`. It must be launched with
+cwd = repo root (the path is relative), and `.envrc`/direnv still feeds the *rest* of the toolchain.
 
 `NEON_API_KEY` is an **API-scoped** key and is *not* `DATABASE_URL` (that is the separate DSN secret,
 §Deployment). Two device-level facts worth knowing:
 
 - **Auth is bearer, not OAuth.** The adapter keeps OAuth tokens in the OS credential store and fails
   closed rather than writing them in plaintext. Headless Linux here has no Secret Service/keyring, so
-  OAuth cannot complete; `bearerTokenEnv` is a plain `process.env` read and sidesteps this entirely.
-- **The key is per-device, the config is per-repo.** `.mcp.json` is committed and contains only the
-  *variable name*; each machine supplies its own `.env`. A file on one host does not reach another.
+  OAuth cannot complete; the `!command` secret (`bearerToken` runs a shell command, stdout = token)
+  sidesteps this entirely. `bearerTokenEnv` is the equivalent when the key is already exported.
+- **The key is per-device, the config is per-repo.** `.mcp.json` is committed and holds only the *command
+  that reads* `.env`; each machine supplies its own `.env`. A file on one host does not reach another.
 - **`.env` is `env_file`-loaded into the backend container**, so the key is injected there too. Harmless
   in practice (that container already holds `DATABASE_URL`, i.e. direct prod DB access) but the app never
   reads it — it exists only for the MCP adapter.
@@ -250,8 +251,8 @@ basic key is account-wide, so there is no branch-level protection between the ag
 - `.env` files are git-ignored; only `.env.example` is committed.
 - Never commit secrets. Backend refuses to boot in prod with `CLERK_ENABLED=false`.
 - Clerk publishable keys are public; secret keys are admin-only (never in client code).
-- `NEON_API_KEY` (MCP, see "Driving Neon from an agent") lives only in the environment — `.mcp.json`
-  commits the variable *name*, never a value.
+- `NEON_API_KEY` (MCP, see "Driving Neon from an agent") lives only in git-ignored `.env` — `.mcp.json`
+  commits the command that reads it, never a value.
 
 ---
 

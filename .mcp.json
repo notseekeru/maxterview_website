@@ -8,7 +8,7 @@
     "neon": {
       "url": "https://mcp.neon.tech/mcp",
       "auth": "bearer",
-      "bearerTokenEnv": "NEON_API_KEY",
+      "bearerToken": "!sed -n 's/^NEON_API_KEY=//p' .env | head -1",
       "protocolVersion": "auto",
       "lifecycle": "lazy",
       "approveTools": ["*delete*", "*drop*", "*reset*", "*truncate*"]
