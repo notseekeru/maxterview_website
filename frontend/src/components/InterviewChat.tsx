@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
-import { apiDetail, completeInterview, type Feedback, getFeedback, getInterview, getMessages, httpStatus, type Message, regenerateFeedback, startInterview, streamChat } from "@/lib/api";
+import { apiDetail, completeInterview, type Feedback, getFeedback, getInterview, getMessages, httpStatus, MAX_TURN_CHARS, type Message, regenerateFeedback, startInterview, streamChat } from "@/lib/api";
 import { OPENING_ASKS_RESUME } from "@/lib/config";
 import { FeedbackView } from "./FeedbackView";
 import { UpgradeNotice } from "./UsageBadge";
@@ -246,6 +246,7 @@ export function InterviewChat({ interviewId, onExit }: Props) {
                     <CardFooter className="gap-2">
                         <Textarea
                             value={draft}
+                            maxLength={MAX_TURN_CHARS}
                             onChange={(e) => setDraft(e.target.value)}
                             placeholder={interviewOver ? "Interview finished — press Complete" : status === "ready" ? "Type your answer to the interviewer..." : status === "streaming" ? "Waiting for the interviewer..." : "Starting…"}
                             onKeyDown={(e) => {

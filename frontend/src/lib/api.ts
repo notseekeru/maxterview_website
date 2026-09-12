@@ -197,6 +197,10 @@ export async function openBillingPortal(): Promise<string> {
 // --- SSE chat stream ---
 // The backend streams SSE deltas; we consume them with native fetch streaming.
 
+// M11: the backend caps a chat turn (models.ChatTurn); the UI enforces the same bound so the
+// candidate never types past it and meets a raw 422.
+export const MAX_TURN_CHARS = 4000;
+
 export type StreamEvent = { kind: "message"; content: string } | { kind: "done"; closing?: boolean } | { kind: "error"; message: string };
 
 export async function streamChat(interviewId: string, content: string, onEvent: (e: StreamEvent) => void, { signal }: { signal?: AbortSignal } = {}): Promise<void> {

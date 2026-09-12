@@ -4,14 +4,26 @@ from contextlib import asynccontextmanager
 from typing import Annotated
 
 from fastapi import Depends, FastAPI, HTTPException, Request, status
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse, StreamingResponse
 
 from app import billing, llm, payments
 from app.auth import CLERK_ENABLED, get_current_user
 from app.db import close_pool, fetch, fetchrow, init_pool
 from app.models import ChatMessage, ChatTurn, ClerkUser, Dials, Feedback, FeedbackCreate, Interview, InterviewCreate, Message
+from app.ratelimit import ClientRateLimitMiddleware
 
 APP_ENV = os.getenv("APP_ENV", "development")
+
+
+# M11 CORS allow-list: empty by default, because the SPA reaches the API same-origin through the
+# nginx/Vite `/api` proxy and needs no CORS at all. Only set `CORS_ALLOW_ORIGINS` (comma-separated
+# exact origins, never `*`) if the API is ever called from another origin.
+def cors_origins(raw: str) -> list[str]:
+    return [o.strip() for o in raw.split(",") if o.strip()]
+
+
+CORS_ALLOW_ORIGINS = cors_origins(os.getenv("CORS_ALLOW_ORIGINS", ""))
 
 COMPLETE_MAX_FEEDBACK_ATTEMPTS = 3
 COMPLETE_FEEDBACK_BACKOFF_MS = 800
@@ -36,6 +48,11 @@ async def lifespan(_app: FastAPI):
 
 
 app = FastAPI(title="maxterview", lifespan=lifespan)
+
+# Added first => innermost, so CORS stays outermost and its headers are still on a 429.
+app.add_middleware(ClientRateLimitMiddleware)
+if CORS_ALLOW_ORIGINS:
+    app.add_middleware(CORSMiddleware, allow_origins=CORS_ALLOW_ORIGINS, allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 
 
 @app.get("/health")
