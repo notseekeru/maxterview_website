@@ -20,6 +20,8 @@ CMD ["npm", "run", "dev", "--", "--host"]
 
 FROM base AS builder
 
+# No ARG: Vite reads frontend/.env.production (committed, public value) during `npm run build`.
+# The publishable key is not a secret — it ships in dist/assets/*.js by design.
 RUN npm run build
 
 FROM nginxinc/nginx-unprivileged:1.31.5@sha256:4210a3296e7cae7b4f355da48192cd5ea51c88acf9892b95bff967cede85a915 AS prod
