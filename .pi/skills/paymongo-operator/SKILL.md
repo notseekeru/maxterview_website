@@ -105,7 +105,9 @@ To exercise the **real** HMAC path (`Paymongo-Signature`, not the simulate short
    pending inside the 24h window — deliberate (a second `POST /v1/subscriptions` would be a second
    charge), so don't "fix" it by clearing the row.
 3. **Pay within 24h** — the customer completes Maya. PayMongo then charges every later cycle itself.
-   Unpaid after 24h → `incomplete_cancelled`.
+   Unpaid after 24h → `incomplete_cancelled`. The browser returns to `/app?upgrade=pending`, which
+   polls `/api/usage` for the flip (`UpgradePendingNotice`) — in no-Clerk dev mode it can never flip,
+   because `resolve_tier` short-circuits to `dev`.
 4. **Webhooks** — `payment_token.activation`/`payment_session.completed` are ignored;
    `subscription.activated` flips the row to `premium/active`; `invoice.paid` recovers a `past_due`;
    `invoice.payment_failed` → `past_due`; `subscription.updated{status:cancelled}` → `free/cancelled`.

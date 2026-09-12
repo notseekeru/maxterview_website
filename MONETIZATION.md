@@ -71,7 +71,10 @@ Implementation: **raw httpx against PayMongo** (chosen over Xendit — see §7 �
   by PayMongo from that vaulted method. **409s instead of creating a second subscription** while the
   current one still covers a paid period, or while a first payment is pending inside PayMongo's 24h
   window (`payments._resubscribe_block`) — PayMongo bills each subscription on a customer
-  independently, and this route is reachable even though the UI hides the button.
+  independently, and this route is reachable even though the UI hides the button. Two documented
+  shapes could not be exercised before launch, so they are tried both ways and the winner is logged
+  as `paymongo.variant_retry` (`payments._try_variants`): the invoice-list path prefix and whether a
+  server-side attach tolerates `client_key`.
 - `POST /billing/cancel` — PayMongo has **no billing portal**, so cancelling is ours: `DELETE` the
   subscription and mark the row `cancelled` (the paid period keeps serving, §6).
 - `POST /billing/webhook` — verifies `Paymongo-Signature` (HMAC-SHA256 of `"{t}.{raw_body}"` with the
@@ -112,9 +115,12 @@ through the simulate endpoint: `activated` → `premium/active` with a tz-aware 
 `past_due` → `premium/past_due` (not entitled), `invoice.paid` → recovered `premium/active`,
 `cancelled` → `free/cancelled`; an unsigned delivery to `/billing/webhook` is rejected 400; 130 rapid
 webhook deliveries produce zero 429s while `/api/usage` starts 429ing at the 120/min budget; a
-stale-subscription event leaves the live row untouched.
+stale-subscription event leaves the live row untouched; `/app?upgrade=pending` renders the pending
+notice and `/app` renders without it (browser-checked). **Dev caveat:** in no-Clerk dev mode the
+notice cannot flip — `resolve_tier` short-circuits to `dev` — so the pending state is only
+exercisable end-to-end on a real Clerk identity.
 
-**Frontend (2026-08-24 → 09-06):** header tier labels (`UsageBadge`) + lockout/upsell notice (`UpgradeNotice` on 402) wired to the subscribe flow, and a dedicated **billing/plan page** (`/app/settings/billing`) with Free vs Premium cards, current-plan summary, an Upgrade → `/billing/checkout` CTA, and in-app **Cancel** (no provider portal exists). See PLAN §8 M10.
+**Frontend (2026-08-24 → 09-12):** header tier labels (`UsageBadge`) + lockout/upsell notice (`UpgradeNotice` on 402) wired to the subscribe flow, and a dedicated **billing/plan page** (`/app/settings/billing`) with Free vs Premium cards, current-plan summary, an Upgrade → `/billing/checkout` CTA, and in-app **Cancel** (no provider portal exists). The Maya return URL lands on `/app?upgrade=pending`, which `UpgradePendingNotice` turns into a poll → confirm → hard-navigate flow, because the return URL alone is not proof of payment. See PLAN §8 M10.
 
 **Stripe-era payment test (2026-09-06, superseded):** the previous provider returned a hosted Checkout Session URL and delivered signature-verified `customer.subscription.*` events into a `premium`/`active` row; that run is what exposed the epoch-vs-`datetime` binding bug, and the same guard is kept in `payments._period_end` for PayMongo's `next_billing_schedule` date. Residual: until `CLERK_ENABLED=true`, dev-mode users resolve to `dev` rather than premium; `subscriptions` rows can be seeded directly and `resolve_tier` honors them (`ENTITLED_STATUSES` + `current_period_end`).
 

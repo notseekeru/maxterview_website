@@ -70,11 +70,16 @@ Clerk `__session` cookie on the frontend origin via `context.add_cookies` for th
 - If anything challenges the run, STOP automation and let the human finish in the visible browser.
 
 ### 3. Let the webhook round-trip
-PayMongo redirects back to `{FRONTEND_BASE_URL}/app?upgrade=pending` (the query is an inert landing
-marker; the SPA does not read it) and posts `payment_token.activation` / `payment_session.completed`
-(both ignored by our handler) then **`subscription.activated`** and **`subscription.invoice.paid`**.
-Those need a publicly reachable `{BACKEND}/api/billing/webhook` plus the endpoint's secret in
-`PAYMONGO_WEBHOOK_SECRET` — PayMongo has **no CLI and no events API**, so if the app is only on
+PayMongo redirects the browser back to `{FRONTEND_BASE_URL}/app?upgrade=pending`, where
+`UpgradePendingNotice` polls `GET /api/usage` for ~1 minute and then hands the user a manual "Check
+again". The return URL is a claim, not a confirmation — a verified webhook is — so the notice is the
+"I paid and nothing happened" guard: on a `premium` read it confirms, then hard-navigates to `/app` so
+the shell's badge, the billing page and the notice all agree.
+
+PayMongo also posts `payment_token.activation` / `payment_session.completed` (both ignored by our
+handler) and then **`subscription.activated`** / **`subscription.invoice.paid`**, which are what flip
+entitlement. Those need a publicly reachable `{BACKEND}/api/billing/webhook` plus the endpoint's secret
+in `PAYMONGO_WEBHOOK_SECRET` — PayMongo has **no CLI and no events API**, so if the app is only on
 localhost, deliver the equivalent instead:
 
 ```bash
