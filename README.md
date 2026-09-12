@@ -8,7 +8,7 @@ run with Docker Compose. Frontend: Tailwind 4 + shadcn/ui + react-router.
 
 Docs:
 
-- `PLAN.md` — technical decisions (D1–D10) and milestones (M1–M16)
+- `PLAN.md` — technical decisions (D1–D12) and milestones (M1–M17)
 - `MONETIZATION.md` — billing spec (quotas + raw Stripe + billing plan page shipped; real payment test done 2026-09-06; live-Clerk premium view open)
 - `OBSERVABILITY.md` — logging/error-tracking/metrics plan (doc-first M13)
 
@@ -191,16 +191,17 @@ This repo is the **app source**; the gitops repo holds the Kubernetes manifests.
 PVC, no StatefulSet, and no DB backup/upgrade work in-cluster.
 
 - `DATABASE_URL` comes from the `maxterview-secrets` Secret — use Neon's **direct** host
-  (`ep-<id>-<region>.aws.neon.tech`) with `?sslmode=require`, **not** the `-pooler` host.
+  (`ep-<id>.c-<cell>.<region>.aws.neon.tech`, e.g. `ep-falling-firefly-axn22iz4.c-4.us-east-2.aws.neon.tech`) with `?sslmode=require`, **not** the `-pooler` host.
 - The direct host needs zero code changes: the backend is one long-running pod holding ~10 pooled
   connections. Neon's pooler only matters when many short-lived instances share a DB (serverless) —
   and `app/db.py` already auto-detects a `-pooler` DSN (`statement_cache_size=0`) if you ever switch.
-- Run migrations against Neon the same way as dev: `make migrate` with `DATABASE_URL` pointed at it
-  (yoyo is stock Postgres; no changes).
-- **Tradeoffs:** public-internet round trips (measure latency from wherever the app runs) and free-tier
-  compute scale-to-zero, so the first query after idle is slower. In exchange you get durability,
-  backups, and per-PR database branches for testing.
-- Local dev and CI keep the Postgres container / service; only the prod DSN changes. (`NEON_API_KEY`
+- Migrations on deployed envs run from the **in-cluster Job** with `MIGRATE_DATABASE_URL` (D12, PLAN §8 M17), not from a laptop; `make migrate` stays the dev path against the container. **Prod `public` schema is empty today**: the project exists (2026-09-12) but `0001–0007` are unapplied.
+- **Tradeoffs:** public-internet round trips (measure latency from wherever the app runs), and the project runs
+  `suspend_timeout_seconds: 0` = scale-to-zero **off** (no cold start, but ≈182 CU-h/month idle vs the 100 CU-h
+  free budget — set 300 s before deploy, M17); the free history window is 6 h, so snapshot before each prod
+  migration. In exchange you get durability, backups, and disposable branches for testing.
+- Local dev and CI keep the Postgres container / service; only the deployed DSNs change, and prod/staging are
+  **separate Neon projects** (D11) — branches are disposable-only, inside staging. (`NEON_API_KEY`
   for the MCP server also lives in root `.env`, which compose injects into the backend container — the app
   never reads it, and it is separate from `DATABASE_URL`.)
 
