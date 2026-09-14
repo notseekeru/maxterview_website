@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { getUsage, startSubscription, type Usage } from "@/lib/api";
+import { getUsage, startSubscription, turnsToday, type Usage } from "@/lib/api";
 import { clerkEnabled } from "@/lib/config";
 
 // Quota-status badge (GET /usage, MONETIZATION §3).
@@ -30,17 +30,27 @@ export function UsageBadge() {
     // DEV_USER identity).
     const isDev = usage.tier === "dev";
     const tierBadge = usage.tier === "premium" ? <Badge>Premium</Badge> : isDev ? <Badge variant="outline">DEV</Badge> : <Badge variant="outline">Free</Badge>;
+    // The cap is a hard gate (402 mid-interview, no warning), so the remaining count belongs in
+    // the shell rather than only on the billing page.
+    const today = turnsToday(usage);
 
     return (
-        <div className="flex items-center gap-2">
-            {!clerkEnabled && !isDev && <Badge className="bg-muted text-muted-foreground">DEV</Badge>}
-            {/* BYOK: turns run on the user's own provider account, so the daily cap is not enforced. */}
-            {usage.byok && (
-                <Badge variant="secondary" title="Your own provider key pays for the turns; the daily chat-turn limit does not apply.">
-                    BYOK
-                </Badge>
+        <div className="flex min-w-0 flex-col gap-1">
+            <div className="flex flex-wrap items-center gap-2">
+                {!clerkEnabled && !isDev && <Badge className="bg-muted text-muted-foreground">DEV</Badge>}
+                {/* BYOK: turns run on the user's own provider account, so the daily cap is not enforced. */}
+                {usage.byok && (
+                    <Badge variant="secondary" title="Your own provider key pays for the turns; the daily chat-turn limit does not apply.">
+                        BYOK
+                    </Badge>
+                )}
+                {tierBadge}
+            </div>
+            {today && !usage.byok && (
+                <span className="truncate text-[11px] text-muted-foreground" title={`${today.remaining} of ${today.limit} daily chat turns left. Resets at 00:00 UTC.`}>
+                    {today.remaining} of {today.limit} turns left today
+                </span>
             )}
-            {tierBadge}
         </div>
     );
 }

@@ -4,8 +4,9 @@ import { Page } from "@/components/PagePrimitives";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
-import { cancelSubscription, chatTurns, getUsage, startSubscription, type Tier, type Usage } from "@/lib/api";
+import { cancelSubscription, chatTurns, getUsage, startSubscription, type Tier, turnsToday, type Usage } from "@/lib/api";
 import { clerkEnabled } from "@/lib/config";
+import { PLANS } from "@/lib/plans";
 
 // /app/settings/billing. Free vs Premium cards + current-plan summary. The upgrade CTA posts to
 // /billing/checkout, which answers with PayMongo's Maya page for the first payment; PayMongo has no
@@ -26,14 +27,11 @@ export function BillingPage() {
     );
 }
 
-// Free/premium figures from MONETIZATION §0 (turn caps are env-overridable server-side:
-// FREE_CHAT_TURNS=10 / PREMIUM_CHAT_TURNS=250). `dev` (500) isn't marketed.
+// Free/premium figures come from lib/plans (MONETIZATION §0) because the landing page quotes the
+// same numbers. Turn caps are env-overridable server-side, so wherever the caller's own tier is
+// known the LIVE number from GET /usage wins over the marketing default.
 // PayMongo subscriptions are PHP-only, so the price is stated in pesos (app/billing plans are
 // created with amount=49900).
-export const PLANS: Record<"free" | "premium", { name: string; monthly: string; turns: number }> = {
-    free: { name: "Free", monthly: "₱0", turns: 10 },
-    premium: { name: "Premium", monthly: "₱499/mo", turns: 250 },
-};
 
 // --- shared data hook ---
 
@@ -67,7 +65,17 @@ function Summary({ usage, failed, loading }: { usage: Usage | null; failed: bool
             <CardFooter className="text-sm">
                 {usage ? (
                     <span className="text-muted-foreground">
-                        Daily chat turns (all interviews): <span className="font-medium text-foreground">{chatTurns(usage)}</span>
+                        {usage.byok ? (
+                            "Your own provider key pays for the turns, so the daily chat-turn limit does not apply."
+                        ) : turnsToday(usage) ? (
+                            <>
+                                <span className="font-medium text-foreground">{turnsToday(usage)?.remaining}</span> of {turnsToday(usage)?.limit} daily chat turns left, across all interviews. Resets at 00:00 UTC.
+                            </>
+                        ) : (
+                            <>
+                                Daily chat turns (all interviews): <span className="font-medium text-foreground">{chatTurns(usage)}</span>
+                            </>
+                        )}
                     </span>
                 ) : failed ? (
                     <span className="text-destructive">Couldn’t load your plan. Refresh to retry.</span>
@@ -85,6 +93,9 @@ function PlanCard({ tier, usage }: { tier: "free" | "premium"; usage: Usage | nu
     const plan = PLANS[tier];
     const isPremium = tier === "premium";
     const isCurrent = !!usage && usage.tier === tier;
+    // Live cap for the caller's own tier (env can move it); the marketing default only for the
+    // tier they are not on, where no live number exists to show.
+    const today = isCurrent && usage ? turnsToday(usage) : null;
 
     // PayMongo's Maya page is a real redirect we must follow.
     const go = async (open: () => Promise<string>) => {
@@ -159,7 +170,8 @@ function PlanCard({ tier, usage }: { tier: "free" | "premium"; usage: Usage | nu
             </CardHeader>
             <CardContent className="flex-1 space-y-2.5 text-sm text-muted-foreground">
                 <Feature>
-                    <strong>{plan.turns}</strong> chat turns allowed per day
+                    <strong>{today?.limit ?? plan.turns}</strong> chat turns allowed per day
+                    {today && <span className="text-foreground"> · {today.remaining} left today</span>}
                 </Feature>
                 <Feature>Unlimited interviews — no daily cap</Feature>
                 <Feature>{isPremium ? "Priority on the interviewer model + bigger scope" : "Free model keeps quality for everyday practice"}</Feature>

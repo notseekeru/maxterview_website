@@ -2,8 +2,8 @@ import axios, { type AxiosError } from "axios";
 
 import { markAuthGate401 } from "./authHealth";
 
-// The Vite dev proxy (and prod nginx) forward /api/... to the backend, stripping the
-// /api prefix so backend routes at root (/interviews) are hit.
+// The Vite dev proxy (and prod nginx) forward /api/... to the backend unchanged: the app serves
+// its own routes under that prefix (backend `API_PREFIX`), so nothing is stripped on the way.
 const BASE = `${import.meta.env.VITE_API_BASE ?? "/api"}`;
 
 export const api = axios.create({
@@ -121,15 +121,28 @@ export type Tier = "free" | "premium" | "dev";
 
 export interface Usage {
     tier: Tier;
+    /** Per-tier daily cap for the caller's OWN tier — the server reports only that one, so a
+     *  page may never assume another tier's number from here (see lib/plans.ts for marketing). */
     chat_turns_per_day_free?: number;
     chat_turns_per_day_premium?: number;
     chat_turns_per_day_dev?: number;
+    /** Turns already spent today (UTC) against the daily global cap. */
+    chat_turns_used_today?: number;
+    chat_turns_remaining_today?: number;
     /** Turns run on the owner's own provider key, so the daily cap is not enforced. */
     byok?: boolean;
 }
 
 export function chatTurns(usage: Usage): number {
     return usage[`chat_turns_per_day_${usage.tier}`] ?? 0;
+}
+
+/** Today's counter for the caller's own tier, or null when the server did not report it. */
+export function turnsToday(usage: Usage): { limit: number; used: number; remaining: number } | null {
+    const limit = chatTurns(usage);
+    const remaining = usage.chat_turns_remaining_today;
+    if (!limit || typeof remaining !== "number") return null;
+    return { limit, used: usage.chat_turns_used_today ?? limit - remaining, remaining };
 }
 
 // --- interviews ---

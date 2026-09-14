@@ -5,7 +5,7 @@ import { Page } from "@/components/PagePrimitives";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
-import { chatTurns, getUsage, type Usage } from "@/lib/api";
+import { chatTurns, getUsage, turnsToday, type Usage } from "@/lib/api";
 import { clerkEnabled } from "@/lib/config";
 
 // /app/settings/account — single-user account + plan. Managed accounts live under
@@ -18,6 +18,7 @@ export function AccountSettingsPage() {
     }, [load]);
 
     const tierLabel = usage?.tier === "premium" ? "Premium" : usage?.tier === "dev" ? "Developer (dev)" : "Free";
+    const today = usage ? turnsToday(usage) : null;
 
     return (
         <Page title="Account Settings" description="Your sign-in details and subscription.">
@@ -32,7 +33,7 @@ export function AccountSettingsPage() {
                                 ? "Dev mode — no Clerk key; runs against the backend DEV_USER."
                                 : usage?.byok
                                   ? "Your own provider key pays for the turns, so the daily chat-turn limit does not apply."
-                                  : `You are on ${tierLabel}. ${usage ? `Daily chat turns (all interviews): ${chatTurns(usage)}.` : ""}`}
+                                  : `You are on ${tierLabel}. ${usage ? (today ? `${today.remaining} of ${today.limit} daily chat turns left today (all interviews); resets 00:00 UTC.` : `Daily chat turns (all interviews): ${chatTurns(usage)}.`) : ""}`}
                         </CardDescription>
                     </div>
                     <Badge variant={usage?.tier === "premium" ? "default" : "secondary"}>{tierLabel}</Badge>
