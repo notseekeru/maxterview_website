@@ -1,0 +1,16 @@
+/* Monochrome mark: three transcript lines in a speech bubble. No font, so it renders the same
+   at 16px as at 512px. Inverts with the OS theme, matching the app's light/dark palettes. */
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="maxterview">
+  <style>
+    .bg { fill: #000; }
+    .fg { fill: #fff; }
+    @media (prefers-color-scheme: dark) {
+      .bg { fill: #fafafa; }
+      .fg { fill: #0a0a0a; }
+    }
+  </style>
+  <rect class="bg" width="32" height="32" rx="7" />
+  <rect class="fg" x="7" y="9" width="18" height="3" rx="1.5" />
+  <rect class="fg" x="7" y="15" width="14" height="3" rx="1.5" />
+  <rect class="fg" x="7" y="21" width="9" height="3" rx="1.5" />
+</svg>

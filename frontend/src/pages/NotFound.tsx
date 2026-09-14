@@ -1,10 +1,13 @@
 import { Link } from "react-router-dom";
 
 import { Button } from "@/components/ui/button";
+import { useDocumentTitle } from "@/hooks/useDocumentTitle";
 
-// Catch-all for unknown top-level paths (/foo) that match no client route. Reached only
-// via the catch-all <Route>, and still rendered inside <Gate> — auth runs first.
+// Catch-all for unknown top-level paths (/foo) that match no client route. Reached only via the
+// catch-all <Route>, and deliberately OUTSIDE <Gate> so an unknown URL 404s whatever the auth
+// state (the gated subtree would otherwise render it behind a sign-in wall).
 export function NotFound() {
+    useDocumentTitle("Page not found");
     return (
         <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-background p-6 text-center">
             <div className="space-y-2">

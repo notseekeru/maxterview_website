@@ -1,0 +1,8 @@
+# Public: the marketing page only. Everything under /app and /interviews is per-user state
+# rendered behind auth — crawling it yields sign-in walls, not content.
+User-agent: *
+Allow: /$
+Disallow: /app
+Disallow: /interviews/
+
+Sitemap: https://maxterview.seekeru.tech/sitemap.xml
