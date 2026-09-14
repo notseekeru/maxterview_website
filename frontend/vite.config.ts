@@ -15,7 +15,8 @@ export default defineConfig({
     },
     server: {
         proxy: {
-            // The app owns the /api prefix; forward the path unchanged.
+            // The app owns the /api prefix (backend `API_PREFIX`) and forwards the path unchanged.
+            // Dev-server convenience only: prod routes /api at the ingress straight to the backend.
             "/api": "http://backend:8000",
         },
     },
