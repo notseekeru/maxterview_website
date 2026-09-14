@@ -4,30 +4,37 @@ import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { InterviewDims } from "@/hooks/useInterviewData";
 import type { Feedback } from "@/lib/api";
-import { cn } from "@/lib/utils";
 
 interface Props {
     feedback: Feedback[];
     loading: boolean;
     dims: InterviewDims;
-    className?: string;
 }
 
-export function DashboardStats({ loading, dims, feedback, className }: Props) {
+// Full-width stats surface: a 4-up stat row, then trend + dimensions side by side. Sizes are
+// VIEWPORT breakpoints on purpose — this is a top-level page, not a column inside one, so
+// `xl:grid-cols-4` gives ~380px tiles instead of the ~110px it used to hand out when the same
+// grid lived inside a 3/5 column of a max-w-4xl page.
+export function DashboardStats({ loading, dims, feedback }: Props) {
     if (loading) {
         return (
-            <div className={cn("grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4", className)}>
-                <Skeleton className="h-24" />
-                <Skeleton className="h-24" />
-                <Skeleton className="h-24" />
-                <Skeleton className="h-24" />
+            <div className="space-y-4" aria-busy="true">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                    {[0, 1, 2, 3].map((i) => (
+                        <Skeleton key={i} className="h-28" />
+                    ))}
+                </div>
+                <div className="grid gap-4 lg:grid-cols-2">
+                    <Skeleton className="h-80" />
+                    <Skeleton className="h-80" />
+                </div>
             </div>
         );
     }
 
     if (dims.total === 0) {
         return (
-            <Card className={className}>
+            <Card>
                 <CardHeader>
                     <CardTitle>Performance stats</CardTitle>
                 </CardHeader>
@@ -39,7 +46,7 @@ export function DashboardStats({ loading, dims, feedback, className }: Props) {
     }
 
     return (
-        <div className={cn("flex h-full flex-col space-y-4", className)}>
+        <div className="space-y-4">
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
                 <Stat label="Interviews" value={String(dims.total)} />
                 <Stat label="Completed" value={String(dims.completed)} />
@@ -50,7 +57,7 @@ export function DashboardStats({ loading, dims, feedback, className }: Props) {
                     with mean certainty because 3 of 3 at 45% is not 3 of 3 at 95%. */}
                 <Stat label="Hire rate" value={dims.decided === 0 ? "—" : `${Math.round((dims.hiring / dims.decided) * 100)}%`} hint={dims.decided === 0 ? "no decided runs yet" : `${dims.hiring} of ${dims.decided} decided${dims.avgCertainty === null ? "" : ` · ${dims.avgCertainty}% mean certainty`}`} />
             </div>
-            <div className="grid flex-1 grid-cols-1 gap-4 content-stretch lg:grid-cols-2">
+            <div className="grid gap-4 lg:grid-cols-2">
                 <ScoreTrend data={dims.scoreTrend} />
                 <DimensionScores feedback={feedback} />
             </div>
@@ -61,7 +68,7 @@ export function DashboardStats({ loading, dims, feedback, className }: Props) {
 function ScoreTrend({ data }: { data: { label: string; score: number }[] }) {
     if (data.length === 0) {
         return (
-            <Card className="h-full">
+            <Card className="h-80">
                 <CardHeader>
                     <CardTitle className="text-sm">Score trend</CardTitle>
                 </CardHeader>
@@ -72,11 +79,13 @@ function ScoreTrend({ data }: { data: { label: string; score: number }[] }) {
         );
     }
     return (
-        <Card className="flex h-full min-h-0 flex-col">
+        <Card className="flex h-80 flex-col">
             <CardHeader>
                 <CardTitle className="text-sm">Score trend</CardTitle>
             </CardHeader>
-            <CardContent className="flex-1 pb-2">
+            {/* Fixed content height: ResponsiveContainer needs a definite box, and h-80 minus the
+                header keeps both cards in the row the same size. */}
+            <CardContent className="h-60 pb-6">
                 <ScoreTrendChart data={data} />
             </CardContent>
         </Card>
@@ -90,8 +99,8 @@ function Stat({ label, value, hint }: { label: string; value: string; hint?: str
                 <CardTitle className="text-xs font-medium text-muted-foreground">{label}</CardTitle>
             </CardHeader>
             <CardContent>
-                <p className="text-3xl font-semibold tabular-nums">{value}</p>
-                {hint && <p className="mt-1 text-xs text-muted-foreground">{hint}</p>}
+                <p className="text-4xl font-semibold tabular-nums">{value}</p>
+                {hint && <p className="mt-1.5 text-xs text-muted-foreground">{hint}</p>}
             </CardContent>
         </Card>
     );
@@ -112,7 +121,7 @@ function DimensionScores({ feedback }: { feedback: Feedback[] }) {
 
     if (dims.every((d) => d.average === 0)) {
         return (
-            <Card className="h-full">
+            <Card className="h-80">
                 <CardHeader>
                     <CardTitle className="text-sm">Dimension averages</CardTitle>
                 </CardHeader>
@@ -124,16 +133,16 @@ function DimensionScores({ feedback }: { feedback: Feedback[] }) {
     }
 
     return (
-        <Card className="flex h-full min-h-0 flex-col">
+        <Card className="flex h-80 flex-col">
             <CardHeader>
                 <CardTitle className="text-sm">Dimension averages</CardTitle>
             </CardHeader>
-            <CardContent className="grid flex-1 grid-cols-2 grid-rows-2 gap-3">
+            <CardContent className="grid h-60 grid-cols-2 grid-rows-2 gap-3 pb-6">
                 {dims.map((d) => (
                     <div key={d.dimension} className="flex min-w-0 flex-col justify-between rounded-md border px-3 py-2.5">
                         <span className="truncate text-xs capitalize text-muted-foreground">{d.dimension}</span>
-                        {/* At ~90px per tile the bar can only span ~63px, so 4.0 vs 5.0 is a
-                            ~6px difference. The number carries the value; the bar is the cue. */}
+                        {/* The number carries the value; the bar is the cue (see the removed note:
+                            at ~90px per tile the bar can only span ~63px, so 4.0 vs 5.0 is ~6px). */}
                         <span className="text-3xl font-semibold leading-none tabular-nums">
                             {d.average.toFixed(1)}
                             <span className="text-sm font-normal text-muted-foreground">/10</span>
