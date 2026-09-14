@@ -2,6 +2,7 @@ import { UserButton } from "@clerk/react";
 import { useCallback, useState } from "react";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { Icon } from "@/components/AppIcons";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { UsageBadge } from "@/components/UsageBadge";
 import { Button } from "@/components/ui/button";
 import { clerkEnabled } from "@/lib/config";
@@ -29,7 +30,12 @@ export function AppShell() {
             <div className="flex min-h-screen flex-col lg:pl-60">
                 <MobileTopBar />
                 <main className="min-w-0 flex-1">
-                    <Outlet />
+                    {/* Per-page net: a crashing page keeps the rail (and therefore a way out) instead
+                        of taking the whole shell down. The app-level boundary stays as the net for
+                        crashes in the shell itself. */}
+                    <ErrorBoundary inline>
+                        <Outlet />
+                    </ErrorBoundary>
                 </main>
             </div>
         </div>

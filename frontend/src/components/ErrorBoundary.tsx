@@ -1,0 +1,51 @@
+import { Component, type ErrorInfo, type ReactNode } from "react";
+
+import { Button } from "@/components/ui/button";
+
+interface Props {
+    children: ReactNode;
+    /** Render a card sized to sit INSIDE the shell (page crash) instead of a full-page takeover. */
+    inline?: boolean;
+}
+
+interface State {
+    error: Error | null;
+}
+
+// Last line of defence around <Routes>: React unmounts the whole tree on an uncaught render
+// throw, which without this leaves a blank page and no way back. A class is the only way to
+// implement componentDidCatch, and a reload is the only honest recovery for an unknown cause
+// (we hold no per-route cache to reset).
+export class ErrorBoundary extends Component<Props, State> {
+    state: State = { error: null };
+
+    static getDerivedStateFromError(error: Error): State {
+        return { error };
+    }
+
+    componentDidCatch(error: Error, info: ErrorInfo): void {
+        // No Sentry by decision (M13); the console is where the browser-reproduction starts.
+        console.error("unhandled render error", error, info.componentStack);
+    }
+
+    render() {
+        if (!this.state.error) return this.props.children;
+        if (this.props.inline) {
+            return (
+                <div className="m-6 space-y-2 rounded-lg border border-dashed p-4">
+                    <p className="text-sm font-medium">This page failed to render</p>
+                    <p className="text-sm text-muted-foreground">Your interviews are stored server-side and are not affected. Pick another page from the rail, or reload.</p>
+                    <p className="font-mono text-xs text-muted-foreground">{this.state.error.message}</p>
+                </div>
+            );
+        }
+        return (
+            <div className="flex min-h-screen flex-col items-center justify-center gap-3 bg-background p-6 text-center">
+                <h1 className="text-xl font-semibold tracking-tight">Something broke on this screen</h1>
+                <p className="max-w-md text-sm text-muted-foreground">Your interviews are stored server-side and are not affected. Reload to get back to the dashboard.</p>
+                <p className="max-w-md font-mono text-xs text-muted-foreground">{this.state.error.message}</p>
+                <Button onClick={() => window.location.assign("/app")}>Back to dashboard</Button>
+            </div>
+        );
+    }
+}

@@ -1,10 +1,10 @@
-import { ClerkProvider } from "@clerk/react";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import App from "./App.tsx";
-import { clerkEnabled, clerkPublishableKey } from "./lib/config.ts";
 import "./index.css";
 
+// No ClerkProvider here on purpose: the public landing route must not download the auth SDK.
+// The provider lives in the lazy <ClerkGate> (see App.tsx).
 const rootElement = document.getElementById("root");
 
 if (!rootElement) {
@@ -13,13 +13,6 @@ if (!rootElement) {
 
 createRoot(rootElement).render(
     <StrictMode>
-        {clerkEnabled ? (
-            <ClerkProvider publishableKey={clerkPublishableKey}>
-                <App />
-            </ClerkProvider>
-        ) : (
-            // No Clerk key -> dev/no-auth mode (backend DEV_USER, CLERK_ENABLED=false).
-            <App />
-        )}
+        <App />
     </StrictMode>,
 );

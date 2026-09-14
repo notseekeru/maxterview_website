@@ -1,13 +1,10 @@
-import { Show, SignInButton, SignUpButton } from "@clerk/react";
-import { lazy, type ReactNode, Suspense } from "react";
+import { lazy, Suspense } from "react";
 import { BrowserRouter, Outlet, Route, Routes } from "react-router-dom";
 
-import { AppShell } from "@/components/AppShell";
 import { AppThemeSync } from "@/components/AppThemeSync";
 import { AuthMisconfigBanner } from "@/components/AuthMisconfigBanner";
-import { Button } from "@/components/ui/button";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { clerkEnabled } from "@/lib/config";
-import { AccountSettingsPage } from "@/pages/AccountSettingsPage";
 import { BillingPage } from "@/pages/BillingPage";
 import { AnalyticsPage, DocsPage, ManageAccountsPage, ResumePage } from "@/pages/ComingSoonPages";
 import { InterviewsPage } from "@/pages/InterviewsPage";
@@ -19,6 +16,12 @@ import { SystemSettingsPage } from "@/pages/SystemSettingsPage";
 // the chat lives in its own route) so the shell/nav stay light.
 const DashboardHome = lazy(() => import("@/pages/AppHome").then((m) => ({ default: m.AppHome })));
 const InterviewRoute = lazy(() => import("@/pages/InterviewRoute").then((m) => ({ default: m.InterviewRoute })));
+// EVERY module that imports @clerk/react must sit below this line. A static import of AppShell /
+// AccountSettingsPage here would pull the SDK back into the entry chunk that the public landing
+// page pays for — the lazy boundary is the split, not the `clerkEnabled` check.
+const ClerkGate = lazy(() => import("@/components/ClerkGate").then((m) => ({ default: m.ClerkGate })));
+const AppShell = lazy(() => import("@/components/AppShell").then((m) => ({ default: m.AppShell })));
+const AccountSettingsPage = lazy(() => import("@/pages/AccountSettingsPage").then((m) => ({ default: m.AccountSettingsPage })));
 
 function App() {
     return (
@@ -27,57 +30,60 @@ function App() {
             {/* Shown only when Clerk auth env is self-contradictory (bad key, or backend
                 auth-gated but no usable pk_). Above <Routes> so it appears in every mode. */}
             <AuthMisconfigBanner />
-            <Routes>
-                <Route path="/" element={<Landing />} />
+            {/* Inside the router so a crash still renders a usable (styled) page. */}
+            <ErrorBoundary>
+                <Routes>
+                    <Route path="/" element={<Landing />} />
 
-                {/* Gated subtree: this pathless route renders the shell/lightbox around an
-                    <Outlet/> — the recursion is intentional, do not flatten it. */}
-                <Route element={<Gate />}>
-                    <Route path="/app" element={<AppShell />}>
+                    {/* Gated subtree: this pathless route renders the shell/lightbox around an
+                        <Outlet/> — the recursion is intentional, do not flatten it. */}
+                    <Route element={<Gate />}>
+                        <Route path="/app" element={<AppShell />}>
+                            <Route
+                                index
+                                element={
+                                    <Suspense fallback={<GateLoading />}>
+                                        <DashboardHome />
+                                    </Suspense>
+                                }
+                            />
+
+                            <Route path="interviews" element={<InterviewsPage />} />
+                            <Route path="analytics" element={<AnalyticsPage />} />
+                            <Route path="resume" element={<ResumePage />} />
+
+                            <Route path="settings/system" element={<SystemSettingsPage />} />
+                            <Route path="settings/account" element={<AccountSettingsPage />} />
+                            <Route path="settings/billing" element={<BillingPage />} />
+
+                            <Route path="manage/accounts" element={<ManageAccountsPage />} />
+                            <Route path="manage/docs" element={<DocsPage />} />
+
+                            {/* Unknown /app/* path -> dashboard (graceful). */}
+                            <Route
+                                path="*"
+                                element={
+                                    <Suspense fallback={<GateLoading />}>
+                                        <DashboardHome />
+                                    </Suspense>
+                                }
+                            />
+                        </Route>
+
                         <Route
-                            index
+                            path="/interviews/:id"
                             element={
                                 <Suspense fallback={<GateLoading />}>
-                                    <DashboardHome />
-                                </Suspense>
-                            }
-                        />
-
-                        <Route path="interviews" element={<InterviewsPage />} />
-                        <Route path="analytics" element={<AnalyticsPage />} />
-                        <Route path="resume" element={<ResumePage />} />
-
-                        <Route path="settings/system" element={<SystemSettingsPage />} />
-                        <Route path="settings/account" element={<AccountSettingsPage />} />
-                        <Route path="settings/billing" element={<BillingPage />} />
-
-                        <Route path="manage/accounts" element={<ManageAccountsPage />} />
-                        <Route path="manage/docs" element={<DocsPage />} />
-
-                        {/* Unknown /app/* path -> dashboard (graceful). */}
-                        <Route
-                            path="*"
-                            element={
-                                <Suspense fallback={<GateLoading />}>
-                                    <DashboardHome />
+                                    <InterviewRoute />
                                 </Suspense>
                             }
                         />
                     </Route>
 
-                    <Route
-                        path="/interviews/:id"
-                        element={
-                            <Suspense fallback={<GateLoading />}>
-                                <InterviewRoute />
-                            </Suspense>
-                        }
-                    />
-                </Route>
-
-                {/* Catch-all: 404 regardless of auth state. */}
-                <Route path="*" element={<NotFound />} />
-            </Routes>
+                    {/* Catch-all: 404 regardless of auth state. */}
+                    <Route path="*" element={<NotFound />} />
+                </Routes>
+            </ErrorBoundary>
         </BrowserRouter>
     );
 }
@@ -86,35 +92,16 @@ function GateLoading() {
     return <div className="flex min-h-screen items-center justify-center bg-background text-sm text-muted-foreground">Loading…</div>;
 }
 
-// Gate: no-Clerk dev passes children straight through. Clerk mode gates the
-// whole subtree behind sign-in; the signed-out lightbox replaces content.
+// Gate: no-Clerk dev passes children straight through (the Clerk chunk is never fetched). With
+// Clerk on, the lazy provider owns the loading / signed-out / failure states.
 function Gate() {
     if (!clerkEnabled) return <Outlet />;
     return (
-        <ShowContent>
-            <Outlet />
-        </ShowContent>
-    );
-}
-
-function ShowContent({ children }: { children: ReactNode }) {
-    return (
-        <>
-            <Show when="signed-out">
-                <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-background p-6">
-                    <h1 className="text-2xl font-semibold tracking-tight">maxterview</h1>
-                    <div className="flex items-center gap-3">
-                        <Button asChild>
-                            <SignInButton />
-                        </Button>
-                        <Button asChild variant="outline">
-                            <SignUpButton />
-                        </Button>
-                    </div>
-                </div>
-            </Show>
-            <Show when="signed-in">{children}</Show>
-        </>
+        <Suspense fallback={<GateLoading />}>
+            <ClerkGate>
+                <Outlet />
+            </ClerkGate>
+        </Suspense>
     );
 }
 
