@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
@@ -11,6 +11,11 @@ interface Props {
     interviewId: string;
     onExit: () => void;
 }
+
+// Shown to the candidate when a turn fails for a reason they cannot act on. The backend's
+// `event: error` payload is `str(exc)` from the LLM client — provider URLs, timeouts, DNS — which
+// is ops detail, not user copy.
+const STREAM_FAILED = "The interviewer couldn't answer just now — the model was unreachable. Your turn wasn't saved, so send it again in a moment.";
 
 export function InterviewChat({ interviewId, onExit }: Props) {
     const [status, setStatus] = useState<"loading" | "ready" | "streaming" | "completed">("loading");
@@ -99,8 +104,9 @@ export function InterviewChat({ interviewId, onExit }: Props) {
         setStatus("streaming");
 
         // Optimistically show the user's message; the backend persists it too.
+        const localId = `local-${Date.now()}`;
         const userMsg: Message = {
-            id: `local-${Date.now()}`,
+            id: localId,
             interview_id: interviewId,
             role: "user",
             content,
@@ -108,6 +114,14 @@ export function InterviewChat({ interviewId, onExit }: Props) {
         };
         setMessages((m) => [...m, userMsg]);
         setAssistBuf("");
+
+        // A failed turn is rolled back server-side (the backend deletes the just-inserted user
+        // row), so the optimistic bubble must go too — otherwise the transcript here disagrees
+        // with the transcript after a reload, and the answer is silently lost.
+        const rollback = () => {
+            setMessages((m) => m.filter((x) => x.id !== localId));
+            setAssistBuf("");
+        };
 
         const ac = new AbortController();
         abortRef.current = ac;
@@ -142,7 +156,9 @@ export function InterviewChat({ interviewId, onExit }: Props) {
                         // letting the next message discover the same thing via a 409.
                         if (ev.closing) setInterviewOver(true);
                     } else if (ev.kind === "error") {
-                        setError(ev.message || "Streaming error.");
+                        rollback();
+                        setDraft(content);
+                        setError(STREAM_FAILED);
                         setStatus("ready");
                     }
                 },
@@ -154,6 +170,10 @@ export function InterviewChat({ interviewId, onExit }: Props) {
                 if (st === 402) setQuotaLocked(true);
                 else if (st === 409) setInterviewOver(true);
                 else setError("Connection lost while streaming.");
+                rollback();
+                // Only worth restoring when the turn could still be sent (quota/transport); the
+                // arc being over (409) means the text can never be accepted.
+                if (st !== 409) setDraft(content);
             }
             setStatus("ready");
         }
@@ -214,7 +234,7 @@ export function InterviewChat({ interviewId, onExit }: Props) {
                 <FeedbackView feedback={feedback} />
             ) : (
                 <>
-                    <CardContent className="flex-1 overflow-y-auto space-y-3" ref={scrollRef}>
+                    <CardContent className="flex-1 overflow-y-auto space-y-3" ref={scrollRef} role="log" aria-live="polite" aria-busy={status === "streaming"} aria-label="Interview transcript">
                         {error && <p className="text-sm text-destructive">{error}</p>}
                         {quotaLocked && <UpgradeNotice reason="your free chat turns ran out." />}
                         {interviewOver && (
@@ -226,7 +246,9 @@ export function InterviewChat({ interviewId, onExit }: Props) {
                             </div>
                         )}
                         {status === "loading" && <p className="text-sm text-muted-foreground">Starting…</p>}
-                        {messages.length === 0 && OPENING_ASKS_RESUME && <Bubble from="assistant" content={OPENING_ASKS_RESUME} />}
+                        {/* Not while loading: a reopened run would flash the opening line before its
+                            real transcript arrives. */}
+                        {status !== "loading" && messages.length === 0 && OPENING_ASKS_RESUME && <Bubble from="assistant" content={OPENING_ASKS_RESUME} />}
                         {messages.map((m) => (
                             <Bubble key={m.id} from={m.role} content={m.content} />
                         ))}
@@ -247,6 +269,7 @@ export function InterviewChat({ interviewId, onExit }: Props) {
                         <Textarea
                             value={draft}
                             maxLength={MAX_TURN_CHARS}
+                            aria-label="Your answer"
                             onChange={(e) => setDraft(e.target.value)}
                             placeholder={interviewOver ? "Interview finished — press Complete" : status === "ready" ? "Type your answer to the interviewer..." : status === "streaming" ? "Waiting for the interviewer..." : "Starting…"}
                             onKeyDown={(e) => {
@@ -273,7 +296,9 @@ export function InterviewChat({ interviewId, onExit }: Props) {
     );
 }
 
-function Bubble({ from, content, streaming }: { from: string; content: string; streaming?: boolean }) {
+// Memoized: the streaming reply re-renders on every delta, and without this the whole transcript
+// re-renders per token. Only the live bubble's content changes.
+const Bubble = memo(function Bubble({ from, content, streaming }: { from: string; content: string; streaming?: boolean }) {
     const isUser = from === "user";
     return (
         <div className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
@@ -283,7 +308,7 @@ function Bubble({ from, content, streaming }: { from: string; content: string; s
             </div>
         </div>
     );
-}
+});
 
 function Spinner() {
     return <span role="status" aria-label="Loading" className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent" />;
