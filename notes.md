@@ -15,5 +15,6 @@ fix:
 
 infra:
 
+- the infisical prod vars are not set becuz of paymongo
 - wire up the dev/staging/prod ritual
 - neon branching for per-PR test databases instead of a shared CI postgres service
