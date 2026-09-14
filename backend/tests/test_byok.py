@@ -66,11 +66,26 @@ async def test_update_without_a_key_reuses_the_stored_ciphertext(monkeypatch):
     assert args[3:] == ("cipher-old", "9999")  # base URL + model changed, key untouched
 
 
-async def test_first_save_without_a_key_is_rejected(monkeypatch):
-    _capture(monkeypatch, existing=None)
-    with pytest.raises(HTTPException) as exc:
-        await byok.save("user_byok", "https://api.deepseek.com", "deepseek-chat", "")
-    assert exc.value.status_code == 422
+async def test_first_save_without_a_key_is_a_keyless_row(monkeypatch):
+    # Self-hosted BYOK (Ollama/llama.cpp/vLLM): no key exists, and none is required. Stored as the
+    # encrypted empty string so "empty = keep the key" stays one uniform rule.
+    calls = _capture(monkeypatch, existing=None)
+    await byok.save("user_byok", "http://localhost:11434/v1", "qwen3:8b", "")
+
+    _, args = _write(calls)
+    assert args[3] != ""  # still ciphertext, not a bare empty string
+    assert byok._fernet().decrypt(args[3].encode()).decode() == ""
+    assert args[4] == ""  # no hint to show
+
+
+async def test_keyless_row_resolves_without_an_authorization_header(monkeypatch):
+    _capture(monkeypatch, existing={"base_url": "http://192.168.1.9:8080/v1", "model": "qwen", "api_key": byok._fernet().encrypt(b"").decode(), "key_hint": ""})
+
+    config = await byok.resolve_config(_user())
+    assert (config.byok, config.api_key) == (True, "")
+    # No key means no Authorization header at all (not an empty Bearer token).
+    assert llm._headers(config) == {}
+    assert (await byok.public_view(_user()))["key_hint"] is None
 
 
 @pytest.mark.parametrize(

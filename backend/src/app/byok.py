@@ -1,7 +1,8 @@
 """BYOK: per-owner OpenAI-compatible provider credentials (the settings panel's key field).
 
 - One row per owner in `llm_credentials`, written only from /settings/llm. The key is stored
-  Fernet-encrypted under BYOK_ENCRYPTION_KEY; the DB never holds plaintext.
+  Fernet-encrypted under BYOK_ENCRYPTION_KEY; the DB never holds plaintext. A keyless row is valid
+  BYOK: self-hosted endpoints authenticate nothing, and no key just means no Authorization header.
 - Resolution is per request and REPLACES the system LLM_* config for that owner (chat,
   grader and formatter alike, see llm.grader_config).
 - BYOK is optional by construction: no encryption key, no row, or an undecryptable row all
@@ -85,8 +86,11 @@ async def resolve_config(user: ClerkUser) -> llm.LLMConfig:
 
 
 async def save(owner_id: str, base_url: str, model: str, api_key: str) -> None:
-    """Create/update the owner's provider row. Empty `api_key` keeps the key already stored,
-    so base URL and model stay editable without re-pasting the secret."""
+    """Create/update the owner's provider row.
+
+    A supplied `api_key` is encrypted and becomes the saved key. An empty one keeps the stored key
+    (so base URL and model stay editable without re-pasting), and on the FIRST save it means the
+    endpoint needs no auth at all (Ollama, llama.cpp, vLLM)."""
     fernet = _fernet()
     if fernet is None:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=DISABLED_DETAIL)
@@ -98,10 +102,11 @@ async def save(owner_id: str, base_url: str, model: str, api_key: str) -> None:
         key = _key(api_key)
         cipher, hint = fernet.encrypt(key.encode()).decode(), key[-4:]
     else:
+        # Empty means "keep the stored key" for an existing row and "no key at all" for a new one:
+        # self-hosted endpoints (Ollama, llama.cpp, vLLM) authenticate nothing, so a keyless row is
+        # legitimate BYOK. Storing the encrypted empty string keeps the reuse rule uniform.
         existing = await _row(owner_id)
-        if existing is None:
-            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="An API key is required the first time you save provider settings.")
-        cipher, hint = existing["api_key"], existing["key_hint"]
+        cipher, hint = (existing["api_key"], existing["key_hint"]) if existing else (fernet.encrypt(b"").decode(), "")
     await fetchrow(
         "INSERT INTO llm_credentials (owner_id, base_url, model, api_key, key_hint, updated_at) VALUES ($1, $2, $3, $4, $5, now()) ON CONFLICT (owner_id) DO UPDATE SET base_url = EXCLUDED.base_url, model = EXCLUDED.model, api_key = EXCLUDED.api_key, key_hint = EXCLUDED.key_hint, updated_at = now()",
         owner_id,
@@ -125,7 +130,7 @@ async def public_view(user: ClerkUser) -> dict:
         "byok": row is not None,
         "base_url": row["base_url"] if row else "",
         "model": row["model"] if row else "",
-        "key_hint": row["key_hint"] if row else None,
+        "key_hint": (row["key_hint"] or None) if row else None,
         "system": {"configured": not system.stub, "base_url": system.base_url, "model": system.model},
     }
 

@@ -82,15 +82,16 @@ export function LLMProviderCard() {
         });
 
     const disabled = !status?.enabled;
-    // The key is only required for the FIRST save; afterwards base URL/model are editable alone.
-    const canSave = !disabled && Boolean(baseUrl.trim()) && Boolean(model.trim()) && (Boolean(apiKey.trim()) || Boolean(status?.byok));
+    // A key is optional: an empty field keeps the saved key, and a keyless save is how self-hosted
+    // endpoints (Ollama, llama.cpp, vLLM) are configured.
+    const canSave = !disabled && Boolean(baseUrl.trim()) && Boolean(model.trim());
 
     return (
         <Card>
             <CardHeader className="flex-row items-start justify-between space-y-0">
                 <div>
                     <CardTitle>Interview engine (BYOK)</CardTitle>
-                    <CardDescription className="mt-1">Bring your own key: any OpenAI-compatible provider — used for your interviews, scoring and feedback. The key is stored encrypted and is never shown again.</CardDescription>
+                    <CardDescription className="mt-1">Bring your own key: any OpenAI-compatible provider — used for your interviews, scoring and feedback. Self-hosted endpoints (Ollama, llama.cpp) need no key at all; a saved key is stored encrypted and never shown again.</CardDescription>
                 </div>
                 {status && <Badge variant={status.byok ? "default" : "outline"}>{status.byok ? "Your key" : "System default"}</Badge>}
             </CardHeader>
@@ -106,7 +107,8 @@ export function LLMProviderCard() {
                 <CardFooter className="flex flex-col items-stretch gap-4">
                     {status?.byok && (
                         <p className="text-sm text-muted-foreground">
-                            Using <span className="font-medium text-foreground">{status.model}</span> at {status.base_url} · key ending <span className="font-mono">{status.key_hint}</span>
+                            Using <span className="font-medium text-foreground">{status.model}</span> at {status.base_url}
+                            {status.key_hint ? ` · key ending ${status.key_hint}` : " · no API key (self-hosted)"}
                         </p>
                     )}
                     {!status?.byok && status?.system.configured && (
@@ -145,7 +147,7 @@ export function LLMProviderCard() {
 
                     <label htmlFor="llm-api-key" className="flex flex-col gap-1 text-sm">
                         <span className="text-muted-foreground">API key</span>
-                        <Input id="llm-api-key" type="password" autoComplete="off" value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder={status?.byok ? "Leave blank to keep the saved key" : "sk-…"} spellCheck={false} />
+                        <Input id="llm-api-key" type="password" autoComplete="off" value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder={status?.byok && status.key_hint ? "Leave blank to keep the saved key" : "sk-… (optional: Ollama, llama.cpp, vLLM need none)"} spellCheck={false} />
                     </label>
 
                     <div className="flex flex-wrap items-center gap-3">

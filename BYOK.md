@@ -6,9 +6,10 @@ instead of the deployment's `LLM_*` provider. UI: **`/app/settings/system`** →
 engine (BYOK)". Code: `backend/src/app/byok.py` (policy/storage), `llm.LLMConfig` (transport),
 `frontend/src/components/LLMProviderCard.tsx`.
 
-Customization is deliberately three fields: **base URL + model + API key**. One config covers
-the interviewer, the grader and the JSON formatter (`llm.grader_config` derives from it), so
-there is no second place for the two stages of scoring to drift apart.
+Customization is deliberately three fields: **base URL + model + API key** (the key is optional —
+self-hosted endpoints need none). One config covers the interviewer, the grader and the JSON
+formatter (`llm.grader_config` derives from it), so there is no second place for the two stages of
+scoring to drift apart.
 
 ## Enable it (one secret)
 
@@ -29,7 +30,7 @@ Unset → BYOK is **off**: `GET /settings/llm` reports `enabled: false`, writes 
 | Storage | one row per owner in `llm_credentials` (migration `0009`). `api_key` is Fernet ciphertext; `key_hint` is its **last 4 characters** so the UI can say which key is saved. |
 | Resolution | per request, in the `LLMConfigDep` dependency: a usable BYOK row REPLACES `LLM_*` entirely (base URL, model, key — grader included). No row / BYOK off / undecryptable row → `llm.SYSTEM_CONFIG`. |
 | Never returned | no endpoint echoes the key. `PUT` answers the same shape as `GET` (hint only). `POST /settings/llm/test` returns a short status reason, never a provider body (which can echo the request, and the request carries the key). |
-| Reuse | `api_key: ""` on `PUT` keeps the stored key, so base URL and model stay editable without re-pasting. First save requires a key. |
+| Reuse | `api_key: ""` on `PUT` keeps the stored key, so base URL and model stay editable without re-pasting. **A key is optional**: on the first save an empty key saves a keyless row — the right answer for self-hosted endpoints (Ollama, llama.cpp, vLLM) that authenticate nothing. No key = no `Authorization` header. |
 | Quota | BYOK turns skip the daily chat-turn cap and are not metered (`/usage` → `byok: true`, `MONETIZATION.md` §2). The owner pays their provider; the tier label is unchanged. |
 | Availability | every tier, including free. Not a premium perk. |
 | Removal | `DELETE /settings/llm` drops the row; the next call is back on the system provider. |
@@ -41,16 +42,16 @@ Signature-check + `README`-level summary of the two-stage pipeline are unchanged
 
 | Method | Path | Body / result |
 |---|---|---|
-| `GET` | `/api/settings/llm` | `{enabled, byok, base_url, model, key_hint, system:{configured, base_url, model}}` |
+| `GET` | `/api/settings/llm` | `{enabled, byok, base_url, model, key_hint, system:{configured, base_url, model}}` (`key_hint: null` = keyless row) |
 | `PUT` | `/api/settings/llm` | `{base_url, model, api_key?}` → same shape as `GET` |
 | `DELETE` | `/api/settings/llm` | `204` |
 | `POST` | `/api/settings/llm/test` | probes the **saved** config with a 1-token completion → `{ok, detail}` |
 
 Validation on write (all `422`): base URL must be `http(s)` with a host and no embedded
 credentials/query/fragment (so `https://api.openai.com/v1` and `http://localhost:11434/v1` are
-fine, `ftp://…` and `https://user:pw@…` are not); model non-empty; key 8–500 chars with **no
-whitespace** — it goes verbatim into an `Authorization` header, where a stray space or newline is
-a malformed (or injected) request.
+fine, `ftp://…` and `https://user:pw@…` are not); model non-empty; a key, **when supplied**, is
+8–500 chars with **no whitespace** — it goes verbatim into an `Authorization` header, where a stray
+space or newline is a malformed (or injected) request.
 
 ## Threat notes
 

@@ -219,7 +219,8 @@ export interface LLMProviderStatus {
     byok: boolean;
     base_url: string;
     model: string;
-    /** Last 4 characters of the saved key, so the user can tell WHICH key is stored. */
+    /** Last 4 characters of the saved key, so the user can tell WHICH key is stored. Null = no key
+     *  saved (a self-hosted endpoint that authenticates nothing). */
     key_hint: string | null;
     system: { configured: boolean; base_url: string; model: string };
 }
@@ -227,7 +228,8 @@ export interface LLMProviderStatus {
 export interface LLMProviderInput {
     base_url: string;
     model: string;
-    /** Omit/empty to keep the key already stored (base URL and model stay editable). */
+    /** Omit/empty to keep the stored key. An endpoint that needs no auth (Ollama, llama.cpp) can be
+     *  saved keyless — an empty key just means no Authorization header. */
     api_key?: string;
 }
 
