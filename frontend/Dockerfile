@@ -26,5 +26,14 @@ RUN npm run build
 
 FROM nginxinc/nginx-unprivileged:1.31.5@sha256:4210a3296e7cae7b4f355da48192cd5ea51c88acf9892b95bff967cede85a915 AS prod
 
+# Base image snapshots lag Debian point releases (deb13uN); patch OS packages at build.
+# nginx itself is a local .deb at prio 100, so `upgrade` cannot un-pin the tag.
+USER root
+RUN apt-get update \
+    && DEBIAN_FRONTEND=noninteractive apt-get -y -o Dpkg::Options::=--force-confold \
+        upgrade --no-install-recommends \
+    && rm -rf /var/lib/apt/lists/*
+USER 101
+
 COPY --from=builder /app/dist /usr/share/nginx/html
 COPY nginx.conf /etc/nginx/conf.d/default.conf

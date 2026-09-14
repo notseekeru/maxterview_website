@@ -27,6 +27,14 @@ CMD ["uv", "run", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "800
 
 FROM base AS prod
 
+# Base image snapshots lag Debian point releases (deb13uN); patch OS packages at build.
+USER root
+RUN apt-get update \
+    && DEBIAN_FRONTEND=noninteractive apt-get -y -o Dpkg::Options::=--force-confold \
+        upgrade --no-install-recommends \
+    && rm -rf /var/lib/apt/lists/*
+USER appuser
+
 ENV APP_ENV=production
 
 EXPOSE 8000
