@@ -67,7 +67,11 @@ function computeDims(interviews: Interview[] | null): InterviewDims {
     const completed = list.filter((i) => i.status === "completed");
     const recent = completed.filter((i) => typeof i.score === "number");
     const avgScore = recent.length === 0 ? 0 : recent.reduce((a, i) => a + (i.score as number), 0) / recent.length;
-    const window = recent.slice(-20);
+    // GET /interviews is ordered created_at DESC, so `recent` is newest-first. A trend chart has
+    // to run oldest -> newest, and "last 20" means the 20 MOST RECENT, not the tail of a
+    // newest-first array (that plotted the oldest runs, right to left).
+    const chronological = [...recent].reverse();
+    const window = chronological.slice(-20);
     const dates = window.map((i) => i.created_at.slice(0, 10));
     const scoreTrend = window.map((i) => ({ label: trendLabel(i.created_at, dates.filter((d) => d === i.created_at.slice(0, 10)).length > 1), score: i.score as number }));
     // Decisions are counted over their OWN denominator: an unscored or undecided run must
