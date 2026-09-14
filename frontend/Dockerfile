@@ -24,7 +24,7 @@ FROM base AS builder
 # The publishable key is not a secret — it ships in dist/assets/*.js by design.
 RUN npm run build
 
-FROM nginxinc/nginx-unprivileged:1.31.5@sha256:4210a3296e7cae7b4f355da48192cd5ea51c88acf9892b95bff967cede85a915 AS prod
+FROM nginxinc/nginx-unprivileged:1.31.5@sha256:9d689e987337916e713a2d5fa84966550d9532e4cb512e7d6ad99df87ffe1ec8 AS prod
 
 # Base image snapshots lag Debian point releases (deb13uN); patch OS packages at build.
 # nginx itself is a local .deb at prio 100, so `upgrade` cannot un-pin the tag.
