@@ -95,9 +95,8 @@ function PlanCard({ tier, usage }: { tier: "free" | "premium"; usage: Usage | nu
     const plan = PLANS[tier];
     const isPremium = tier === "premium";
     const isCurrent = !!usage && usage.tier === tier;
-    // Period mode pays once for a stretch of time: nothing is scheduled at the provider to cancel, so
-    // the card states when the paid time ends instead of offering a cancel that would cancel nothing
-    // (backend `cancel_upgrade`).
+    // Period mode pays once for a stretch of time: nothing is scheduled provider-side to cancel, so
+    // the card shows when the paid time ends instead of a button that would cancel nothing.
     const periodMode = usage?.billing_mode === "period";
     const until = usage?.premium_until ? new Date(usage.premium_until).toLocaleDateString() : null;
     // Live cap for the caller's own tier (env can move it); the marketing default only for the
@@ -132,8 +131,8 @@ function PlanCard({ tier, usage }: { tier: "free" | "premium"; usage: Usage | nu
     };
 
     const onPremium = usage?.tier === "premium";
-    // Paid-through state, shared by both cards: whichever one is not "current" still has to say why
-    // the user cannot buy again yet (the backend refuses a second purchase inside a paid period).
+    // Shared by both cards: the non-current one still has to say why buying again is not possible yet
+    // (the backend refuses a second purchase inside a paid period).
     const paidThrough = (
         <Button className="w-full" variant="outline" disabled>
             {until ? `Premium until ${until}` : "Premium active"}

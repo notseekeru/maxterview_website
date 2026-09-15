@@ -109,8 +109,7 @@ export function Landing() {
                             );
                         })}
                     </div>
-                    {/* No renewal claim: the live billing mode is a server setting (period top-up vs
-                        provider-managed recurring), so this must stay true in both. */}
+                    {/* Must stay true in both billing modes. */}
                     <p className="text-xs text-muted-foreground">Prices in PHP, charged through PayMongo (Maya). You keep Premium until the end of the period you paid for.</p>
                 </section>
 

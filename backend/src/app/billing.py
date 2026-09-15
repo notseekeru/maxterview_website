@@ -47,8 +47,7 @@ ENTITLED_STATUSES = ("active", "cancelled")
 async def _entitled_row(owner_id: str) -> dict | None:
     """The one predicate for "this owner has paid time left", shared by tier + period readout.
 
-    No scheduled job lapses a subscription: the period is checked at read time, so an expired
-    `current_period_end` (or a `past_due`/`unpaid` status) downgrades on the next call.
+    The period is checked at read time, so no scheduled job is needed to lapse a subscription.
     """
     return await fetchrow(
         """
@@ -71,8 +70,8 @@ async def resolve_tier(user: ClerkUser) -> str:
 
 
 async def premium_until(owner_id: str) -> datetime | None:
-    """When the current paid time lapses. In period mode nothing auto-renews, so the UI has to show
-    this: the user buying again IS the renewal."""
+    """When the paid time lapses. Period mode never renews itself, so the user buying again is the
+    renewal and the UI has to state the deadline."""
     return ((await _entitled_row(owner_id)) or {}).get("current_period_end")
 
 

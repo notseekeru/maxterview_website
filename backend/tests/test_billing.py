@@ -322,7 +322,7 @@ async def test_unknown_event_type_is_ignored(monkeypatch):
 # --- period mode: one paid Payment Intent buys PREMIUM_PERIOD_DAYS of premium ---
 
 
-def _payment_event(*, etype: str = "payment.paid", intent_id: str = "pi_1", legacy: bool = False) -> dict:
+def _payment_event(*, etype: str = "payment.paid", intent_id: str = "pi_1") -> dict:
     """`payment.paid` carries the intent it charged; a `payment_intent` event IS the intent."""
     if etype.startswith("payment_intent"):
         resource = {"id": intent_id, "type": "payment_intent", "attributes": {"id": intent_id, "amount": 49900, "status": "succeeded"}}
@@ -332,8 +332,7 @@ def _payment_event(*, etype: str = "payment.paid", intent_id: str = "pi_1", lega
             "type": "payment",
             "attributes": {"id": "pay_1", "amount": 49900, "status": "paid", "payment_intent_id": intent_id},
         }
-    body = {"type": etype, "livemode": False, "data": resource}
-    return {"data": {"attributes": body} if legacy else body}
+    return {"data": {"type": etype, "livemode": False, "data": resource}}
 
 
 async def test_payment_paid_credits_the_pending_row(monkeypatch):
@@ -352,9 +351,10 @@ async def test_payment_paid_credits_the_pending_row(monkeypatch):
     assert payments.PREMIUM_PERIOD_DAYS <= days < payments.PREMIUM_PERIOD_DAYS + 0.01
 
 
-async def test_payment_intent_succeeded_credits_and_legacy_envelope_works(monkeypatch):
+async def test_payment_intent_succeeded_credits_too(monkeypatch):
+    """The sibling event must credit as well: either type may be the only one a method emits."""
     calls = _capture(monkeypatch)
-    await payments.handle_webhook_event(_payment_event(etype="payment_intent.succeeded", intent_id="pi_2", legacy=True))
+    await payments.handle_webhook_event(_payment_event(etype="payment_intent.succeeded", intent_id="pi_2"))
     _, args = next((q, a) for q, a in calls if "UPDATE subscriptions" in q)
     assert args[1] == "pi_2"
 
@@ -380,24 +380,14 @@ async def test_a_second_delivery_matches_nothing_and_grants_no_extra_time(monkey
     assert [a[1] for a in attempted] == ["pi_1", "pi_1"]  # both tried, neither wrote
 
 
-async def test_payment_for_an_intent_we_never_issued_is_ignored(monkeypatch):
+async def test_payment_events_that_cannot_credit_write_nothing(monkeypatch):
+    """Three ways to be a no-op: not a paid event, no intent id, and an intent we never issued."""
     calls = _capture(monkeypatch, owner=None)
-    await payments.handle_webhook_event(_payment_event(intent_id="pi_from_another_key"))
-    assert not any("UPDATE subscriptions" in q for q, _ in calls)
-
-
-async def test_payment_events_that_are_not_paid_write_nothing(monkeypatch):
-    calls = _capture(monkeypatch)
     await payments.handle_webhook_event(_payment_event(etype="payment.failed"))
-    assert calls == []
-
-
-async def test_payment_event_without_a_reference_is_ignored(monkeypatch):
-    """No intent id -> no owner can be resolved, so there is nothing to credit."""
-    calls = _capture(monkeypatch)
-    event = {"data": {"type": "payment.paid", "livemode": False, "data": {"id": "pay_9", "type": "payment", "attributes": {"status": "paid"}}}}
-    await payments.handle_webhook_event(event)
-    assert calls == []
+    await payments.handle_webhook_event(_payment_event(intent_id="pi_from_another_key"))
+    no_reference = {"data": {"type": "payment.paid", "livemode": False, "data": {"id": "pay_9", "type": "payment", "attributes": {"status": "paid"}}}}
+    await payments.handle_webhook_event(no_reference)
+    assert not any("UPDATE subscriptions" in q for q, _ in calls)
 
 
 # --- Paymongo-Signature (HMAC-SHA256 of "{t}.{raw_body}") ---
@@ -537,13 +527,18 @@ def _buyer() -> ClerkUser:
     return ClerkUser(sub="u", email="a@b.co", name="A B")
 
 
-async def test_period_mode_does_not_need_a_plan_id(monkeypatch):
+async def test_period_mode_needs_a_secret_key_but_no_plan_id(monkeypatch):
     """`PAYMONGO_PLAN_ID` is unset on this account and must not gate the launch mode."""
     monkeypatch.setattr(payments, "SECRET_KEY", "sk_test_x")
     monkeypatch.setattr(payments, "PLAN_ID", "")
     payments._require_period_config()  # no raise: the price lives in PREMIUM_PRICE_CENTAVOS
     with pytest.raises(HTTPException):
         payments._require_config()
+
+    monkeypatch.setattr(payments, "SECRET_KEY", "")
+    with pytest.raises(HTTPException) as exc:
+        await payments.start_period_purchase(_buyer())
+    assert exc.value.status_code == 503
 
 
 async def test_start_upgrade_dispatches_on_mode(monkeypatch):
@@ -621,13 +616,6 @@ async def test_start_period_purchase_needs_an_email_and_a_free_slot(monkeypatch)
     with pytest.raises(HTTPException) as covered:
         await payments.start_period_purchase(_buyer())
     assert covered.value.status_code == 409
-
-
-async def test_start_period_purchase_refuses_without_a_secret_key(monkeypatch):
-    monkeypatch.setattr(payments, "SECRET_KEY", "")
-    with pytest.raises(HTTPException) as exc:
-        await payments.start_period_purchase(_buyer())
-    assert exc.value.status_code == 503
 
 
 async def test_cancel_period_keeps_the_paid_time_and_calls_no_provider(monkeypatch):

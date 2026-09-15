@@ -15,15 +15,11 @@ os.environ.setdefault("DATABASE_URL", "postgresql://x:x@localhost:5432/x")
 os.environ["RATE_LIMIT"] = "off"
 
 # --- per-run test database ---------------------------------------------------
-#
-# The suite runs as ONE fixed identity (`CLERK_ENABLED=false` -> DEV_USER) and chat turns are counted
-# per (owner, UTC day). Pointed at the shared dev database, a second run inside the same UTC day
-# inherits the first run's spend: quota-gated endpoints start answering 402 and unrelated tests fail
-# (observed: 8 failures on a re-run), and every run leaves rows in the dev DB.
-#
-# So each run gets its own database, migrated by the suite itself (`test_api.migrated_db` runs yoyo).
-# A CI job whose Postgres service is already per-job — or anyone who wants to inspect the data
-# afterwards — opts out by naming one: `M5_TEST_DATABASE_URL=... pytest`.
+# One fixed identity (`CLERK_ENABLED=false` -> DEV_USER) plus per-(owner, UTC day) turn counters means
+# a second run inside the same UTC day inherits the first run's spend: quota-gated endpoints start
+# answering 402 and unrelated tests fail. So each run gets its own database (migrated by
+# `test_api.migrated_db`). A per-job CI Postgres, or anyone wanting to inspect the data afterwards,
+# opts out by naming one: `M5_TEST_DATABASE_URL=… pytest`.
 import atexit
 
 _BASE_DSN = os.environ.get("DATABASE_URL", "")

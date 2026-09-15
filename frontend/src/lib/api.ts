@@ -157,8 +157,8 @@ export interface Usage {
     byok?: boolean;
     /** How a payment becomes premium: `period` = one-time top-up with no auto-renew. */
     billing_mode?: "period" | "subscription";
-    /** ISO timestamp when the paid time lapses. Period mode never renews itself, so a UI that hides
-     *  this leaves the user to discover the downgrade by hitting the cap. */
+    /** ISO timestamp when the paid time lapses; period mode never renews itself, so hiding this
+     *  leaves the user to discover the downgrade by hitting the cap. */
     premium_until?: string | null;
 }
 
@@ -240,9 +240,9 @@ export async function getUsage(): Promise<Usage> {
     return data;
 }
 
-// Both hit our billing surface: /billing/checkout returns a URL we must follow (PayMongo's Maya
-// page — it has no hosted upgrade page), and there is no provider portal, so stopping a renewal is
-// our own endpoint. Which of the two modes is live is the server's decision (`GET /usage`).
+// Both hit our billing surface: /billing/checkout returns a URL we must follow (PayMongo's Maya page
+// — no hosted upgrade page exists), and with no provider portal, stopping a renewal is our endpoint.
+// Which mode is live is the server's decision (`GET /usage`).
 export async function startUpgrade(): Promise<string> {
     const { data } = await api.post<{ url: string }>("/billing/checkout");
     return data.url;
