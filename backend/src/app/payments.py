@@ -289,6 +289,11 @@ async def _ensure_customer(user: ClerkUser) -> str:
                     "first_name": name[0] or "Maxterview",
                     "last_name": name[1] if len(name) > 1 else "Member",
                     "email": user.email,
+                    # PayMongo made this required (values: `email` | `phone`, "for future use in
+                    # sending in authentication and notifications"). The upgrade path already
+                    # refuses to start without an email, so `email` is the only honest choice — and
+                    # without the field every POST /v1/customers 400s.
+                    "default_device": "email",
                 }
             }
         },
