@@ -166,6 +166,8 @@ class FeedbackSummary(BaseModel):
 
 class ChatTurn(BaseModel):
     interview_id: str
+    # The candidate's turn is the one unbounded blob that reaches the model, so cap it. Keep in step
+    # with frontend/src/lib/api.ts MAX_TURN_CHARS — the two drifted once (12000 vs 4000).
     content: str = Field(min_length=1, max_length=8000)
 
 

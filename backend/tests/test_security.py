@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 
 from app import ratelimit
 from app.main import CORS_ALLOW_ORIGINS, app, cors_origins
+from app.models import ChatTurn
 from app.ratelimit import ClientRateLimitMiddleware
 
 
@@ -51,8 +52,13 @@ def test_cors_stays_off_until_an_origin_is_listed():
 
 
 def test_chat_turn_length_is_bounded():
+    # Read the cap off the model instead of hardcoding it: it moved 4000 -> 8000 (commit 99f73da) and
+    # this test kept asserting the old number, so a 4001-char body sailed through validation and died
+    # later in the handler (500 from the UUID lookup) instead of returning the intended 422.
+    metadata = ChatTurn.model_fields["content"].metadata
+    cap = next(m.max_length for m in metadata if hasattr(m, "max_length"))
     with TestClient(app, raise_server_exceptions=False) as c:
-        for bad in ("", "x" * 4001):
+        for bad in ("", "x" * (cap + 1)):
             r = c.post("/api/interviews/x/chat/stream", json={"interview_id": "x", "content": bad})
             assert r.status_code == 422, len(bad) if isinstance(bad, str) else bad
 
