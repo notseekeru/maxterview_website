@@ -31,14 +31,20 @@ export function InterviewChat({ interviewId, onExit }: Props) {
     const [interviewOver, setInterviewOver] = useState(false);
     const [completing, setCompleting] = useState(false); // 'Completing…' / 'Retry scoring…' spinner
     const [scoringTip, setScoringTip] = useState(false); // completed but feedback not ready yet
+    // Synchronous turn lock. `status` is React state, so two clicks landing before a re-render both
+    // read "ready" and post the answer twice; this ref cannot be raced that way.
+    const sendingRef = useRef(false);
     const abortRef = useRef<AbortController | null>(null);
     const scrollRef = useRef<HTMLDivElement | null>(null);
 
     const loadMessages = useCallback(async () => {
         try {
-            setMessages(await getMessages(interviewId));
+            const rows = await getMessages(interviewId);
+            setMessages(rows);
+            return rows;
         } catch {
             setError("Could not load conversation.");
+            return null;
         }
     }, [interviewId]);
 
@@ -105,7 +111,8 @@ export function InterviewChat({ interviewId, onExit }: Props) {
 
     async function send() {
         const content = draft.trim();
-        if (!content || status !== "ready") return;
+        if (!content || status !== "ready" || sendingRef.current) return;
+        sendingRef.current = true;
         setDraft("");
         setError(null);
         setStatus("streaming");
@@ -136,6 +143,9 @@ export function InterviewChat({ interviewId, onExit }: Props) {
         // message+done in the same tick, before React re-renders, so a ref mirrored from state is
         // still empty at "done" and the reply never reaches the transcript.
         let buffer = "";
+        // Did the server give the turn a verdict? A stream can also just stop (proxy drop, worker
+        // death), and that must not read as a finished turn.
+        let settled = false;
         try {
             await streamChat(
                 interviewId,
@@ -145,6 +155,7 @@ export function InterviewChat({ interviewId, onExit }: Props) {
                         buffer += ev.content;
                         setAssistBuf(buffer);
                     } else if (ev.kind === "done") {
+                        settled = true;
                         if (buffer) {
                             setMessages((m) => [
                                 ...m,
@@ -163,6 +174,7 @@ export function InterviewChat({ interviewId, onExit }: Props) {
                         // letting the next message discover the same thing via a 409.
                         if (ev.closing) setInterviewOver(true);
                     } else if (ev.kind === "error") {
+                        settled = true;
                         rollback();
                         setDraft(content);
                         setError(STREAM_FAILED);
@@ -171,6 +183,18 @@ export function InterviewChat({ interviewId, onExit }: Props) {
                 },
                 { signal: ac.signal },
             );
+            if (!settled) {
+                // The stream ended with neither a reply nor an error. The server may have stored the
+                // reply we never saw, or rolled the turn back, so ask it rather than guess.
+                setAssistBuf("");
+                const rows = await loadMessages();
+                if (rows?.some((m) => m.role === "user" && m.content === content)) setError(null);
+                else {
+                    rollback();
+                    setDraft(content);
+                    setError(STREAM_FAILED);
+                }
+            }
         } catch (e: unknown) {
             if ((e as { name?: string })?.name !== "AbortError") {
                 const st = httpStatus(e);
@@ -182,6 +206,10 @@ export function InterviewChat({ interviewId, onExit }: Props) {
                 // arc being over (409) means the text can never be accepted.
                 if (st !== 409) setDraft(content);
             }
+        } finally {
+            // Unconditional: every path through a turn has to hand the composer back, including the
+            // truncated stream above, which throws nothing for the catch to reset on.
+            sendingRef.current = false;
             setStatus("ready");
         }
     }
@@ -315,7 +343,6 @@ const Bubble = memo(function Bubble({ from, content, streaming, moveClass }: { f
                 {content}
                 {streaming && <span className="inline-block animate-pulse">▋</span>}
             </div>
-            {/* Only candidate turns are ever annotated. */}
             {isUser && moveClass && <MoveBadge moveClass={moveClass} />}
         </div>
     );

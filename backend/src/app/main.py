@@ -4,6 +4,7 @@ import os
 from contextlib import asynccontextmanager
 from typing import Annotated
 
+import structlog
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse, StreamingResponse
@@ -15,6 +16,7 @@ from app.models import ChatMessage, ChatTurn, ClerkUser, Dials, Feedback, Feedba
 from app.ratelimit import ClientRateLimitMiddleware
 
 APP_ENV = os.getenv("APP_ENV", "development")
+log = structlog.get_logger(__name__)
 
 
 # M11 CORS allow-list: empty by default, because the SPA reaches the API same-origin through the
@@ -397,12 +399,35 @@ async def chat_stream(
 
         await billing.bump_chat_turn(user.sub)
 
+    # A trailing user turn means an earlier attempt died before its reply was written (killed worker,
+    # client abort): this send is that turn's retry, so it REPLACES it. Doing it only here, past the
+    # guards, keeps a refused turn (409/402) from deleting anything. The stale row is dropped from the
+    # history too, or the model would see the same answer twice.
+    if prior_rows and prior_rows[-1]["role"] == "user":
+        await fetchrow(
+            "DELETE FROM messages WHERE interview_id = $1 AND id = (SELECT id FROM messages WHERE interview_id = $1 ORDER BY created_at DESC, id DESC LIMIT 1)",
+            interview_id,
+        )
+        prior_rows = prior_rows[:-1]
+
     user_msg = await fetchrow(
         "INSERT INTO messages (interview_id, role, content) VALUES ($1, 'user', $2) RETURNING id::text",
         interview_id,
         body.content,
     )
     user_msg_id = user_msg["id"] if user_msg else None
+
+    async def _discard_turn() -> None:
+        """Delete the in-flight user turn; never raises.
+
+        Runs on the failure path, including cancellation, where a raising rollback would mask the
+        original error. Shielded because a cancelled task can be cancelled again mid-delete."""
+        if not user_msg_id:
+            return
+        try:
+            await asyncio.shield(fetchrow("DELETE FROM messages WHERE id = $1 AND interview_id = $2", user_msg_id, interview_id))
+        except BaseException:
+            log.warning("chat.turn_rollback_failed", interview_id=interview_id)
 
     history = [
         ChatMessage(role="system", content=llm.system_prompt(interview["role"], interview["level"], interview["topic"], asked=asked, dials=dials)),
@@ -431,21 +456,24 @@ async def chat_stream(
                 if delta:
                     collected.append(delta)
                     yield f"event: message\ndata: {delta}\n\n"
+            reply = "".join(collected).strip()
+            if not reply:
+                raise RuntimeError("the model returned no reply")  # an empty bubble would read as answered
+            await fetchrow(
+                "INSERT INTO messages (interview_id, role, content) VALUES ($1, 'assistant', $2) RETURNING id",
+                interview_id,
+                reply,
+            )
         except Exception as exc:
-            if user_msg_id:
-                await fetchrow(
-                    "DELETE FROM messages WHERE id = $1 AND interview_id = $2",
-                    user_msg_id,
-                    interview_id,
-                )
+            # Model or DB failure while the turn is in flight: the user's row must not outlive it, or
+            # the next send duplicates the answer (see the repair above).
+            await _discard_turn()
             yield f"event: error\ndata: {str(exc)}\n\n"
             return
-        reply = "".join(collected).strip()
-        await fetchrow(
-            "INSERT INTO messages (interview_id, role, content) VALUES ($1, 'assistant', $2) RETURNING id",
-            interview_id,
-            reply,
-        )
+        except BaseException:
+            # Client went away (CancelledError/GeneratorExit): same rollback, nobody left to notify.
+            await _discard_turn()
+            raise
         yield "event: done\ndata: {}\n\n"
 
     return StreamingResponse(_stream_events(), media_type="text/event-stream")

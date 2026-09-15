@@ -106,6 +106,58 @@ def test_chat_refuses_turns_after_the_question_mix_is_spent(client):
     c.delete(f"/api/interviews/{iid}")
 
 
+def test_chat_rolls_back_the_turn_when_the_model_fails(client, monkeypatch):
+    # A turn that never got a reply must not stay in the transcript: the resend would duplicate the
+    # answer, with the stale copy sitting unanswered.
+    from app import llm
+
+    async def _boom(*_a, **_kw):
+        raise RuntimeError("provider exploded")
+        yield  # pragma: no cover - makes this an async generator
+
+    monkeypatch.setattr(llm, "stream_chat", _boom)
+    c = client
+    iid = c.post("/api/interviews", json={"role": "Rollback On Model Failure"}).json()["id"]
+    c.post(f"/api/interviews/{iid}/start")
+    body = c.post(f"/api/interviews/{iid}/chat/stream", json={"interview_id": iid, "content": "my answer"}).text
+    assert "event: error" in body
+    assert c.get(f"/api/interviews/{iid}/messages").json() == []
+
+    # The same turn after the model recovers: exactly one copy of the answer.
+    monkeypatch.undo()
+    assert c.post(f"/api/interviews/{iid}/chat/stream", json={"interview_id": iid, "content": "my answer"}).status_code == 200
+    roles = [m["role"] for m in c.get(f"/api/interviews/{iid}/messages").json()]
+    assert roles == ["user", "assistant"]
+    c.delete(f"/api/interviews/{iid}")
+
+
+def test_chat_repairs_a_dangling_user_turn(client):
+    # A trailing user turn can only come from a worker that died mid-turn (a clean failure rolls
+    # back). The next send is that turn's retry, so it replaces it instead of appending a twin.
+    import asyncio
+
+    import asyncpg
+
+    c = client
+    iid = c.post("/api/interviews", json={"role": "Dangling Turn Repair"}).json()["id"]
+    c.post(f"/api/interviews/{iid}/start")
+
+    async def insert_dangling():
+        conn = await asyncpg.connect(DB_URL)
+        try:
+            await conn.execute("INSERT INTO messages (interview_id, role, content) VALUES ($1::uuid, 'user', 'abandoned answer')", iid)
+        finally:
+            await conn.close()
+
+    asyncio.run(insert_dangling())
+    assert [m["content"] for m in c.get(f"/api/interviews/{iid}/messages").json()] == ["abandoned answer"]
+
+    assert c.post(f"/api/interviews/{iid}/chat/stream", json={"interview_id": iid, "content": "the retry"}).status_code == 200
+    users = [m["content"] for m in c.get(f"/api/interviews/{iid}/messages").json() if m["role"] == "user"]
+    assert users == ["the retry"]
+    c.delete(f"/api/interviews/{iid}")
+
+
 def test_interview_dials_reject_values_outside_the_vocabulary(client):
     c = client
     for bad in (
