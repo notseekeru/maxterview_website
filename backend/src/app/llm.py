@@ -79,9 +79,10 @@ def _chat_extras() -> dict:
     return {}
 
 
-# The reviewer scores three axes (GRADER_PROMPT_V1 below). The arc is its only evidence, so the
-# interviewer is told the coverage target outright - and that an unprobed dim reads as ABSENT rather
-# than neutral, which is what makes "spend every question on one axis" a real cost to the candidate.
+# The reviewer scores three axes (see GRADER_PROMPT_V1 / DIMENSION_AXES below). The arc is its only
+# evidence, so the interviewer is told the coverage target outright - and that an unprobed dim reads as
+# ABSENT rather than neutral, which is what makes "spend every question on one axis" a real cost to the
+# candidate.
 def coverage_directive(level: str) -> str:
     tail = " Keep every question inside the target experience band." if level and level != "any" else ""
     return (
@@ -353,8 +354,8 @@ Background: the interviewer opened by inviting the candidate to share their resu
 Assess ONLY the candidate's answers against these dimensions, each on a 1-10 scale:
 {_dimension_lines()}
 
-Not assessed is a valid answer: leave a dimension null when the transcript gives you no ground to judge it, because the interviewer never probed it or the candidate never went near it.
-Null is the honest reading and is NOT a low score - the candidate loses nothing for a question nobody asked. Never fill a gap with a safe 5 or 7, and never null a dimension you do have evidence on.
+Not assessed is a valid answer: leave a dimension unscored when the transcript gives you no ground to judge it, because the interviewer never probed it or the candidate never went near it.
+Not assessed is the honest reading and is NOT a low score - the candidate loses nothing for a question nobody asked. Never fill a gap with a safe 5 or 7, and never mark a dimension not assessed when you do have evidence on it.
 
 Calibration: resist 10s. Reserve 9-10 for near-flawless, concrete, evidence-backed answers. If you can name no real weakness for a dimension, probe harder rather than defaulting to a perfect score;
 a strong interview that 'has no flaws' should still land around 7-9 with an explicit weaker spot, not a flat 10 across the board.
@@ -370,7 +371,7 @@ tips as a real reason points were lost. Do NOT let the omission pass silently â€
 technical/behavioural content they DID give on its own merit.
 
 Write ONE short line per dimension you scored: name it, give the one concrete thing in their answers that sets it, then the integer.
-Then one line naming each dimension you are leaving null and the reason in a clause (never probed / no evidence).
+Then one line naming each dimension you are leaving not assessed and the reason in a clause (never probed / no evidence).
 Then write a 2-3 sentence overall verdict and 2-4 specific, actionable tips.
 
 Then state a hiring recommendation for THIS role on the four-point scale - reject, lean_reject, lean_hire, hire - plus a certainty integer 0-100 for how well the transcript supports that decision.

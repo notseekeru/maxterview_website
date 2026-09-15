@@ -107,7 +107,8 @@ def test_grader_rubric_is_generated_from_the_dimension_registry():
     for prompt in (llm.GRADER_PROMPT_V1, llm.FEEDBACK_PROMPT_V1):
         assert all(d in prompt for d in llm.FEEDBACK_DIMS)
     assert set(llm.FEEDBACK_JSON_SCHEMA["properties"]["scores"]["properties"]) == set(llm.FEEDBACK_DIMS)
-    assert "null" in llm.GRADER_PROMPT_V1  # not-assessed is a legal answer, not a penalty
+    assert "not assessed" in llm.GRADER_PROMPT_V1  # prose stage: the phrase the reviewer writes
+    assert "not-assessed" in llm.FEEDBACK_PROMPT_V1 and "null" in llm.FEEDBACK_PROMPT_V1  # JSON stage
 
 
 def test_system_prompt_carries_the_dials():
@@ -302,7 +303,7 @@ async def test_generate_feedback_real_grader_and_formatter_path(monkeypatch):
 
 
 async def test_generate_feedback_keeps_scores_when_decision_drifts(monkeypatch):
-    # A bad decision label costs the badge, not the whole scoring run: the four dims still land.
+    # A bad decision label costs the badge, not the whole scoring run: the dims still land.
 
     async def _completion(system, user_text, *, json_output=False, **kw):
         if system == llm.MOVES_PROMPT_V1:
