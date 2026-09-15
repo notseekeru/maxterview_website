@@ -34,6 +34,11 @@ import os
 import sys
 import urllib.request
 
+# The rubric is the part most likely to change and most likely to break against a live provider, so
+# import it rather than restating the dim names here: a strict-schema rejection or a model inventing
+# dim names used to pass this smoke on `scores` merely being truthy.
+from app.llm import FEEDBACK_DIMS
+
 BASE = sys.argv[1]
 
 
@@ -110,6 +115,8 @@ print("completed")
 fb = json.loads(http("GET", f"/api/interviews/{iid}/feedback").read())
 hcheck(bool(fb.get("verdict")), "feedback verdict present")
 hcheck(fb.get("scores"), "feedback scores present")
+# `<=`, not `==`: a dim the run gave no evidence for is legitimately absent (see llm._valid_scores).
+hcheck(set(fb["scores"]) <= set(FEEDBACK_DIMS), f"score keys are real dims, got {sorted(fb['scores'])}")
 hcheck(fb.get("tips"), "feedback tips present")
 print("feedback OK:", fb.get("scores"), "tips:", len(fb.get("tips") or []))
 

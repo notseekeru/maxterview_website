@@ -126,8 +126,7 @@ make new-migration name=<name>
 make lint        # ruff (backend) + biome (frontend)
 make test        # backend pytest suite (self-migrates vs Postgres)
 make test-llm    # end-to-end LLM smoke test (single turn) — needs a live model + running stack
-scripts/llm-smoke.sh         # single-turn LLM smoke
-scripts/llm-smoke-full.sh    # full multi-turn lifecycle smoke
+scripts/llm-smoke.sh         # the same smoke, callable directly (optional BASE_URL arg)
 make build / buildcache / down / clean  (dev)
 make prod-build / prod-up / prod-logs / prod-down  (prod-style)
 ```
@@ -140,7 +139,9 @@ make prod-build / prod-up / prod-logs / prod-down  (prod-style)
   and force LLM STUB_MODE (model-free). Tests cover auth (JWT/JWKS negative cases), interview
   lifecycle, owner-scoping, LLM streaming/extraction, and M10 billing (quotas + PayMongo webhook status map).
 - **Frontend**: `npm run typecheck`, `npm run build`, `npx biome check .` (in the frontend container).
-- **LLM smoke**: `scripts/llm-smoke-full.sh` walks the whole lifecycle against a live model.
+- **LLM smoke**: `make test-llm` (`scripts/llm-smoke.sh`) — the ONE check that runs against a live
+  provider instead of a monkeypatched one, so it is what catches a rejected `response_format` payload,
+  a model drifting dim names, or unparseable feedback JSON.
 
 CI (`.github/workflows/ci-pipeline.yml`) runs backend (ruff + format + pytest vs Postgres service) and
 frontend (biome + typecheck + build + audit). The backend job runs a **Trivy 0.74 filesystem scan**
