@@ -339,11 +339,13 @@ const Bubble = memo(function Bubble({ from, content, streaming, moveClass }: { f
     const isUser = from === "user";
     return (
         <div className={`flex items-end gap-2 ${isUser ? "justify-end" : "justify-start"}`}>
+            {/* Before the bubble, not after: a badge on the right insets the bubble's edge, so every
+                answer would shift left the moment the review lands. */}
+            {isUser && moveClass && <MoveBadge moveClass={moveClass} />}
             <div className={isUser ? "max-w-[80%] whitespace-pre-line rounded-lg bg-primary px-3 py-2 text-sm text-primary-foreground" : "max-w-[80%] whitespace-pre-line rounded-lg border bg-card px-3 py-2 text-sm"}>
                 {content}
                 {streaming && <span className="inline-block animate-pulse">▋</span>}
             </div>
-            {isUser && moveClass && <MoveBadge moveClass={moveClass} />}
         </div>
     );
 });
