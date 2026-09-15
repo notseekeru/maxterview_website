@@ -395,7 +395,7 @@ def test_regenerate_feedback_writes_when_model_recovers(client, monkeypatch):
     assert client.get(f"/api/interviews/{iid}/feedback").status_code == 404  # genuinely absent
 
     # Later regenerate: model "recovers" -> row written; 404 turns into 200.
-    async def _ok(history, dials=None, config=None):
+    async def _ok(history, dials=None, config=None, **_kw):
         return FeedbackSummary(scores={d: 7.0 for d in llm.FEEDBACK_DIMS}, verdict="Recovered", tips=["Keep going."])
 
     monkeypatch.setattr(llm, "generate_feedback", _ok)
@@ -408,7 +408,7 @@ def test_regenerate_feedback_writes_when_model_recovers(client, monkeypatch):
     client.delete(f"/api/interviews/{iid}")
 
 
-async def _always_none(history, dials=None, config=None):
+async def _always_none(history, dials=None, config=None, **_kw):
     return None
 
 
@@ -423,7 +423,7 @@ def test_complete_auto_retries_then_leaves_unscored_when_always_none(client, mon
     monkeypatch.setattr(main_mod, "_backoff_sleep", _noop_sleep)
     attempts = {"n": 0}
 
-    async def _count_none(_history, dials=None, config=None):
+    async def _count_none(_history, dials=None, config=None, **_kw):
         attempts["n"] += 1
         return None
 
@@ -450,7 +450,7 @@ def test_complete_auto_retry_stops_on_first_success(client, monkeypatch):
     monkeypatch.setattr(main_mod, "_backoff_sleep", _noop_sleep)
     attempts = {"n": 0}
 
-    async def _flaky(_history, dials=None, config=None):
+    async def _flaky(_history, dials=None, config=None, **_kw):
         attempts["n"] += 1
         if attempts["n"] == 1:
             return None
@@ -556,3 +556,53 @@ def test_byok_write_is_refused_without_the_deployment_encryption_key(client, mon
         assert client.get("/api/settings/llm").json()["enabled"] is False
     finally:
         byok._fernet.cache_clear()
+
+
+def test_hardcore_ends_the_run_on_the_first_wrong_answer(client, monkeypatch):
+    from app import llm
+
+    # The live judge: answer 1 is called wrong. Everything else about the run is the real code path.
+    async def _judge(_question, _answer, _config, _turn=1):
+        return "mistake"
+
+    monkeypatch.setattr(llm, "judge_answer", _judge)
+    c = client
+    iv = c.post("/api/interviews", json={"role": "Hardcore Judge", "hardcore": True}).json()
+    assert iv["hardcore"] is True
+    iid = iv["id"]
+    c.post(f"/api/interviews/{iid}/start")
+
+    body = c.post(f"/api/interviews/{iid}/chat/stream", json={"interview_id": iid, "content": "uh, I think we just retried it"}).text
+    assert llm.FAIL_MESSAGE.format(cls="MISTAKE") in body  # shouted, in caps, in the transcript
+    assert '"failed": {"turn": 1, "class": "mistake"}' in body  # ... and the client is told why it ended
+    # The run is over for the API too, not just for the composer.
+    assert c.post(f"/api/interviews/{iid}/chat/stream", json={"interview_id": iid, "content": "one more"}).status_code == 409
+    # The wrong answer keeps its class, which is what the review points at.
+    assert [m["move_class"] for m in c.get(f"/api/interviews/{iid}/messages").json()] == ["mistake"]
+
+    assert c.post(f"/api/interviews/{iid}/complete").status_code == 200
+    fb = c.get(f"/api/interviews/{iid}/feedback").json()
+    assert (fb["failed_turn"], fb["failed_class"]) == (1, "mistake")
+    assert (fb["grade"], fb["decision"]) == ("F", "reject")  # one wrong move overrides the average
+    assert fb["verdict"].isupper()  # the stub's shout; the real path prompts the model for caps
+    row = next(i for i in c.get("/api/interviews").json() if i["id"] == iid)
+    assert (row["failed_turn"], row["failed_class"], row["grade"]) == (1, "mistake", "F")
+    c.delete(f"/api/interviews/{iid}")
+
+
+def test_hardcore_lets_a_clean_answer_through(client, monkeypatch):
+    # The judge only ends the run on mistake/blunder: `inaccuracy` is survivable, and so is a judge
+    # that comes back empty (a model outage must not fail a candidate by default).
+    from app import llm
+
+    async def _judge(_question, _answer, _config, _turn=1):
+        return "inaccuracy"
+
+    monkeypatch.setattr(llm, "judge_answer", _judge)
+    c = client
+    iid = c.post("/api/interviews", json={"role": "Hardcore Survivor", "hardcore": True}).json()["id"]
+    c.post(f"/api/interviews/{iid}/start")
+    assert c.post(f"/api/interviews/{iid}/chat/stream", json={"interview_id": iid, "content": "it was vague, I admit"}).status_code == 200
+    assert [m["move_class"] for m in c.get(f"/api/interviews/{iid}/messages").json() if m["role"] == "user"] == ["inaccuracy"]
+    assert c.post(f"/api/interviews/{iid}/chat/stream", json={"interview_id": iid, "content": "let me be specific"}).status_code == 200
+    c.delete(f"/api/interviews/{iid}")

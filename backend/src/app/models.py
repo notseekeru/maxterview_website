@@ -53,6 +53,9 @@ class Dials(BaseModel):
     cynicism: Cynicism = "neutral"
     brutally_honest: bool = False
     human_mode: bool = True
+    # Hardcore: every answer is judged as it is given, and one `mistake`/`blunder` ends the run on
+    # the spot (llm.FAIL_MESSAGE) with the feedback shouting in caps. See main.chat_stream.
+    hardcore: bool = False
     mix_chitchat: int = Field(default=0, ge=0, le=dials.MIX_MAX)
     mix_behavioural: int = Field(default=2, ge=0, le=dials.MIX_MAX)
     mix_technical: int = Field(default=dials.MIX_MAX, ge=0, le=dials.MIX_MAX)
@@ -75,6 +78,10 @@ class Interview(Dials):
     updated_at: datetime
     # Derived 0-100 move-review accuracy (NOT a 1-10 average) + its letter grade; null until graded.
     accuracy: int | None = None
+    # Hardcore outcome: the turn that ended the run and what it was called, set when it happens.
+    # `grade` is F for any run with a failure, however high its accuracy got before it.
+    failed_turn: int | None = None
+    failed_class: MoveClass | None = None
     verdict: str | None = None
     decision: Decision | None = None
     certainty: int | None = None
@@ -82,7 +89,7 @@ class Interview(Dials):
     @computed_field
     @property
     def grade(self) -> Grade | None:
-        return rating.grade(self.accuracy)
+        return rating.grade(self.accuracy, failed=self.failed_turn is not None)
 
 
 # --- messages ---
@@ -118,12 +125,16 @@ class Feedback(BaseModel):
     decision: Decision | None = None
     certainty: int | None = None
     accuracy: int | None = None
+    # Carried from the interview row (main.get_feedback joins it) so the review can shout about a
+    # hardcore failure without re-deriving it from the classes.
+    failed_turn: int | None = None
+    failed_class: MoveClass | None = None
     created_at: datetime
 
     @computed_field
     @property
     def grade(self) -> Grade | None:
-        return rating.grade(self.accuracy)
+        return rating.grade(self.accuracy, failed=self.failed_turn is not None)
 
 
 # --- LLM context / feedback / chat-turn payloads ---

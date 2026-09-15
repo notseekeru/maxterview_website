@@ -11,6 +11,10 @@ from collections.abc import Iterable
 # words, and anything finer is noise.
 MOVE_CLASSES: tuple[str, ...] = ("brilliant", "great", "good", "book", "inaccuracy", "mistake", "blunder")
 
+# Hardcore mode fails the run on any of these - the two classes that mean wrong (mistake) and nothing
+# usable (blunder). `inaccuracy` is spared on purpose: vague is survivable, wrong is not.
+FAIL_CLASSES: tuple[str, ...] = ("mistake", "blunder")
+
 # What one classed turn is worth out of 1.0. `book` sits just under `good`: correct but generic is
 # a small deduction, not a flaw.
 MOVE_POINTS: dict[str, float] = {
@@ -44,8 +48,14 @@ def accuracy(classes: Iterable[str]) -> int | None:
     return int(100 * sum(graded) / len(graded) + 0.5)  # half-up: round() would flip .5 on digit parity
 
 
-def grade(acc: int | None) -> str | None:
-    """Letter grade for an accuracy percentage, or None when there is nothing to grade."""
+def grade(acc: int | None, *, failed: bool = False) -> str | None:
+    """Letter grade for an accuracy percentage, or None when there is nothing to grade.
+
+    `failed` is hardcore: one wrong answer ends the run at F regardless of what the earlier answers
+    averaged out to, because the run is judged on the move that ended it.
+    """
+    if failed:
+        return "F"
     if acc is None:
         return None
     return next((g for floor, g in GRADE_BANDS if acc >= floor), "F")
@@ -54,7 +64,9 @@ def grade(acc: int | None) -> str | None:
 # AI HERE: one framework-free self-check (AGENTS rule 5). A class without a point value, or bands
 # that stop matching GRADES, fails here instead of silently dropping turns out of the average.
 assert set(MOVE_CLASSES) == set(MOVE_POINTS) and set(STUB_MOVE_CYCLE) <= set(MOVE_CLASSES)
+assert set(FAIL_CLASSES) <= set(MOVE_CLASSES)
 assert [g for _, g in GRADE_BANDS] == list(GRADES[: len(GRADE_BANDS)])
 assert GRADE_BANDS == tuple(sorted(GRADE_BANDS, reverse=True))
 assert (accuracy([]), accuracy(["brilliant"]), accuracy(["blunder"])) == (None, 100, 0)
 assert (grade(None), grade(100), grade(89), grade(49), grade(0)) == (None, "S", "A", "F", "F")
+assert grade(0, failed=True) == "F" and grade(100, failed=True) == "F"

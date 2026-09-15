@@ -420,3 +420,81 @@ def test_stub_moves_cover_every_candidate_turn_deterministically():
     assert set(llm._stub_moves(history)) == {1, 2}
     assert llm._stub_moves(history) == llm._stub_moves(history)  # same transcript, same grades
     assert llm._stub_moves([ChatMessage(role="assistant", content="q")]) == {}
+
+
+def test_hardcore_prompts_and_the_fail_line():
+    from app.models import Dials
+
+    assert "HARDCORE MODE" in llm.grader_prompt(Dials(hardcore=True))
+    assert "HARDCORE MODE" not in llm.grader_prompt(Dials(hardcore=False))
+    assert "Turn 2 was a blunder" in llm.HARDCORE_FORMAT_PROMPT.format(turn=2, cls="blunder")
+    assert "ALL CAPS" in llm.HARDCORE_FORMAT_PROMPT
+    assert llm.FAIL_MESSAGE.format(cls="BLUNDER").isupper()  # the shout never depends on the model
+
+
+async def test_hardcore_failure_prompts_for_caps_and_forces_reject(monkeypatch):
+    seen = {}
+
+    async def _completion(system, user_text, *, json_output=False, **kw):
+        if json_output:
+            seen["system"] = system
+            return '{"scores": {"clarity": 9, "relevance": 9, "structure": 9, "confidence": 9}, "decision": "hire", "certainty": 90, "verdict": "YOU BLEW IT.", "tips": ["A", "B"]}'
+        return "prose notes"
+
+    monkeypatch.setattr(llm, "_completion", _completion)
+    out = await llm.generate_feedback([ChatMessage(role="user", content="hi")], None, REAL, failure=(2, "blunder"), annotate=False)
+    assert "HARDCORE MODE - THE RUN FAILED" in seen["system"]
+    assert out is not None and out.verdict == "YOU BLEW IT."
+    # Whatever the notes talked the model into: a run that died on a wrong answer is a reject.
+    assert out.decision == "reject"
+    assert out.moves == {}  # annotate=False: a hardcore run was already judged turn by turn
+
+
+async def test_judge_answer_reads_one_exchange_and_tolerates_drift(monkeypatch):
+    seen = {}
+
+    async def _completion(system, user_text, *, json_output=False, **kw):
+        seen["system"], seen["user"], seen["schema"] = system, user_text, kw.get("json_schema")
+        return '{"class": "In accuracy"}'  # sampler drift, not a class name
+
+    monkeypatch.setattr(llm, "_completion", _completion)
+    assert await llm.judge_answer("How did you handle the tradeoff?", "uh, we just retried it", REAL, turn=3) == "inaccuracy"
+    assert seen["system"] is llm.JUDGE_PROMPT_V1 and seen["schema"] is llm.JUDGE_JSON_SCHEMA
+    # ONE exchange, not the transcript: this call is on the critical path of every answer.
+    assert seen["user"] == "Question: How did you handle the tradeoff?\nAnswer: uh, we just retried it"
+
+
+async def test_judge_answer_stub_walks_the_annotator_cycle():
+    from app import rating
+
+    stub = llm.LLMConfig(base_url="", model="")
+    assert [await llm.judge_answer("", "x", stub, turn=t) for t in range(1, len(rating.STUB_MOVE_CYCLE) + 1)] == list(rating.STUB_MOVE_CYCLE)
+
+
+async def test_judge_answer_gives_up_after_one_retry(monkeypatch):
+    attempts = {"n": 0}
+
+    async def _completion(*_a, **_kw):
+        attempts["n"] += 1
+        return '{"class": "best"}'  # never in this vocabulary
+
+    monkeypatch.setattr(llm, "_completion", _completion)
+    assert await llm.judge_answer("q", "a", REAL, turn=1) is None  # None lets the turn through
+    assert attempts["n"] == 2
+
+
+async def test_judge_answer_labels_the_opening_turn(monkeypatch):
+    # Regression (real run): the interviewer's opener is a frontend-only bubble that is never persisted,
+    # so turn 1 was judged against an empty question. A pasted LaTeX resume then read as "not an
+    # answer" -> `mistake` -> hardcore killed the run before a single question had been asked.
+    seen = {}
+
+    async def _completion(system, user_text, *, json_output=False, **kw):
+        seen["system"], seen["user"] = system, user_text
+        return '{"class": "book"}'
+
+    monkeypatch.setattr(llm, "_completion", _completion)
+    assert await llm.judge_answer("", "\\documentclass[10pt,letterpaper]{article}...", REAL, turn=1) == "book"
+    assert seen["user"].startswith(f"Question: {llm.OPENING_QUESTION}")
+    # ... and the judge is told what pasted material is, so markup is not itself a fault.
+    assert "LaTeX" in seen["system"] and "resume" in seen["system"]

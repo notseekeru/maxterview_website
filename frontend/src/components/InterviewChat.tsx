@@ -29,6 +29,9 @@ export function InterviewChat({ interviewId, onExit }: Props) {
     // The question mix is a budget: once it is spent the API refuses further turns (409) and the
     // composer stops, leaving Complete as the only move.
     const [interviewOver, setInterviewOver] = useState(false);
+    // Hardcore: the turn and class that ended the run, from the done frame. The run is over and the
+    // review will shout, so the transcript says why instead of the generic "mix is spent" notice.
+    const [hardcoreFailed, setHardcoreFailed] = useState<{ turn: number; class: string } | null>(null);
     const [completing, setCompleting] = useState(false); // 'Completing…' / 'Retry scoring…' spinner
     const [scoringTip, setScoringTip] = useState(false); // completed but feedback not ready yet
     // Synchronous turn lock. `status` is React state, so two clicks landing before a re-render both
@@ -173,6 +176,13 @@ export function InterviewChat({ interviewId, onExit }: Props) {
                         // The sign-off is the end of the run: stop the composer here rather than
                         // letting the next message discover the same thing via a 409.
                         if (ev.closing) setInterviewOver(true);
+                        if (ev.failed) {
+                            setHardcoreFailed(ev.failed);
+                            // The server stored this class already, so badge the answer now instead of
+                            // waiting for the review to be generated. By this point the reply above has
+                            // been appended, so the turn to mark is this one by id, not "the last one".
+                            setMessages((m) => m.map((x) => (x.id === localId ? { ...x, move_class: ev.failed?.class ?? null } : x)));
+                        }
                     } else if (ev.kind === "error") {
                         settled = true;
                         rollback();
@@ -277,11 +287,23 @@ export function InterviewChat({ interviewId, onExit }: Props) {
                 {error && <p className="text-sm text-destructive">{error}</p>}
                 {quotaLocked && <UpgradeNotice reason="your free chat turns ran out." />}
                 {interviewOver && (
-                    <div role="status" className="rounded-lg border p-3 text-sm">
-                        <p className="font-medium">That was the whole interview.</p>
-                        <p className="mt-1 text-muted-foreground">
-                            This run has asked every question in its mix, so there's nothing left to answer here. Press <span className="font-medium text-foreground">Complete</span> for your feedback, or start a new interview with a wider mix.
-                        </p>
+                    <div role="status" className={hardcoreFailed ? "rounded-lg border border-destructive bg-destructive/10 p-3 text-sm" : "rounded-lg border p-3 text-sm"}>
+                        {hardcoreFailed ? (
+                            <>
+                                <p className="font-semibold uppercase tracking-wide text-destructive">Run failed — hardcore</p>
+                                <p className="mt-1 uppercase leading-relaxed text-foreground">
+                                    One wrong move. Your answer to question {hardcoreFailed.turn} was a {hardcoreFailed.class}, so the interview stops here.
+                                </p>
+                                <p className="mt-1 text-muted-foreground">Press Complete for the feedback you earned.</p>
+                            </>
+                        ) : (
+                            <>
+                                <p className="font-medium">That was the whole interview.</p>
+                                <p className="mt-1 text-muted-foreground">
+                                    This run has asked every question in its mix, so there's nothing left to answer here. Press <span className="font-medium text-foreground">Complete</span> for your feedback, or start a new interview with a wider mix.
+                                </p>
+                            </>
+                        )}
                     </div>
                 )}
                 {status === "loading" && <p className="text-sm text-muted-foreground">Starting…</p>}

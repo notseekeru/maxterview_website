@@ -53,8 +53,11 @@ export interface Interview extends InterviewDials {
     updated_at: string;
     /** Derived 0-100 move-review accuracy, null until the run is graded. */
     accuracy?: number | null;
-    /** Letter grade for `accuracy`, banded server-side (app/rating.py). */
+    /** Letter grade for `accuracy`, banded server-side (app/rating.py); F for any hardcore failure. */
     grade?: Grade | null;
+    /** Hardcore: the turn that ended the run and what it was called. Null on a clean (or non-hardcore) run. */
+    failed_turn?: number | null;
+    failed_class?: MoveClass | null;
     verdict?: string | null;
     decision?: Decision | null;
     certainty?: number | null;
@@ -73,6 +76,9 @@ export interface InterviewDials {
     brutally_honest: boolean;
     /** Human register (contractions, no AI/corporate vocabulary); off = businesslike. */
     human_mode: boolean;
+    /** One wrong answer (move class mistake/blunder) ends the run on the spot, and `failed_turn`
+     *  records which one. Feedback for a failed run is an ALL CAPS rejection, graded F. */
+    hardcore: boolean;
     mix_chitchat: number;
     mix_behavioural: number;
     mix_technical: number;
@@ -111,6 +117,9 @@ export interface Feedback {
     certainty?: number | null;
     accuracy?: number | null;
     grade?: Grade | null;
+    /** Hardcore: the turn that ended the run and what it was called (drives the FAILED banner). */
+    failed_turn?: number | null;
+    failed_class?: MoveClass | null;
     created_at: string;
 }
 
@@ -274,7 +283,7 @@ export async function testLLMProvider(): Promise<{ ok: boolean; detail: string }
 // candidate never types past it and meets a raw 422.
 export const MAX_TURN_CHARS = 4000;
 
-export type StreamEvent = { kind: "message"; content: string } | { kind: "done"; closing?: boolean } | { kind: "error"; message: string };
+export type StreamEvent = { kind: "message"; content: string } | { kind: "done"; closing?: boolean; failed?: { turn: number; class: MoveClass } } | { kind: "error"; message: string };
 
 export async function streamChat(interviewId: string, content: string, onEvent: (e: StreamEvent) => void, { signal }: { signal?: AbortSignal } = {}): Promise<void> {
     const res = await fetch(`${BASE}/interviews/${interviewId}/chat/stream`, {
@@ -326,14 +335,18 @@ function dispatchFrame(frame: string, onEvent: (e: StreamEvent) => void) {
 
     if (eventName === "error") onEvent({ kind: "error", message: data });
     else if (eventName === "done") {
-        // `closing` marks the sign-off turn: the server will refuse anything after it, so the UI can
-        // end the run now instead of letting the user type into a 409.
+        // `closing` marks the end of the run: either the arc is spent or hardcore failed the candidate
+        // (`failed` carries which), and the server refuses anything after it, so the UI ends the run
+        // now instead of letting the user type into a 409.
         let closing = false;
+        let failed: { turn: number; class: MoveClass } | undefined;
         try {
-            closing = Boolean((JSON.parse(data || "{}") as { closing?: unknown }).closing);
+            const parsed = JSON.parse(data || "{}") as { closing?: unknown; failed?: { turn?: unknown; class?: unknown } };
+            closing = Boolean(parsed.closing);
+            if (typeof parsed.failed?.turn === "number" && typeof parsed.failed.class === "string") failed = { turn: parsed.failed.turn, class: parsed.failed.class as MoveClass };
         } catch {
             closing = false;
         }
-        onEvent({ kind: "done", closing });
+        onEvent({ kind: "done", closing, failed });
     } else onEvent({ kind: "message", content: data });
 }

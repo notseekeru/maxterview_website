@@ -148,6 +148,22 @@ OPENING_PHASE = (
 # construction, no model call, and it ends the transcript cleanly (see main.chat_stream).
 CLOSING_MESSAGE = "Thanks - that's everything I had for you. Take a moment if you want, then hit Complete and you'll get your full feedback: scores for clarity, relevance, structure and confidence, plus where you landed on the hire/reject spectrum."
 
+# Hardcore fail line. Also not model output, and all caps on purpose: it is the moment the run dies,
+# and a sampled line would sometimes soften it. `{class}` is the move class that ended the run.
+FAIL_MESSAGE = "THAT'S IT. I CALLED THAT ANSWER A {cls}. HARDCORE MODE: ONE WRONG MOVE ENDS THE RUN. NO SECOND CHANCES, NO NEXT QUESTION, NO WARM-UP. HIT COMPLETE AND READ WHAT I THOUGHT OF IT."
+
+# Hardcore reaches the grader and the formatter. The grader is told what the caps are for; the
+# formatter is the one that actually shouts (see HARDCORE_FORMAT_PROMPT).
+HARDCORE_GRADER_PROMPT = """
+
+HARDCORE MODE: the candidate chose a run where one wrong answer ends it, so lead with the answer that killed it, in plain words and without cushioning. Say what they avoided, hand-waved or got wrong, and do not balance it with what went well."""
+
+HARDCORE_FORMAT_PROMPT = """
+
+HARDCORE MODE - THE RUN FAILED. Turn {turn} was a {cls}. Rules for this feedback: verdict is ALL CAPS and 2-3 sentences
+of plain shouting - address the candidate directly, name what that answer did wrong, and leave no encouragement, no summary
+of strengths and no hedge. decision is reject. tips stay normal case and stay actionable."""
+
 
 def _chitchat_phase(n: int, total: int) -> str:
     # Chitchat comes FIRST, before the opener, because that is where it exists in a real interview -
@@ -298,23 +314,52 @@ Brutal honesty was requested: lead the verdict with the weakest part of the inte
 
 def grader_prompt(dials: Dials | None = None) -> str:
     d = dials or Dials()
-    return GRADER_PROMPT_V1 + (BRUTAL_GRADER_PROMPT if d.brutally_honest else "")
+    return GRADER_PROMPT_V1 + (BRUTAL_GRADER_PROMPT if d.brutally_honest else "") + (HARDCORE_GRADER_PROMPT if d.hardcore else "")
 
 
 # Third stage, its own call: annotate every candidate turn. Separate from stage 2 because this hop
 # needs the FULL transcript, and stage 2 is deliberately small-context for schema adherence.
-MOVES_PROMPT_V1 = """Classify every candidate turn in the transcript in your user message, the way a chess engine annotates moves. Return a JSON object ONLY, exactly matching this shape:
-{"moves": [{"turn": 1, "class": "good"}, {"turn": 2, "class": "inaccuracy"}]}
-Rules: exactly one entry per Candidate turn, keyed by its turn number, each class being exactly one of
-brilliant/great/good/book/inaccuracy/mistake/blunder, judged as follows.
-brilliant - went beyond the question: an insight, a trade-off nobody asked for, or a concrete number that proves it.
+# The class definitions, spelled once and shared by both judges: the post-game annotator grades a
+# whole transcript, the hardcore judge grades a single answer. Two prompts, one rubric - they must not
+# drift, or the same answer would be graded differently depending on when it was looked at.
+MOVE_CLASS_RUBRIC = """brilliant - went beyond the question: an insight, a trade-off nobody asked for, or a concrete number that proves it.
 great - strong and specific: a real example with the candidate's own decisions visible in it.
 good - solid and correct: the answer the question was asking for.
 book - correct but recited: textbook or definition only, no first-hand detail.
 inaccuracy - vague or partial: gesturing at an answer with no evidence, or missing part of the question.
 mistake - wrong or evasive: contradicts itself, answers a different question, or has no substance.
-blunder - nothing usable: refuses, or says nothing of value.
+blunder - nothing usable: refuses, or says nothing of value."""
+
+MOVES_PROMPT_V1 = f"""Classify every candidate turn in the transcript in your user message, the way a chess engine annotates moves. Return a JSON object ONLY, exactly matching this shape:
+{{"moves": [{{"turn": 1, "class": "good"}}, {{"turn": 2, "class": "inaccuracy"}}]}}
+Rules: exactly one entry per Candidate turn, keyed by its turn number, each class being exactly one of
+brilliant/great/good/book/inaccuracy/mistake/blunder, judged as follows.
+{MOVE_CLASS_RUBRIC}
 Grade the ANSWER, not the candidate, and do not soften a weak answer because the interview went well overall. Do not skip turns and do not invent them: a missing or extra turn invalidates the whole classification. Return ONLY the JSON object, no prose, no markdown."""
+
+# The hardcore judge, on the critical path of every answer (it runs BEFORE the interviewer replies, so
+# its cost is the candidate's wait). Deliberately ONE question + ONE answer, not the transcript: the
+# post-game annotator above needs the whole run to catch a self-contradiction, this one only has to
+# decide whether the answer just given is wrong enough to end the run, and a growing prompt would
+# re-read the run on every turn for nothing.
+JUDGE_PROMPT_V1 = f"""You are the hardcore judge: one answer, one verdict. You are given the interviewer's question and the candidate's answer, and nothing else. Return a JSON object ONLY, exactly matching this shape:
+{{"class": "good"}}
+`class` is exactly one of brilliant/great/good/book/inaccuracy/mistake/blunder, judged as follows.
+{MOVE_CLASS_RUBRIC}
+The answer may be pasted resume/CV material, including markup (LaTeX, markdown, reST): that is expected material for the opening request, so judge the substance of the background it gives and never fault it for being markup, code or long. This is a hardcore run: mistake or blunder ends it immediately, inaccuracy does not. Judge the ANSWER, not the candidate, and do not soften a weak answer because the interview is going well. Return ONLY the JSON object, no prose, no markdown."""
+
+# What the first turn is actually answering. The interviewer's opener is a FRONTEND constant (it is shown
+# as a bubble that is never persisted, and it is env-overridable), so without this the judge graded the
+# opening answer against an empty question - and a pasted resume reads as "not an answer" to a blind
+# judge. Hardcore killed runs on turn 1 for supplying the resume it had just been asked for.
+OPENING_QUESTION = "Before we begin - could you share your resume / background so I can interview you specifically on it?"
+
+JUDGE_JSON_SCHEMA = {
+    "type": "object",
+    "properties": {"class": {"type": "string", "enum": list(rating.MOVE_CLASSES)}},
+    "required": ["class"],
+    "additionalProperties": False,
+}
 
 # Machine-readable twin of MOVES_PROMPT_V1 (same contract as FEEDBACK_JSON_SCHEMA).
 MOVES_JSON_SCHEMA = {
@@ -677,15 +722,19 @@ def _format_transcript(history: list[ChatMessage]) -> str:
     return "\n".join(lines)
 
 
-async def _request_format(notes: str, config: LLMConfig) -> FeedbackSummary | None:
+async def _request_format(notes: str, config: LLMConfig, failure: tuple[int, str] | None = None) -> FeedbackSummary | None:
     """Stage 2: turn the grader's short notes into the exact JSON schema.
 
     Fresh, SMALL context (just the notes) is where schema adherence is cheap and reliable.
     Retries once — this is the fragile hop. Parses + validates strictly; never trusts
-    partial/empty output."""
+    partial/empty output. `failure` (hardcore: the turn and class that ended the run) is appended to
+    the prompt so the verdict can shout, and forces decision=reject rather than trusting the model to
+    reach it from the notes.
+    """
+    system = FEEDBACK_PROMPT_V1 + (HARDCORE_FORMAT_PROMPT.format(turn=failure[0], cls=failure[1]) if failure else "")
     for _ in range(2):
         content = await _completion(
-            FEEDBACK_PROMPT_V1,
+            system,
             notes,
             config=config,
             max_tokens=LLM_MAX_FEEDBACK_TOKENS,
@@ -722,7 +771,8 @@ async def _request_format(notes: str, config: LLMConfig) -> FeedbackSummary | No
             scores=scores,
             verdict=verdict.strip(),
             tips=tips,
-            decision=decision,
+            # A hardcore failure is a reject by definition, whatever the notes talked the model into.
+            decision="reject" if failure else decision,
             # Certainty without a decision has nothing to qualify: drop it rather than let an
             # orphan number into the certainty average.
             certainty=_coerce_certainty(obj.get("certainty")) if decision else None,
@@ -731,11 +781,14 @@ async def _request_format(notes: str, config: LLMConfig) -> FeedbackSummary | No
     return None
 
 
-async def _request_moves(history: list[ChatMessage], config: LLMConfig) -> dict[int, str]:
-    """Stage 3: annotate every candidate turn. Returns {} when the model will not cooperate.
+async def classify_turns(history: list[ChatMessage], config: LLMConfig) -> dict[int, str]:
+    """Turn -> move class for every candidate answer. Returns {} when the model will not cooperate.
 
     Reads the FULL transcript (like the grader), so it runs on the grader config, and retries once.
-    Giving up is survivable: the run keeps its verdict and tips, and simply has no accuracy/badges.
+    Giving up is survivable everywhere it is used: the post-game pass loses its accuracy and badges,
+    and the hardcore judge simply lets the turn through. Two callers, deliberately:
+      - main.chat_stream, live, on a hardcore run (one answer at a time, judged as it is given)
+      - generate_feedback, post-game, on every other run
     """
     turns = sum(1 for m in history if m.role == "user")
     transcript = _format_transcript(history)
@@ -761,13 +814,44 @@ async def _request_moves(history: list[ChatMessage], config: LLMConfig) -> dict[
     return {}
 
 
-async def generate_feedback(history: list[ChatMessage], dials: Dials | None, config: LLMConfig) -> FeedbackSummary | None:
+async def judge_answer(question: str, answer: str, config: LLMConfig, turn: int = 1) -> str | None:
+    """The hardcore verdict on ONE answer: a move class, or None when the model will not say.
+
+    STUB_MODE walks the same deterministic cycle the post-game annotator uses, so a model-free run
+    still ends the way a real one does. A None verdict lets the turn through, and the post-game pass
+    backfills the failure if it finds one: an outage must never fail a candidate by default.
+    """
+    if config.stub:
+        return rating.STUB_MOVE_CYCLE[(turn - 1) % len(rating.STUB_MOVE_CYCLE)]
+    user_text = f"Question: {question}\nAnswer: {answer}" if question else f"Question: {OPENING_QUESTION}\nAnswer: {answer}"
+    for _ in range(2):
+        content = await _completion(
+            JUDGE_PROMPT_V1,
+            user_text,
+            config=grader_config(config),
+            max_tokens=LLM_MAX_FEEDBACK_TOKENS,
+            json_output=True,
+            json_schema=JUDGE_JSON_SCHEMA,
+        )
+        if content is None:
+            continue
+        obj = _extract_json_object(content)
+        cls = _coerce_move_class(obj.get("class") if obj else None)
+        if cls:
+            return cls
+        log.warning("llm.hardcore.judge_mismatch", turn=turn, shape=_shape(obj.get("class") if obj else None))
+    log.error("llm.hardcore.judge_unavailable", turn=turn)
+    return None
+
+
+async def generate_feedback(history: list[ChatMessage], dials: Dials | None, config: LLMConfig, failure: tuple[int, str] | None = None, annotate: bool = True) -> FeedbackSummary | None:
     """Return structured feedback for a completed transcript, or None when it is genuinely
     unavailable.
 
-    `dials` only reaches the grader, and only brutally_honest changes it (see grader_prompt):
-    cynicism and the question mix are properties of the interview the candidate sat, not of how
-    their answers are judged.
+    `dials` reaches the grader (brutally_honest and hardcore change its framing; cynicism and the
+    question mix are properties of the interview the candidate sat, not of how their answers are
+    judged). `failure` is a hardcore run that already died: (turn, class), which the formatter turns
+    into an ALL CAPS verdict.
 
     Two-mode, three-stage pipeline:
       - STUB_MODE: no model configured -> deterministic stand-in (dev/seed/tests only).
@@ -775,7 +859,8 @@ async def generate_feedback(history: list[ChatMessage], dials: Dials | None, con
         (full transcript -> one class per candidate turn). On either of the first two stages
         failing after its retry, return None -- the caller must NOT write feedback, so the
         interview surfaces as unscored rather than carrying fabricated 6s. The THIRD stage is
-        additive: it returns {} on failure and the run keeps its verdict, tips and decision.
+        additive: it returns {} on failure and the run keeps its verdict, tips and decision, and a
+        hardcore run already has its classes from the live check (main.chat_stream).
 
     Both paths pass through the evidence cap: the decision (hire/reject spectrum) comes from
     the model, the certainty ceiling from how much transcript there is to back it.
@@ -784,15 +869,22 @@ async def generate_feedback(history: list[ChatMessage], dials: Dials | None, con
         log.warning("llm.feedback.stub_deterministic")
         stub = _deterministic_summary()
         stub.moves = _stub_moves(history)
+        if failure:
+            # Same shout, no model: the stub is what dev/seed/e2e run against.
+            stub.verdict = f"RUN OVER. TURN {failure[0]} WAS A {failure[1].upper()} AND IN HARDCORE MODE THAT IS THE WHOLE RUN. NO SECOND CHANCES."
+            stub.decision = "reject"
+            stub.certainty = 100
         return _apply_evidence_cap(stub, history)
     notes = await _request_grader_notes(history, dials, config)
     if notes is None:
         return None
-    summary = await _request_format(notes, config)
+    summary = await _request_format(notes, config, failure)
     if summary is None:
         return None
     # Additive: the transcript-wide annotation pass cannot cost the run its verdict and tips.
-    summary.moves = await _request_moves(history, config)
+    # Skipped on a hardcore run, which was already judged answer by answer.
+    if annotate:
+        summary.moves = await classify_turns(history, config)
     return _apply_evidence_cap(summary, history)
 
 

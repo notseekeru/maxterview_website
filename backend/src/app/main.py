@@ -4,6 +4,7 @@ import os
 from contextlib import asynccontextmanager
 from typing import Annotated
 
+import asyncpg
 import structlog
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -82,12 +83,12 @@ async def health() -> dict:
 
 # The interview dressing dials, as pydantic field names. Identical in the DB, so one tuple serves
 # the `Dials(**row)` build, the columns of every interview read, and nothing can drift between them.
-DIAL_FIELDS = ("company_size", "cynicism", "brutally_honest", "human_mode", "mix_chitchat", "mix_behavioural", "mix_technical")
+DIAL_FIELDS = ("company_size", "cynicism", "brutally_honest", "human_mode", "hardcore", "mix_chitchat", "mix_behavioural", "mix_technical")
 
 # Interview row columns for every SELECT/RETURNING that builds an `Interview`. Shared because
 # `Interview` fills an absent field from its default, so a query that forgets a dial would answer
 # 200 with a WRONG value ('neutral' for a run created skeptical) rather than an error.
-INTERVIEW_COLS = "id::text, owner_id, role, level, topic, status, created_at, updated_at, " + ", ".join(DIAL_FIELDS)
+INTERVIEW_COLS = "id::text, owner_id, role, level, topic, status, created_at, updated_at, failed_turn, failed_class, " + ", ".join(DIAL_FIELDS)
 
 
 @api.get("/interviews", response_model=list[Interview])
@@ -98,6 +99,7 @@ async def list_interviews(user: CurrentUser) -> list[dict]:
         f"""
         SELECT i.id::text, i.owner_id, i.role, i.level, i.topic, i.status, i.created_at, i.updated_at,
                {", ".join(f"i.{c}" for c in DIAL_FIELDS)},
+               i.failed_turn, i.failed_class,
                f.verdict AS verdict, f.decision AS decision, f.certainty AS certainty, f.accuracy AS accuracy
         FROM interviews i
         LEFT JOIN feedback f ON f.interview_id = i.id
@@ -116,8 +118,8 @@ async def create_interview(
 ) -> dict:
     row = await fetchrow(
         """
-        INSERT INTO interviews (owner_id, role, level, topic, company_size, cynicism, brutally_honest, human_mode, mix_chitchat, mix_behavioural, mix_technical)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+        INSERT INTO interviews (owner_id, role, level, topic, company_size, cynicism, brutally_honest, human_mode, hardcore, mix_chitchat, mix_behavioural, mix_technical)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
         RETURNING """
         + INTERVIEW_COLS,
         user.sub,
@@ -128,6 +130,7 @@ async def create_interview(
         body.cynicism,
         body.brutally_honest,
         body.human_mode,
+        body.hardcore,
         body.mix_chitchat,
         body.mix_behavioural,
         body.mix_technical,
@@ -214,16 +217,27 @@ async def list_messages(
     return [dict(r) for r in rows]
 
 
+async def _feedback_row(interview_id: str) -> asyncpg.Record | None:
+    """The review as the API serves it: feedback joined to the interview, for the hardcore failure.
+
+    Single read path for every feedback endpoint, because the failure lives on the interview row and
+    an INSERT ... RETURNING cannot reach it.
+    """
+    return await fetchrow(
+        "SELECT f.id::text, f.interview_id::text, f.scores, f.verdict, f.tips, f.decision, f.certainty, f.accuracy, "
+        "i.failed_turn, i.failed_class, f.created_at "
+        "FROM feedback f JOIN interviews i ON i.id = f.interview_id WHERE f.interview_id = $1",
+        interview_id,
+    )
+
+
 @api.get("/interviews/{interview_id}/feedback", response_model=Feedback)
 async def get_feedback(
     interview_id: str,
     user: CurrentUser,
 ) -> dict:
     await _require_interview_owned(interview_id, user.sub)
-    row = await fetchrow(
-        "SELECT id::text, interview_id::text, scores, verdict, tips, decision, certainty, accuracy, created_at FROM feedback WHERE interview_id = $1",
-        interview_id,
-    )
+    row = await _feedback_row(interview_id)
     if row is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Feedback not found")
     return dict(row)
@@ -236,8 +250,8 @@ async def create_feedback(
     user: CurrentUser,
 ) -> dict:
     await _require_interview_owned(interview_id, user.sub)
-    row = await _upsert_feedback(interview_id, body.scores, body.verdict, body.tips, body.decision, body.certainty)
-    return dict(row)
+    await _upsert_feedback(interview_id, body.scores, body.verdict, body.tips, body.decision, body.certainty)
+    return dict(await _feedback_row(interview_id))
 
 
 @api.post("/interviews/{interview_id}/feedback/generate", response_model=Feedback)
@@ -369,6 +383,10 @@ async def chat_stream(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Interview not found")
     if interview["status"] != "in_progress":
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Interview is not in progress")
+    # Hardcore runs end at the first wrong answer; the client stops the composer, and this is what
+    # makes that final rather than a UI rule the next request could ignore.
+    if interview["failed_turn"]:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="This hardcore run is over: one wrong answer ended it. Press Complete for the feedback.")
 
     prior_rows = await fetch(
         "SELECT role, content FROM messages WHERE interview_id = $1 ORDER BY created_at",
@@ -436,6 +454,23 @@ async def chat_stream(
     ]
 
     async def _stream_events():
+        # Hardcore judges THIS answer before the interviewer replies, because a wrong answer ends the
+        # run: spending a question on someone who is already out is the one thing the mode promises
+        # never to do. Runs before the closing branch too - the last answer still counts.
+        if dials.hardcore:
+            turn = sum(1 for m in history if m.role == "user")
+            question = next((m["content"] for m in reversed(prior_rows) if m["role"] == "assistant"), "")
+            cls = await llm.judge_answer(question, body.content, config, turn)
+            if cls:
+                await fetchrow("UPDATE messages SET move_class = $2 WHERE id = $1", user_msg_id, cls)
+            if cls in rating.FAIL_CLASSES:
+                await fetchrow("UPDATE interviews SET failed_turn = $2, failed_class = $3, updated_at = now() WHERE id = $1", interview_id, turn, cls)
+                shout = llm.FAIL_MESSAGE.format(cls=cls.upper())
+                yield f"event: message\ndata: {shout}\n\n"
+                # `failed` tells the client WHY the run ended (the arc being spent is the other ending).
+                yield f'event: done\ndata: {{"closing": true, "failed": {{"turn": {turn}, "class": "{cls}"}}}}\n\n'
+                return
+
         # Closing turn: the interviewer's sign-off is canned, not sampled (see llm.CLOSING_MESSAGE).
         # Still streamed as one message event so the client needs no special case, and still
         # persisted, so the transcript ends the way it was displayed.
@@ -492,15 +527,15 @@ async def _has_transcript(interview_id: str) -> bool:
     return row is not None
 
 
-async def _upsert_feedback(interview_id: str, scores: dict, verdict: str, tips: list, decision: str | None = None, certainty: int | None = None, accuracy: int | None = None):
+async def _upsert_feedback(interview_id: str, scores: dict, verdict: str, tips: list, decision: str | None = None, certainty: int | None = None, accuracy: int | None = None) -> None:
     # Single write path: idempotent UPSERT on the UNIQUE interview_id. `accuracy` is COALESCEd, not
     # overwritten: it derives from the stored message classes, so a raw POST /feedback (no
-    # classification behind it) must not wipe a grade an earlier pass earned.
-    return await fetchrow(
+    # classification behind it) must not wipe a grade an earlier pass earned. Callers re-read the row
+    # through _feedback_row, which is the only query that can see the interview's hardcore failure.
+    await fetchrow(
         "INSERT INTO feedback (interview_id, scores, verdict, tips, decision, certainty, accuracy) VALUES ($1, $2, $3, $4, $5, $6, $7) "
         "ON CONFLICT (interview_id) DO UPDATE SET scores = EXCLUDED.scores, verdict = EXCLUDED.verdict, tips = EXCLUDED.tips, "
-        "decision = EXCLUDED.decision, certainty = EXCLUDED.certainty, accuracy = COALESCE(EXCLUDED.accuracy, feedback.accuracy), created_at = now() "
-        "RETURNING id::text, interview_id::text, scores, verdict, tips, decision, certainty, accuracy, created_at",
+        "decision = EXCLUDED.decision, certainty = EXCLUDED.certainty, accuracy = COALESCE(EXCLUDED.accuracy, feedback.accuracy), created_at = now()",
         interview_id,
         scores,
         verdict,
@@ -542,22 +577,35 @@ async def _auto_generate_and_persist_feedback(interview_id: str, config: llm.LLM
 
 
 async def _generate_and_persist_feedback(interview_id: str, config: llm.LLMConfig) -> dict | None:
-    # `id` is selected for the move-review mapping, and the `, id` tiebreak keeps the order stable:
-    # llm numbers candidate turns off this exact list, and those numbers index these rows back.
+    # `id` is selected for the move-review mapping and `move_class` for the hardcore path; the
+    # `, id` tiebreak keeps the order stable, since llm numbers candidate turns off this exact list.
     history_rows = await fetch(
-        "SELECT id::text, role, content FROM messages WHERE interview_id = $1 ORDER BY created_at, id",
+        "SELECT id::text, role, content, move_class FROM messages WHERE interview_id = $1 ORDER BY created_at, id",
         interview_id,
     )
     history = [ChatMessage(role=r["role"], content=r["content"]) for r in history_rows]
     # Dials come from the interview, not the caller: regenerate_feedback has no body to trust.
-    row = await fetchrow(f"SELECT {', '.join(DIAL_FIELDS)} FROM interviews WHERE id = $1", interview_id)
-    summary = await llm.generate_feedback(history, Dials(**{k: row[k] for k in DIAL_FIELDS}) if row else None, config)
+    row = await fetchrow(f"SELECT {', '.join(DIAL_FIELDS)}, failed_turn, failed_class FROM interviews WHERE id = $1", interview_id)
+    dials = Dials(**{k: row[k] for k in DIAL_FIELDS}) if row else None
+    failure = (row["failed_turn"], row["failed_class"]) if row and row["failed_turn"] else None
+    # A hardcore run was already judged turn by turn as it was answered (chat_stream), so its
+    # annotation pass would only re-litigate verdicts the candidate was told about.
+    hardcore = bool(dials and dials.hardcore)
+    summary = await llm.generate_feedback(history, dials, config, failure=failure, annotate=not hardcore)
     if summary is None:
         return None
-    classes = await _persist_move_classes(interview_id, [r["id"] for r in history_rows if r["role"] == "user"], summary.moves)
+    classes = [r["move_class"] for r in history_rows if r["role"] == "user"] if hardcore else await _persist_move_classes(interview_id, [r["id"] for r in history_rows if r["role"] == "user"], summary.moves)
+    accuracy = rating.accuracy(classes)
+    # Safety net: hardcore, no failure recorded (the live judge came back empty on some turn), and this
+    # transcript does contain one. Record it, or the review would show F with nothing to shout about.
+    if hardcore and failure is None:
+        wrong = next(((turn, cls) for turn, cls in enumerate(classes, start=1) if cls in rating.FAIL_CLASSES), None)
+        if wrong:
+            await fetchrow("UPDATE interviews SET failed_turn = $2, failed_class = $3 WHERE id = $1", interview_id, wrong[0], wrong[1])
     # Accuracy averages what was STORED, not the model's payload: a turn the writer dropped must not
     # count towards the score it never earned.
-    return await _upsert_feedback(interview_id, summary.scores, summary.verdict, summary.tips, summary.decision, summary.certainty, rating.accuracy(classes))
+    await _upsert_feedback(interview_id, summary.scores, summary.verdict, summary.tips, summary.decision, summary.certainty, accuracy)
+    return dict(await _feedback_row(interview_id))
 
 
 async def _raise_start_error(interview_id: str, owner_id: str) -> None:

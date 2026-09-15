@@ -18,14 +18,23 @@ export function FeedbackView({ feedback, messages = [], onAnnotate, annotating }
     const decision = feedback.decision as Decision | null | undefined;
     const tally = tallyMoves(messages);
     const graded = tally.reduce((n, t) => n + t.count, 0);
+    const failed = typeof feedback.failed_turn === "number" ? feedback.failed_turn : null;
 
     return (
-        <Card>
+        <Card className={failed ? "border-destructive" : undefined}>
             <CardHeader>
-                <CardTitle>Review</CardTitle>
+                <CardTitle>{failed ? "Review — failed" : "Review"}</CardTitle>
                 <CardDescription>Every answer you gave is annotated in the transcript below</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
+                {failed && (
+                    <div className="space-y-1 rounded-lg border border-destructive bg-destructive/10 p-3">
+                        <p className="font-semibold uppercase tracking-wide text-destructive">Hardcore: run over</p>
+                        <p className="text-sm uppercase leading-relaxed">
+                            One wrong move ended it — question {failed} was a {feedback.failed_class ?? "fault"}. Grade F, no second chance.
+                        </p>
+                    </div>
+                )}
                 {graded > 0 ? (
                     <div className="space-y-3">
                         <div className="flex flex-wrap items-center justify-between gap-2">
