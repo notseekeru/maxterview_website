@@ -166,9 +166,7 @@ class FeedbackSummary(BaseModel):
 
 class ChatTurn(BaseModel):
     interview_id: str
-    # M11 input bound: the candidate's turn is the one unbounded blob that reaches the model, so
-    # cap it. 4000 chars is a long interview answer; mirror in the UI (api.ts MAX_TURN_CHARS).
-    content: str = Field(min_length=1, max_length=4000)
+    content: str = Field(min_length=1, max_length=8000)
 
 
 # --- BYOK provider settings (app/byok.py; see BYOK.md) ---

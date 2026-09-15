@@ -295,7 +295,7 @@ export async function testLLMProvider(): Promise<{ ok: boolean; detail: string }
 
 // M11: the backend caps a chat turn (models.ChatTurn); the UI enforces the same bound so the
 // candidate never types past it and meets a raw 422.
-export const MAX_TURN_CHARS = 12000;
+export const MAX_TURN_CHARS = 8000;
 
 export type StreamEvent = { kind: "message"; content: string } | { kind: "done"; closing?: boolean; failed?: { turn: number; class: MoveClass } } | { kind: "error"; message: string };
 
