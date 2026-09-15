@@ -23,11 +23,23 @@ async function main() {
   const createdIds = [];
 
   try {
-    // Landing -> Get started -> /app.
+    // Landing -> Start practicing free -> /app. (The CTA is a real button, not a "Get started" link:
+    // match the label by role so a hero copy tweak fails loudly here instead of timing out.)
     await page.goto(BASE + "/", { waitUntil: "domcontentloaded" });
-    await page.getByText("Get started", { exact: false }).first().click();
+    await page.getByRole("button", { name: /start (practicing )?free/i }).first().click();
     await page.waitForURL(/\/app/, { timeout: 15000 });
-    // Wait for the actual dashboard chrome so we don't act on a mid-transition Landing frame.
+    // The create form is behind a toggle whenever the owner already has interviews (it auto-opens
+    // only on an empty dashboard). The toggle is not there yet on the first frame after the route
+    // change, so poll for EITHER the form or the toggle: checking too early silently skips the
+    // click, and clicking twice closes the form again.
+    const newBtn = page.getByRole("button", { name: /^New interview$/ });
+    let clicked = false;
+    for (let i = 0; i < 40 && !(await page.locator("#role").isVisible().catch(() => false)); i++) {
+      if (!clicked && (await newBtn.isVisible().catch(() => false))) {
+        clicked = true;
+        await newBtn.click();
+      } else await sleep(250);
+    }
     await page.locator("#role").waitFor({ state: "visible", timeout: 15000 });
     console.log("  \u2713 Landing -> /app");
 
@@ -61,21 +73,21 @@ async function main() {
     await completeBtn.click();
     console.log("  \u2713 clicked Complete");
 
-    // Outcome A: FeedbackView (its card body reads "Your performance summary").
-    // Outcome B: retry notice ("scoring wasn't ready") -> click Retry scoring and re-poll.
+    // Outcome A: FeedbackView (its card body reads "Every answer you gave is annotated ...").
+    // Outcome B: retry notice ("your review wasn't ready") -> click Retry review and re-poll.
     // 90s deadline: on qwen/llama, /complete runs inline and blocks across the calls.
     const deadline = Date.now() + 90_000;
     let state = null;
     while (Date.now() < deadline) {
       const body = await page.locator("body").innerText().catch(() => "");
-      if (body.includes("Your performance summary")) {
+      if (body.includes("is annotated in the transcript below")) {
         state = "feedback";
         break;
       }
-      if (body.includes("scoring wasn't ready")) {
-        const retryBtn = page.getByRole("button", { name: /retry scoring/i });
+      if (body.includes("your review wasn't ready")) {
+        const retryBtn = page.getByRole("button", { name: /retry review/i });
         if ((await retryBtn.count()) > 0 && (await retryBtn.isVisible())) {
-          console.log("  \u2713 feedback absent -> clicked Retry scoring");
+          console.log("  \u2713 review absent -> clicked Retry review");
           await retryBtn.click();
           await page.waitForTimeout(1500);
         }
@@ -86,8 +98,14 @@ async function main() {
 
     const body = await page.locator("body").innerText();
     console.log("\n[result excerpt]\n" + body.slice(0, 900).replace(/\n+/g, "\n"));
-    if (state === "feedback") console.log("PASS feedback rendered after Complete");
-    else if (state === "timed-out") console.log("FAIL timed out waiting for feedback/retry state");
+    if (state === "feedback") {
+      // The review and the annotations are written by the same pass, so an accuracy with no badges
+      // means the transcript on screen is stale (that regression shipped once).
+      const badges = await page.locator("div.justify-end span[title]").count();
+      const rated = await page.getByText("accuracy", { exact: true }).count();
+      if (rated && badges === 0) console.log("FAIL review reports an accuracy but shows no per-answer annotations");
+      else console.log(`PASS review rendered after Complete (${rated ? `${badges} annotation(s)` : "ungraded — annotator returned nothing"})`);
+    } else if (state === "timed-out") console.log("FAIL timed out waiting for review/retry state");
     else console.log("unknown state:", state);
     if (createdIds.length) console.log("created interviews (DELETE /interviews/<id> if unwanted): " + createdIds.join(","));
   } finally {
