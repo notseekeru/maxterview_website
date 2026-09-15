@@ -315,7 +315,88 @@ async def test_invoice_draft_churn_writes_nothing(monkeypatch):
 
 async def test_unknown_event_type_is_ignored(monkeypatch):
     calls = _capture(monkeypatch)
-    await payments.handle_webhook_event({"data": {"type": "payment.paid", "livemode": False, "data": {"id": "pay_1", "type": "payment", "attributes": {}}}})
+    await payments.handle_webhook_event({"data": {"type": "payout.deposited", "livemode": False, "data": {"id": "po_1", "type": "payout", "attributes": {}}}})
+    assert calls == []
+
+
+# --- period mode: one paid Payment Intent buys PREMIUM_PERIOD_DAYS of premium ---
+
+
+def _payment_event(*, etype: str = "payment.paid", intent_id: str = "pi_1", legacy: bool = False) -> dict:
+    """`payment.paid` carries the intent it charged; a `payment_intent` event IS the intent."""
+    if etype.startswith("payment_intent"):
+        resource = {"id": intent_id, "type": "payment_intent", "attributes": {"id": intent_id, "amount": 49900, "status": "succeeded"}}
+    else:
+        resource = {
+            "id": "pay_1",
+            "type": "payment",
+            "attributes": {"id": "pay_1", "amount": 49900, "status": "paid", "payment_intent_id": intent_id},
+        }
+    body = {"type": etype, "livemode": False, "data": resource}
+    return {"data": {"attributes": body} if legacy else body}
+
+
+async def test_payment_paid_credits_the_pending_row(monkeypatch):
+    """Money in -> `active` + one period. Same row and same reader as a subscription."""
+    calls = _capture(monkeypatch)
+    before = datetime.now(UTC)
+    await payments.handle_webhook_event(_payment_event())
+
+    update, args = next((q, a) for q, a in calls if "UPDATE subscriptions" in q)
+    owner, intent_id, period_end = args
+    assert (owner, intent_id) == ("paying-user", "pi_1")
+    assert "plan = 'premium'" in update and "status = 'active'" in update
+    # The compare-and-set is what makes two registered event types + provider retries safe.
+    assert "provider_subscription_id = $2 AND status = 'incomplete'" in update
+    days = (period_end - before).total_seconds() / 86400
+    assert payments.PREMIUM_PERIOD_DAYS <= days < payments.PREMIUM_PERIOD_DAYS + 0.01
+
+
+async def test_payment_intent_succeeded_credits_and_legacy_envelope_works(monkeypatch):
+    calls = _capture(monkeypatch)
+    await payments.handle_webhook_event(_payment_event(etype="payment_intent.succeeded", intent_id="pi_2", legacy=True))
+    _, args = next((q, a) for q, a in calls if "UPDATE subscriptions" in q)
+    assert args[1] == "pi_2"
+
+
+async def test_a_second_delivery_matches_nothing_and_grants_no_extra_time(monkeypatch):
+    """Both event types are registered, so every payment CAN arrive twice: the guard is the write.
+
+    Once the row is `active` the compare-and-set matches no row, so a replay cannot buy a period.
+    """
+    attempted: list[tuple] = []
+
+    async def fake_fetchrow(q, *a, **k):
+        if "SELECT owner_id FROM subscriptions" in q:
+            return {"owner_id": "paying-user"}
+        if "UPDATE subscriptions" in q:
+            attempted.append(a)
+            return None  # already credited
+        return {"id": "row"}
+
+    monkeypatch.setattr(payments, "fetchrow", fake_fetchrow)
+    await payments.handle_webhook_event(_payment_event())
+    await payments.handle_webhook_event(_payment_event(etype="payment_intent.succeeded"))
+    assert [a[1] for a in attempted] == ["pi_1", "pi_1"]  # both tried, neither wrote
+
+
+async def test_payment_for_an_intent_we_never_issued_is_ignored(monkeypatch):
+    calls = _capture(monkeypatch, owner=None)
+    await payments.handle_webhook_event(_payment_event(intent_id="pi_from_another_key"))
+    assert not any("UPDATE subscriptions" in q for q, _ in calls)
+
+
+async def test_payment_events_that_are_not_paid_write_nothing(monkeypatch):
+    calls = _capture(monkeypatch)
+    await payments.handle_webhook_event(_payment_event(etype="payment.failed"))
+    assert calls == []
+
+
+async def test_payment_event_without_a_reference_is_ignored(monkeypatch):
+    """No intent id -> no owner can be resolved, so there is nothing to credit."""
+    calls = _capture(monkeypatch)
+    event = {"data": {"type": "payment.paid", "livemode": False, "data": {"id": "pay_9", "type": "payment", "attributes": {"status": "paid"}}}}
+    await payments.handle_webhook_event(event)
     assert calls == []
 
 
@@ -442,3 +523,140 @@ async def test_start_subscription_refuses_without_config(monkeypatch):
     with pytest.raises(HTTPException) as exc:
         await payments.start_subscription(ClerkUser(sub="u", email="a@b.co"))
     assert exc.value.status_code == 503
+
+
+# --- period-mode purchase (the launch mode: no account capability required) ---
+
+
+def _period_configure(monkeypatch):
+    monkeypatch.setattr(payments, "SECRET_KEY", "sk_test_x")
+    monkeypatch.setattr(payments, "BILLING_MODE", "period")
+
+
+def _buyer() -> ClerkUser:
+    return ClerkUser(sub="u", email="a@b.co", name="A B")
+
+
+async def test_period_mode_does_not_need_a_plan_id(monkeypatch):
+    """`PAYMONGO_PLAN_ID` is unset on this account and must not gate the launch mode."""
+    monkeypatch.setattr(payments, "SECRET_KEY", "sk_test_x")
+    monkeypatch.setattr(payments, "PLAN_ID", "")
+    payments._require_period_config()  # no raise: the price lives in PREMIUM_PRICE_CENTAVOS
+    with pytest.raises(HTTPException):
+        payments._require_config()
+
+
+async def test_start_upgrade_dispatches_on_mode(monkeypatch):
+    seen: list[str] = []
+
+    async def _sub(_user):
+        seen.append("subscription")
+        return "url"
+
+    async def _period(_user):
+        seen.append("period")
+        return "url"
+
+    monkeypatch.setattr(payments, "start_subscription", _sub)
+    monkeypatch.setattr(payments, "start_period_purchase", _period)
+    monkeypatch.setattr(payments, "BILLING_MODE", "period")
+    await payments.start_upgrade(_buyer())
+    monkeypatch.setattr(payments, "BILLING_MODE", "subscription")
+    await payments.start_upgrade(_buyer())
+    assert seen == ["period", "subscription"]
+
+
+async def test_start_period_purchase_records_the_intent_before_the_redirect(monkeypatch):
+    """The webhook resolves the owner from the stored intent id, so the row must exist first."""
+    _period_configure(monkeypatch)
+    order: list[tuple] = []
+
+    async def fake_fetchrow(q, *a, **k):
+        if "INSERT INTO subscriptions" in q or "UPDATE subscriptions" in q:
+            order.append(("db", q, a))
+            return {"id": "row"}
+        return None  # no stored row, no stored customer
+
+    async def _api(method, path, **kwargs):
+        order.append(("api", method, path))
+        if path == "/v1/customers":
+            return {"data": {"id": "cus_1"}}
+        if path == "/v1/payment_intents":
+            attrs = kwargs["json"]["data"]["attributes"]
+            assert (attrs["amount"], attrs["currency"], attrs["capture_type"]) == (payments.PREMIUM_PRICE_CENTAVOS, "PHP", "automatic")
+            assert attrs["payment_method_allowed"] == list(payments.PERIOD_METHODS)
+            assert attrs["metadata"] == {"owner_id": "u"}
+            assert "plan" not in attrs  # a one-time payment is not a subscription
+            return {"data": {"id": "pi_new"}}
+        if path == "/v1/payment_methods":
+            return {"data": {"id": "pm_1"}}
+        if path == "/v1/payment_intents/pi_new":
+            return {"data": {"attributes": {"client_key": "pi_new_client_x"}}}
+        if path == "/v1/payment_intents/pi_new/attach":
+            return {"data": {"attributes": {"next_action": {"redirect": {"url": "https://paymaya.test/x"}}}}}
+        raise AssertionError(path)
+
+    monkeypatch.setattr(payments, "fetchrow", fake_fetchrow)
+    monkeypatch.setattr(payments, "_api", _api)
+    assert await payments.start_period_purchase(_buyer()) == "https://paymaya.test/x"
+
+    insert = next(i for i, e in enumerate(order) if e[0] == "db" and "INSERT INTO subscriptions" in e[1])
+    attach = next(i for i, e in enumerate(order) if e[0] == "api" and str(e[2]).endswith("/attach"))
+    assert insert < attach, "the row must exist before the user leaves for Maya"
+    row_args = order[insert][2]
+    assert row_args[3] == "pi_new"  # provider_subscription_id holds the intent id in period mode
+    assert row_args[5:7] == ("premium", "incomplete")
+
+
+async def test_start_period_purchase_needs_an_email_and_a_free_slot(monkeypatch):
+    _period_configure(monkeypatch)
+    with pytest.raises(HTTPException) as no_email:
+        await payments.start_period_purchase(ClerkUser(sub="u", email=None, name="A"))
+    assert no_email.value.status_code == 409
+
+    async def _covered(_q, _sub):
+        return _row(current_period_end=datetime(2027, 1, 1, tzinfo=UTC))
+
+    monkeypatch.setattr(payments, "fetchrow", _covered)
+    with pytest.raises(HTTPException) as covered:
+        await payments.start_period_purchase(_buyer())
+    assert covered.value.status_code == 409
+
+
+async def test_start_period_purchase_refuses_without_a_secret_key(monkeypatch):
+    monkeypatch.setattr(payments, "SECRET_KEY", "")
+    with pytest.raises(HTTPException) as exc:
+        await payments.start_period_purchase(_buyer())
+    assert exc.value.status_code == 503
+
+
+async def test_cancel_period_keeps_the_paid_time_and_calls_no_provider(monkeypatch):
+    calls: list[tuple] = []
+
+    async def fake_fetchrow(q, *a, **k):
+        calls.append((q, a))
+        if "SELECT current_period_end" in q:
+            return {"current_period_end": datetime(2027, 1, 1, tzinfo=UTC)}
+        return {"id": "row"}
+
+    async def _api(*_a, **_k):
+        raise AssertionError("period mode has nothing scheduled provider-side to cancel")
+
+    monkeypatch.setattr(payments, "fetchrow", fake_fetchrow)
+    monkeypatch.setattr(payments, "_api", _api)
+    monkeypatch.setattr(payments, "BILLING_MODE", "period")
+    await payments.cancel_upgrade(_buyer())
+    update = next(q for q, _ in calls if "UPDATE subscriptions" in q)
+    assert "status = 'cancelled'" in update and "plan = 'premium'" in update
+    assert "cancelled" in billing.ENTITLED_STATUSES  # ...so the paid time still serves
+
+
+async def test_cancel_period_without_a_live_period_is_404(monkeypatch):
+    async def fake_fetchrow(_q, *_a, **_k):
+        return {"current_period_end": None}
+
+    monkeypatch.setattr(payments, "fetchrow", fake_fetchrow)
+    monkeypatch.setattr(payments, "BILLING_MODE", "period")
+    with pytest.raises(HTTPException) as exc:
+        await payments.cancel_upgrade(_buyer())
+    assert exc.value.status_code == 404

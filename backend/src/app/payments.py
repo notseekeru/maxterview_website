@@ -1,16 +1,23 @@
 """M10 billing provider — PayMongo (MONETIZATION.md §3).
 
-Provider-managed recurring, PHP-only, Maya as the first-payment rail:
+Two ways to turn money into the SAME entitlement — a paid period on the `subscriptions` row.
+`BILLING_MODE` picks one and `billing.resolve_tier` is identical for both:
 
-    subscribe → Customer → Subscription(incomplete) → first-invoice Payment Intent
-              → attach PaymentMethod(paymaya) → Maya hosted page → return_url
-              → webhook subscription.* → `subscriptions` row → resolve_tier upgrades
+- `period` (default): one-time Payment Intent → Maya redirect → webhook `payment.paid` extends
+  `current_period_end` by `PREMIUM_PERIOD_DAYS`. Needs NO account capability, which matters because
+  PayMongo enables Subscriptions by hand (MONETIZATION §7) — this is the mode that can ship.
+- `subscription`: Customer → Subscription(incomplete) → first-invoice Payment Intent → attach
+  PaymentMethod(paymaya) → Maya hosted page → webhook subscription.* → row. Provider-managed
+  recurring; needs Subscriptions + Card Vaulting enabled by support.
 
 Config (env, zero-touch on credentials — never defaulted, never logged):
   PAYMONGO_SECRET_KEY      sk_test_/sk_live_  server-side only
   PAYMONGO_WEBHOOK_SECRET  whsec_…  HMAC key of the /billing/webhook endpoint
-  PAYMONGO_PLAN_ID         plan_…   premium monthly (₱499)
   FRONTEND_BASE_URL        first-payment return URL
+  BILLING_MODE             `period` | `subscription` (default `period`)
+  PREMIUM_PRICE_CENTAVOS   period mode: 49900 = ₱499 (subscription mode: the plan's own amount)
+  PREMIUM_PERIOD_DAYS      period mode: how much premium one payment buys (default 30)
+  PAYMONGO_PLAN_ID         subscription mode only (plan_… via POST /v1/subscriptions/plans)
 
 Raw httpx on purpose: seven endpoints; an SDK would only add a dependency to rotate.
 
@@ -23,7 +30,7 @@ import hashlib
 import hmac
 import os
 import time
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 
 import httpx
 import structlog
@@ -40,6 +47,15 @@ WEBHOOK_SECRET = os.getenv("PAYMONGO_WEBHOOK_SECRET", "")
 PLAN_ID = os.getenv("PAYMONGO_PLAN_ID", "")
 FRONTEND_BASE_URL = os.getenv("FRONTEND_BASE_URL", "http://localhost:5173")
 PROVIDER = "paymongo"
+
+# `period` = one-time payment buys PREMIUM_PERIOD_DAYS; `subscription` = provider-managed recurring.
+# Same routes, same row, same entitlement either way — only the payment rail differs.
+BILLING_MODE = os.getenv("BILLING_MODE", "period")
+PREMIUM_PRICE_CENTAVOS = int(os.getenv("PREMIUM_PRICE_CENTAVOS", "49900"))  # ₱499
+PREMIUM_PERIOD_DAYS = int(os.getenv("PREMIUM_PERIOD_DAYS", "30"))
+# Maya is the only redirect-capable method available to an individual account (Cards need a
+# registered business type — PayMongo "Account capabilities"); card stays listed for business ones.
+PERIOD_METHODS = ("paymaya", "card")
 
 # Replay window for `Paymongo-Signature` (docs call this optional; it is cheap on a money endpoint).
 # Env-overridable because a rejected fresh-or-not judgement call here means a paying customer is left
@@ -81,6 +97,12 @@ def _resubscribe_block(row: dict | None, now: datetime | None = None) -> str:
 
 def _require_config() -> None:
     if not SECRET_KEY or not PLAN_ID:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Billing is not configured")
+
+
+def _require_period_config() -> None:
+    """Period mode has no plan to hold the price: it lives in PREMIUM_PRICE_CENTAVOS."""
+    if not SECRET_KEY:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Billing is not configured")
 
 
@@ -141,7 +163,15 @@ async def start_subscription(user: ClerkUser) -> str:
     # webhook that follows needs a row to resolve the owner from.
     await _upsert(user.sub, customer_id, subs_id, PLAN_ID, "premium", "incomplete", None)
 
-    intent_id = await _first_invoice_intent(subs_id)
+    return await _redirect_for_intent(await _first_invoice_intent(subs_id))
+
+
+async def _redirect_for_intent(intent_id: str) -> str:
+    """Attach a Maya PaymentMethod to `intent_id` and return PayMongo's hosted redirect URL.
+
+    Shared by both modes: PayMongo has no hosted "pay this" page for an unattached intent, so a
+    redirect always means attach-a-method first.
+    """
     method = await _api("POST", "/v1/payment_methods", json={"data": {"attributes": {"type": "paymaya"}}})
     # AI HERE: one extra GET for `client_key` so the attach body satisfies both the secret-key and
     # the public-key flow. Drop it once a sandbox attach proves the key is unnecessary.
@@ -157,6 +187,71 @@ async def start_subscription(user: ClerkUser) -> str:
     if not url:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Payment provider returned no redirect URL")
     return url
+
+
+async def start_period_purchase(user: ClerkUser) -> str:
+    """One-time ₱499 buys PREMIUM_PERIOD_DAYS of premium; returns the Maya redirect URL.
+
+    No account capability is required, unlike `start_subscription`. The row is written BEFORE the
+    redirect for the same reason as there: the customer may never come back from Maya, and the
+    webhook that follows needs a row to resolve an owner from.
+    """
+    _require_period_config()
+    if "@" not in (user.email or ""):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Add an email to your account before upgrading")
+    existing = await fetchrow("SELECT plan, status, current_period_end, updated_at FROM subscriptions WHERE owner_id = $1", user.sub)
+    block = _resubscribe_block(existing)
+    if block:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=block)
+
+    customer_id = await _ensure_customer(user)
+    intent = await _api(
+        "POST",
+        "/v1/payment_intents",
+        json={
+            "data": {
+                "attributes": {
+                    "amount": PREMIUM_PRICE_CENTAVOS,
+                    "currency": "PHP",
+                    "payment_method_allowed": list(PERIOD_METHODS),
+                    "capture_type": "automatic",
+                    "description": f"Maxterview Premium ({PREMIUM_PERIOD_DAYS} days)",
+                    "metadata": {"owner_id": user.sub},
+                }
+            }
+        },
+    )
+    intent_id = intent["data"]["id"]
+    # The intent id goes in `provider_subscription_id`: that is the column `_owner_for` resolves an
+    # owner from (PayMongo's `payment.paid` carries `payment_intent_id`), so period mode needs no
+    # migration. AI HERE: one handle per owner, one period per payment — stacked/discounted renewals
+    # need a real ledger keyed by provider id, which is also the upgrade path for refunds.
+    await _upsert(user.sub, customer_id, intent_id, "", "premium", "incomplete", None)
+    return await _redirect_for_intent(intent_id)
+
+
+async def start_upgrade(user: ClerkUser) -> str:
+    """Upgrade URL for the configured mode — the routes stay mode-blind."""
+    if BILLING_MODE == "subscription":
+        return await start_subscription(user)
+    return await start_period_purchase(user)
+
+
+async def cancel_upgrade(user: ClerkUser) -> None:
+    if BILLING_MODE == "subscription":
+        await cancel_subscription(user)
+        return
+    # Period mode schedules nothing provider-side, so there is no renewal to stop. Marking the row
+    # `cancelled` keeps the time already paid for (billing.ENTITLED_STATUSES) and stops a renewal the
+    # user never had. No active period -> nothing to cancel.
+    row = await fetchrow("SELECT current_period_end FROM subscriptions WHERE owner_id = $1", user.sub)
+    period_end = (row or {}).get("current_period_end")
+    if not period_end or period_end <= datetime.now(UTC):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No active period to cancel")
+    await fetchrow(
+        "UPDATE subscriptions SET plan = 'premium', status = 'cancelled', updated_at = now() WHERE owner_id = $1 RETURNING id",
+        user.sub,
+    )
 
 
 async def cancel_subscription(user: ClerkUser) -> None:
@@ -264,7 +359,44 @@ async def handle_webhook_event(event: dict) -> None:
         await _on_subscription(attrs)
     elif resource.get("type") == "invoice":
         await _on_invoice(etype, attrs)
+    elif resource.get("type") in ("payment", "payment_intent"):
+        await _on_payment(etype, resource, attrs)
     # invoice.created/finalized/updated are draft/open churn: no entitlement change, no write.
+
+
+async def _on_payment(etype: str, resource: dict, attrs: dict) -> None:
+    """Period mode: a paid one-time payment extends the owner's premium period.
+
+    Both `payment.paid` and `payment_intent.succeeded` are accepted because a method or a retry may
+    only surface one; the write is a compare-and-set, so receiving both costs nothing (see below).
+    """
+    if etype not in ("payment.paid", "payment_intent.succeeded"):
+        return
+    # `payment` carries the intent it was charged against; a `payment_intent` event IS the intent.
+    intent_id = attrs.get("payment_intent_id") or (resource.get("id") if resource.get("type") == "payment_intent" else "")
+    if not intent_id:
+        log.warning("paymongo.webhook.payment_without_intent", event_type=etype)
+        return
+    owner = await _owner_for(subscription_id=intent_id)
+    if not owner:
+        # An intent we never issued (another integration's key, or a pre-migration payment).
+        log.info("paymongo.webhook.unknown_payment_intent", payment_intent_id=intent_id, event_type=etype)
+        return
+    # Compare-and-set on the pending row: the same payment delivered twice (both event types are
+    # registered, and PayMongo retries) must not buy two periods.
+    row = await fetchrow(
+        """
+        UPDATE subscriptions SET plan = 'premium', status = 'active', current_period_end = $3, updated_at = now()
+        WHERE owner_id = $1 AND provider_subscription_id = $2 AND status = 'incomplete'
+        RETURNING id
+        """,
+        owner,
+        intent_id,
+        datetime.now(UTC) + timedelta(days=PREMIUM_PERIOD_DAYS),
+    )
+    if not row:
+        # Already credited (replay), or the row moved on to a newer intent.
+        log.info("paymongo.webhook.payment_not_credited", payment_intent_id=intent_id, event_type=etype)
 
 
 async def _on_subscription(attrs: dict) -> None:

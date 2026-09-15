@@ -358,19 +358,19 @@ async def test_llm_provider(user: CurrentUser) -> dict:
     return await byok.test(user)
 
 
-# --- billing (PayMongo subscriptions: subscribe / cancel / webhook) ---
+# --- billing (PayMongo: upgrade / cancel / webhook) ---
 
 
 @api.post("/billing/checkout")
 async def billing_checkout(user: CurrentUser) -> dict:
-    """Start the premium subscription; returns the Maya URL for the first payment."""
-    return {"url": await payments.start_subscription(user)}
+    """Start the premium upgrade; returns the provider's hosted payment URL (a Maya redirect)."""
+    return {"url": await payments.start_upgrade(user)}
 
 
 @api.post("/billing/cancel", response_model=dict)
 async def billing_cancel(user: CurrentUser) -> dict:
     """Stop future billing. PayMongo has no billing portal, so this is our cancel path."""
-    await payments.cancel_subscription(user)
+    await payments.cancel_upgrade(user)
     return {"ok": True}
 
 
