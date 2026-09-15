@@ -109,6 +109,11 @@ def test_grader_rubric_is_generated_from_the_dimension_registry():
     assert set(llm.FEEDBACK_JSON_SCHEMA["properties"]["scores"]["properties"]) == set(llm.FEEDBACK_DIMS)
     assert "not assessed" in llm.GRADER_PROMPT_V1  # prose stage: the phrase the reviewer writes
     assert "not-assessed" in llm.FEEDBACK_PROMPT_V1 and "null" in llm.FEEDBACK_PROMPT_V1  # JSON stage
+    # Tips go to the candidate about their own answers. A live run had the grader's not-assessed
+    # notes leak through as "Focus on resume background and education to assess relevance" - advice
+    # to the interviewer, printed at the candidate.
+    assert "never turn a not-assessed dimension into a tip" in llm.GRADER_PROMPT_V1
+    assert "addressed to the CANDIDATE in" in llm.FEEDBACK_PROMPT_V1
 
 
 def test_system_prompt_carries_the_dials():
