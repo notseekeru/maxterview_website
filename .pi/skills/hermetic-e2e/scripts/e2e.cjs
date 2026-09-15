@@ -23,10 +23,10 @@ async function main() {
   const createdIds = [];
 
   try {
-    // Landing -> Start practicing free -> /app. (The CTA is a real button, not a "Get started" link:
-    // match the label by role so a hero copy tweak fails loudly here instead of timing out.)
+    // Landing -> Start free -> /app. (The CTA is an anchor, not a button: a crawler only follows
+    // links — so match it by LINK role: a hero copy tweak fails loudly here instead of timing out.)
     await page.goto(BASE + "/", { waitUntil: "domcontentloaded" });
-    await page.getByRole("button", { name: /start (practicing )?free/i }).first().click();
+    await page.getByRole("link", { name: /start (practicing )?free/i }).first().click();
     await page.waitForURL(/\/app/, { timeout: 15000 });
     // The create form is behind a toggle whenever the owner already has interviews (it auto-opens
     // only on an empty dashboard). The toggle is not there yet on the first frame after the route

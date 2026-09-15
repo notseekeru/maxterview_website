@@ -3,21 +3,67 @@
     <head>
         <meta charset="UTF-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-        <title>maxterview — AI mock-interview coach</title>
-        <meta name="description" content="Practice job interviews with an AI coach: one question at a time, then per-dimension scores, a hire/reject verdict and tips. Free to start." />
+        <!-- Title/description must lead with the query, not the brand: this shell is the only
+             HTML a non-JS crawler (Google's render is not guaranteed for every bot, and Bing,
+             social unfurlers and every AI answer engine run no JS at all) will ever see.
+             Keep the default title in sync with TAGLINE in src/hooks/useDocumentTitle.ts — the
+             hook overwrites this one as soon as React mounts. -->
+        <title>AI Mock Interview Practice with Instant Feedback | maxterview</title>
+        <meta name="description" content="Practice interviews with an AI coach: answer questions one at a time, every answer graded like a chess move, a hire/reject verdict and tips. Free to start." />
+        <meta name="robots" content="index, follow, max-image-preview:large" />
         <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
         <meta name="theme-color" content="#0a0a0a" media="(prefers-color-scheme: dark)" />
         <link rel="canonical" href="https://maxterview.seekeru.tech/" />
         <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
         <link rel="apple-touch-icon" href="/favicon.svg" />
-        <!-- Open Graph / Twitter: no image asset ships yet, so the card degrades to title +
-             description rather than pointing at a 404. -->
+        <!-- Social card. og.png is a committed 1200x630 asset and the URLs are absolute on
+             purpose: unfurlers fetch with no document base and will not resolve a relative one. -->
         <meta property="og:type" content="website" />
         <meta property="og:site_name" content="maxterview" />
-        <meta property="og:title" content="maxterview — AI mock-interview coach" />
-        <meta property="og:description" content="Practice interviews with an AI coach that scores every answer and tracks what you improve." />
+        <meta property="og:title" content="AI Mock Interview Practice with Instant Feedback" />
+        <meta property="og:description" content="Answer questions one at a time, get every answer graded like a chess engine annotates moves, and track your accuracy across practice runs." />
         <meta property="og:url" content="https://maxterview.seekeru.tech/" />
-        <meta name="twitter:card" content="summary" />
+        <meta property="og:image" content="https://maxterview.seekeru.tech/og.png" />
+        <meta property="og:image:width" content="1200" />
+        <meta property="og:image:height" content="630" />
+        <meta property="og:image:alt" content="maxterview — practice interviews with an AI coach that gives real feedback" />
+        <meta name="twitter:card" content="summary_large_image" />
+        <meta name="twitter:image" content="https://maxterview.seekeru.tech/og.png" />
+        <!-- Structured data, static so it needs no JS. FAQPage is deliberately absent: the FAQ
+             text is React-rendered, so the markup would describe content a non-JS crawler cannot
+             see. Add it when the FAQ ships as static HTML. -->
+        <script type="application/ld+json">
+            {
+                "@context": "https://schema.org",
+                "@graph": [
+                    {
+                        "@type": "Organization",
+                        "@id": "https://maxterview.seekeru.tech/#organization",
+                        "name": "maxterview",
+                        "url": "https://maxterview.seekeru.tech/"
+                    },
+                    {
+                        "@type": "WebSite",
+                        "@id": "https://maxterview.seekeru.tech/#website",
+                        "name": "maxterview",
+                        "url": "https://maxterview.seekeru.tech/",
+                        "publisher": { "@id": "https://maxterview.seekeru.tech/#organization" }
+                    },
+                    {
+                        "@type": "SoftwareApplication",
+                        "name": "maxterview",
+                        "applicationCategory": "BusinessApplication",
+                        "operatingSystem": "Web",
+                        "url": "https://maxterview.seekeru.tech/",
+                        "description": "AI mock-interview coach: practice questions one at a time, get every answer graded like a chess move, a hire/reject verdict and an accuracy trend.",
+                        "offers": [
+                            { "@type": "Offer", "name": "Free", "price": "0", "priceCurrency": "PHP" },
+                            { "@type": "Offer", "name": "Premium (monthly)", "price": "499", "priceCurrency": "PHP" }
+                        ]
+                    }
+                ]
+            }
+        </script>
         <!-- Boot-time theme: read the stored choice before first paint so a dark
              preference survives page loads landing anywhere in the app (the value is
              otherwise only re-applied once React mounts the settings page). Must stay

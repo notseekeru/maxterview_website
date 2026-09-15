@@ -1,4 +1,4 @@
-import { useNavigate } from "react-router-dom";
+import { Link } from "react-router-dom";
 
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
@@ -8,9 +8,10 @@ import { PLANS } from "@/lib/plans";
 // / — public marketing landing. It is the only crawlable route (everything under /app is behind
 // auth), which is why the copy is plain HTML with no auth or chart code anywhere near it: the
 // Clerk SDK and recharts are in lazy chunks this route never fetches.
+// Navigation here must stay <Link>/<a href>: an onClick handler is a <button>, which is not a
+// link and passes nothing to a crawler.
 export function Landing() {
     useDocumentTitle();
-    const navigate = useNavigate();
 
     const features = [
         { title: "AI interviewer", body: "A simulated coach that asks real questions, one at a time, and reacts to your answers." },
@@ -36,10 +37,12 @@ export function Landing() {
             <header className="mx-auto flex w-full max-w-5xl items-center justify-between px-6 py-6">
                 <span className="text-xl font-semibold tracking-tight">maxterview</span>
                 <nav className="flex items-center gap-2">
-                    <Button variant="ghost" onClick={() => navigate("/app")}>
-                        Sign in
+                    <Button variant="ghost" asChild>
+                        <Link to="/app">Sign in</Link>
                     </Button>
-                    <Button onClick={() => navigate("/app")}>Start free</Button>
+                    <Button asChild>
+                        <Link to="/app">Start free</Link>
+                    </Button>
                 </nav>
             </header>
 
@@ -48,11 +51,11 @@ export function Landing() {
                     <h1 className="max-w-2xl text-4xl font-semibold leading-tight tracking-tight sm:text-5xl">Practice interviews with an AI coach that gives real feedback.</h1>
                     <p className="max-w-xl text-lg text-muted-foreground">Answer questions one at a time, get every answer annotated like a chess engine annotates moves, and track your accuracy across every practice run.</p>
                     <div className="flex flex-wrap items-center justify-center gap-3">
-                        <Button size="lg" onClick={() => navigate("/app")}>
-                            Start practicing free
+                        <Button size="lg" asChild>
+                            <Link to="/app">Start practicing free</Link>
                         </Button>
-                        <Button size="lg" variant="outline" onClick={() => navigate("/app")}>
-                            Sign in
+                        <Button size="lg" variant="outline" asChild>
+                            <Link to="/app">Sign in</Link>
                         </Button>
                     </div>
                     <p className="text-sm text-muted-foreground">No credit card · {PLANS.free.turns} free turns a day · Cancel anytime</p>
@@ -99,8 +102,8 @@ export function Landing() {
                                         <li>Full answer-by-answer review and hire/reject verdict</li>
                                         <li>Bring your own model key if you prefer</li>
                                     </ul>
-                                    <Button variant={id === "premium" ? "default" : "outline"} className="mt-auto" onClick={() => navigate("/app")}>
-                                        {id === "premium" ? `Upgrade · ${plan.monthly}` : "Start free"}
+                                    <Button asChild variant={id === "premium" ? "default" : "outline"} className="mt-auto">
+                                        <Link to="/app">{id === "premium" ? `Upgrade · ${plan.monthly}` : "Start free"}</Link>
                                     </Button>
                                 </div>
                             );
@@ -123,8 +126,8 @@ export function Landing() {
 
                 <section className="flex flex-col items-center gap-3 rounded-lg border p-8 text-center">
                     <h2 className="text-xl font-semibold tracking-tight">Your next interview is practice, not the real one.</h2>
-                    <Button size="lg" onClick={() => navigate("/app")}>
-                        Start practicing free
+                    <Button size="lg" asChild>
+                        <Link to="/app">Start practicing free</Link>
                     </Button>
                 </section>
             </main>
@@ -134,12 +137,12 @@ export function Landing() {
                 <div className="flex flex-wrap items-center justify-between gap-3">
                     <span>maxterview — AI mock-interview coach.</span>
                     <div className="flex items-center gap-4">
-                        <button type="button" className="underline underline-offset-2 hover:text-foreground" onClick={() => navigate("/app")}>
+                        <Link to="/app" className="underline underline-offset-2 hover:text-foreground">
                             Sign in
-                        </button>
-                        <button type="button" className="underline underline-offset-2 hover:text-foreground" onClick={() => navigate("/app")}>
+                        </Link>
+                        <Link to="/app" className="underline underline-offset-2 hover:text-foreground">
                             Dashboard
-                        </button>
+                        </Link>
                     </div>
                 </div>
             </footer>

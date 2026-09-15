@@ -1,8 +1,9 @@
 <?xml version="1.0" encoding="UTF-8"?>
+<!-- Single URL until the static content layer lands. changefreq/priority are dropped: Google
+     ignores both. Bump lastmod by hand whenever / changes. -->
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
     <url>
         <loc>https://maxterview.seekeru.tech/</loc>
-        <changefreq>weekly</changefreq>
-        <priority>1.0</priority>
+        <lastmod>2026-09-15</lastmod>
     </url>
 </urlset>
