@@ -1,5 +1,14 @@
 # Real Maya payment via a host-direct browser (the "upgrade" leg)
 
+> **Mode note (2026-09-15).** The shipping rail is `BILLING_MODE=period`: one-time Payment Intent →
+> Maya → `payment.paid` → 30 days of premium. The browser leg below is identical (same SPA button,
+> same Maya page, same `?upgrade=pending` return), so follow it as written and only swap the
+> assertions: in period mode the webhook that flips the row is **`payment.paid`** (deliver it with
+> `webhook-driver.sh --event=payment.paid --intent=pi_…`), `PAYMONGO_PLAN_ID` is not needed, and the
+> "Subscriptions enabled" precondition below does **not** apply. Steps that mention
+> `subscription.*`/invoice events apply to `BILLING_MODE=subscription` only, which is still blocked by
+> that account capability (403 `merchant_invalid_state`).
+
 This reference is what an agent follows to drive the **real** first-payment redirect for a PayMongo
 subscription in a browser. Drive it either with the `playwright` MCP server declared in `.mcp.json`
 (`browser_navigate`/`browser_snapshot`/`browser_click`) or host-direct with `playwright-core` +

@@ -4,11 +4,13 @@ description: >-
   Operates the real (test-mode) Clerk and PayMongo accounts for maxterview so the user never has to
   open the Clerk or PayMongo dashboards to configure, inspect, seed, or reset the auth/billing
   sandbox. Lets an agent (pi or similar), or a human, read/create real test state, mint a Clerk
-  testing session so a browser authenticates as a throwaway user, create a real ₱499/mo PayMongo
-  subscription, drive its Maya first payment, deliver signed (or simulated) webhook events, and
-  prove the entitlement flip in the backend (chat quotas / premium tier). Load when the user wants
-  to set up, debug, or reset Clerk+PayMongo test state for maxterview, or to run the real
-  subscribe->webhook->tier journey without visiting paymongo.com or clerk.com.
+  testing session so a browser authenticates as a throwaway user, take a real one-time payment
+  (the shipping period-mode rail), deliver signed (or simulated) webhook events, and prove the
+  entitlement flip in the backend (chat quotas / premium tier). Also holds the verdict on PayMongo's
+  MCP server (there isn't a usable one — this skill IS the agent surface) and on Subscriptions
+  (blocked by an account-level capability). Load when the user wants to set up, debug, or reset
+  Clerk+PayMongo test state for maxterview, or to run the real pay -> webhook -> tier journey
+  without visiting paymongo.com or clerk.com.
 ---
 
 # Clerk + PayMongo operator (maxterview)
@@ -29,20 +31,26 @@ real subscription lifecycle end-to-end.
 | Keys present | You can do | You cannot do |
 | --- | --- | --- |
 | none (`backend/.env` empty) | Full dev proof: `/api/billing/webhook/simulate` (dev/test only) drives `subscriptions` → `resolve_tier` → `/api/usage`. Works offline, no tunnel, no keys. | Touch PayMongo at all. |
-| `PAYMONGO_SECRET_KEY` (test) | Create plan/customer/subscription, mint the Maya redirect, receive real webhook deliveries (if a public URL exists), replay/craft signed events. | Take real money. Live keys need a Fully Verified account. |
-| live keys | Real ₱499/mo billing. | — |
+| `PAYMONGO_SECRET_KEY` (test) | **Everything the launch mode needs**: Customer, one-time Payment Intent, Maya redirect, webhooks, refunds — `payments.sh`. | Take real money (live keys need a Fully Verified account). **Subscriptions** — the account-level `Subscriptions` capability is off, so `POST /v1/subscriptions` and even `POST /v1/subscriptions/plans` return **403 `merchant_invalid_state`** ("no subscription payment methods are configured for this organization"). |
+| live keys | Real ₱499 billing. | — |
 
-**Two PayMongo account-level features are NOT self-service** and both block the real journey until
-enabled: **Subscriptions** and **Card Vaulting** — email `support@paymongo.com`. Verify these before
-debugging anything else; a 400 on `POST /v1/subscriptions` with an otherwise valid key usually means
-this.
+**Two PayMongo account-level features are NOT self-service**: **Subscriptions** and **Card Vaulting** —
+both need `support@paymongo.com`, and "All subscription activations are manually requested — no
+self-service flow is available" (docs: Account capabilities). This is why the product ships
+`BILLING_MODE=period` (one-time payment → 30 days of premium) and not provider-managed recurring.
+The 403 above is the gate, not a code bug — do not debug the client first.
+
+Live-mode reach is also narrower than it looks: on an **individual** account only **Maya, GrabPay and
+ShopeePay** can be requested; **Cards need a registered business type**. Period mode therefore assumes
+Maya (`PERIOD_METHODS`), which is exactly the rail `payments.sh --create-period` attaches.
 
 ---
 
 ## 2. Where keys and state live
 
 - `backend/.env` (git-ignored) is the runtime source: `PAYMONGO_SECRET_KEY`, `PAYMONGO_WEBHOOK_SECRET`,
-  `PAYMONGO_PLAN_ID`, `FRONTEND_BASE_URL`, plus `CLERK_*` and quotas.
+  `FRONTEND_BASE_URL`, `BILLING_MODE`, `PREMIUM_PRICE_CENTAVOS`, `PREMIUM_PERIOD_DAYS`, plus `CLERK_*`
+  and quotas. `PAYMONGO_PLAN_ID` is **subscription mode only**.
 - The scripts load it via `scripts/_env.sh`, which exports **names only** — it never prints a value.
   Process env wins over the file, matching compose semantics.
 - Entitlement state is the `subscriptions` row (owner_id → provider ids, `plan`, `status`,
@@ -94,10 +102,38 @@ To exercise the **real** HMAC path (`Paymongo-Signature`, not the simulate short
 
 ## 5. Correct ordering of the real billing journey (needs test keys)
 
+### Period mode — the shipping rail (`BILLING_MODE=period`, the default)
+
+1. **App-side start** — `POST /api/billing/checkout` as the signed-in user. It creates the Customer
+   (note: `POST /v1/customers` now **requires `default_device`**, `"email"` here), a one-time
+   Payment Intent for `PREMIUM_PRICE_CENTAVOS`, then attaches a `paymaya` PaymentMethod and returns
+   the Maya URL. The `subscriptions` row is written as `premium/incomplete` **before** the redirect,
+   holding the intent id in `provider_subscription_id` (no migration; that is the column the webhook
+   resolves an owner from).
+   A **409** here means a paid period is live or a first payment is pending in the 24h window —
+   deliberate, since a second payment is a second charge. Don't clear the row to "fix" it.
+2. **Pay on Maya**, then the browser returns to `/app?upgrade=pending` (`UpgradePendingNotice`
+   polls `/api/usage`; in no-Clerk dev mode it can never flip because `resolve_tier` short-circuits
+   to `dev` — assert on the row instead).
+3. **Webhook** — `payment.paid` (or `payment_intent.succeeded`; register both) sets
+   `plan=premium, status=active, current_period_end = now() + PREMIUM_PERIOD_DAYS`. It is a
+   **compare-and-set on `provider_subscription_id = <intent id> AND status = 'incomplete'`**, so a
+   replay, the sibling event type, or a PayMongo retry cannot buy a second period
+   (`paymongo.webhook.payment_not_credited` in the logs is this guard firing).
+4. **Assert** — `debug-state.sh`, or check the row: `status=active` plus ~30 days of
+   `current_period_end`. `billing.resolve_tier` then reads `premium` wherever Clerk is on.
+5. **No cancel to offer** — nothing is scheduled provider-side, so `/api/billing/cancel` only marks
+   the row `cancelled` (the paid time still serves) and the UI shows the expiry instead of a button.
+
+Agent shortcut for the provider half: `payments.sh --create-period` does step 1 straight at PayMongo
+and prints the Maya URL, then `webhook-driver.sh --event=payment.paid --intent=pi_x` does step 3.
+
+### Subscription mode — blocked until support enables it
+
 1. **Plan** — once per price. `POST /v1/subscriptions/plans` with
    `{name, amount: 49900, currency: "PHP", interval: "month", interval_count: 1}` → `plan_…` →
    put it in `PAYMONGO_PLAN_ID`. (`scripts/paymongo-stub.sh --create-plan`)
-2. **App-side start** — `POST /api/billing/checkout` as the signed-in user. It creates the
+2. **App-side start** — `POST /api/billing/checkout` with `BILLING_MODE=subscription`. It creates the
    Customer, the Subscription (`incomplete`), then attaches a `paymaya` PaymentMethod to the
    **first invoice's** Payment Intent and returns the Maya URL. Maya is the only redirect-capable
    method PayMongo supports for subscriptions — cards would need card vaulting + a PCI-scoped form.
@@ -105,9 +141,7 @@ To exercise the **real** HMAC path (`Paymongo-Signature`, not the simulate short
    pending inside the 24h window — deliberate (a second `POST /v1/subscriptions` would be a second
    charge), so don't "fix" it by clearing the row.
 3. **Pay within 24h** — the customer completes Maya. PayMongo then charges every later cycle itself.
-   Unpaid after 24h → `incomplete_cancelled`. The browser returns to `/app?upgrade=pending`, which
-   polls `/api/usage` for the flip (`UpgradePendingNotice`) — in no-Clerk dev mode it can never flip,
-   because `resolve_tier` short-circuits to `dev`.
+   Unpaid after 24h → `incomplete_cancelled`.
 4. **Webhooks** — `payment_token.activation`/`payment_session.completed` are ignored;
    `subscription.activated` flips the row to `premium/active`; `invoice.paid` recovers a `past_due`;
    `invoice.payment_failed` → `past_due`; `subscription.updated{status:cancelled}` → `free/cancelled`.
@@ -143,7 +177,8 @@ curl -sS -X POST localhost:8000/api/billing/webhook -H "Paymongo-Signature: t=$t
 | `need-keys.sh` | Key liveness; paste-me template; refuses live keys. |
 | `clerk-mint.sh` | Mint/refresh a Clerk user + testing session so a browser can sign in headlessly. |
 | `paymongo-stub.sh` | Read/create a throwaway plan or customer on the real test account (`--create-plan`, `--create-customer`); `--drop` needs `--admin-destroy`. |
-| `webhook-driver.sh` | Craft a PayMongo event and deliver it: `--simulate` (dev endpoint) or signed to `/api/billing/webhook`. Destructive types need `--admin-destroy`. |
+| `payments.sh` | The one-time (period-mode) rail: `--list-payments`, `--create-period` (real intent + Maya URL), `--refund --payment-id=pay_x --admin-destroy`, `--list-webhooks`, `--register-webhook --url=https://…`. Never echoes the webhook secret. |
+| `webhook-driver.sh` | Craft a PayMongo event and deliver it: `--simulate` (dev endpoint) or signed to `/api/billing/webhook`. Handles `subscription.*`, `subscription.invoice.*`, `payment.*` (`--intent=pi_x`) and `payment_intent.succeeded`. Destructive types need `--admin-destroy`. |
 | `debug-state.sh` | Read-only state dump: `/api/health`, `/api/usage`, newest `subscriptions` rows. |
 
 ## 8. Zero-touch + guardrails
@@ -154,7 +189,29 @@ curl -sS -X POST localhost:8000/api/billing/webhook -H "Paymongo-Signature: t=$t
 - Ask before mutating persistent sandbox state unless the user asked for exactly that.
 - Report a paymongo.com support dependency plainly instead of pretending a 400 is a code bug.
 
-## 9. References
+## 9. There is no PayMongo MCP to wire (checked 2026-09-15 — don't re-research)
+
+PayMongo *documents* a hosted MCP server at `https://mcp.paymongo.com` (docs pages `mcp-server`,
+`developer-tools-mcp-quick-start`, `-key-concepts`, `-use-cases`), authenticated with the existing API
+key. **It does not resolve**: NXDOMAIN on Cloudflare and Google DoH, no cert in crt.sh for the name,
+and absent from `registry.modelcontextprotocol.io` (`?search=paymongo` → 0 results) — while
+`api.paymongo.com` answers normally. Documented, not deployed.
+
+Even if it were up, its documented tool surface is payments, payment intents, refunds, disputes,
+payouts, webhooks and events — **no subscriptions, plans, customers or payment methods**, i.e. not the
+part of the API this app writes. The community server `@theyahia/paymongo-mcp` (npm, stdio, Basic
+auth) covers intents/sources/payments/refunds/checkout/links/webhooks/customers and has **zero**
+subscription tools.
+
+So this skill's scripts are the agent surface, on purpose: they carry the live-key refusal, the
+`--admin-destroy` gate and the never-print-a-secret rule, none of which survive translation into an
+MCP tool list. An MCP would also add its whole tool schema to every prompt and has no pass/fail
+semantics for CI (the same reason `hermetic-e2e` keeps its `.cjs` runners). Revisit only if PayMongo
+ships the endpoint **and** exposes subscriptions through it.
+
+---
+
+## 10. References
 
 - `references/operator-manifest.md` — endpoint + read/write/guard catalog (Clerk + PayMongo).
 - `references/maya-browser-checkout.md` — the browser leg that completes the real Maya payment.

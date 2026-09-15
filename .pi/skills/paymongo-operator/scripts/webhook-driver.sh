@@ -12,13 +12,13 @@
 # Examples:
 #   webhook-driver.sh --event=subscription.activated --customer=cus_1 --subscription=subs_1
 #   webhook-driver.sh --event=subscription.updated --status=past_due --subscription=subs_1
-#   webhook-driver.sh --event=subscription.invoice.paid --subscription=subs_1
-#   webhook-driver.sh --simulate --event=subscription.updated --status=cancelled --subscription=subs_1 --admin-destroy
+#   webhook-driver.sh --event=payment.paid --intent=pi_x          (period mode: buys 30 days)
+#   webhook-driver.sh --simulate --event=payment_intent.succeeded --intent=pi_x
 #
 # Reads (never prints): PAYMONGO_WEBHOOK_SECRET. Backend root from BACKEND_URL (default
-# http://localhost:8000). A subscription event needs an existing `subscriptions` row whose
-# provider ids match --customer/--subscription, otherwise the handler can't resolve an owner and
-# deliberately writes nothing.
+# http://localhost:8000). An event needs an existing `subscriptions` row holding the matching
+# provider id (`--intent` for a payment, `--subscription`/`--customer` for a subscription), otherwise
+# the handler can't resolve an owner and deliberately writes nothing.
 set -euo pipefail
 _ENGINE_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=/dev/null
@@ -34,6 +34,10 @@ STATUS="active"
 PLAN="plan_demo"
 NEXT_BILLING="2026-10-14"
 AMOUNT=49900
+# Period mode stores the Payment Intent id in `provider_subscription_id`, so `paid` events must name
+# an intent that a real pending row holds (see payments.sh --create-period).
+INTENT="pi_demo"
+PAYMENT_ID="pay_demo"
 
 for a in "$@"; do
   case "$a" in
@@ -45,6 +49,8 @@ for a in "$@"; do
     --status=*) STATUS="${a#--status=}" ;;
     --plan=*) PLAN="${a#--plan=}" ;;
     --next-billing=*) NEXT_BILLING="${a#--next-billing=}" ;;
+    --intent=*) INTENT="${a#--intent=}" ;;
+    --payment-id=*) PAYMENT_ID="${a#--payment-id=}" ;;
     *) echo "unexpected arg: $a"; exit 2 ;;
   esac
 done
@@ -61,19 +67,34 @@ fi
 case "$EVENT" in
   subscription.activated|subscription.updated|subscription.past_due|subscription.unpaid|\
   subscription.invoice.created|subscription.invoice.finalized|subscription.invoice.updated|\
-  subscription.invoice.paid|subscription.invoice.payment_failed) ;;
-  "") echo "usage: webhook-driver.sh --event=<type> [--simulate] [--subscription=subs_x] [--customer=cus_x] [--status=active|past_due|cancelled] [--admin-destroy]"; exit 2 ;;
+  subscription.invoice.paid|subscription.invoice.payment_failed|\
+  payment.paid|payment.failed|payment_intent.succeeded) ;;
+  "") echo "usage: webhook-driver.sh --event=<type> [--simulate] [--subscription=subs_x] [--customer=cus_x] [--intent=pi_x] [--status=active|past_due|cancelled] [--admin-destroy]"; exit 2 ;;
   *) echo "refused: unsupported event '$EVENT' (see usage for the handled set)"; exit 2 ;;
 esac
 
 # Build the resource the handler switches on: `subscription` for subscription.*, `invoice` for
-# subscription.invoice.* (invoice events carry the subscription id as `resource_id`).
+# subscription.invoice.* (invoice events carry the subscription id as `resource_id`), `payment` for
+# payment.* (carrying the intent it was charged against) and `payment_intent` for
+# payment_intent.* (the resource IS the intent).
 if [ "${EVENT#subscription.invoice.}" != "$EVENT" ]; then
   RESOURCE="invoice"
+  RESOURCE_ID="$SUBSCRIPTION"
   ATTRS=$(printf '{"id":"inv_demo","amount":%s,"currency":"PHP","resource_id":"%s","status":"%s","due_date":"2026-09-14"}' \
     "$AMOUNT" "$SUBSCRIPTION" "$STATUS")
+elif [ "$EVENT" = "payment_intent.succeeded" ]; then
+  RESOURCE="payment_intent"
+  RESOURCE_ID="$INTENT"
+  ATTRS=$(printf '{"id":"%s","amount":%s,"currency":"PHP","status":"succeeded"}' "$INTENT" "$AMOUNT")
+elif [ "${EVENT#payment.}" != "$EVENT" ]; then
+  RESOURCE="payment"
+  RESOURCE_ID="$PAYMENT_ID"
+  PAID_STATUS="failed"; [ "$EVENT" = "payment.paid" ] && PAID_STATUS="paid"
+  ATTRS=$(printf '{"id":"%s","amount":%s,"currency":"PHP","status":"%s","payment_intent_id":"%s"}' \
+    "$PAYMENT_ID" "$AMOUNT" "$PAID_STATUS" "$INTENT")
 else
   RESOURCE="subscription"
+  RESOURCE_ID="$SUBSCRIPTION"
   ATTRS=$(printf '{"id":"%s","customer_id":"%s","plan_id":"%s","status":"%s","next_billing_schedule":"%s"}' \
     "$SUBSCRIPTION" "$CUSTOMER" "$PLAN" "$STATUS" "$NEXT_BILLING")
 fi
@@ -82,7 +103,7 @@ body=$(mktemp); trap 'rm -f "$body"' EXIT; chmod 600 "$body"
 # The newer envelope shape (data.type/livemode/data); the handler also accepts the older
 # data.attributes.* one, and this script exists to exercise the documented one.
 printf '{"data":{"type":"%s","livemode":false,"data":{"id":"%s","type":"%s","attributes":%s}}}' \
-  "$EVENT" "$SUBSCRIPTION" "$RESOURCE" "$ATTRS" > "$body"
+  "$EVENT" "$RESOURCE_ID" "$RESOURCE" "$ATTRS" > "$body"
 
 if [ "$SIMULATE" = 1 ]; then
   url="$BACKEND_URL/api/billing/webhook/simulate"
