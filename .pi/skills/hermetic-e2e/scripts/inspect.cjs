@@ -9,7 +9,7 @@
 //   E2E_BASE=... E2E_ROLE=... E2E_TOPIC=... nix develop . -c node .../inspect.cjs
 "use strict";
 
-const { BASE, CHROME_BIN, pcore } = require("./store.cjs");
+const { BASE, CHROME_BIN, pcore, sleep } = require("./store.cjs");
 const { chromium } = pcore;
 const RAW_DOM = process.argv.includes("--dom");
 
@@ -37,8 +37,20 @@ async function main() {
     await page.goto(BASE + "/", { waitUntil: "domcontentloaded" });
     await dump(page, "landing /");
 
-    await page.getByText("Get started", { exact: false }).first().click();
+    await page.getByRole("link", { name: /start (practicing )?free/i }).first().click();
     await page.waitForURL(/\/app/, { timeout: 15000 });
+    // The create form is a panel that auto-opens only on an EMPTY dashboard
+    // (AppHome: showForm = formTouched ? formOpen : dims.total === 0), so on any database that
+    // already has interviews it has to be opened with the toggle first. Poll for either — the
+    // same dance e2e.cjs does — so this runner stops silently depending on a pristine DB.
+    const newBtn = page.getByRole("button", { name: /^New interview$/ });
+    let clicked = false;
+    for (let i = 0; i < 40 && !(await page.locator("#role").isVisible().catch(() => false)); i++) {
+      if (!clicked && (await newBtn.isVisible().catch(() => false))) {
+        clicked = true;
+        await newBtn.click();
+      } else await sleep(250);
+    }
     // wait for actual dashboard chrome (role input) so we don't dump a mid-transition Landing frame
     await page.locator("#role").waitFor({ state: "visible", timeout: 15000 });
     await dump(page, "dashboard /app (role input visible)");

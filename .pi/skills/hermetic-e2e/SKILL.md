@@ -53,7 +53,7 @@ journey selectors in the runners section work unchanged:
 ```
 mcp({ tool: "playwright_browser_navigate", args: { url: "http://localhost:5173/" } })
 mcp({ tool: "playwright_browser_snapshot", args: {} })   # read the a11y tree + refs
-mcp({ tool: "playwright_browser_click", args: { target: "e8", element: "Get started button" } })
+mcp({ tool: "playwright_browser_click", args: { target: "e8", element: "Start practicing free link" } })
 mcp({ tool: "playwright_browser_type", args: { target: "#role", text: "Backend Engineer" } })
 mcp({ tool: "playwright_browser_wait_for", args: { text: "Your performance summary" } })
 ```
@@ -146,7 +146,7 @@ Runners create a real DEV_USER interview and print its id — delete it when jud
 Real DOM / routes (`react-router-dom`): Landing `/`, app `/app`, chat `/interviews/:id`. Selectors below
 work for both paths — MCP `target` takes a CSS selector or a snapshot ref.
 
-1. Landing: click **"Get started"** (`#` on `/`) -> `/app`.
+1. Landing: click the **"Start free"** link (real `<a href="/app">`; `#` on `/`) -> `/app`.
 2. `/app`: wait for `#role` input (dev-mode banner: "Dev mode (no Clerk key)…").
 3. Fill `#role` + optional `#topic`, submit **"Start interview"** -> `/interviews/{uuid}`.
 4. Chat: wait for `textarea`. Send an answer (**Send**); await interviewer stream (**Send** flips
@@ -157,8 +157,10 @@ work for both paths — MCP `target` takes a CSS selector or a snapshot ref.
 
 Do not treat `pending → in_progress` auto-transition as a failure.
 
-**Landing has two CTA buttons** ("Get started", "Start practicing"). The skill means "Get started";
-do not guess from the snapshot alone.
+**The landing CTAs are links, not buttons** ("Sign in" and "Start free" in the header, "Start
+practicing free" in the hero and the closing section) — they are anchors because a crawler only
+follows `<a href>` and a JS click handler is invisible to it. Match by LINK role:
+`getByRole("link", { name: /start (practicing )?free/i })`. Do not guess from the snapshot alone.
 
 ## Real-Clerk posture (NOT hermetic)
 
