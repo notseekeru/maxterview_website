@@ -2,11 +2,10 @@ import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
-import { apiDetail, completeInterview, type Feedback, getFeedback, getInterview, getMessages, httpStatus, type Interview, MAX_TURN_CHARS, type Message, regenerateFeedback, startInterview, streamChat } from "@/lib/api";
+import { apiDetail, completeInterview, type Feedback, getFeedback, getInterview, getMessages, httpStatus, MAX_TURN_CHARS, type Message, regenerateFeedback, startInterview, streamChat } from "@/lib/api";
 import { OPENING_ASKS_RESUME } from "@/lib/config";
 import { FeedbackView } from "./FeedbackView";
 import { MoveBadge } from "./MoveBadge";
-import { RunSettings } from "./RunSettings";
 import { UpgradeNotice } from "./UsageBadge";
 
 interface Props {
@@ -26,9 +25,6 @@ export function InterviewChat({ interviewId, onExit }: Props) {
     const [assistBuf, setAssistBuf] = useState("");
     const [error, setError] = useState<string | null>(null);
     const [feedback, setFeedback] = useState<Feedback | null>(null);
-    // Kept so the review can show the dials the run was configured with (llm.coverage_directive
-    // derives the interview's coverage from them, so "not assessed" dims are explained by them).
-    const [interview, setInterview] = useState<Interview | null>(null);
     const [quotaLocked, setQuotaLocked] = useState(false);
     // The question mix is a budget: once it is spent the API refuses further turns (409) and the
     // composer stops, leaving Complete as the only move.
@@ -64,7 +60,6 @@ export function InterviewChat({ interviewId, onExit }: Props) {
     const loadExisting = useCallback(
         async (id: string) => {
             const [iv] = await Promise.all([getInterview(id), loadMessages()]);
-            setInterview(iv);
             if (iv.status !== "completed") return "ready" as const;
             try {
                 setFeedback(await getFeedback(id));
@@ -80,10 +75,8 @@ export function InterviewChat({ interviewId, onExit }: Props) {
         let cancelled = false;
         (async () => {
             try {
-                const iv = await startInterview(interviewId);
+                await startInterview(interviewId);
                 if (cancelled) return;
-                // /start returns the row it just moved to in_progress: no extra fetch for the dials.
-                setInterview(iv);
                 await loadMessages();
                 setStatus("ready");
             } catch (e: unknown) {
@@ -280,7 +273,6 @@ export function InterviewChat({ interviewId, onExit }: Props) {
                 <div>
                     <CardTitle>Interview</CardTitle>
                     <CardDescription>{status}</CardDescription>
-                    {interview && <RunSettings interview={interview} />}
                 </div>
                 <Button variant="outline" size="sm" onClick={onExit}>
                     Exit

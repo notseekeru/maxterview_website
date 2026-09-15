@@ -2,10 +2,13 @@ import { useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Modal } from "@/components/ui/modal";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { Decision, Interview } from "@/lib/api";
 import { levelLabel } from "@/lib/interviewOptions";
 import { DecisionChip } from "./DecisionVerdict";
+import { RowMenu } from "./RowMenu";
+import { RunInfo } from "./RunInfo";
 
 interface Props {
     interviews: Interview[];
@@ -14,6 +17,7 @@ interface Props {
     onRefresh: () => void;
     onOpen: (id: string) => void;
     onDelete: (id: string) => Promise<void> | void;
+    onArchive: (id: string, archived: boolean) => Promise<void> | void;
     /** Re-run scoring for a completed-but-unscored run. Caller refreshes on success. */
     onRescore: (id: string) => Promise<void> | void;
 }
@@ -22,13 +26,20 @@ function formatDate(iso: string) {
     return new Date(iso).toLocaleString();
 }
 
-export function InterviewList({ interviews, loading, error, onRefresh, onOpen, onDelete, onRescore }: Props) {
-    // Two-step confirm: first click arms the row, second confirms.
-    const [confirmingId, setConfirmingId] = useState<string | null>(null);
+export function InterviewList({ interviews, loading, error, onRefresh, onOpen, onDelete, onArchive, onRescore }: Props) {
+    // Archive hides a row here and NOWHERE else (the stats still count it - that is the difference
+    // from delete), so the reveal lives next to the list it hides from, not in the query.
+    const [showArchived, setShowArchived] = useState(false);
+    const [infoRow, setInfoRow] = useState<Interview | null>(null);
+    const [pendingDelete, setPendingDelete] = useState<Interview | null>(null);
     const [deleting, setDeleting] = useState(false);
     // Per-row so other rows' buttons stay usable.
     const [scoringId, setScoringId] = useState<string | null>(null);
+    const [archivingId, setArchivingId] = useState<string | null>(null);
     const [scoreError, setScoreError] = useState<string | null>(null);
+
+    const archivedCount = interviews.filter((i) => i.archived_at).length;
+    const visible = showArchived ? interviews : interviews.filter((i) => !i.archived_at);
 
     async function handleRescore(id: string) {
         setScoringId(id);
@@ -43,15 +54,21 @@ export function InterviewList({ interviews, loading, error, onRefresh, onOpen, o
         }
     }
 
-    async function handleDelete(id: string) {
-        if (confirmingId !== id) {
-            setConfirmingId(id);
-            return;
+    async function handleArchive(interview: Interview) {
+        setArchivingId(interview.id);
+        try {
+            await onArchive(interview.id, !interview.archived_at);
+        } finally {
+            setArchivingId(null);
         }
+    }
+
+    async function confirmDelete() {
+        if (!pendingDelete) return;
         setDeleting(true);
         try {
-            await onDelete(id);
-            setConfirmingId(null);
+            await onDelete(pendingDelete.id);
+            setPendingDelete(null);
         } finally {
             setDeleting(false);
         }
@@ -61,16 +78,25 @@ export function InterviewList({ interviews, loading, error, onRefresh, onOpen, o
         <Card className="w-full">
             <CardHeader className="flex-row items-center justify-between space-y-0">
                 <CardTitle>History</CardTitle>
-                <Button variant="ghost" size="sm" onClick={onRefresh} disabled={loading || deleting}>
-                    Refresh
-                </Button>
+                <div className="flex items-center gap-1">
+                    {/* Only offered when there is something to reveal: an always-on toggle for an empty
+                        set is one more control to read for no information. */}
+                    {archivedCount > 0 && (
+                        <Button variant="ghost" size="sm" onClick={() => setShowArchived((v) => !v)} aria-pressed={showArchived}>
+                            {showArchived ? "Hide archived" : `Show archived (${archivedCount})`}
+                        </Button>
+                    )}
+                    <Button variant="ghost" size="sm" onClick={onRefresh} disabled={loading || deleting}>
+                        Refresh
+                    </Button>
+                </div>
             </CardHeader>
             <CardContent className="space-y-2">
                 {error && <p className="text-sm text-destructive">{error}</p>}
                 {scoreError && <p className="text-sm text-destructive">{scoreError}</p>}
                 {loading && <Skeleton className="h-16" />}
-                {!loading && interviews.length === 0 && !error && <p className="text-sm text-muted-foreground">No interviews yet. Create one to begin.</p>}
-                {interviews.map((i) => (
+                {!loading && visible.length === 0 && !error && <p className="text-sm text-muted-foreground">{interviews.length > 0 ? "Everything here is archived — use Show archived to get it back." : "No interviews yet. Create one to begin."}</p>}
+                {visible.map((i) => (
                     <div key={i.id} className="flex items-center justify-between gap-3 rounded-md border p-3">
                         <div className="min-w-0">
                             <p className="truncate font-medium">
@@ -78,6 +104,11 @@ export function InterviewList({ interviews, loading, error, onRefresh, onOpen, o
                                 {i.level && i.level !== "any" && (
                                     <Badge variant="secondary" className="ml-2 align-middle text-[10px] font-medium">
                                         {levelLabel(i.level)}
+                                    </Badge>
+                                )}
+                                {i.archived_at && (
+                                    <Badge variant="outline" className="ml-2 align-middle text-[10px] font-medium text-muted-foreground">
+                                        Archived
                                     </Badge>
                                 )}
                             </p>
@@ -103,26 +134,45 @@ export function InterviewList({ interviews, loading, error, onRefresh, onOpen, o
                         </div>
                         <div className="flex shrink-0 items-center gap-2">
                             {typeof i.accuracy !== "number" && i.status === "completed" && (
-                                <Button size="sm" variant="outline" onClick={() => void handleRescore(i.id)} disabled={scoringId === i.id || confirmingId === i.id}>
+                                <Button size="sm" variant="outline" onClick={() => void handleRescore(i.id)} disabled={scoringId === i.id || archivingId === i.id}>
                                     {scoringId === i.id ? "Reviewing…" : "Retry review"}
                                 </Button>
                             )}
                             <Button size="sm" variant="outline" onClick={() => onOpen(i.id)}>
                                 Open
                             </Button>
-                            {confirmingId === i.id ? (
-                                <Button size="sm" variant="destructive" onClick={() => void handleDelete(i.id)} disabled={deleting}>
-                                    {deleting ? "Deleting…" : "Confirm?"}
-                                </Button>
-                            ) : (
-                                <Button size="sm" variant="ghost" className="text-destructive" onClick={() => void handleDelete(i.id)} disabled={deleting}>
-                                    Delete
-                                </Button>
-                            )}
+                            <RowMenu
+                                label={`Actions for ${i.role}`}
+                                items={[
+                                    { label: i.archived_at ? "Restore" : "Archive", onSelect: () => void handleArchive(i) },
+                                    { label: "Info", onSelect: () => setInfoRow(i) },
+                                    { label: "Delete", onSelect: () => setPendingDelete(i), destructive: true },
+                                ]}
+                            />
                         </div>
                     </div>
                 ))}
             </CardContent>
+
+            <Modal open={infoRow !== null} onClose={() => setInfoRow(null)} title="Run info">
+                {infoRow && <RunInfo interview={infoRow} />}
+            </Modal>
+
+            {/* Delete is irreversible, so it confirms in a modal rather than arming the menu: the menu
+                row is one click from Archive, and a misfire there costs the run and its review. */}
+            <Modal open={pendingDelete !== null} onClose={() => setPendingDelete(null)} title="Delete this run?">
+                <p>
+                    <span className="font-medium">{pendingDelete?.role}</span> and its transcript, review and scores are removed for good. This cannot be undone — archive it instead if you only want it out of the way.
+                </p>
+                <div className="flex justify-end gap-2">
+                    <Button variant="outline" size="sm" onClick={() => setPendingDelete(null)} disabled={deleting}>
+                        Cancel
+                    </Button>
+                    <Button variant="destructive" size="sm" onClick={() => void confirmDelete()} disabled={deleting}>
+                        {deleting ? "Deleting…" : "Delete"}
+                    </Button>
+                </div>
+            </Modal>
         </Card>
     );
 }
