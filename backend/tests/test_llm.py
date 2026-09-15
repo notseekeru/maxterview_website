@@ -72,6 +72,44 @@ def test_plan_end_is_the_closing_turn_and_then_the_interview_is_finished():
     assert llm.is_interview_finished(7, Dials()) is False  # 7 is the close itself, not past it
 
 
+def test_behavioural_budget_walks_the_profile_themes_and_ops_is_level_aware():
+    from app.models import Dials
+
+    # One theme per question, in order: four conflict questions would leave ownership and
+    # collaboration null on a full run, and the grader only scores what the arc probed.
+    plan = llm.interview_plan(Dials(mix_chitchat=0, mix_behavioural=4, mix_technical=0))
+    assert all(theme in phase for theme, phase in zip(llm.PROFILE_THEMES, plan[1:], strict=True))
+
+    # The ops question exists at every level, at the level's depth: a junior has shipped less and is
+    # not asked for on-call war stories. Only the WORDING changes - main.py's closing math reads the
+    # plan's length, so the level must never move it.
+    d = Dials(mix_chitchat=0, mix_behavioural=0, mix_technical=4)
+    junior, senior = llm.interview_plan(d, "junior"), llm.interview_plan(d, "senior")
+    assert len(junior) == len(senior) == len(llm.interview_plan(d))
+    assert llm.JUNIOR_OPS_THEME in junior[3] and llm.JUNIOR_OPS_THEME not in senior[3]
+    assert llm.SENIOR_OPS_THEME in senior[3] and llm.SENIOR_OPS_THEME not in junior[3]
+
+
+def test_coverage_directive_names_the_axes_the_grader_scores():
+    # The arc is the grader's only evidence, so the interviewer is told what is scored - including
+    # that an unprobed dim reads as not-assessed rather than neutral.
+    p = llm.system_prompt("Software Engineer", "mid", "")
+    assert "Coverage:" in p and "not-assessed" in p
+    assert "substance (technical depth, problem solving, production)" in p
+    assert p.index("Coverage:") < p.index("Current phase:")  # the phase stays the operative line
+
+
+def test_grader_rubric_is_generated_from_the_dimension_registry():
+    # Adding a dim to DIMENSION_AXES has to reach all three consumption points, or the grader scores
+    # a rubric nobody asked for while the dashboard renders a gap.
+    assert set(llm.DIMENSION_AXES) == {"communication", "substance", "profile"}
+    assert set(llm._EXAMPLE_SCORES) == set(llm.FEEDBACK_DIMS)  # no dim silently missing from the example
+    for prompt in (llm.GRADER_PROMPT_V1, llm.FEEDBACK_PROMPT_V1):
+        assert all(d in prompt for d in llm.FEEDBACK_DIMS)
+    assert set(llm.FEEDBACK_JSON_SCHEMA["properties"]["scores"]["properties"]) == set(llm.FEEDBACK_DIMS)
+    assert "null" in llm.GRADER_PROMPT_V1  # not-assessed is a legal answer, not a penalty
+
+
 def test_system_prompt_carries_the_dials():
     from app.models import Dials
 
@@ -145,7 +183,7 @@ def test_chat_extras_disable_thinking_by_default():
 
 async def test_stub_feedback_is_deterministic():
     f: FeedbackSummary = await llm.generate_feedback([ChatMessage(role="user", content="hi")], None, llm.SYSTEM_CONFIG)
-    assert set(f.scores.keys()) == {"clarity", "relevance", "structure", "confidence"}
+    assert set(f.scores.keys()) == set(llm.FEEDBACK_DIMS)
     assert f.verdict
     assert isinstance(f.tips, list) and len(f.tips) >= 1
 
@@ -162,13 +200,19 @@ def test_extract_json_object_no_json_returns_empty():
     assert llm._extract_json_object("no json here") == {}
 
 
-def test_valid_scores_rejects_partial_and_accepts_full(monkeypatch):
+def test_valid_scores_keeps_what_was_scored_and_rejects_nothing_scored():
+    # A hole is "not assessed", not a failed parse: ten dims out of a three-question transcript
+    # legitimately has gaps, and one gap used to cost the entire review (and the dashboard stats
+    # that read it). Only a response that scores nothing at all is unusable.
     assert llm._valid_scores({}) is None
-    assert llm._valid_scores({"clarity": 8}) is None  # missing dims
-    assert llm._valid_scores({d: "hi" for d in llm.FEEDBACK_DIMS}) is None
     assert llm._valid_scores({d: None for d in llm.FEEDBACK_DIMS}) is None
+    assert llm._valid_scores({"clarity": 8}) == {"clarity": 8.0}
+    assert llm._valid_scores({"clarity": 8, "production": None}) == {"clarity": 8.0}
+    # Unknown keys are ignored, never scored into the dict the dashboard averages.
+    assert llm._valid_scores({"clarity": 8, "vibes": 3}) == {"clarity": 8.0}
     ok = llm._valid_scores({d: 6 for d in llm.FEEDBACK_DIMS})
     assert ok == {d: 6.0 for d in llm.FEEDBACK_DIMS}
+    assert llm._valid_scores({d: "hi" for d in llm.FEEDBACK_DIMS}) is None
 
 
 def test_valid_scores_coerces_range_and_string_drift():
@@ -177,13 +221,14 @@ def test_valid_scores_coerces_range_and_string_drift():
     floored = llm._valid_scores({d: 0 for d in llm.FEEDBACK_DIMS})
     assert floored == {d: 1.0 for d in llm.FEEDBACK_DIMS}
     assert llm._valid_scores({d: 11 for d in llm.FEEDBACK_DIMS}) == {d: 10.0 for d in llm.FEEDBACK_DIMS}
-    assert llm._valid_scores({"clarity": "7", "relevance": "7/10", "structure": 7.5, "confidence": 7}) == {
+    assert llm._valid_scores({"clarity": "7", "technical_depth": "7/10", "structure": 7.5, "confidence": 7}) == {
         "clarity": 7.0,
-        "relevance": 7.0,
+        "technical_depth": 7.0,
         "structure": 7.5,
         "confidence": 7.0,
     }
-    assert llm._valid_scores({"clarity": [7], "relevance": {"score": 7}, "structure": 7, "confidence": 7}) is None
+    # Uncoercible values drop their own dim rather than the whole response.
+    assert llm._valid_scores({"clarity": [7], "relevance": {"score": 7}, "structure": 7, "confidence": 7}) == {"structure": 7.0, "confidence": 7.0}
 
 
 def test_coerce_decision_tolerates_label_drift_but_never_guesses():
@@ -228,6 +273,7 @@ def test_evidence_cap_clamps_model_certainty():
 async def test_generate_feedback_real_grader_and_formatter_path(monkeypatch):
     caller = {"model": None, "msgs": None, "json": None, "schema": None}
     moves_calls = {"n": 0, "seen": None}
+    full = json.dumps({"scores": {d: 7 for d in llm.FEEDBACK_DIMS}, "decision": "lean_hire", "certainty": 70, "verdict": "Solid.", "tips": ["Do X", "Do Y"]})
 
     async def _completion(system, user_text, *, config=None, max_tokens=None, json_output=False, json_schema=None, **kw):
         if system == llm.MOVES_PROMPT_V1:
@@ -238,11 +284,12 @@ async def test_generate_feedback_real_grader_and_formatter_path(monkeypatch):
         caller["msgs"] = [system, user_text]
         caller["json"] = json_output
         caller["schema"] = json_schema
-        return "prose notes" if not json_output else '{"scores": {"clarity": 7, "relevance": 8, "structure": 6, "confidence": 5}, "decision": "lean_hire", "certainty": 70, "verdict": "Solid.", "tips": ["Do X", "Do Y"]}'
+        return "prose notes" if not json_output else full
 
     monkeypatch.setattr(llm, "_completion", _completion)
     out = await llm.generate_feedback([ChatMessage(role="user", content=f"hi {i}") for i in range(10)], None, REAL)
     assert out is not None
+    assert set(out.scores) == set(llm.FEEDBACK_DIMS)  # the full rubric lands when the model fills it
     assert all(1 <= out.scores[d] <= 10 for d in llm.FEEDBACK_DIMS)
     assert (out.decision, out.certainty) == ("lean_hire", 70)
     assert caller["json"] is True  # formatter hop requested JSON mode
@@ -272,16 +319,33 @@ async def test_generate_feedback_keeps_scores_when_decision_drifts(monkeypatch):
     assert out.certainty is None
 
 
+async def test_generate_feedback_drops_unassessed_dims_without_losing_the_run(monkeypatch):
+    # The formatter's contract: null (or a missing key) means the grader had no evidence, so the run
+    # keeps the dims it does have. Pinned here because the failure mode is silent - a strict parse
+    # would return None and the dashboard would quietly lose a whole interview.
+    async def _completion(system, user_text, *, json_output=False, **kw):
+        if system == llm.MOVES_PROMPT_V1:
+            return MOVES_JSON
+        if json_output:
+            return json.dumps({"scores": {"clarity": 7, "relevance": 6, "production": None, "ownership": 8}, "verdict": "Thin run.", "tips": ["A", "B"]})
+        return "prose notes"
+
+    monkeypatch.setattr(llm, "_completion", _completion)
+    out = await llm.generate_feedback([ChatMessage(role="user", content="hi")], None, REAL)
+    assert out is not None and out.scores == {"clarity": 7.0, "relevance": 6.0, "ownership": 8.0}
+
+
 async def test_generate_feedback_recovers_from_out_of_range_scores(monkeypatch):
     # Regression for the reported 503: verdict present, scores all 0 -> still writable.
     attempts = {"n": 0}
+    zeroed = json.dumps({"scores": {d: 0 for d in llm.FEEDBACK_DIMS}, "verdict": "Nothing usable was said.", "tips": ["Answer the question", "Share your background"]})
 
     async def _completion(system, user_text, *, json_output=False, **kw):
         if system == llm.MOVES_PROMPT_V1:
             return MOVES_JSON
         if json_output:
             attempts["n"] += 1
-            return '{"scores": {"clarity": 0, "relevance": 0, "structure": 0, "confidence": 0}, "verdict": "Nothing usable was said.", "tips": ["Answer the question", "Share your background"]}'
+            return zeroed
         return "prose notes"
 
     monkeypatch.setattr(llm, "_completion", _completion)

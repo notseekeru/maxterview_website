@@ -1,6 +1,7 @@
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import type { Decision, Feedback, Message } from "@/lib/api";
+import { ALL_DIMS, dimLabel, groupDims } from "@/lib/dimensions";
 import { MOVE_CLASSES } from "@/lib/moveClasses";
 import { cn } from "@/lib/utils";
 import { DecisionVerdict } from "./DecisionVerdict";
@@ -12,7 +13,10 @@ function tallyMoves(messages: Message[]) {
 }
 
 export function FeedbackView({ feedback, messages = [], onAnnotate, annotating }: { feedback: Feedback; messages?: Message[]; onAnnotate?: () => void; annotating?: boolean }) {
-    const dims = Object.entries(feedback.scores ?? {});
+    // ALL dims, not just the scored ones: with ten of them a run that probed four is a normal outcome
+    // (the run's dials are stated on the interview screen; the mix is why the holes are holes).
+    const scores = feedback.scores ?? {};
+    const dimGroups = groupDims([...ALL_DIMS, ...Object.keys(scores)]);
     // Absent for feedback written before the hire/reject columns existed, and for a run the
     // model could not decide: show nothing rather than a default verdict.
     const decision = feedback.decision as Decision | null | undefined;
@@ -82,23 +86,37 @@ export function FeedbackView({ feedback, messages = [], onAnnotate, annotating }
                     </div>
                 )}
 
-                {/* Demoted: the annotations above are the review, these four numbers predate them. */}
-                {dims.length > 0 && (
-                    <details>
-                        <summary className="cursor-pointer text-sm font-medium text-muted-foreground hover:text-foreground">Secondary scores (1-10)</summary>
-                        <div className="mt-3 space-y-2">
-                            {dims.map(([key, value]) => (
-                                <div key={key} className="flex items-center gap-2">
-                                    <span className="w-28 text-sm capitalize">{key}</span>
-                                    <div className="h-2 flex-1 overflow-hidden rounded-full bg-muted">
-                                        <div className="h-full bg-primary" style={{ width: `${Math.max(0, Math.min(100, (value / 10) * 100))}%` }} />
-                                    </div>
-                                    <span className="w-6 text-right text-sm">{value}</span>
-                                </div>
-                            ))}
-                        </div>
-                    </details>
-                )}
+                {/* Demoted: the annotations above are the review, these numbers predate them. */}
+                <details>
+                    <summary className="cursor-pointer text-sm font-medium text-muted-foreground hover:text-foreground">Secondary scores (1-10)</summary>
+                    <div className="mt-3 space-y-3">
+                        {dimGroups.map((group) => (
+                            <div key={group.axis} className="space-y-2">
+                                <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{group.label}</p>
+                                {group.dims.map((key) => {
+                                    const value = typeof scores[key] === "number" ? scores[key] : null;
+                                    return (
+                                        <div key={key} className="flex items-center gap-2">
+                                            <span className="w-36 text-sm">{dimLabel(key)}</span>
+                                            {value === null ? (
+                                                <span className="flex-1 text-xs text-muted-foreground" title="The reviewer found no evidence for this in the transcript, so it is left unscored rather than guessed. It costs you nothing.">
+                                                    not assessed
+                                                </span>
+                                            ) : (
+                                                <>
+                                                    <div className="h-2 flex-1 overflow-hidden rounded-full bg-muted">
+                                                        <div className="h-full bg-primary" style={{ width: `${Math.max(0, Math.min(100, (value / 10) * 100))}%` }} />
+                                                    </div>
+                                                    <span className="w-6 text-right text-sm tabular-nums">{value}</span>
+                                                </>
+                                            )}
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        ))}
+                    </div>
+                </details>
             </CardContent>
         </Card>
     );

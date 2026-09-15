@@ -1,9 +1,12 @@
+import { PolarAngleAxis, PolarGrid, PolarRadiusAxis, Radar, RadarChart } from "recharts";
+
 import { AccuracyTrendChart } from "@/components/AccuracyTrendChart";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Progress } from "@/components/ui/progress";
+import { type ChartConfig, ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { InterviewDims } from "@/hooks/useInterviewData";
 import type { Feedback } from "@/lib/api";
+import { dimShort, groupDims, orderDims } from "@/lib/dimensions";
 
 interface Props {
     feedback: Feedback[];
@@ -107,21 +110,31 @@ function Stat({ label, value, hint }: { label: string; value: string; hint?: str
 }
 
 // The 1-10 dimensions, now secondary (backend app/rating.py owns the primary reading). Averaged over
-// the runs that reported each dimension.
-const DIMENSIONS = ["clarity", "relevance", "structure", "confidence"] as const;
+// the runs that reported each dimension; a dimension nobody probed is simply absent (see the
+// "not assessed" reading in lib/dimensions.ts), never a zero.
+const RADAR_CONFIG: ChartConfig = {
+    latest: { label: "Latest run", color: "var(--chart-1)" },
+    average: { label: "Average", color: "var(--chart-2)" },
+};
 
 function avg(nums: number[]): number {
     if (nums.length === 0) return 0;
     return nums.reduce((a, b) => a + b, 0) / nums.length;
 }
 
-function DimensionScores({ feedback }: { feedback: Feedback[] }) {
-    const dims = DIMENSIONS.map((d) => {
-        const vals = feedback.map((f) => f.scores?.[d]).filter((v): v is number => typeof v === "number");
-        return { dimension: d, average: Math.round(avg(vals) * 10) / 10 };
-    });
+const round1 = (n: number) => Math.round(n * 10) / 10;
 
-    if (dims.every((d) => d.average === 0)) {
+// Radar, not tiles: ten 1-10 dims is where a tile grid stops reading, and a polygon shows the SHAPE
+// of the run - a collapsed substance axis is one glance, not ten numbers to compare. The exact
+// values it cannot give are the per-axis rollup underneath (and the full list in the review page).
+function DimensionScores({ feedback }: { feedback: Feedback[] }) {
+    const scored = orderDims([...new Set(feedback.flatMap((f) => Object.keys(f.scores ?? {})))]);
+    // GET /interviews is created_at DESC and `feedback` is built in that order, so [0] is the newest.
+    const latest = feedback[0]?.scores ?? {};
+    const averages = Object.fromEntries(scored.map((d) => [d, round1(avg(feedback.map((f) => f.scores?.[d]).filter((v): v is number => typeof v === "number")))]));
+    const data = scored.map((d) => ({ dim: dimShort(d), latest: typeof latest[d] === "number" ? latest[d] : null, average: averages[d] }));
+
+    if (data.length === 0) {
         return (
             <Card className="h-80">
                 <CardHeader>
@@ -139,19 +152,32 @@ function DimensionScores({ feedback }: { feedback: Feedback[] }) {
             <CardHeader>
                 <CardTitle className="text-sm">Secondary scores (1-10)</CardTitle>
             </CardHeader>
-            <CardContent className="grid h-60 grid-cols-2 grid-rows-2 gap-3 pb-6">
-                {dims.map((d) => (
-                    <div key={d.dimension} className="flex min-w-0 flex-col justify-between rounded-md border px-3 py-2.5">
-                        <span className="truncate text-xs capitalize text-muted-foreground">{d.dimension}</span>
-                        {/* The number carries the value; the bar is the cue (see the removed note:
-                            at ~90px per tile the bar can only span ~63px, so 4.0 vs 5.0 is ~6px). */}
-                        <span className="text-3xl font-semibold leading-none tabular-nums">
-                            {d.average.toFixed(1)}
-                            <span className="text-sm font-normal text-muted-foreground">/10</span>
+            <CardContent className="flex h-60 flex-col gap-1 pb-6">
+                <ChartContainer config={RADAR_CONFIG} className="min-h-0 w-full grow">
+                    {/* outerRadius < 100%: the ten tick labels sit outside the polygon and would clip. */}
+                    <RadarChart data={data} outerRadius="68%">
+                        <PolarGrid />
+                        <PolarAngleAxis dataKey="dim" tick={{ fontSize: 10 }} />
+                        {/* 0-10, not 1-10: the floor of the scale is the centre, or a 6 reads as a 5.5. */}
+                        <PolarRadiusAxis domain={[0, 10]} tick={false} axisLine={false} />
+                        <ChartTooltip content={<ChartTooltipContent indicator="line" />} />
+                        {/* Latest paints over the average. A dim the newest run was not assessed on is
+                            null, which leaves a gap - plotting 0 would read as a bad score. */}
+                        <Radar name="latest" dataKey="latest" stroke="var(--color-latest)" fill="var(--color-latest)" fillOpacity={0.1} />
+                        <Radar name="average" dataKey="average" stroke="var(--color-average)" fill="var(--color-average)" fillOpacity={0.25} />
+                    </RadarChart>
+                </ChartContainer>
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                    {groupDims(scored).map((group) => (
+                        <span key={group.axis}>
+                            {group.label} <span className="font-medium tabular-nums text-foreground">{round1(avg(group.dims.map((d) => averages[d]))).toFixed(1)}</span>
                         </span>
-                        <Progress className="h-1.5" value={(d.average / 10) * 100} />
-                    </div>
-                ))}
+                    ))}
+                    <span className="ml-auto inline-flex items-center gap-1">
+                        <span className="h-2 w-2 rounded-full bg-[var(--chart-1)]" /> latest
+                        <span className="ml-1.5 h-2 w-2 rounded-full bg-[var(--chart-2)]" /> avg of {feedback.length}
+                    </span>
+                </div>
             </CardContent>
         </Card>
     );

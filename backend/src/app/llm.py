@@ -1,3 +1,4 @@
+import json
 import os
 import re
 from collections.abc import AsyncIterator
@@ -78,6 +79,18 @@ def _chat_extras() -> dict:
     return {}
 
 
+# The reviewer scores three axes (GRADER_PROMPT_V1 below). The arc is its only evidence, so the
+# interviewer is told the coverage target outright - and that an unprobed dim reads as ABSENT rather
+# than neutral, which is what makes "spend every question on one axis" a real cost to the candidate.
+def coverage_directive(level: str) -> str:
+    tail = " Keep every question inside the target experience band." if level and level != "any" else ""
+    return (
+        "Coverage: your questions are the reviewer's only evidence, so spread them across all three axes -"
+        " communication (clarity, relevance, structure, confidence), substance (technical depth, problem solving, production)"
+        " and profile (ownership, collaboration, growth potential). A dimension you never probe scores as not-assessed, not as neutral." + tail
+    )
+
+
 # --- prompt registry (typed + versioned, per PLAN §4; never inlined in routers) ---
 
 SYSTEM_PROMPT_V1 = "You are maxterview, an AI mock-interview coach. You conduct a simulated interview one question at a time, in a natural, encouraging tone. Stay in character as an interviewer. Do not answer the candidate's questions on their behalf. After the interview ends, provide detailed feedback."
@@ -146,7 +159,7 @@ OPENING_PHASE = (
 # line that asks a question the API then refuses to accept is worse than no closing line. So the
 # arc's last entry is the last QUESTION, and the turn after it is this fixed line: correct by
 # construction, no model call, and it ends the transcript cleanly (see main.chat_stream).
-CLOSING_MESSAGE = "Thanks - that's everything I had for you. Take a moment if you want, then hit Complete and you'll get your full feedback: scores for clarity, relevance, structure and confidence, plus where you landed on the hire/reject spectrum."
+CLOSING_MESSAGE = "Thanks - that's everything I had for you. Take a moment if you want, then hit Complete and you'll get your full feedback: how you communicated, the substance of your answers, your profile as a hire, and where you landed on the hire/reject spectrum."
 
 # Hardcore fail line. Also not model output, and all caps on purpose: it is the moment the run dies,
 # and a sampled line would sometimes soften it. `{class}` is the move class that ended the run.
@@ -176,42 +189,65 @@ def _chitchat_phase(n: int, total: int) -> str:
     )
 
 
+# The behavioural budget walks these themes in order rather than re-rolling. Three of them are what
+# the reviewer's profile axis needs ground for (ownership, collaboration, growth); asking four
+# conflict questions would leave two of those dims null on a full run.
+PROFILE_THEMES: tuple[str, ...] = (
+    "a disagreement or conflict with someone and how it resolved - who conceded and why",
+    "a mistake or failure that was theirs, and what they changed in how they work after it",
+    "owning an outcome end to end - what THEY decided, with 'we did' unpacked into their own part",
+    "taking hard feedback, or getting up to speed on something new faster than they expected",
+)
+# Same idea on the substance budget. The third theme is the operations/production dim; the level
+# argument only decides how deep it goes, because a junior has shipped less and should not be asked
+# for on-call war stories they cannot have.
+SUBSTANCE_THEMES: tuple[str, ...] = (
+    "a role-specific technical question suited to the target level, testing correctness and depth rather than recall - push on the WHY behind their answer",
+    "an open, ambiguous problem: how they scope it, what they trade off, what they would deliberately not do",
+    "{ops}",
+    "a design or constraint question where the obvious answer is ruled out, to see them reason rather than pattern-match",
+)
+JUNIOR_OPS_THEME = "a question about how they check their own work and what they would do if it broke in front of a user - no on-call or scale-at-10x expectations at this level"
+SENIOR_OPS_THEME = "a production question - something they shipped that broke, how they found and fixed it, or what they would change before rollout"
+SUBSTANCE_LEVELS = ("mid", "senior", "staff", "principal")
+
+
 def _behavioural_phase(n: int, total: int) -> str:
-    ask = (
-        "ask ONE question about something they lived through: a disagreement or conflict, a mistake or failure, owning an outcome, or delivering under a deadline"
-        if n == 1
-        else "ask ONE more past-experience question on a theme the earlier answers did NOT cover (if they told a conflict story, ask about failure, ownership or prioritisation)"
-    )
+    theme = PROFILE_THEMES[(n - 1) % len(PROFILE_THEMES)]
+    ask = f"ask ONE question about {theme}" if n == 1 else f"ask ONE more past-experience question on {theme} - a theme the earlier answers have not covered"
     return f"BEHAVIOURAL {n} of {total} - {ask}. Keep it about people and choices - no technical, tooling, architecture or troubleshooting questions yet."
 
 
-def _technical_phase(n: int, total: int) -> str:
-    ask = "ask ONE role-specific technical question suited to the target level" if n == 1 else "ask ONE more role-specific technical question, going a level deeper than the last and probing the gap their previous answer left"
-    return f"TECHNICAL {n} of {total} - past-experience ground is covered: {ask}."
+def _technical_phase(n: int, total: int, level: str = "any") -> str:
+    ops = SENIOR_OPS_THEME if level in SUBSTANCE_LEVELS or level == "any" else JUNIOR_OPS_THEME
+    theme = SUBSTANCE_THEMES[(n - 1) % len(SUBSTANCE_THEMES)].format(ops=ops)
+    return f"TECHNICAL {n} of {total} - past-experience ground is covered: ask ONE question here - {theme}."
 
 
-def interview_plan(dials: Dials | None = None) -> tuple[str, ...]:
+def interview_plan(dials: Dials | None = None, level: str = "any") -> tuple[str, ...]:
     """Every QUESTION of the arc, in order: the chitchat warm-up, the opener, then the mix.
 
     The turn after the last entry is the closing statement (llm.CLOSING_MESSAGE), so a plan of n
-    entries means n model turns plus one canned one.
+    entries means n model turns plus one canned one. `level` only re-writes the ops question's
+    wording (see _technical_phase); it never changes the plan's LENGTH, so the closing-turn math in
+    main.py does not depend on it.
     """
     d = dials or Dials()
     plan = [_chitchat_phase(n, d.mix_chitchat) for n in range(1, d.mix_chitchat + 1)]
     plan.append(OPENING_PHASE)
     plan += [_behavioural_phase(n, d.mix_behavioural) for n in range(1, d.mix_behavioural + 1)]
-    plan += [_technical_phase(n, d.mix_technical) for n in range(1, d.mix_technical + 1)]
+    plan += [_technical_phase(n, d.mix_technical, level) for n in range(1, d.mix_technical + 1)]
     return tuple(plan)
 
 
-def interview_phase(asked: int, dials: Dials | None = None) -> str:
+def interview_phase(asked: int, dials: Dials | None = None, level: str = "any") -> str:
     """Phase directive for the next interviewer turn, where `asked` = interviewer turns so far.
 
     Past the end of the plan the LAST QUESTION repeats (the closing statement is a separate, canned
     turn, and the API refuses anything after that) - so an over-run transcript cannot put the
     interviewer back at the opener.
     """
-    plan = interview_plan(dials)
+    plan = interview_plan(dials, level)
     return plan[min(max(asked, 0), len(plan) - 1)]
 
 
@@ -268,19 +304,57 @@ def system_prompt(role: str, level: str, topic: str = "", asked: int = 0, dials:
         parts.append(stance)
     if d.brutally_honest:
         parts.append(BLUNT_PROMPT)
-    parts.append(f"Current phase: {interview_phase(asked, d)} Ask exactly one question per turn and wait for the answer. If they ask you something, answer in one short line, then continue with your current phase - you drive the arc, not the candidate.")
+    parts.append(coverage_directive(level))
+    parts.append(f"Current phase: {interview_phase(asked, d, level)} Ask exactly one question per turn and wait for the answer. If they ask you something, answer in one short line, then continue with your current phase - you drive the arc, not the candidate.")
     return " ".join(parts)
 
 
-GRADER_PROMPT_V1 = """You are maxterview's interview grader. You will be given an interview transcript between an interviewer and a candidate applying for a software role.
+# Scoring dimensions: THE single source of truth for the rubric. The grader prompt and formatter
+# schema/prompt below are generated from it, and the feedback JSON keys are these slugs verbatim.
+# Axis -> dims, in render order. Communication is the original four, kept as-is so old runs stay
+# comparable; substance is the reviewer's read on the work, profile on the person. `culture fit` is
+# deliberately NOT a dim: scored directly it is a bias proxy with no evidence bar, so it is split
+# into the two things people actually mean by it - did they own the work, and how do they work with
+# others (ownership, collaboration).
+DIMENSION_AXES: dict[str, tuple[str, ...]] = {
+    "communication": ("clarity", "relevance", "structure", "confidence"),
+    "substance": ("technical_depth", "problem_solving", "production"),
+    "profile": ("ownership", "collaboration", "growth_potential"),
+}
+DIMENSION_RUBRIC: dict[str, str] = {
+    "clarity": "how well-structured and easy to follow each answer was",
+    "relevance": "how directly the answer addressed the question and the role",
+    "structure": "use of a clear framework (e.g. STAR) with a beginning/middle/end",
+    "confidence": "DELIVERY ONLY - hedging, vague phrasing, whether they commit to a position. Missing resume/metrics/experience belongs under relevance/structure, not here",
+    "technical_depth": "correctness and depth in the role's own domain: the right answer rather than a recited one, and whether they know WHY it is right",
+    "problem_solving": "how they attack a problem they have not seen before: decompose it, name the constraints, weigh alternatives, choose with a reason",
+    "production": "shipping judgement: dependencies, failure modes, testing, rollout, debugging - what they do when it breaks in front of users",
+    "ownership": "did THEY own the outcome: their own decisions and actions, 'we' unpacked, not a team result they stood near",
+    "collaboration": "working with other people: disagreeing, influencing without authority, unblocking someone, taking feedback without defending",
+    "growth_potential": "learning rate and coachability: what they would do differently, what changed their mind, how fast they absorb a correction",
+}
+FEEDBACK_DIMS: tuple[str, ...] = tuple(d for dims in DIMENSION_AXES.values() for d in dims)
+
+
+# AI HERE: one framework-free self-check (AGENTS rule 5). A dim added to the axes without rubric
+# text (or the reverse) fails here, instead of reaching the prompt as a literal `None`.
+assert set(DIMENSION_RUBRIC) == set(FEEDBACK_DIMS) and len(FEEDBACK_DIMS) == len(set(FEEDBACK_DIMS))
+
+
+def _dimension_lines() -> str:
+    """The rubric as the grader reads it: one axis per line, its dims listed inside it."""
+    return "\n".join(f"{axis.upper()}: " + "; ".join(f"{d} - {DIMENSION_RUBRIC[d]}" for d in dims) for axis, dims in DIMENSION_AXES.items())
+
+
+GRADER_PROMPT_V1 = f"""You are maxterview's interview grader. You will be given an interview transcript between an interviewer and a candidate applying for a software role.
 
 Background: the interviewer opened by inviting the candidate to share their resume / background so it could tailor questions, and interviews went: a short bio/rapport warm-up, then behavioural questions, then role-specific technical questions.
 
-Assess ONLY the candidate's answers against these four dimensions, each on a 1-10 scale:
-- clarity: how well-structured and easy to follow each answer was.
-- relevance: how directly the answer addressed the question and the role.
-- structure: use of a clear framework (e.g. STAR) with a beginning/middle/end.
-- confidence: DELIVERY ONLY — hedging, vague phrasing, whether they commit to a position. Do NOT count missing resume/metrics/experience here; that belongs under relevance/structure.
+Assess ONLY the candidate's answers against these dimensions, each on a 1-10 scale:
+{_dimension_lines()}
+
+Not assessed is a valid answer: leave a dimension null when the transcript gives you no ground to judge it, because the interviewer never probed it or the candidate never went near it.
+Null is the honest reading and is NOT a low score - the candidate loses nothing for a question nobody asked. Never fill a gap with a safe 5 or 7, and never null a dimension you do have evidence on.
 
 Calibration: resist 10s. Reserve 9-10 for near-flawless, concrete, evidence-backed answers. If you can name no real weakness for a dimension, probe harder rather than defaulting to a perfect score;
 a strong interview that 'has no flaws' should still land around 7-9 with an explicit weaker spot, not a flat 10 across the board.
@@ -295,7 +369,9 @@ low when answers stay vague or disconnected from the role, and call the omission
 tips as a real reason points were lost. Do NOT let the omission pass silently — but still grade the
 technical/behavioural content they DID give on its own merit.
 
-Write a short paragraph PER dimension: name the dimension, give one concrete thing from the candidate's answers as evidence, then a single suggested integer score for it. Then write a 2-3 sentence overall verdict and 2-4 specific, actionable tips.
+Write ONE short line per dimension you scored: name it, give the one concrete thing in their answers that sets it, then the integer.
+Then one line naming each dimension you are leaving null and the reason in a clause (never probed / no evidence).
+Then write a 2-3 sentence overall verdict and 2-4 specific, actionable tips.
 
 Then state a hiring recommendation for THIS role on the four-point scale - reject, lean_reject, lean_hire, hire - plus a certainty integer 0-100 for how well the transcript supports that decision.
 Calibrate certainty to EVIDENCE VOLUME, not to how positive the recommendation is: a short or evasive interview cannot exceed roughly 50 even when the few answers given were strong, and only
@@ -388,10 +464,29 @@ MOVES_JSON_SCHEMA = {
 # Concrete JSON example inlined (DeepSeek's JSON-mode docs require a shape example, and
 # it hard-codes the schema so a weak local backend cannot drift the field names). The
 # formatter runs on fresh, SHORT grader notes rather than the long raw transcript.
-FEEDBACK_PROMPT_V1 = """Convert the interview grader notes in your user message into a JSON object ONLY, exactly matching this shape:
-{"scores": {"clarity": 7, "relevance": 6, "structure": 8, "confidence": 5}, "decision": "lean_hire", "certainty": 55, "verdict": "Overall assessment in 2-3 sentences.", "tips": ["tip one", "tip two"]}
-Rules: scores are integers 1-10 for exactly clarity/relevance/structure/confidence - 1 is the FLOOR and means nothing usable was said
-(never emit 0 or any value outside 1-10, even when the notes say the candidate failed); decision is exactly one of
+# Generated from FEEDBACK_DIMS (asserted below) so a dim added to the registry cannot silently
+# vanish from the one prompt that hard-codes the field names for weak/JSON-mode backends.
+_EXAMPLE_SCORES: dict[str, int | None] = {
+    "clarity": 7,
+    "relevance": 6,
+    "structure": 8,
+    "confidence": 5,
+    "technical_depth": 6,
+    "problem_solving": 7,
+    # Two nulls on purpose: the shape example is where the model learns that null is legal.
+    "production": None,
+    "ownership": 7,
+    "collaboration": None,
+    "growth_potential": 8,
+}
+assert set(_EXAMPLE_SCORES) == set(FEEDBACK_DIMS)
+
+FEEDBACK_PROMPT_V1 = f"""Convert the interview grader notes in your user message into a JSON object ONLY, exactly matching this shape:
+{json.dumps({"scores": _EXAMPLE_SCORES, "decision": "lean_hire", "certainty": 55, "verdict": "Overall assessment in 2-3 sentences.", "tips": ["tip one", "tip two"]})}
+Rules: scores is an object with exactly these keys - {", ".join(FEEDBACK_DIMS)} - and each value is an integer 1-10 or null
+(1 is the FLOOR and means nothing usable was said; never emit 0 or any value outside 1-10, even when the notes say the candidate
+failed). null means the notes gave you no evidence for that dimension: copy the grader's not-assessed dims through as null, never
+fill them with a 5 or a 7, and score at least one dimension. decision is exactly one of
 reject/lean_reject/lean_hire/hire; certainty is an integer 0-100 for how well the transcript backs that decision and must never be
 rounded UP past the evidence the notes describe; verdict is 2-3 sentences; tips is an array of 2-4 short strings. Return ONLY the JSON object, no prose, no markdown."""
 
@@ -448,9 +543,10 @@ def _extract_delta(chunk: str) -> str:
 
 # --- feedback generation + structured-output guard ---
 
-# If a response omits any dim we treat it as a failed structured-parse (never accept
-# partial scores) and give up on that attempt.
-FEEDBACK_DIMS = ("clarity", "relevance", "structure", "confidence")
+# A dim the formatter omits or nulls is "not assessed" and is dropped, not an error: with ten dims a
+# three-question transcript legitimately has holes, and rejecting the whole set for one of them threw
+# away a complete read. Only a response that scores NOTHING is a failed parse. FEEDBACK_DIMS itself
+# lives with the rubric (see DIMENSION_AXES).
 # Machine-readable twin of FEEDBACK_PROMPT_V1, sent as response_format=json_schema: backends
 # with grammar-constrained decoding (llama.cpp) then cannot drift the dim names or the 1-10
 # range at all. Backends that only support json_object (DeepSeek) 400 on it and _completion
@@ -460,7 +556,7 @@ FEEDBACK_JSON_SCHEMA = {
     "properties": {
         "scores": {
             "type": "object",
-            "properties": {d: {"type": "integer", "minimum": 1, "maximum": 10} for d in FEEDBACK_DIMS},
+            "properties": {d: {"type": ["integer", "null"], "minimum": 1, "maximum": 10} for d in FEEDBACK_DIMS},
             "required": list(FEEDBACK_DIMS),
             "additionalProperties": False,
         },
@@ -578,16 +674,20 @@ def _coerce_score(value) -> float | None:
 
 
 def _valid_scores(value) -> dict | None:
-    """All four dims present as 1-10 numbers, else None (never accept partial scores)."""
+    """Every dim the model actually scored, as 1-10 floats; None when it scored none.
+
+    Missing and null are both "not assessed" (see FEEDBACK_DIMS): a hole is dropped, not fatal. A
+    response with no scored dim at all is still a failed parse - that is a model that did not answer."""
     if not isinstance(value, dict):
         return None
     scores = {}
     for d in FEEDBACK_DIMS:
+        if d not in value:
+            continue
         n = _coerce_score(value.get(d))
-        if n is None:
-            return None
-        scores[d] = n
-    return scores
+        if n is not None:
+            scores[d] = n
+    return scores or None
 
 
 def _coerce_move_class(value) -> str | None:
@@ -768,7 +868,7 @@ async def _request_format(notes: str, config: LLMConfig, failure: tuple[int, str
         tips_list = obj.get("tips")
         tips = [t for t in tips_list if isinstance(t, str) and t.strip()] if isinstance(tips_list, list) else []
         # decision/certainty are additive: a drift there costs the badge, not the whole scoring
-        # run (the four scores are what the dashboard and trend depend on).
+        # run (the dims are what the dashboard and trend depend on).
         decision = _coerce_decision(obj.get("decision"))
         if decision is None and obj.get("decision") is not None:
             log.warning("llm.feedback.decision_drift", shape=_shape(obj.get("decision")))
