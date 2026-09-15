@@ -61,6 +61,8 @@ export interface Interview extends InterviewDials {
     verdict?: string | null;
     decision?: Decision | null;
     certainty?: number | null;
+    /** Set = hidden from the history list (NOT from the API or the stats). See archiveInterview. */
+    archived_at?: string | null;
 }
 
 // Interview dressing dials (mirrors backend app/models.Dials + app/dials.py). The mix sliders are
@@ -186,6 +188,18 @@ export async function completeInterview(id: string): Promise<Interview> {
 
 export async function deleteInterview(id: string): Promise<void> {
     await api.delete(`/interviews/${id}`);
+}
+
+// Archive = hide this run from the history list, reversibly. It is NOT a delete and NOT a status:
+// the run keeps counting in the dashboard stats and comes straight back on restore.
+export async function archiveInterview(id: string): Promise<Interview> {
+    const { data } = await api.post<Interview>(`/interviews/${id}/archive`);
+    return data;
+}
+
+export async function unarchiveInterview(id: string): Promise<Interview> {
+    const { data } = await api.delete<Interview>(`/interviews/${id}/archive`);
+    return data;
 }
 
 export async function getMessages(id: string): Promise<Message[]> {

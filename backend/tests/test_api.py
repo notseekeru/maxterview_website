@@ -265,6 +265,34 @@ def test_interview_lifecycle_owner_scoped(client):
     assert r.status_code == 204
 
 
+def test_archive_hides_a_run_from_history_but_keeps_it_in_the_stats(client):
+    # Archive is a list-hiding flag, NOT a status and NOT a delete: the row still comes back from
+    # GET /interviews (so the dashboard keeps counting it), keeps its lifecycle, and clearing the
+    # flag brings it back into the history. That is the whole difference from DELETE.
+    c = client
+    iid = c.post("/api/interviews", json={"role": "Archive Probe"}).json()["id"]
+
+    r = c.post(f"/api/interviews/{iid}/archive")
+    assert r.status_code == 200
+    assert r.json()["archived_at"] is not None
+    assert r.json()["status"] == "pending"
+
+    listing = c.get("/api/interviews").json()
+    assert any(i["id"] == iid for i in listing)  # still listed: the UI hides it, the API does not
+    assert next(i for i in listing if i["id"] == iid)["archived_at"] is not None
+    assert c.get(f"/api/interviews/{iid}").json()["archived_at"] is not None
+
+    r = c.delete(f"/api/interviews/{iid}/archive")
+    assert r.status_code == 200
+    assert r.json()["archived_at"] is None
+
+    # Unknown id is a 404, never a silent success.
+    assert c.post("/api/interviews/00000000-0000-0000-0000-000000000000/archive").status_code == 404
+    assert c.delete("/api/interviews/00000000-0000-0000-0000-000000000000/archive").status_code == 404
+
+    assert c.delete(f"/api/interviews/{iid}").status_code == 204
+
+
 def test_move_review_annotates_every_candidate_turn(client):
     # The stub cycles good -> inaccuracy. Two answers is the smallest case that exercises the turn ->
     # row mapping as an ARRAY (one answer passes trivially), and accuracy must average both classes.

@@ -85,6 +85,10 @@ class Interview(Dials):
     verdict: str | None = None
     decision: Decision | None = None
     certainty: int | None = None
+    # Archive: set = hidden from the history list, and NOTHING else. Still returned by
+    # GET /interviews and still counted in the dashboard stats on purpose - unlike delete it is
+    # reversible, and it exists to tidy the list, not to rewrite your record.
+    archived_at: datetime | None = None
 
     @computed_field
     @property

@@ -88,7 +88,7 @@ DIAL_FIELDS = ("company_size", "cynicism", "brutally_honest", "human_mode", "har
 # Interview row columns for every SELECT/RETURNING that builds an `Interview`. Shared because
 # `Interview` fills an absent field from its default, so a query that forgets a dial would answer
 # 200 with a WRONG value ('neutral' for a run created skeptical) rather than an error.
-INTERVIEW_COLS = "id::text, owner_id, role, level, topic, status, created_at, updated_at, failed_turn, failed_class, " + ", ".join(DIAL_FIELDS)
+INTERVIEW_COLS = "id::text, owner_id, role, level, topic, status, created_at, updated_at, failed_turn, failed_class, archived_at, " + ", ".join(DIAL_FIELDS)
 
 
 @api.get("/interviews", response_model=list[Interview])
@@ -99,7 +99,7 @@ async def list_interviews(user: CurrentUser) -> list[dict]:
         f"""
         SELECT i.id::text, i.owner_id, i.role, i.level, i.topic, i.status, i.created_at, i.updated_at,
                {", ".join(f"i.{c}" for c in DIAL_FIELDS)},
-               i.failed_turn, i.failed_class,
+               i.failed_turn, i.failed_class, i.archived_at,
                f.verdict AS verdict, f.decision AS decision, f.certainty AS certainty, f.accuracy AS accuracy
         FROM interviews i
         LEFT JOIN feedback f ON f.interview_id = i.id
@@ -165,6 +165,39 @@ async def delete_interview(
     )
     if result is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Interview not found")
+
+
+async def _set_archived(interview_id: str, owner_id: str, archived: bool) -> dict:
+    """Set/clear `archived_at`, returning the row so the caller can update in place.
+
+    Archive is a list-hiding flag, not a status: the run keeps whatever lifecycle it had, still comes
+    back from GET /interviews, and still counts in the dashboard stats. That is the whole difference
+    from delete, which destroys it (see models.Interview.archived_at)."""
+    row = await fetchrow(
+        f"UPDATE interviews SET archived_at = CASE WHEN $3 THEN now() ELSE NULL END WHERE id = $1 AND owner_id = $2 RETURNING {INTERVIEW_COLS}",
+        interview_id,
+        owner_id,
+        archived,
+    )
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Interview not found")
+    return dict(row)
+
+
+@api.post("/interviews/{interview_id}/archive", response_model=Interview)
+async def archive_interview(
+    interview_id: str,
+    user: CurrentUser,
+) -> dict:
+    return await _set_archived(interview_id, user.sub, True)
+
+
+@api.delete("/interviews/{interview_id}/archive", response_model=Interview)
+async def unarchive_interview(
+    interview_id: str,
+    user: CurrentUser,
+) -> dict:
+    return await _set_archived(interview_id, user.sub, False)
 
 
 @api.post("/interviews/{interview_id}/start", response_model=Interview)
