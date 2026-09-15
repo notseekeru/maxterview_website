@@ -1,10 +1,13 @@
 # MONETIZATION — Payment & Billing
 
 > **Model: Free / Premium + dev-only.** Billing spec for **M10**. **Shipped:** quota backend;
-> provider-managed recurring on **PayMongo** (PHP-only, ₱499/mo, Maya first payment), which replaced
-> the raw-Stripe implementation on 2026-09-12. The webhook → `subscriptions` → `resolve_tier` path is
-> proven end-to-end against Postgres (every status transition, fail-closed signature), but **no
-> PayMongo sandbox transaction has run yet** — that needs an account with Subscriptions enabled.
+> **PayMongo** (PHP-only, ₱499, Maya first payment), which replaced the raw-Stripe implementation on
+> 2026-09-12. The webhook → `subscriptions` → `resolve_tier` path is proven end-to-end against
+> Postgres (every status transition, fail-closed signature), and as of **2026-09-15 the sandbox runs
+> too**: a real test-key Payment Intent → Maya redirect → `payment.paid` → `active` with 30 days on
+> `current_period_end`, replayed twice with no extra time granted. **Shipping rail is
+> `BILLING_MODE=period`** — one payment buys 30 days — because PayMongo enables Subscriptions only by
+> hand (§7); provider-managed recurring stays implemented and dormant behind that one env var.
 > **Source of truth for decisions:** PLAN.md D10 (and D4 for owner-scoping). Planner status in PLAN.md §8.
 
 ## 0. Limits & model (env-configurable, not hardcoded)
@@ -12,7 +15,7 @@
 |                                           | Free                       | Premium                        | dev                        |
 | ----------------------------------------- | -------------------------- | ------------------------------ | -------------------------- |
 | Interviews (creation)                     | **unlimited**              | **unlimited**                  | **unlimited**              |
-| Price                                     | ₱0                         | **₱499/mo** (monthly only)     | ₱0                         |
+| Price                                     | ₱0                         | **₱499 / 30 days** (one payment)     | ₱0                         |
 | Chat turns / day (GLOBAL, all interviews) | **10** (`FREE_CHAT_TURNS`) | **250** (`PREMIUM_CHAT_TURNS`) | **500** (`DEV_CHAT_TURNS`) |
 | Free trial                                | none                       | —                              | —                          |
 
@@ -24,7 +27,8 @@
   no-Clerk dev-fallback identity (`CLERK_ENABLED=false`) resolves to `dev` with caps above premium;
   confines to dev/test and never persists in `subscriptions` (details in PLAN D10).
 - **Feedback not feature-gated** — same quality across tiers. Turn cap is the cost-control lever.
-- Billing **monthly only**, single-user (D4). PayMongo bills in PHP only; we handle tax (no merchant-of-record).
+- Billing **monthly-ish, one payment at a time**, single-user (D4): period mode sells 30 days and
+  does not auto-renew (§3, §7). PayMongo bills in PHP only; we handle tax (no merchant-of-record).
 
 ## 1. The `tier` claim & its source of truth (entitlement)
 
@@ -63,25 +67,30 @@ Implemented in `app/billing.py` + `app/main.py`.
   **Free / Premium / DEV tier label** (`UsageBadge`). `dev` is returned by the no-Clerk
   dev-fallback identity (see §0).
 
-## 3. Billing provider — PayMongo subscriptions (swapped 2026-09-12)
+## 3. Billing provider — PayMongo (period top-up shipped; subscriptions dormant)
 
 Implementation: **raw httpx against PayMongo** (chosen over Xendit — see §7 — and over an MoR for now).
+Both modes write the **same** `subscriptions` row and are read by the same `billing.resolve_tier`, so
+the mode is a payment rail, not an entitlement model.
 
 **Shipped (backend):**
 
-- `app/payments.py` — the provider module: subscription start, cancel, webhook verify + handle.
-- `POST /billing/checkout` — creates the PayMongo subscription and returns the **Maya** URL for its
-  first payment. PayMongo has no hosted "subscribe" page, so the first invoice's Payment Intent is
-  attached to a `paymaya` PaymentMethod and the customer is redirected; every later cycle is charged
-  by PayMongo from that vaulted method. **409s instead of creating a second subscription** while the
-  current one still covers a paid period, or while a first payment is pending inside PayMongo's 24h
-  window (`payments._resubscribe_block`) — PayMongo bills each subscription on a customer
-  independently, and this route is reachable even though the UI hides the button. Two documented
-  shapes could not be exercised before launch, so they are tried both ways and the winner is logged
-  as `paymongo.variant_retry` (`payments._try_variants`): the invoice-list path prefix and whether a
-  server-side attach tolerates `client_key`.
-- `POST /billing/cancel` — PayMongo has **no billing portal**, so cancelling is ours: `DELETE` the
-  subscription and mark the row `cancelled` (the paid period keeps serving, §6).
+- `app/payments.py` — the provider module: start (both modes), cancel, webhook verify + handle.
+- `POST /billing/checkout` — **mode-blind** route: `payments.start_upgrade` dispatches on `BILLING_MODE`.
+  - **`period` (default, launch)** — creates the Customer (PayMongo now **requires `default_device`**
+    on `POST /v1/customers`; we send `email`), a one-time Payment Intent for
+    `PREMIUM_PRICE_CENTAVOS`, then attaches a `paymaya` PaymentMethod and returns the Maya URL. The
+    row is written `premium/incomplete` **before** the redirect, holding the intent id in
+    `provider_subscription_id` — the column the webhook resolves an owner from, so **no migration**.
+    Needs no account capability; nothing renews, so the user buys again.
+  - **`subscription` (dormant)** — PayMongo subscription + first-invoice Payment Intent → Maya;
+    every later cycle is charged by PayMongo from the vaulted method.
+  **409s instead of a second charge** while a paid period is live, or while a first payment is pending
+  inside PayMongo's 24h window (`payments._resubscribe_block`) — the route is reachable even though
+  the UI hides the button.
+- `POST /billing/cancel` — PayMongo has **no billing portal**, so cancelling is ours: in subscription
+  mode `DELETE` the subscription, in period mode there is nothing scheduled to stop. Either way the
+  row goes `cancelled` and the paid period keeps serving (§6).
 - `POST /billing/webhook` — verifies `Paymongo-Signature` (HMAC-SHA256 of `"{t}.{raw_body}"` with the
   endpoint's secret, fail-closed) then upserts `subscriptions`. Timestamps outside
   `PAYMONGO_SIGNATURE_TOLERANCE_S` (default 300 s) are rejected as replays — but that rejection is
@@ -91,10 +100,19 @@ Implementation: **raw httpx against PayMongo** (chosen over Xendit — see §7 �
   provider's IPs shares one client key, and a 429 there would silently drop entitlement.
 - `POST /billing/webhook/simulate` — **dev/test only** (404s when `APP_ENV=production`). Replaces
   `stripe listen`: PayMongo has no CLI, and requiring a tunnel for local webhooks is friction we skip.
-- Env: `PAYMONGO_SECRET_KEY`, `PAYMONGO_WEBHOOK_SECRET`, `PAYMONGO_PLAN_ID`, `FRONTEND_BASE_URL`
+- Env: `PAYMONGO_SECRET_KEY`, `PAYMONGO_WEBHOOK_SECRET`, `FRONTEND_BASE_URL`, `BILLING_MODE`,
+  `PREMIUM_PRICE_CENTAVOS`, `PREMIUM_PERIOD_DAYS`; `PAYMONGO_PLAN_ID` in subscription mode only
   (optional: `PAYMONGO_SIGNATURE_TOLERANCE_S`).
+- `/usage` also reports `billing_mode` and `premium_until`: period mode has no renewal for the UI to
+  infer an expiry from, so the server has to state it.
 
-**Event → entitlement map:** `subscription.activated|updated` upserts `plan`/`status`/
+**Event → entitlement map.** Period mode: `payment.paid` / `payment_intent.succeeded` set
+`plan=premium, status=active, current_period_end = now() + PREMIUM_PERIOD_DAYS` as a
+**compare-and-set** on `provider_subscription_id = <intent id> AND status = 'incomplete'`, so a replay,
+the sibling event type (both are registered — either may be the only one a method emits) or a PayMongo
+retry cannot buy a second period; a refused write logs `paymongo.webhook.payment_not_credited`.
+`payment.failed` writes nothing. Subscription mode: `subscription.activated|updated` upserts
+`plan`/`status`/
 `current_period_end` (`cancelled`/`incomplete_cancelled` → `free`); `invoice.paid` sets `active` but
 only from `past_due`/`unpaid`/`incomplete` — it deliberately does **not** resurrect a cancelled or
 24h-expired subscription (PayMongo keeps open invoices collectible after a cancel);
@@ -108,12 +126,23 @@ Duplicates are safe: every write is an idempotent `ON CONFLICT (owner_id)` upser
 
 **Before live keys work (both are account-level, not self-service):** email support@paymongo.com to
 enable **Subscriptions** and **Card Vaulting**; a Fully Verified account needs DTI + BIR 2303 for a PH
-sole proprietorship. Charges are PHP-only and PayMongo collects `first_name`/`last_name`/`email` per
-customer (unique email), which Clerk supplies.
+sole proprietorship. Charges are PHP-only and PayMongo collects `first_name`/`last_name`/`email`
+(`default_device` is required too) per customer (unique email), which Clerk supplies. **This paragraph
+only gates `BILLING_MODE=subscription`** — the shipping period rail needs none of it (§7).
 
-**Business rules:** monthly only, ₱499/mo, no annual, no tiers; recurring is limited to **cards and
-Maya** (PayMongo does not support GCash recurring, so GCash users cannot subscribe); we remit tax
-(no merchant-of-record).
+**Business rules:** monthly-ish, ₱499 per payment, no annual, no tiers; recurring (subscription mode
+only) is limited to **cards and Maya** — PayMongo does not support GCash recurring, so a GCash user
+cannot subscribe, though period mode takes any enabled method. We remit tax (no merchant-of-record).
+
+**Verification (2026-09-15, live sandbox):** with a real test key, `POST /api/billing/checkout` created
+a PayMongo customer + one-time Payment Intent and returned a live Maya redirect
+(`secure-authentication.paymongo.com/sources?id=src_…`) — the first provider-side proof in this repo's
+history; the first attempt exposed that `POST /v1/customers` now **requires `default_device`**, a field
+the subscription path was missing too. Delivering `payment.paid` for that intent flipped the row to
+`premium/active` with **29d 23:59:59** remaining; replaying it and then the sibling
+`payment_intent.succeeded` left `current_period_end` byte-identical (`payment_not_credited` logged
+twice); a `payment.paid` for an intent with no row wrote nothing; a second `POST /billing/checkout`
+inside the period returned **409**. Full suite: 154 passed / 1 pre-existing failure.
 
 **Verification (2026-09-12):** no sandbox transaction yet. Proven instead against real Postgres
 through the simulate endpoint: `activated` → `premium/active` with a tz-aware `current_period_end`,
@@ -140,7 +169,8 @@ CREATE TABLE IF NOT EXISTS subscriptions (
     owner_id            TEXT NOT NULL UNIQUE,        -- Clerk sub (D4)
     provider            TEXT NOT NULL DEFAULT 'paymongo',   -- 0008: provider-agnostic (D10)
     provider_customer_id TEXT NOT NULL DEFAULT '',           -- cus_… (renamed from stripe_id)
-    provider_subscription_id TEXT NOT NULL DEFAULT '',       -- subs_… (cancel + webhook owner lookup)
+    provider_subscription_id TEXT NOT NULL DEFAULT '',       -- subs_…, or pi_… in period mode: the
+                                                             --   handle cancel + webhook owner lookup key off
     provider_plan_id    TEXT NOT NULL DEFAULT '',            -- plan_…
     plan                TEXT NOT NULL DEFAULT 'free' CHECK (plan IN ('free','premium')),
     status              TEXT NOT NULL DEFAULT 'active',
@@ -169,16 +199,20 @@ CREATE TABLE IF NOT EXISTS turn_usage (
 
 | Shipped                                                                                                                                                      | Open                                                                                                      |
 | ------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------- |
-| Backend: `billing.py`, `payments.py` (subscribe/cancel/webhook + dev simulate), `0002`/`0008` migrations                                                                     | **Nothing blocking in code.** Production config still owed: `CLERK_ENABLED=true` (live), PayMongo **Subscriptions + Card Vaulting enabled by support**, a real webhook endpoint whose secret lands in `PAYMONGO_WEBHOOK_SECRET`, and a Fully Verified account (DTI + BIR) for live keys |
+| Backend: `billing.py`, `payments.py` (period + subscription modes, cancel, webhook + dev simulate), `0002`/`0008` migrations | **Nothing blocking in code.** Production config still owed: `CLERK_ENABLED=true` (live), a real webhook endpoint whose secret lands in `PAYMONGO_WEBHOOK_SECRET` (register it for `payment.paid` **and** `payment_intent.succeeded`), and a Fully Verified account (DTI + BIR) for live keys. **Subscriptions + Card Vaulting are needed only when/if `BILLING_MODE=subscription`** |
 | Caps: daily GLOBAL chat-turn per owner (free 10 / premium 250 / dev 500, UTC-day reset; `0004_global_chat_turns`); no per-interview / no daily-interview cap | —                                                                                                         |
 | Frontend: usage badge, upsell/lockout notices, billing/plan page (`/app/settings/billing`)                                                                   | —                                                                                                         |
-| **Postgres-proof (2026-09-12):** activated/past_due/invoice.paid/payment_failed/cancelled transitions + fail-closed signature                                                                  | **PayMongo sandbox proof** (real plan/customer/subscription + Maya first payment) once keys exist                        |
+| **Postgres-proof (2026-09-12):** activated/past_due/invoice.paid/payment_failed/cancelled transitions + fail-closed signature                                                                  | **Live webhook endpoint** (`payments.sh --register-webhook` once a public URL exists)                                                                                      |
+| **PayMongo sandbox proof (2026-09-15):** real payment intent → Maya redirect → `payment.paid` → `active` + 30 days; replay-idempotent; a second purchase 409s | —                                                                                                                         |
 
 ## 6. Cancellation & billing terms (M10, PayMongo)
 
 - **Cancellation → access till end of the current paid period, no refunds.**
 - **Refund (2026-08-16): 3-day voluntary refund window**; after 3 days no voluntary refunds.
-- **Chargebacks/disputes:** separate from refunds — on a chargeback, downgrade to free immediately and
+- **Period mode has no renewal, so nothing "fails" to renew:** the period simply lapses at
+  `current_period_end` and `resolve_tier` downgrades on the next read. `/billing/cancel` only marks
+  the row `cancelled` (keeping the paid time — the same terms as a subscription cancel).
+- **Chargebacks/disputes still apply to one-time payments:** on a dispute, downgrade immediately and
   respond via PayMongo's dispute flow. A refund policy does not stop chargebacks.
 - **Failed renewal / card declined:** **immediate downgrade, no grace**. No paid time remains.
 - Enforced via `subscriptions.status` / `current_period_end`; lockout at period end.
@@ -200,6 +234,17 @@ webhooks with a static `x-callback-token` instead of an HMAC over the raw body.
 2.23%, QR Ph 1.34%, and correctly signed webhooks. Accepted trade-offs: Subscriptions + Card Vaulting
 are enabled by support (not self-service), recurring covers cards and Maya only, and there is no
 billing portal — we own cancel.
+
+**Period mode — the launch rail (2026-09-15).** PayMongo enables **Subscriptions + Card Vaulting**
+only by hand, and every subscription-path call 403s with `merchant_invalid_state: no subscription
+payment methods are configured for this organization` — including `POST /v1/subscriptions/plans`, so
+even plan creation is blocked. A one-time Payment Intent needs no account capability, so
+`BILLING_MODE=period` turns money into the **same** entitlement — `current_period_end` — with zero
+changes to `billing.py`, the quota model, `/usage`, the schema or the DB (one route, one webhook
+branch, `payments.py` only). Accepted trade-offs: no auto-renew (the user buys again; the billing page
+states the expiry, and `PAYMONGO_PLAN_ID` is no longer needed to launch), and live card acceptance
+still needs a registered business type — **Maya works on an individual account**. Revisit if support
+ever enables Subscriptions: `BILLING_MODE=subscription`, nothing else.
 
 **Global/USD later.** PayMongo is PHP-only and PH-rail-only, so USD pricing for non-PH buyers needs a
 merchant-of-record (Paddle / Lemon Squeezy / Polar: they remit VAT and pay out to an unregistered PH
