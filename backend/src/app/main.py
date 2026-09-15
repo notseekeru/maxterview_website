@@ -329,6 +329,11 @@ async def get_usage(user: CurrentUser, config: LLMConfigDep) -> dict:
         # BYOK: the turns run on the owner's provider account, so the quota is not enforced
         # (see chat_stream) and the UI says so instead of showing a stale number.
         "byok": config.byok,
+        # How money becomes premium, plus when the paid time lapses. Period mode does not
+        # auto-renew, so the UI must show the expiry and must not offer a cancel that cancels
+        # nothing (`billing_mode` is what tells the two apart).
+        "billing_mode": payments.BILLING_MODE,
+        "premium_until": await billing.premium_until(user.sub) if tier == "premium" else None,
     }
 
 

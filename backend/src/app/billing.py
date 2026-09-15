@@ -44,24 +44,36 @@ LIMITS = {
 ENTITLED_STATUSES = ("active", "cancelled")
 
 
+async def _entitled_row(owner_id: str) -> dict | None:
+    """The one predicate for "this owner has paid time left", shared by tier + period readout.
+
+    No scheduled job lapses a subscription: the period is checked at read time, so an expired
+    `current_period_end` (or a `past_due`/`unpaid` status) downgrades on the next call.
+    """
+    return await fetchrow(
+        """
+        SELECT plan, current_period_end FROM subscriptions
+        WHERE owner_id = $1 AND plan = 'premium'
+          AND status = ANY($2::text[])
+          AND (current_period_end IS NULL OR current_period_end > now())
+        """,
+        owner_id,
+        list(ENTITLED_STATUSES),
+    )
+
+
 async def resolve_tier(user: ClerkUser) -> str:
     if not CLERK_ENABLED:
         return "dev"
     if user.tier == "premium":
         return "premium"
-    # No scheduled job lapses a subscription: the period is checked at read time, so an expired
-    # `current_period_end` (or a `past_due`/`unpaid` status) downgrades on the next call.
-    row = await fetchrow(
-        """
-        SELECT plan FROM subscriptions
-        WHERE owner_id = $1 AND plan = 'premium'
-          AND status = ANY($2::text[])
-          AND (current_period_end IS NULL OR current_period_end > now())
-        """,
-        user.sub,
-        list(ENTITLED_STATUSES),
-    )
-    return "premium" if row else "free"
+    return "premium" if await _entitled_row(user.sub) else "free"
+
+
+async def premium_until(owner_id: str) -> datetime | None:
+    """When the current paid time lapses. In period mode nothing auto-renews, so the UI has to show
+    this: the user buying again IS the renewal."""
+    return ((await _entitled_row(owner_id)) or {}).get("current_period_end")
 
 
 def _quota(tier: str, what: str) -> float:

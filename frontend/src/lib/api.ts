@@ -155,6 +155,11 @@ export interface Usage {
     chat_turns_remaining_today?: number;
     /** Turns run on the owner's own provider key, so the daily cap is not enforced. */
     byok?: boolean;
+    /** How a payment becomes premium: `period` = one-time top-up with no auto-renew. */
+    billing_mode?: "period" | "subscription";
+    /** ISO timestamp when the paid time lapses. Period mode never renews itself, so a UI that hides
+     *  this leaves the user to discover the downgrade by hitting the cap. */
+    premium_until?: string | null;
 }
 
 export function chatTurns(usage: Usage): number {
@@ -235,15 +240,15 @@ export async function getUsage(): Promise<Usage> {
     return data;
 }
 
-// Both hit our billing surface: /billing/checkout returns a URL we must follow (the Maya page for
-// the subscription's first payment — PayMongo has no hosted subscribe page), and there is no
-// provider portal, so cancelling is our own endpoint.
-export async function startSubscription(): Promise<string> {
+// Both hit our billing surface: /billing/checkout returns a URL we must follow (PayMongo's Maya
+// page — it has no hosted upgrade page), and there is no provider portal, so stopping a renewal is
+// our own endpoint. Which of the two modes is live is the server's decision (`GET /usage`).
+export async function startUpgrade(): Promise<string> {
     const { data } = await api.post<{ url: string }>("/billing/checkout");
     return data.url;
 }
 
-export async function cancelSubscription(): Promise<void> {
+export async function cancelUpgrade(): Promise<void> {
     await api.post("/billing/cancel");
 }
 

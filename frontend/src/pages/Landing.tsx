@@ -109,7 +109,9 @@ export function Landing() {
                             );
                         })}
                     </div>
-                    <p className="text-xs text-muted-foreground">Prices in PHP, charged through PayMongo (Maya). Premium renews monthly until you cancel in the app.</p>
+                    {/* No renewal claim: the live billing mode is a server setting (period top-up vs
+                        provider-managed recurring), so this must stay true in both. */}
+                    <p className="text-xs text-muted-foreground">Prices in PHP, charged through PayMongo (Maya). You keep Premium until the end of the period you paid for.</p>
                 </section>
 
                 <section aria-label="Frequently asked questions" className="space-y-3">

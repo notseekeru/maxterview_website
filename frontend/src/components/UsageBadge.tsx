@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { getUsage, startSubscription, turnsToday, type Usage } from "@/lib/api";
+import { getUsage, startUpgrade, turnsToday, type Usage } from "@/lib/api";
 import { clerkEnabled } from "@/lib/config";
 
 // Quota-status badge (GET /usage, MONETIZATION §3).
@@ -64,7 +64,7 @@ export function UpgradeNotice({ reason }: { reason: string }) {
         setBusy(true);
         setError(false);
         try {
-            const url = await startSubscription();
+            const url = await startUpgrade();
             window.location.assign(url);
         } catch {
             setError(true);
