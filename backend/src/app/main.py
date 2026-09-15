@@ -224,9 +224,7 @@ async def _feedback_row(interview_id: str) -> asyncpg.Record | None:
     an INSERT ... RETURNING cannot reach it.
     """
     return await fetchrow(
-        "SELECT f.id::text, f.interview_id::text, f.scores, f.verdict, f.tips, f.decision, f.certainty, f.accuracy, "
-        "i.failed_turn, i.failed_class, f.created_at "
-        "FROM feedback f JOIN interviews i ON i.id = f.interview_id WHERE f.interview_id = $1",
+        "SELECT f.id::text, f.interview_id::text, f.scores, f.verdict, f.tips, f.decision, f.certainty, f.accuracy, i.failed_turn, i.failed_class, f.created_at FROM feedback f JOIN interviews i ON i.id = f.interview_id WHERE f.interview_id = $1",
         interview_id,
     )
 
@@ -557,8 +555,7 @@ async def _persist_move_classes(interview_id: str, candidate_ids: list[str], mov
     if not graded:
         return []
     await fetch(
-        "UPDATE messages SET move_class = u.move_class FROM unnest($2::text[], $3::text[]) AS u(id, move_class) "
-        "WHERE messages.id = u.id::uuid AND messages.interview_id = $1 RETURNING messages.id",
+        "UPDATE messages SET move_class = u.move_class FROM unnest($2::text[], $3::text[]) AS u(id, move_class) WHERE messages.id = u.id::uuid AND messages.interview_id = $1 RETURNING messages.id",
         interview_id,
         candidate_ids,
         [graded.get(turn) for turn in range(1, len(candidate_ids) + 1)],
