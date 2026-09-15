@@ -2,16 +2,16 @@ import type { Grade } from "@/lib/api";
 import { gradeTone, moveClassMeta } from "@/lib/moveClasses";
 import { cn } from "@/lib/utils";
 
-const BADGE = "inline-flex shrink-0 items-center gap-1 rounded-md border px-1.5 py-0.5 text-[11px] font-medium";
+const BADGE = "inline-flex size-6 shrink-0 items-center justify-center rounded-full border text-[11px] font-semibold leading-none";
 
-/** The reviewer's verdict on one candidate turn, beside that turn's bubble. An unlabelable class
- *  still renders (raw slug, dashed edge) rather than vanishing. */
+/** The reviewer's verdict on one candidate turn, beside that turn's bubble: a chess-annotation
+ *  disc, glyph only. The class name lives in the tooltip and the aria-label. */
 export function MoveBadge({ moveClass }: { moveClass: string }) {
     const meta = moveClassMeta(moveClass);
+    const name = meta?.label ?? moveClass;
     return (
-        <span title={meta?.hint ?? `Unlabelled move class: ${moveClass}`} className={cn(BADGE, meta?.tone ?? "border-dashed border-border text-muted-foreground")}>
+        <span title={meta ? `${name} — ${meta.hint}` : `Unlabelled move class: ${moveClass}`} role="img" aria-label={name} className={cn(BADGE, meta?.tone ?? "border-dashed border-border text-muted-foreground")}>
             <span aria-hidden>{meta?.glyph ?? "•"}</span>
-            <span>{meta?.label ?? moveClass}</span>
         </span>
     );
 }

@@ -11,7 +11,6 @@ general features:
 fix:
 
 - paymongo is currently not verify, if verify then wire up the api keys and fix the skill for it and use the mcp server for internal agent access and also remove stripe from mention accross repo and also remove the secrets of stripe in infisical
-- fix the badge make it circle, no extra word just a chess icon
 
 infra:
 
