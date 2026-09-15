@@ -346,7 +346,12 @@ JUDGE_PROMPT_V1 = f"""You are the hardcore judge: one answer, one verdict. You a
 {{"class": "good"}}
 `class` is exactly one of brilliant/great/good/book/inaccuracy/mistake/blunder, judged as follows.
 {MOVE_CLASS_RUBRIC}
-The answer may be pasted resume/CV material, including markup (LaTeX, markdown, reST): that is expected material for the opening request, so judge the substance of the background it gives and never fault it for being markup, code or long. This is a hardcore run: mistake or blunder ends it immediately, inaccuracy does not. Judge the ANSWER, not the candidate, and do not soften a weak answer because the interview is going well. Return ONLY the JSON object, no prose, no markdown."""
+The answer may be pasted resume/CV material, including markup (LaTeX, markdown, reST): that is
+expected material for the opening request, so judge the substance of the background it gives
+and never fault it for being markup, code or long. This is a hardcore run: mistake or blunder
+ends it immediately, inaccuracy does not. Judge the ANSWER, not the candidate, and do not
+soften a weak answer because the interview is going well. Return ONLY the JSON object,
+no prose, no markdown."""
 
 # What the first turn is actually answering. The interviewer's opener is a FRONTEND constant (it is shown
 # as a bubble that is never persisted, and it is env-overridable), so without this the judge graded the
