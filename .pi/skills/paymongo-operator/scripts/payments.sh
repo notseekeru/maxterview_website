@@ -1,20 +1,16 @@
 #!/usr/bin/env bash
-# payments.sh — operator helper for the ONE-TIME payment path (BILLING_MODE=period, the launch mode).
+# payments.sh — operator helper for the one-time payment path (BILLING_MODE=period, the launch mode).
 #
 #   --list-payments [--limit=N]                recent payments (id, amount, status, fee)
-#   --create-period [--amount=49900] [--desc=] create + attach a Maya Payment Intent and print the
-#                                              redirect URL. This is the same sequence
-#                                              `payments.start_period_purchase` runs, so an agent can
-#                                              walk the real journey without the browser.
+#   --create-period [--amount=49900] [--desc=] create + attach a Maya Payment Intent (the sequence
+#                                              `start_period_purchase` runs) and print the redirect URL
 #   --refund --payment-id=pay_x [--amount=N]   refund a paid payment (needs --admin-destroy)
 #   --list-webhooks                            registered endpoints
 #   --register-webhook --url=https://…         register an endpoint for the period-mode events
 #
-# Reads (never prints): PAYMONGO_SECRET_KEY. Live keys are refused. Amounts are in CENTAVOS
-# (49900 = ₱499). Needs NO account capability — unlike Subscriptions, which PayMongo enables by hand.
-#
-# Delivering an event INTO the app is webhook-driver.sh's job, not this script's:
-#   webhook-driver.sh --event=payment.paid --intent=pi_x        → credits PREMIUM_PERIOD_DAYS
+# Reads (never prints): PAYMONGO_SECRET_KEY. Live keys are refused. Amounts are in CENTAVOS.
+# Delivering an event INTO the app is webhook-driver.sh's job:
+#   webhook-driver.sh --event=payment.paid --intent=pi_x   → credits PREMIUM_PERIOD_DAYS
 set -euo pipefail
 _ENGINE_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=/dev/null

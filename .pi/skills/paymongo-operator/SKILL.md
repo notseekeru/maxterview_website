@@ -111,7 +111,7 @@ To exercise the **real** HMAC path (`Paymongo-Signature`, not the simulate short
    holding the intent id in `provider_subscription_id` (no migration; that is the column the webhook
    resolves an owner from).
    A **409** here means a paid period is live or a first payment is pending in the 24h window —
-   deliberate, since a second payment is a second charge. Don't clear the row to "fix" it.
+   deliberate (a second payment is a second charge). Don't clear the row to "fix" it.
 2. **Pay on Maya**, then the browser returns to `/app?upgrade=pending` (`UpgradePendingNotice`
    polls `/api/usage`; in no-Clerk dev mode it can never flip because `resolve_tier` short-circuits
    to `dev` — assert on the row instead).
@@ -133,13 +133,11 @@ and prints the Maya URL, then `webhook-driver.sh --event=payment.paid --intent=p
 1. **Plan** — once per price. `POST /v1/subscriptions/plans` with
    `{name, amount: 49900, currency: "PHP", interval: "month", interval_count: 1}` → `plan_…` →
    put it in `PAYMONGO_PLAN_ID`. (`scripts/paymongo-stub.sh --create-plan`)
-2. **App-side start** — `POST /api/billing/checkout` with `BILLING_MODE=subscription`. It creates the
+2. **App-side start** — `POST /api/billing/checkout` with `BILLING_MODE=subscription`. Creates the
    Customer, the Subscription (`incomplete`), then attaches a `paymaya` PaymentMethod to the
-   **first invoice's** Payment Intent and returns the Maya URL. Maya is the only redirect-capable
-   method PayMongo supports for subscriptions — cards would need card vaulting + a PCI-scoped form.
-   A **409** here means the stored subscription still covers a paid period, or a first payment is
-   pending inside the 24h window — deliberate (a second `POST /v1/subscriptions` would be a second
-   charge), so don't "fix" it by clearing the row.
+   **first invoice's** Payment Intent and returns the Maya URL (Maya is the only redirect-capable
+   method for subscriptions; cards would need card vaulting + a PCI-scoped form). Same **409** guard
+   as period mode.
 3. **Pay within 24h** — the customer completes Maya. PayMongo then charges every later cycle itself.
    Unpaid after 24h → `incomplete_cancelled`.
 4. **Webhooks** — `payment_token.activation`/`payment_session.completed` are ignored;
@@ -191,22 +189,15 @@ curl -sS -X POST localhost:8000/api/billing/webhook -H "Paymongo-Signature: t=$t
 
 ## 9. There is no PayMongo MCP to wire (checked 2026-09-15 — don't re-research)
 
-PayMongo *documents* a hosted MCP server at `https://mcp.paymongo.com` (docs pages `mcp-server`,
-`developer-tools-mcp-quick-start`, `-key-concepts`, `-use-cases`), authenticated with the existing API
-key. **It does not resolve**: NXDOMAIN on Cloudflare and Google DoH, no cert in crt.sh for the name,
-and absent from `registry.modelcontextprotocol.io` (`?search=paymongo` → 0 results) — while
-`api.paymongo.com` answers normally. Documented, not deployed.
+`https://mcp.paymongo.com` is documented but **does not resolve** (NXDOMAIN on Cloudflare and Google
+DoH, no crt.sh cert, absent from the MCP registry) while `api.paymongo.com` answers normally. Its
+documented tools cover payments/intents/refunds/disputes/payouts/webhooks/events — none of them
+subscriptions or plans, i.e. not the parts this app writes; the community `@theyahia/paymongo-mcp`
+has zero subscription tools either.
 
-Even if it were up, its documented tool surface is payments, payment intents, refunds, disputes,
-payouts, webhooks and events — **no subscriptions, plans, customers or payment methods**, i.e. not the
-part of the API this app writes. The community server `@theyahia/paymongo-mcp` (npm, stdio, Basic
-auth) covers intents/sources/payments/refunds/checkout/links/webhooks/customers and has **zero**
-subscription tools.
-
-So this skill's scripts are the agent surface, on purpose: they carry the live-key refusal, the
+The scripts here are the agent surface on purpose: they carry the live-key refusal, the
 `--admin-destroy` gate and the never-print-a-secret rule, none of which survive translation into an
-MCP tool list. An MCP would also add its whole tool schema to every prompt and has no pass/fail
-semantics for CI (the same reason `hermetic-e2e` keeps its `.cjs` runners). Revisit only if PayMongo
+MCP tool list (which would also add every tool schema to every prompt). Revisit only if PayMongo
 ships the endpoint **and** exposes subscriptions through it.
 
 ---

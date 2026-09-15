@@ -1,13 +1,10 @@
 # MONETIZATION — Payment & Billing
 
-> **Model: Free / Premium + dev-only.** Billing spec for **M10**. **Shipped:** quota backend;
-> **PayMongo** (PHP-only, ₱499, Maya first payment), which replaced the raw-Stripe implementation on
-> 2026-09-12. The webhook → `subscriptions` → `resolve_tier` path is proven end-to-end against
-> Postgres (every status transition, fail-closed signature), and as of **2026-09-15 the sandbox runs
-> too**: a real test-key Payment Intent → Maya redirect → `payment.paid` → `active` with 30 days on
-> `current_period_end`, replayed twice with no extra time granted. **Shipping rail is
-> `BILLING_MODE=period`** — one payment buys 30 days — because PayMongo enables Subscriptions only by
-> hand (§7); provider-managed recurring stays implemented and dormant behind that one env var.
+> **Model: Free / Premium + dev-only.** Billing spec for **M10**. **Shipped:** quota backend and
+> **PayMongo** (PHP-only, ₱499, Maya first payment), replacing the raw-Stripe implementation on
+> 2026-09-12. **Shipping rail is `BILLING_MODE=period`** — one payment buys 30 days, because PayMongo
+> enables Subscriptions only by hand (§7); provider-managed recurring stays implemented and dormant
+> behind that one env var. Proven live against the sandbox (§3), not only against Postgres.
 > **Source of truth for decisions:** PLAN.md D10 (and D4 for owner-scoping). Planner status in PLAN.md §8.
 
 ## 0. Limits & model (env-configurable, not hardcoded)
@@ -27,8 +24,8 @@
   no-Clerk dev-fallback identity (`CLERK_ENABLED=false`) resolves to `dev` with caps above premium;
   confines to dev/test and never persists in `subscriptions` (details in PLAN D10).
 - **Feedback not feature-gated** — same quality across tiers. Turn cap is the cost-control lever.
-- Billing **monthly-ish, one payment at a time**, single-user (D4): period mode sells 30 days and
-  does not auto-renew (§3, §7). PayMongo bills in PHP only; we handle tax (no merchant-of-record).
+- Billing **one payment at a time**, single-user (D4): period mode sells 30 days and does not
+  auto-renew (§3, §7). PayMongo bills in PHP only; we handle tax (no merchant-of-record).
 
 ## 1. The `tier` claim & its source of truth (entitlement)
 
@@ -134,15 +131,14 @@ only gates `BILLING_MODE=subscription`** — the shipping period rail needs none
 only) is limited to **cards and Maya** — PayMongo does not support GCash recurring, so a GCash user
 cannot subscribe, though period mode takes any enabled method. We remit tax (no merchant-of-record).
 
-**Verification (2026-09-15, live sandbox):** with a real test key, `POST /api/billing/checkout` created
-a PayMongo customer + one-time Payment Intent and returned a live Maya redirect
-(`secure-authentication.paymongo.com/sources?id=src_…`) — the first provider-side proof in this repo's
-history; the first attempt exposed that `POST /v1/customers` now **requires `default_device`**, a field
-the subscription path was missing too. Delivering `payment.paid` for that intent flipped the row to
-`premium/active` with **29d 23:59:59** remaining; replaying it and then the sibling
-`payment_intent.succeeded` left `current_period_end` byte-identical (`payment_not_credited` logged
-twice); a `payment.paid` for an intent with no row wrote nothing; a second `POST /billing/checkout`
-inside the period returned **409**. Full suite: 154 passed / 1 pre-existing failure.
+**Verification (2026-09-15, live sandbox):** `POST /api/billing/checkout` created a real customer +
+Payment Intent and returned a live Maya redirect (`secure-authentication.paymongo.com/sources?id=src_…`)
+— the first provider-side proof in this repo; the first attempt exposed that `POST /v1/customers` now
+**requires `default_device`**, which the subscription path was missing too. `payment.paid` for that
+intent flipped the row to `premium/active` with 29d 23:59:59 left; replaying it, then delivering the
+sibling `payment_intent.succeeded`, left `current_period_end` identical (`payment_not_credited` logged
+twice); an intent with no row wrote nothing; a second checkout inside the period returned **409**.
+Suite green (155).
 
 **Verification (2026-09-12):** no sandbox transaction yet. Proven instead against real Postgres
 through the simulate endpoint: `activated` → `premium/active` with a tz-aware `current_period_end`,
