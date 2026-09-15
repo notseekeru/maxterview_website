@@ -17,10 +17,13 @@ const badgeVariants = cva("inline-flex items-center rounded-md border px-2.5 py-
     },
 });
 
-export interface BadgeProps extends React.HTMLAttributes<HTMLDivElement>, VariantProps<typeof badgeVariants> {}
+// A badge is inline-level content: it sits inside headings, table cells and (in the interview list)
+// a <p> with the role name. Rendering a div there is invalid HTML and React logs "<p> cannot contain
+// a nested <div>" for every row, so the tag is a span - the styling was already inline-flex.
+export interface BadgeProps extends React.HTMLAttributes<HTMLSpanElement>, VariantProps<typeof badgeVariants> {}
 
 function Badge({ className, variant, ...props }: BadgeProps) {
-    return <div className={cn(badgeVariants({ variant }), className)} {...props} />;
+    return <span className={cn(badgeVariants({ variant }), className)} {...props} />;
 }
 
 export { Badge };
