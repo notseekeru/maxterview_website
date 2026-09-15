@@ -1,4 +1,4 @@
-import { ScoreTrendChart } from "@/components/ScoreTrendChart";
+import { AccuracyTrendChart } from "@/components/AccuracyTrendChart";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -39,7 +39,7 @@ export function DashboardStats({ loading, dims, feedback }: Props) {
                     <CardTitle>Performance stats</CardTitle>
                 </CardHeader>
                 <CardContent>
-                    <p className="text-sm text-muted-foreground">No interviews yet — complete one to see your score history and dimension breakdown.</p>
+                    <p className="text-sm text-muted-foreground">No interviews yet — complete one to see your accuracy history and secondary breakdown.</p>
                 </CardContent>
             </Card>
         );
@@ -50,30 +50,30 @@ export function DashboardStats({ loading, dims, feedback }: Props) {
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
                 <Stat label="Interviews" value={String(dims.total)} />
                 <Stat label="Completed" value={String(dims.completed)} />
-                {/* A completed run can be permanently unscored (scoring failed). Say so, or
-                    the average silently covers fewer runs than "Completed" claims. */}
-                <Stat label="Avg score" value={dims.scored ? dims.avgScore.toFixed(1) : "—"} hint={dims.scored && dims.scored < dims.completed ? `from ${dims.scored} of ${dims.completed} scored` : undefined} />
-                {/* Hire rate is over DECIDED runs only (same denominator honesty as Avg score),
+                {/* A run can be permanently unrated; say so, or the average silently covers fewer runs
+                    than "Completed" claims. */}
+                <Stat label="Avg accuracy" value={dims.rated ? `${Math.round(dims.avgAccuracy)}%` : "—"} hint={dims.rated && dims.rated < dims.completed ? `from ${dims.rated} of ${dims.completed} rated` : undefined} />
+                {/* Hire rate is over DECIDED runs only (same denominator honesty as Avg accuracy),
                     with mean certainty because 3 of 3 at 45% is not 3 of 3 at 95%. */}
                 <Stat label="Hire rate" value={dims.decided === 0 ? "—" : `${Math.round((dims.hiring / dims.decided) * 100)}%`} hint={dims.decided === 0 ? "no decided runs yet" : `${dims.hiring} of ${dims.decided} decided${dims.avgCertainty === null ? "" : ` · ${dims.avgCertainty}% mean certainty`}`} />
             </div>
             <div className="grid gap-4 lg:grid-cols-2">
-                <ScoreTrend data={dims.scoreTrend} />
+                <AccuracyTrend data={dims.accuracyTrend} />
                 <DimensionScores feedback={feedback} />
             </div>
         </div>
     );
 }
 
-function ScoreTrend({ data }: { data: { label: string; score: number }[] }) {
+function AccuracyTrend({ data }: { data: { label: string; accuracy: number }[] }) {
     if (data.length === 0) {
         return (
             <Card className="h-80">
                 <CardHeader>
-                    <CardTitle className="text-sm">Score trend</CardTitle>
+                    <CardTitle className="text-sm">Accuracy trend</CardTitle>
                 </CardHeader>
                 <CardContent>
-                    <p className="text-sm text-muted-foreground">Complete an interview to unlock the score chart.</p>
+                    <p className="text-sm text-muted-foreground">Complete an interview to unlock the accuracy chart.</p>
                 </CardContent>
             </Card>
         );
@@ -81,12 +81,12 @@ function ScoreTrend({ data }: { data: { label: string; score: number }[] }) {
     return (
         <Card className="flex h-80 flex-col">
             <CardHeader>
-                <CardTitle className="text-sm">Score trend</CardTitle>
+                <CardTitle className="text-sm">Accuracy trend</CardTitle>
             </CardHeader>
             {/* Fixed content height: ResponsiveContainer needs a definite box, and h-80 minus the
                 header keeps both cards in the row the same size. */}
             <CardContent className="h-60 pb-6">
-                <ScoreTrendChart data={data} />
+                <AccuracyTrendChart data={data} />
             </CardContent>
         </Card>
     );
@@ -106,6 +106,8 @@ function Stat({ label, value, hint }: { label: string; value: string; hint?: str
     );
 }
 
+// The 1-10 dimensions, now secondary (backend app/rating.py owns the primary reading). Averaged over
+// the runs that reported each dimension.
 const DIMENSIONS = ["clarity", "relevance", "structure", "confidence"] as const;
 
 function avg(nums: number[]): number {
@@ -123,10 +125,10 @@ function DimensionScores({ feedback }: { feedback: Feedback[] }) {
         return (
             <Card className="h-80">
                 <CardHeader>
-                    <CardTitle className="text-sm">Dimension averages</CardTitle>
+                    <CardTitle className="text-sm">Secondary scores (1-10)</CardTitle>
                 </CardHeader>
                 <CardContent>
-                    <p className="text-sm text-muted-foreground">Complete an interview with feedback to unlock the dimension breakdown.</p>
+                    <p className="text-sm text-muted-foreground">Complete an interview with a review to unlock the secondary breakdown.</p>
                 </CardContent>
             </Card>
         );
@@ -135,7 +137,7 @@ function DimensionScores({ feedback }: { feedback: Feedback[] }) {
     return (
         <Card className="flex h-80 flex-col">
             <CardHeader>
-                <CardTitle className="text-sm">Dimension averages</CardTitle>
+                <CardTitle className="text-sm">Secondary scores (1-10)</CardTitle>
             </CardHeader>
             <CardContent className="grid h-60 grid-cols-2 grid-rows-2 gap-3 pb-6">
                 {dims.map((d) => (

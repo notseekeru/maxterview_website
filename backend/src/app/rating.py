@@ -1,0 +1,60 @@
+"""Chess-style answer review: per-turn move classes -> one accuracy number -> a letter grade.
+
+Single source of truth for the scale. The model picks a CLASS per candidate turn (llm.py); every
+number here is DERIVED, so a model cannot inflate its own accuracy. The frontend renders labels
+and reads `accuracy`/`grade` off the API rather than banding anything itself.
+"""
+
+from collections.abc import Iterable
+
+# Best -> worst. Seven is the useful resolution: a vague answer and an evasive one want different
+# words, and anything finer is noise.
+MOVE_CLASSES: tuple[str, ...] = ("brilliant", "great", "good", "book", "inaccuracy", "mistake", "blunder")
+
+# What one classed turn is worth out of 1.0. `book` sits just under `good`: correct but generic is
+# a small deduction, not a flaw.
+MOVE_POINTS: dict[str, float] = {
+    "brilliant": 1.0,
+    "great": 1.0,
+    "good": 0.85,
+    "book": 0.8,
+    "inaccuracy": 0.6,
+    "mistake": 0.35,
+    "blunder": 0.0,
+}
+
+# Accuracy -> grade, best first. Accuracy is the continuous number the dashboard trends; the letter
+# is what one run reads as.
+GRADES: tuple[str, ...] = ("S", "A", "B", "C", "D", "F")
+GRADE_BANDS: tuple[tuple[int, str], ...] = ((90, "S"), (80, "A"), (70, "B"), (60, "C"), (50, "D"))
+
+# STUB_MODE only (no LLM configured: dev/seed/tests). Cycled over the transcript so a model-free run
+# still exercises the review UI. Opens on `good` so a one-answer smoke run does not read S or F.
+STUB_MOVE_CYCLE: tuple[str, ...] = ("good", "inaccuracy", "great", "book", "mistake")
+
+
+def accuracy(classes: Iterable[str]) -> int | None:
+    """Mean move points as a 0-100 integer (half-up), or None when no turn was classed.
+
+    None (not 0) for an unclassed transcript: 0% is a claim about the candidate's answers,
+    absence is a claim about our classifier."""
+    graded = [MOVE_POINTS[c] for c in classes if c in MOVE_POINTS]
+    if not graded:
+        return None
+    return int(100 * sum(graded) / len(graded) + 0.5)  # half-up: round() would flip .5 on digit parity
+
+
+def grade(acc: int | None) -> str | None:
+    """Letter grade for an accuracy percentage, or None when there is nothing to grade."""
+    if acc is None:
+        return None
+    return next((g for floor, g in GRADE_BANDS if acc >= floor), "F")
+
+
+# AI HERE: one framework-free self-check (AGENTS rule 5). A class without a point value, or bands
+# that stop matching GRADES, fails here instead of silently dropping turns out of the average.
+assert set(MOVE_CLASSES) == set(MOVE_POINTS) and set(STUB_MOVE_CYCLE) <= set(MOVE_CLASSES)
+assert [g for _, g in GRADE_BANDS] == list(GRADES[: len(GRADE_BANDS)])
+assert GRADE_BANDS == tuple(sorted(GRADE_BANDS, reverse=True))
+assert (accuracy([]), accuracy(["brilliant"]), accuracy(["blunder"])) == (None, 100, 0)
+assert (grade(None), grade(100), grade(89), grade(49), grade(0)) == (None, "S", "A", "F", "F")

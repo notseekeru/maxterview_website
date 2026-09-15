@@ -6,7 +6,7 @@ from dataclasses import dataclass
 import httpx
 import structlog
 
-from app import levels
+from app import levels, rating
 from app.models import DECISIONS, ChatMessage, Dials, FeedbackSummary
 
 log = structlog.get_logger(__name__)
@@ -301,6 +301,40 @@ def grader_prompt(dials: Dials | None = None) -> str:
     return GRADER_PROMPT_V1 + (BRUTAL_GRADER_PROMPT if d.brutally_honest else "")
 
 
+# Third stage, its own call: annotate every candidate turn. Separate from stage 2 because this hop
+# needs the FULL transcript, and stage 2 is deliberately small-context for schema adherence.
+MOVES_PROMPT_V1 = """Classify every candidate turn in the transcript in your user message, the way a chess engine annotates moves. Return a JSON object ONLY, exactly matching this shape:
+{"moves": [{"turn": 1, "class": "good"}, {"turn": 2, "class": "inaccuracy"}]}
+Rules: exactly one entry per Candidate turn, keyed by its turn number, each class being exactly one of
+brilliant/great/good/book/inaccuracy/mistake/blunder, judged as follows.
+brilliant - went beyond the question: an insight, a trade-off nobody asked for, or a concrete number that proves it.
+great - strong and specific: a real example with the candidate's own decisions visible in it.
+good - solid and correct: the answer the question was asking for.
+book - correct but recited: textbook or definition only, no first-hand detail.
+inaccuracy - vague or partial: gesturing at an answer with no evidence, or missing part of the question.
+mistake - wrong or evasive: contradicts itself, answers a different question, or has no substance.
+blunder - nothing usable: refuses, or says nothing of value.
+Grade the ANSWER, not the candidate, and do not soften a weak answer because the interview went well overall. Do not skip turns and do not invent them: a missing or extra turn invalidates the whole classification. Return ONLY the JSON object, no prose, no markdown."""
+
+# Machine-readable twin of MOVES_PROMPT_V1 (same contract as FEEDBACK_JSON_SCHEMA).
+MOVES_JSON_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "moves": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {"turn": {"type": "integer", "minimum": 1}, "class": {"type": "string", "enum": list(rating.MOVE_CLASSES)}},
+                "required": ["turn", "class"],
+                "additionalProperties": False,
+            },
+        }
+    },
+    "required": ["moves"],
+    "additionalProperties": False,
+}
+
+
 # Concrete JSON example inlined (DeepSeek's JSON-mode docs require a shape example, and
 # it hard-codes the schema so a weak local backend cannot drift the field names). The
 # formatter runs on fresh, SHORT grader notes rather than the long raw transcript.
@@ -418,6 +452,12 @@ def _deterministic_summary() -> FeedbackSummary:
     )
 
 
+def _stub_moves(history: list[ChatMessage]) -> dict[int, str]:
+    """STUB_MODE per-turn classes: cycle the vocabulary over the candidate turns."""
+    turns = sum(1 for m in history if m.role == "user")
+    return {t: rating.STUB_MOVE_CYCLE[(t - 1) % len(rating.STUB_MOVE_CYCLE)] for t in range(1, turns + 1)}
+
+
 # Certainty ceiling by evidence volume: a one-answer transcript cannot support a 95% verdict,
 # however good that answer was. 40 + 8 per candidate answer saturates at 8 answers.
 # AI HERE: turn COUNT only. Upgrade path: fold in answer substance (length, resume presence)
@@ -498,6 +538,42 @@ def _valid_scores(value) -> dict | None:
             return None
         scores[d] = n
     return scores
+
+
+def _coerce_move_class(value) -> str | None:
+    """Canonical slug for a model-emitted move class, or None when it is unrecognisable.
+
+    Tolerates sampler drift ("Inaccuracy", "in accuracy", "Book move"). An unknown label is dropped,
+    never mapped to the nearest class: accuracy is the average of these."""
+    if not isinstance(value, str):
+        return None
+    slug = re.sub(r"[^a-z]", "", value.lower())
+    if slug.endswith("move"):
+        slug = slug[: -len("move")]
+    return slug if slug in rating.MOVE_CLASSES else None
+
+
+def _valid_moves(value, turn_count: int) -> dict[int, str] | None:
+    """Turn -> class from a classification payload, or None when nothing usable is in it.
+
+    Accepts the declared list shape and a bare {turn: class} map. Out-of-range, duplicate and
+    unclassifiable entries are dropped, never guessed: the caller indexes message rows with these."""
+    entries = [{"turn": k, "class": v} for k, v in value.items()] if isinstance(value, dict) else value
+    if not isinstance(entries, list):
+        return None
+    moves: dict[int, str] = {}
+    for item in entries:
+        if not isinstance(item, dict):
+            continue
+        try:
+            turn = int(item.get("turn"))
+        except (TypeError, ValueError):
+            continue
+        cls = _coerce_move_class(item.get("class"))
+        if cls is None or turn in moves or not 1 <= turn <= turn_count:
+            continue
+        moves[turn] = cls
+    return moves or None
 
 
 async def _completion(
@@ -583,13 +659,21 @@ async def _request_grader_notes(history: list[ChatMessage], dials: Dials | None,
 
 
 def _format_transcript(history: list[ChatMessage]) -> str:
-    """Role-label the stored turns so the grader can attribute answers, not read a message dump."""
+    """Role-label the stored turns so the grader can attribute answers, not read a message dump.
+
+    Candidate turns are numbered from 1 in transcript order. That number is the handle the move
+    classifier returns and app/main.py maps back onto a message row, so it stays a plain count
+    over CANDIDATE turns (never over all turns), and must not be renumbered per caller."""
     lines: list[str] = []
+    turn = 0
     for m in history:
         if m.role == "system":
             continue  # interviewer system framing is not grading material
-        who = "Candidate" if m.role == "user" else "Interviewer"
-        lines.append(f"{who}: {m.content}")
+        if m.role == "user":
+            turn += 1
+            lines.append(f"Candidate (turn {turn}): {m.content}")
+        else:
+            lines.append(f"Interviewer: {m.content}")
     return "\n".join(lines)
 
 
@@ -647,6 +731,36 @@ async def _request_format(notes: str, config: LLMConfig) -> FeedbackSummary | No
     return None
 
 
+async def _request_moves(history: list[ChatMessage], config: LLMConfig) -> dict[int, str]:
+    """Stage 3: annotate every candidate turn. Returns {} when the model will not cooperate.
+
+    Reads the FULL transcript (like the grader), so it runs on the grader config, and retries once.
+    Giving up is survivable: the run keeps its verdict and tips, and simply has no accuracy/badges.
+    """
+    turns = sum(1 for m in history if m.role == "user")
+    transcript = _format_transcript(history)
+    if not turns or not transcript:
+        return {}
+    for _ in range(2):
+        content = await _completion(
+            MOVES_PROMPT_V1,
+            transcript,
+            config=grader_config(config),
+            max_tokens=LLM_MAX_FEEDBACK_TOKENS,
+            json_output=True,
+            json_schema=MOVES_JSON_SCHEMA,
+        )
+        if content is None:
+            continue
+        obj = _extract_json_object(content)
+        moves = _valid_moves(obj.get("moves") if obj else None, turns)
+        if moves:
+            return moves
+        log.warning("llm.feedback.moves_mismatch", turns=turns, shape=_shape(obj.get("moves") if obj else None))
+    log.error("llm.feedback.moves_unavailable", turns=turns)
+    return {}
+
+
 async def generate_feedback(history: list[ChatMessage], dials: Dials | None, config: LLMConfig) -> FeedbackSummary | None:
     """Return structured feedback for a completed transcript, or None when it is genuinely
     unavailable.
@@ -655,23 +769,31 @@ async def generate_feedback(history: list[ChatMessage], dials: Dials | None, con
     cynicism and the question mix are properties of the interview the candidate sat, not of how
     their answers are judged.
 
-    Two-mode, two-stage pipeline:
+    Two-mode, three-stage pipeline:
       - STUB_MODE: no model configured -> deterministic stand-in (dev/seed/tests only).
-      - Real: grader (full transcript -> prose) then formatter (prose -> strict JSON). On
-        either stage failing after its retry, return None -- the caller must NOT write
-        feedback, so the interview surfaces as unscored rather than carrying fabricated 6s.
+      - Real: grader (full transcript -> prose), formatter (prose -> strict JSON), then moves
+        (full transcript -> one class per candidate turn). On either of the first two stages
+        failing after its retry, return None -- the caller must NOT write feedback, so the
+        interview surfaces as unscored rather than carrying fabricated 6s. The THIRD stage is
+        additive: it returns {} on failure and the run keeps its verdict, tips and decision.
 
     Both paths pass through the evidence cap: the decision (hire/reject spectrum) comes from
     the model, the certainty ceiling from how much transcript there is to back it.
     """
     if config.stub:
         log.warning("llm.feedback.stub_deterministic")
-        return _apply_evidence_cap(_deterministic_summary(), history)
+        stub = _deterministic_summary()
+        stub.moves = _stub_moves(history)
+        return _apply_evidence_cap(stub, history)
     notes = await _request_grader_notes(history, dials, config)
     if notes is None:
         return None
     summary = await _request_format(notes, config)
-    return None if summary is None else _apply_evidence_cap(summary, history)
+    if summary is None:
+        return None
+    # Additive: the transcript-wide annotation pass cannot cost the run its verdict and tips.
+    summary.moves = await _request_moves(history, config)
+    return _apply_evidence_cap(summary, history)
 
 
 async def test_provider(config: LLMConfig) -> tuple[bool, str]:

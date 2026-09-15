@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse, StreamingResponse
 
-from app import API_PREFIX, billing, byok, llm, payments
+from app import API_PREFIX, billing, byok, llm, payments, rating
 from app.auth import CLERK_ENABLED, get_current_user
 from app.db import close_pool, fetch, fetchrow, init_pool
 from app.models import ChatMessage, ChatTurn, ClerkUser, Dials, Feedback, FeedbackCreate, Interview, InterviewCreate, LLMProvider, LLMProviderUpdate, Message
@@ -90,15 +90,13 @@ INTERVIEW_COLS = "id::text, owner_id, role, level, topic, status, created_at, up
 
 @api.get("/interviews", response_model=list[Interview])
 async def list_interviews(user: CurrentUser) -> list[dict]:
-    # Include optional score/verdict by LEFT JOIN feedback (US5: history shows a score; avoids N+1).
+    # Accuracy is the derived 0-100 move-review average, not recomputed here: the class -> points ->
+    # grade scale lives only in app/rating.py, and `grade` is a computed field on the model.
     rows = await fetch(
         f"""
         SELECT i.id::text, i.owner_id, i.role, i.level, i.topic, i.status, i.created_at, i.updated_at,
                {", ".join(f"i.{c}" for c in DIAL_FIELDS)},
-               f.verdict AS verdict, f.decision AS decision, f.certainty AS certainty,
-               CASE WHEN jsonb_typeof(f.scores) = 'object' THEN
-                 (SELECT round(avg(v.value::numeric)::numeric, 1) FROM jsonb_each_text(f.scores) AS v)
-               ELSE NULL END AS score
+               f.verdict AS verdict, f.decision AS decision, f.certainty AS certainty, f.accuracy AS accuracy
         FROM interviews i
         LEFT JOIN feedback f ON f.interview_id = i.id
         WHERE i.owner_id = $1
@@ -208,7 +206,7 @@ async def list_messages(
 ) -> list[dict]:
     await _require_interview_owned(interview_id, user.sub)
     rows = await fetch(
-        "SELECT id::text, interview_id::text, role, content, created_at FROM messages WHERE interview_id = $1 ORDER BY created_at",
+        "SELECT id::text, interview_id::text, role, content, move_class, created_at FROM messages WHERE interview_id = $1 ORDER BY created_at, id",
         interview_id,
     )
     return [dict(r) for r in rows]
@@ -221,7 +219,7 @@ async def get_feedback(
 ) -> dict:
     await _require_interview_owned(interview_id, user.sub)
     row = await fetchrow(
-        "SELECT id::text, interview_id::text, scores, verdict, tips, decision, certainty, created_at FROM feedback WHERE interview_id = $1",
+        "SELECT id::text, interview_id::text, scores, verdict, tips, decision, certainty, accuracy, created_at FROM feedback WHERE interview_id = $1",
         interview_id,
     )
     if row is None:
@@ -466,20 +464,43 @@ async def _has_transcript(interview_id: str) -> bool:
     return row is not None
 
 
-async def _upsert_feedback(interview_id: str, scores: dict, verdict: str, tips: list, decision: str | None = None, certainty: int | None = None):
-    # Single write path for feedback: idempotent UPSERT on the UNIQUE interview_id.
+async def _upsert_feedback(interview_id: str, scores: dict, verdict: str, tips: list, decision: str | None = None, certainty: int | None = None, accuracy: int | None = None):
+    # Single write path: idempotent UPSERT on the UNIQUE interview_id. `accuracy` is COALESCEd, not
+    # overwritten: it derives from the stored message classes, so a raw POST /feedback (no
+    # classification behind it) must not wipe a grade an earlier pass earned.
     return await fetchrow(
-        "INSERT INTO feedback (interview_id, scores, verdict, tips, decision, certainty) VALUES ($1, $2, $3, $4, $5, $6) "
+        "INSERT INTO feedback (interview_id, scores, verdict, tips, decision, certainty, accuracy) VALUES ($1, $2, $3, $4, $5, $6, $7) "
         "ON CONFLICT (interview_id) DO UPDATE SET scores = EXCLUDED.scores, verdict = EXCLUDED.verdict, tips = EXCLUDED.tips, "
-        "decision = EXCLUDED.decision, certainty = EXCLUDED.certainty, created_at = now() "
-        "RETURNING id::text, interview_id::text, scores, verdict, tips, decision, certainty, created_at",
+        "decision = EXCLUDED.decision, certainty = EXCLUDED.certainty, accuracy = COALESCE(EXCLUDED.accuracy, feedback.accuracy), created_at = now() "
+        "RETURNING id::text, interview_id::text, scores, verdict, tips, decision, certainty, accuracy, created_at",
         interview_id,
         scores,
         verdict,
         tips,
         decision,
         certainty,
+        accuracy,
     )
+
+
+async def _persist_move_classes(interview_id: str, candidate_ids: list[str], moves: dict[int, str]) -> list[str]:
+    """Write the classifier's classes onto their message rows; return the classes stored.
+
+    `moves` keys are 1-based candidate turn numbers indexing `candidate_ids` (llm._format_transcript
+    numbers the same turns off the same query). One statement writes every candidate row, NULLing the
+    turns this pass did not class, so a re-grade cannot leave a stale badge behind. An empty `moves`
+    (classifier failed) is a no-op: the previous annotations and accuracy stay put."""
+    graded = {turn: cls for turn, cls in moves.items() if isinstance(turn, int) and 1 <= turn <= len(candidate_ids)}
+    if not graded:
+        return []
+    await fetch(
+        "UPDATE messages SET move_class = u.move_class FROM unnest($2::text[], $3::text[]) AS u(id, move_class) "
+        "WHERE messages.id = u.id::uuid AND messages.interview_id = $1 RETURNING messages.id",
+        interview_id,
+        candidate_ids,
+        [graded.get(turn) for turn in range(1, len(candidate_ids) + 1)],
+    )
+    return list(graded.values())
 
 
 async def _auto_generate_and_persist_feedback(interview_id: str, config: llm.LLMConfig) -> dict | None:
@@ -493,8 +514,10 @@ async def _auto_generate_and_persist_feedback(interview_id: str, config: llm.LLM
 
 
 async def _generate_and_persist_feedback(interview_id: str, config: llm.LLMConfig) -> dict | None:
+    # `id` is selected for the move-review mapping, and the `, id` tiebreak keeps the order stable:
+    # llm numbers candidate turns off this exact list, and those numbers index these rows back.
     history_rows = await fetch(
-        "SELECT role, content FROM messages WHERE interview_id = $1 ORDER BY created_at",
+        "SELECT id::text, role, content FROM messages WHERE interview_id = $1 ORDER BY created_at, id",
         interview_id,
     )
     history = [ChatMessage(role=r["role"], content=r["content"]) for r in history_rows]
@@ -503,7 +526,10 @@ async def _generate_and_persist_feedback(interview_id: str, config: llm.LLMConfi
     summary = await llm.generate_feedback(history, Dials(**{k: row[k] for k in DIAL_FIELDS}) if row else None, config)
     if summary is None:
         return None
-    return await _upsert_feedback(interview_id, summary.scores, summary.verdict, summary.tips, summary.decision, summary.certainty)
+    classes = await _persist_move_classes(interview_id, [r["id"] for r in history_rows if r["role"] == "user"], summary.moves)
+    # Accuracy averages what was STORED, not the model's payload: a turn the writer dropped must not
+    # count towards the score it never earned.
+    return await _upsert_feedback(interview_id, summary.scores, summary.verdict, summary.tips, summary.decision, summary.certainty, rating.accuracy(classes))
 
 
 async def _raise_start_error(interview_id: str, owner_id: str) -> None:

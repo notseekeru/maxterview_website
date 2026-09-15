@@ -51,7 +51,10 @@ export interface Interview extends InterviewDials {
     status: "pending" | "in_progress" | "completed";
     created_at: string;
     updated_at: string;
-    score?: number | null;
+    /** Derived 0-100 move-review accuracy, null until the run is graded. */
+    accuracy?: number | null;
+    /** Letter grade for `accuracy`, banded server-side (app/rating.py). */
+    grade?: Grade | null;
     verdict?: string | null;
     decision?: Decision | null;
     certainty?: number | null;
@@ -93,6 +96,8 @@ export interface Message {
     interview_id: string;
     role: "user" | "assistant" | "system";
     content: string;
+    /** The reviewer's annotation on this candidate turn (null on interviewer turns, ungraded runs). */
+    move_class?: MoveClass | null;
     created_at: string;
 }
 
@@ -104,8 +109,16 @@ export interface Feedback {
     tips: string[];
     decision?: Decision | null;
     certainty?: number | null;
+    accuracy?: number | null;
+    grade?: Grade | null;
     created_at: string;
 }
+
+// Chess-style answer review (mirrors backend app/rating.py). `move_class` is the model's verdict on
+// ONE candidate turn; accuracy and grade are DERIVED from those classes server-side, so this side
+// never averages or bands anything itself.
+export type MoveClass = "brilliant" | "great" | "good" | "book" | "inaccuracy" | "mistake" | "blunder";
+export type Grade = "S" | "A" | "B" | "C" | "D" | "F";
 
 // Post-interview hire/reject spectrum (mirrors backend app/models.DECISIONS, ordered
 // left to right). `certainty` (0-100) is the SEPARATE axis: how well the transcript
@@ -184,7 +197,7 @@ export async function getFeedback(id: string): Promise<Feedback> {
     return data;
 }
 
-// POST /interviews/{id}/feedback/generate: (re)run two-stage scoring for a COMPLETED
+// POST /interviews/{id}/feedback/generate: (re)run the review for a COMPLETED
 // interview whose feedback is absent (real-mode scoring failed on /complete). 404 => not
 // found; 409 => not completed; 503 => model unavailable right now (retry later).
 export async function regenerateFeedback(id: string): Promise<Feedback> {

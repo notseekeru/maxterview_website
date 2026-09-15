@@ -175,7 +175,7 @@ function PlanCard({ tier, usage }: { tier: "free" | "premium"; usage: Usage | nu
                 </Feature>
                 <Feature>Unlimited interviews — no daily cap</Feature>
                 <Feature>{isPremium ? "Priority on the interviewer model + bigger scope" : "Free model keeps quality for everyday practice"}</Feature>
-                <Feature>Full feedback &amp; dimension scoring on every run</Feature>
+                <Feature>Full answer-by-answer review on every run</Feature>
             </CardContent>
             <CardFooter className="flex-col items-stretch gap-2 pt-0">
                 {cta}

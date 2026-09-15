@@ -1,9 +1,9 @@
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, computed_field
 
-from app import dials, levels
+from app import dials, levels, rating
 
 # Level slugs accepted on create, unpacked from the canonical levels vocabulary so the
 # API, DB CHECK, prompt, and frontend can never drift (see app/levels.py).
@@ -19,6 +19,10 @@ Cynicism = Literal[*dials.CYNICISM]
 # transcript evidences the decision, not how positive it is.
 DECISIONS: tuple[str, ...] = ("reject", "lean_reject", "lean_hire", "hire")
 Decision = Literal[*DECISIONS]
+# Chess-style review vocabulary, spelled once in app/rating.py (migration 0010's CHECK and the
+# frontend labels derive from the same words).
+MoveClass = Literal[*rating.MOVE_CLASSES]
+Grade = Literal[*rating.GRADES]
 
 
 class ClerkUser(BaseModel):
@@ -69,10 +73,16 @@ class Interview(Dials):
     status: str
     created_at: datetime
     updated_at: datetime
-    score: float | None = None
+    # Derived 0-100 move-review accuracy (NOT a 1-10 average) + its letter grade; null until graded.
+    accuracy: int | None = None
     verdict: str | None = None
     decision: Decision | None = None
     certainty: int | None = None
+
+    @computed_field
+    @property
+    def grade(self) -> Grade | None:
+        return rating.grade(self.accuracy)
 
 
 # --- messages ---
@@ -83,6 +93,8 @@ class Message(BaseModel):
     interview_id: str
     role: str
     content: str
+    # This turn's annotation (chess-style). None on interviewer/system turns and on ungraded runs.
+    move_class: MoveClass | None = None
     created_at: datetime
 
 
@@ -105,7 +117,13 @@ class Feedback(BaseModel):
     tips: list
     decision: Decision | None = None
     certainty: int | None = None
+    accuracy: int | None = None
     created_at: datetime
+
+    @computed_field
+    @property
+    def grade(self) -> Grade | None:
+        return rating.grade(self.accuracy)
 
 
 # --- LLM context / feedback / chat-turn payloads ---
@@ -127,6 +145,8 @@ class FeedbackSummary(BaseModel):
     tips: list = Field(default_factory=list)
     decision: Decision | None = None
     certainty: int | None = Field(default=None, ge=0, le=100)
+    # 1-based candidate turn -> move class; empty when the model would not classify.
+    moves: dict[int, str] = Field(default_factory=dict)
 
 
 class ChatTurn(BaseModel):

@@ -165,11 +165,19 @@ def test_interview_lifecycle_owner_scoped(client):
     # Hire/reject spectrum + certainty, not pass/fail: the stub's lean_hire/50 is capped by
     # the one-answer transcript (40 + 8 per candidate answer), so certainty must be 48.
     assert (r.json()["decision"], r.json()["certainty"]) == ("lean_hire", 48)
+    # Chess-style review (migration 0010): the annotator classes each candidate turn, and the
+    # derived accuracy/grade ride along. Interviewer/system turns carry no class.
+    assert (r.json()["accuracy"], r.json()["grade"]) == (85, "A")
+    r = c.get(f"/api/interviews/{iid}/messages")
+    msgs = r.json()
+    assert [m["move_class"] for m in msgs if m["role"] == "user"] == ["good"]  # one candidate turn
+    assert all(m["move_class"] is None for m in msgs if m["role"] != "user")
 
     # The history list carries the same two fields (drives the row chip).
     r = c.get("/api/interviews")
     row = next(i for i in r.json() if i["id"] == iid)
     assert (row["decision"], row["certainty"]) == ("lean_hire", 48)
+    assert (row["accuracy"], row["grade"]) == (85, "A")
 
     # write + read feedback (UPSERT over the auto-generated one)
     r = c.post(f"/api/interviews/{iid}/feedback", json={"scores": {"clarity": 4}, "verdict": "Good", "tips": ["be concise"]})
@@ -183,6 +191,9 @@ def test_interview_lifecycle_owner_scoped(client):
     assert r.status_code == 200
     assert r.json()["verdict"] == "Better"
     assert (r.json()["decision"], r.json()["certainty"]) == ("hire", 80)
+    # ... and the raw write path cannot wipe the review: accuracy is derived from the message
+    # classes, so a body with no classification leaves the stored grade alone.
+    assert (r.json()["accuracy"], r.json()["grade"]) == (85, "A")
 
     # A decision outside the four-point spread is refused, not silently stored.
     r = c.post(f"/api/interviews/{iid}/feedback", json={"verdict": "Hmm", "decision": "strong_hire", "certainty": 80})
@@ -200,6 +211,23 @@ def test_interview_lifecycle_owner_scoped(client):
 
     r = c.delete(f"/api/interviews/{iid}")
     assert r.status_code == 204
+
+
+def test_move_review_annotates_every_candidate_turn(client):
+    # The stub cycles good -> inaccuracy. Two answers is the smallest case that exercises the turn ->
+    # row mapping as an ARRAY (one answer passes trivially), and accuracy must average both classes.
+    c = client
+    iid = c.post("/api/interviews", json={"role": "Move Review Multi"}).json()["id"]
+    c.post(f"/api/interviews/{iid}/start")
+    for answer in ("I shipped a cache layer in front of the read path.", "It dropped p99 by 40%."):
+        assert c.post(f"/api/interviews/{iid}/chat/stream", json={"interview_id": iid, "content": answer}).status_code == 200
+    assert c.post(f"/api/interviews/{iid}/complete").status_code == 200
+
+    msgs = c.get(f"/api/interviews/{iid}/messages").json()
+    assert [m["move_class"] for m in msgs if m["role"] == "user"] == ["good", "inaccuracy"]
+    fb = c.get(f"/api/interviews/{iid}/feedback").json()
+    assert (fb["accuracy"], fb["grade"]) == (73, "B")  # mean(0.85, 0.6) = 72.5 -> half-up
+    c.delete(f"/api/interviews/{iid}")
 
 
 def test_get_interview_missing_returns_404(client):

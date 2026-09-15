@@ -37,7 +37,7 @@ export function InterviewList({ interviews, loading, error, onRefresh, onOpen, o
             await onRescore(id);
         } catch {
             // Model can still be unavailable (503).
-            setScoreError("Couldn't score that run. Try again in a moment.");
+            setScoreError("Couldn't review that run. Try again in a moment.");
         } finally {
             setScoringId(null);
         }
@@ -86,19 +86,25 @@ export function InterviewList({ interviews, loading, error, onRefresh, onOpen, o
                                 {i.status}
                                 {i.created_at ? ` · ${formatDate(i.created_at)}` : ""}
                             </p>
-                            {/* Completed-without-score is a real state (scoring failed, no feedback
-                                row written) — offer the retry rather than a dead end. */}
+                            {/* Completed-without-accuracy is a real state — offer the retry, not a dead
+                                end. */}
                             <div className="flex flex-wrap items-center gap-2">
-                                {typeof i.score === "number" ? <span className="text-xs text-muted-foreground">Score: {i.score}</span> : i.status === "completed" ? <span className="text-xs text-muted-foreground">Not scored</span> : null}
-                                {/* Decision + certainty ride along with the score: a run can be a
-                                    mid score and still a clear hire, or the reverse. */}
+                                {typeof i.accuracy === "number" ? (
+                                    <span className="text-xs text-muted-foreground">
+                                        Accuracy: {i.accuracy}%{i.grade ? ` · Grade ${i.grade}` : ""}
+                                    </span>
+                                ) : i.status === "completed" ? (
+                                    <span className="text-xs text-muted-foreground">Not rated</span>
+                                ) : null}
+                                {/* Decision + certainty ride along with the accuracy: a run can be a
+                                    mid accuracy and still a clear hire, or the reverse. */}
                                 {i.decision && <DecisionChip decision={i.decision as Decision} certainty={i.certainty} />}
                             </div>
                         </div>
                         <div className="flex shrink-0 items-center gap-2">
-                            {typeof i.score !== "number" && i.status === "completed" && (
+                            {typeof i.accuracy !== "number" && i.status === "completed" && (
                                 <Button size="sm" variant="outline" onClick={() => void handleRescore(i.id)} disabled={scoringId === i.id || confirmingId === i.id}>
-                                    {scoringId === i.id ? "Scoring…" : "Retry scoring"}
+                                    {scoringId === i.id ? "Reviewing…" : "Retry review"}
                                 </Button>
                             )}
                             <Button size="sm" variant="outline" onClick={() => onOpen(i.id)}>

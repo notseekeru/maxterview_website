@@ -5,6 +5,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { apiDetail, completeInterview, type Feedback, getFeedback, getInterview, getMessages, httpStatus, MAX_TURN_CHARS, type Message, regenerateFeedback, startInterview, streamChat } from "@/lib/api";
 import { OPENING_ASKS_RESUME } from "@/lib/config";
 import { FeedbackView } from "./FeedbackView";
+import { MoveBadge } from "./MoveBadge";
 import { UpgradeNotice } from "./UsageBadge";
 
 interface Props {
@@ -96,6 +97,12 @@ export function InterviewChat({ interviewId, onExit }: Props) {
         scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
     }, []);
 
+    // A landed review is the first thing in the scroller; without this the view stays parked on the
+    // last answer instead of the grade.
+    useEffect(() => {
+        if (feedback) scrollRef.current?.scrollTo({ top: 0 });
+    }, [feedback]);
+
     async function send() {
         const content = draft.trim();
         if (!content || status !== "ready") return;
@@ -186,6 +193,10 @@ export function InterviewChat({ interviewId, onExit }: Props) {
         try {
             const fb = await loaded();
             setFeedback(fb);
+            // The review and the per-answer annotations are written by the same pass, so the transcript
+            // fetched when this run was opened predates them: without this reload the badges only show
+            // up after a manual refresh (they did exactly that once).
+            await loadMessages();
         } catch (e: unknown) {
             // Feedback genuinely absent (or not ready after a scoring attempt). Keep the
             // completed view and offer a retry rather than a hard error or fabricated scores.
@@ -230,82 +241,82 @@ export function InterviewChat({ interviewId, onExit }: Props) {
                 </Button>
             </CardHeader>
 
-            {feedback ? (
-                <FeedbackView feedback={feedback} />
-            ) : (
-                <>
-                    <CardContent className="flex-1 overflow-y-auto space-y-3" ref={scrollRef} role="log" aria-live="polite" aria-busy={status === "streaming"} aria-label="Interview transcript">
-                        {error && <p className="text-sm text-destructive">{error}</p>}
-                        {quotaLocked && <UpgradeNotice reason="your free chat turns ran out." />}
-                        {interviewOver && (
-                            <div role="status" className="rounded-lg border p-3 text-sm">
-                                <p className="font-medium">That was the whole interview.</p>
-                                <p className="mt-1 text-muted-foreground">
-                                    This run has asked every question in its mix, so there's nothing left to answer here. Press <span className="font-medium text-foreground">Complete</span> for your feedback, or start a new interview with a wider mix.
-                                </p>
-                            </div>
-                        )}
-                        {status === "loading" && <p className="text-sm text-muted-foreground">Starting…</p>}
-                        {/* Not while loading: a reopened run would flash the opening line before its
-                            real transcript arrives. */}
-                        {status !== "loading" && messages.length === 0 && OPENING_ASKS_RESUME && <Bubble from="assistant" content={OPENING_ASKS_RESUME} />}
-                        {messages.map((m) => (
-                            <Bubble key={m.id} from={m.role} content={m.content} />
-                        ))}
-                        {assistBuf && <Bubble from="assistant" content={assistBuf} streaming />}
-                        {status === "streaming" && !assistBuf && <p className="text-sm text-muted-foreground">Thinking…</p>}
-                        {scoringTip && status === "completed" && (
-                            <div role="status" className="rounded-lg border p-3 text-sm">
-                                <p className="font-medium">Interview complete — scoring wasn't ready.</p>
-                                <p className="mt-1 text-muted-foreground">We couldn't generate your feedback this run. Try scoring again, or exit and check your history.</p>
-                                <Button variant="outline" size="sm" className="mt-2" onClick={() => void retryScoring()} disabled={completing}>
-                                    {completing && <Spinner />}
-                                    {completing ? "Scoring…" : "Retry scoring"}
-                                </Button>
-                            </div>
-                        )}
-                    </CardContent>
-                    <CardFooter className="gap-2">
-                        <Textarea
-                            value={draft}
-                            maxLength={MAX_TURN_CHARS}
-                            aria-label="Your answer"
-                            onChange={(e) => setDraft(e.target.value)}
-                            placeholder={interviewOver ? "Interview finished — press Complete" : status === "ready" ? "Type your answer to the interviewer..." : status === "streaming" ? "Waiting for the interviewer..." : "Starting…"}
-                            onKeyDown={(e) => {
-                                if (e.key === "Enter" && !e.shiftKey && status === "ready") {
-                                    e.preventDefault();
-                                    void send();
-                                }
-                            }}
-                            disabled={status === "completed" || interviewOver}
-                        />
-                        <div className="flex flex-col gap-2">
-                            <Button onClick={() => void send()} disabled={status !== "ready" || !draft.trim() || interviewOver}>
-                                Send
-                            </Button>
-                            <Button variant="destructive" size="sm" onClick={() => void complete()} disabled={completing || status === "streaming" || status === "completed"}>
-                                {completing && <Spinner />}
-                                {completing ? "Completing…" : "Complete"}
-                            </Button>
-                        </div>
-                    </CardFooter>
-                </>
-            )}
+            {/* One scroller: the review, then the transcript it argues from. */}
+            <CardContent className="flex-1 overflow-y-auto space-y-3" ref={scrollRef} role="log" aria-live="polite" aria-busy={status === "streaming"} aria-label="Interview transcript">
+                {/* Safe to always offer: /complete refuses an empty transcript, so a review implies
+                    at least one answer to re-annotate. */}
+                {feedback && <FeedbackView feedback={feedback} messages={messages} onAnnotate={() => void retryScoring()} annotating={completing} />}
+                {error && <p className="text-sm text-destructive">{error}</p>}
+                {quotaLocked && <UpgradeNotice reason="your free chat turns ran out." />}
+                {interviewOver && (
+                    <div role="status" className="rounded-lg border p-3 text-sm">
+                        <p className="font-medium">That was the whole interview.</p>
+                        <p className="mt-1 text-muted-foreground">
+                            This run has asked every question in its mix, so there's nothing left to answer here. Press <span className="font-medium text-foreground">Complete</span> for your feedback, or start a new interview with a wider mix.
+                        </p>
+                    </div>
+                )}
+                {status === "loading" && <p className="text-sm text-muted-foreground">Starting…</p>}
+                {/* Not while loading: a reopened run would flash the opening line before its
+                    real transcript arrives. */}
+                {status !== "loading" && messages.length === 0 && OPENING_ASKS_RESUME && <Bubble from="assistant" content={OPENING_ASKS_RESUME} />}
+                {messages.map((m) => (
+                    <Bubble key={m.id} from={m.role} content={m.content} moveClass={m.move_class} />
+                ))}
+                {assistBuf && <Bubble from="assistant" content={assistBuf} streaming />}
+                {status === "streaming" && !assistBuf && <p className="text-sm text-muted-foreground">Thinking…</p>}
+                {scoringTip && status === "completed" && (
+                    <div role="status" className="rounded-lg border p-3 text-sm">
+                        <p className="font-medium">Interview complete — your review wasn't ready.</p>
+                        <p className="mt-1 text-muted-foreground">We couldn't generate your feedback this run. Try again, or exit and check your history.</p>
+                        <Button variant="outline" size="sm" className="mt-2" onClick={() => void retryScoring()} disabled={completing}>
+                            {completing && <Spinner />}
+                            {completing ? "Reviewing…" : "Retry review"}
+                        </Button>
+                    </div>
+                )}
+            </CardContent>
+            <CardFooter className="gap-2">
+                <Textarea
+                    value={draft}
+                    maxLength={MAX_TURN_CHARS}
+                    aria-label="Your answer"
+                    onChange={(e) => setDraft(e.target.value)}
+                    placeholder={status === "completed" ? "Review above" : interviewOver ? "Interview finished — press Complete" : status === "ready" ? "Type your answer to the interviewer..." : status === "streaming" ? "Waiting for the interviewer..." : "Starting…"}
+                    onKeyDown={(e) => {
+                        if (e.key === "Enter" && !e.shiftKey && status === "ready") {
+                            e.preventDefault();
+                            void send();
+                        }
+                    }}
+                    disabled={status === "completed" || interviewOver}
+                />
+                <div className="flex flex-col gap-2">
+                    <Button onClick={() => void send()} disabled={status !== "ready" || !draft.trim() || interviewOver}>
+                        Send
+                    </Button>
+                    <Button variant="destructive" size="sm" onClick={() => void complete()} disabled={completing || status === "streaming" || status === "completed"}>
+                        {completing && <Spinner />}
+                        {completing ? "Completing…" : "Complete"}
+                    </Button>
+                </div>
+            </CardFooter>
         </Card>
     );
 }
 
 // Memoized: the streaming reply re-renders on every delta, and without this the whole transcript
 // re-renders per token. Only the live bubble's content changes.
-const Bubble = memo(function Bubble({ from, content, streaming }: { from: string; content: string; streaming?: boolean }) {
+const Bubble = memo(function Bubble({ from, content, streaming, moveClass }: { from: string; content: string; streaming?: boolean; moveClass?: string | null }) {
     const isUser = from === "user";
     return (
-        <div className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
+        <div className={`flex items-end gap-2 ${isUser ? "justify-end" : "justify-start"}`}>
             <div className={isUser ? "max-w-[80%] whitespace-pre-line rounded-lg bg-primary px-3 py-2 text-sm text-primary-foreground" : "max-w-[80%] whitespace-pre-line rounded-lg border bg-card px-3 py-2 text-sm"}>
                 {content}
                 {streaming && <span className="inline-block animate-pulse">▋</span>}
             </div>
+            {/* Only candidate turns are ever annotated. */}
+            {isUser && moveClass && <MoveBadge moveClass={moveClass} />}
         </div>
     );
 });

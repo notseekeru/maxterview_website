@@ -14,14 +14,14 @@ export function Landing() {
 
     const features = [
         { title: "AI interviewer", body: "A simulated coach that asks real questions, one at a time, and reacts to your answers." },
-        { title: "Feedback + scoring", body: "Every run ends in per-dimension scores, a hire/reject call, and tips you can act on." },
-        { title: "Progress that persists", body: "Every interview is saved — replay the transcript, watch your scores trend, improve over time." },
+        { title: "Feedback + review", body: "Every answer is graded like a chess engine would grade a move — brilliant through blunder — and the run ends in an accuracy score, a letter grade, a hire/reject call and tips you can act on." },
+        { title: "Progress that persists", body: "Every interview is saved — replay the transcript with its annotations, watch your accuracy trend, improve over time." },
     ];
 
     const steps = [
         { title: "Set the interview", body: "Pick the role, level and company size. Add a topic, or dial how cynical and brutally honest the interviewer should be." },
         { title: "Answer in the chat", body: "One question at a time — chitchat, then behavioural, then technical, until the arc is spent." },
-        { title: "Get scored", body: "Clarity, relevance, structure and confidence, plus whether this run would convert and how much evidence backs that." },
+        { title: "Get reviewed", body: "Each answer is annotated on its own, plus whether this run would convert and how much evidence backs that." },
     ];
 
     const faq = [
@@ -46,7 +46,7 @@ export function Landing() {
             <main className="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-16 px-6 py-12">
                 <section className="flex flex-col items-center gap-8 text-center">
                     <h1 className="max-w-2xl text-4xl font-semibold leading-tight tracking-tight sm:text-5xl">Practice interviews with an AI coach that gives real feedback.</h1>
-                    <p className="max-w-xl text-lg text-muted-foreground">Answer questions one at a time, get scored on clarity, relevance, structure, and confidence, and track your progress across every practice run.</p>
+                    <p className="max-w-xl text-lg text-muted-foreground">Answer questions one at a time, get every answer annotated like a chess engine annotates moves, and track your accuracy across every practice run.</p>
                     <div className="flex flex-wrap items-center justify-center gap-3">
                         <Button size="lg" onClick={() => navigate("/app")}>
                             Start practicing free
@@ -96,7 +96,7 @@ export function Landing() {
                                     </p>
                                     <ul className="space-y-1.5 text-sm text-muted-foreground">
                                         <li>Unlimited interviews — no interview cap</li>
-                                        <li>Full per-dimension scoring and hire/reject verdict</li>
+                                        <li>Full answer-by-answer review and hire/reject verdict</li>
                                         <li>Bring your own model key if you prefer</li>
                                     </ul>
                                     <Button variant={id === "premium" ? "default" : "outline"} className="mt-auto" onClick={() => navigate("/app")}>

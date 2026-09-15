@@ -3,8 +3,9 @@
 [![CI](https://img.shields.io/github/actions/workflow/status/notseekeru/maxterview_website/ci-pipeline.yml?branch=main&label=CI)](https://github.com/notseekeru/maxterview_website/actions/workflows/ci-pipeline.yml)
 [![CD](https://img.shields.io/github/actions/workflow/status/notseekeru/maxterview_website/cd-pipeline.yml?branch=main&label=CD)](https://github.com/notseekeru/maxterview_website/actions/workflows/cd-pipeline.yml)
 
-**AI mock-interview coach** — practice interviews with an LLM that asks questions, gives
-per-question and end-of-interview feedback, and scores your performance. **MVP is text-based.**
+**AI mock-interview coach** — practice interviews with an LLM that asks questions, annotates every
+answer like a chess engine would (brilliant → blunder), and scores the run: accuracy, letter grade,
+hire/reject call, tips. **MVP is text-based.**
 
 Stack: **FastAPI** (backend) + **React + TypeScript + Vite** frontend (SPA) + **PostgreSQL 17**,
 run with Docker Compose. Frontend: Tailwind 4 + shadcn/ui + react-router.
@@ -45,7 +46,7 @@ create → start → chat/stream (SSE) → … → complete → feedback
 - `POST /api/interviews/{id}/complete` → `completed` + auto-generated feedback (409 if no turn was ever
   sent — an empty transcript is unscorable, so completion is refused instead of dead-ending a
   completed interview with no score)
-- `GET /api/interviews/{id}/feedback` → scores / verdict / tips
+- `GET /api/interviews/{id}/feedback` → accuracy + grade / verdict / tips (+ secondary 1-10 dims)
 - `POST /api/interviews/{id}/feedback/generate` → (re)score a completed interview; 409 when it is not
   completed or has no answers, 503 when the model is unavailable right now (retryable)
 - Every query is scoped to the owner (`ClerkUser.sub` / dev `DEV_USER`).

@@ -10,6 +10,10 @@ from app.models import ChatMessage, FeedbackSummary
 # (llm.LLMConfig.stub). The `_completion` doubles below never reach the network.
 REAL = llm.LLMConfig(base_url="http://llm.test", model="qwen")
 
+# The review hop is a THIRD JSON call, with its own prompt: doubles must dispatch on the prompt
+# rather than on `json_output`, or they answer the classification with a feedback payload.
+MOVES_JSON = '{"moves": [{"turn": 1, "class": "great"}, {"turn": 2, "class": "inaccuracy"}]}'
+
 
 def test_system_prompt_any_level_and_topic():
     p = llm.system_prompt("Software Engineer", "any", "System Design")
@@ -223,8 +227,13 @@ def test_evidence_cap_clamps_model_certainty():
 
 async def test_generate_feedback_real_grader_and_formatter_path(monkeypatch):
     caller = {"model": None, "msgs": None, "json": None, "schema": None}
+    moves_calls = {"n": 0, "seen": None}
 
     async def _completion(system, user_text, *, config=None, max_tokens=None, json_output=False, json_schema=None, **kw):
+        if system == llm.MOVES_PROMPT_V1:
+            moves_calls["n"] += 1
+            moves_calls["seen"] = user_text
+            return MOVES_JSON
         caller["model"] = config.model
         caller["msgs"] = [system, user_text]
         caller["json"] = json_output
@@ -238,12 +247,19 @@ async def test_generate_feedback_real_grader_and_formatter_path(monkeypatch):
     assert (out.decision, out.certainty) == ("lean_hire", 70)
     assert caller["json"] is True  # formatter hop requested JSON mode
     assert caller["schema"] is llm.FEEDBACK_JSON_SCHEMA  # ... under the grammar schema when supported
+    assert out.moves == {1: "great", 2: "inaccuracy"}
+    assert moves_calls["n"] == 1
+    # The classifier is shown the same NUMBERED transcript as the grader (main.py maps those turn
+    # numbers back onto message rows, so the numbering is a contract, not a nicety).
+    assert "Candidate (turn 2):" in moves_calls["seen"]
 
 
 async def test_generate_feedback_keeps_scores_when_decision_drifts(monkeypatch):
     # A bad decision label costs the badge, not the whole scoring run: the four dims still land.
 
     async def _completion(system, user_text, *, json_output=False, **kw):
+        if system == llm.MOVES_PROMPT_V1:
+            return MOVES_JSON
         if json_output:
             return '{"scores": {"clarity": 7, "relevance": 7, "structure": 7, "confidence": 7}, "decision": "Strong Hire", "certainty": 90, "verdict": "Fine.", "tips": ["A", "B"]}'
         return "prose notes"
@@ -261,6 +277,8 @@ async def test_generate_feedback_recovers_from_out_of_range_scores(monkeypatch):
     attempts = {"n": 0}
 
     async def _completion(system, user_text, *, json_output=False, **kw):
+        if system == llm.MOVES_PROMPT_V1:
+            return MOVES_JSON
         if json_output:
             attempts["n"] += 1
             return '{"scores": {"clarity": 0, "relevance": 0, "structure": 0, "confidence": 0}, "verdict": "Nothing usable was said.", "tips": ["Answer the question", "Share your background"]}'
@@ -276,6 +294,8 @@ async def test_generate_feedback_formatter_retries_on_bad_schema(monkeypatch):
     attempts = {"n": 0}
 
     async def _completion(system, user_text, *, json_output=False, **kw):
+        if system == llm.MOVES_PROMPT_V1:
+            return MOVES_JSON
         if json_output:
             attempts["n"] += 1
             if attempts["n"] == 1:
@@ -295,6 +315,8 @@ async def test_generate_feedback_returns_none_when_formatter_never_valid(monkeyp
     attempts = {"n": 0}
 
     async def _completion(system, user_text, *, json_output=False, **kw):
+        if system == llm.MOVES_PROMPT_V1:
+            return MOVES_JSON
         if json_output:
             attempts["n"] += 1
             return '{"verdict": "nope"}'  # always schema-mismatched
@@ -356,3 +378,45 @@ async def test_completion_does_not_retry_repeated_server_errors():
         out = await llm._completion("sys", "notes", config=REAL, max_tokens=64, json_schema=llm.FEEDBACK_JSON_SCHEMA)
     assert out is None
     assert len(route.calls) == 1  # only the json-schema capability 400/404/422 is downgraded
+
+
+def test_coerce_move_class_tolerates_label_drift_but_never_guesses():
+    assert llm._coerce_move_class("Inaccuracy") == "inaccuracy"
+    assert llm._coerce_move_class("in accuracy") == "inaccuracy"
+    assert llm._coerce_move_class("Book move") == "book"
+    # "Best"/"Excellent" belong to the longer chess.com set: dropping them costs one badge,
+    # mapping them onto the nearest class would fabricate an annotation that drives accuracy.
+    assert llm._coerce_move_class("Best") is None
+    assert llm._coerce_move_class(7) is None
+
+
+def test_valid_moves_drops_out_of_range_duplicate_and_unknown_turns():
+    assert llm._valid_moves([{"turn": 1, "class": "good"}], 1) == {1: "good"}
+    assert llm._valid_moves([{"turn": 4, "class": "good"}], 2) is None  # hallucinated turn
+    assert llm._valid_moves([{"turn": 0, "class": "good"}], 2) is None  # turn numbers are 1-based
+    assert llm._valid_moves([{"turn": 1, "class": "good"}, {"turn": 1, "class": "blunder"}], 2) == {1: "good"}
+    assert llm._valid_moves([{"turn": 1, "class": "best"}], 2) is None
+    assert llm._valid_moves({"2": "mistake"}, 2) == {2: "mistake"}  # bare {turn: class} map
+    assert llm._valid_moves("nope", 2) is None and llm._valid_moves([], 2) is None
+
+
+async def test_generate_feedback_keeps_verdict_when_annotation_fails(monkeypatch):
+    # The review hop is additive: an unusable classification costs accuracy and badges, nothing
+    # else. A run that loses its whole verdict over one bad badge would be the worse trade.
+    async def _completion(system, user_text, *, json_output=False, **kw):
+        if system == llm.MOVES_PROMPT_V1:
+            return '{"moves": [{"turn": 99, "class": "brilliant"}]}'
+        if json_output:
+            return '{"scores": {"clarity": 7, "relevance": 7, "structure": 7, "confidence": 7}, "verdict": "Fine.", "tips": ["A", "B"]}'
+        return "prose notes"
+
+    monkeypatch.setattr(llm, "_completion", _completion)
+    out = await llm.generate_feedback([ChatMessage(role="user", content="hi")], None, REAL)
+    assert out is not None and out.verdict == "Fine." and out.moves == {}
+
+
+def test_stub_moves_cover_every_candidate_turn_deterministically():
+    history = [ChatMessage(role="user", content="a"), ChatMessage(role="assistant", content="q"), ChatMessage(role="user", content="b")]
+    assert set(llm._stub_moves(history)) == {1, 2}
+    assert llm._stub_moves(history) == llm._stub_moves(history)  # same transcript, same grades
+    assert llm._stub_moves([ChatMessage(role="assistant", content="q")]) == {}
