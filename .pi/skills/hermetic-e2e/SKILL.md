@@ -55,7 +55,7 @@ mcp({ tool: "playwright_browser_navigate", args: { url: "http://localhost:5173/"
 mcp({ tool: "playwright_browser_snapshot", args: {} })   # read the a11y tree + refs
 mcp({ tool: "playwright_browser_click", args: { target: "e8", element: "Start practicing free link" } })
 mcp({ tool: "playwright_browser_type", args: { target: "#role", text: "Backend Engineer" } })
-mcp({ tool: "playwright_browser_wait_for", args: { text: "Your performance summary" } })
+mcp({ tool: "playwright_browser_wait_for", args: { text: "is annotated in the transcript below" } })
 ```
 
 **Don't snapshot-spam.** `browser_snapshot` is the token sink; each call dumps a full YAML tree.
@@ -107,11 +107,11 @@ nix develop . -c node .pi/skills/hermetic-e2e/scripts/inspect.cjs   # see resolv
 
 ## Preconditions
 
-- Dev stack up: `make up`. Confirm `curl -s -o /dev/null -w "%{http_code}" http://localhost:8000/usage`
+- Dev stack up: `make up`. Confirm `curl -s -o /dev/null -w "%{http_code}" http://localhost:8000/api/usage`
   is 200 and `http://localhost:5173/` is 200.
 - Auth posture FIRST:
-  - **Hermetic DEV_USER:** backend `CLERK_ENABLED=false` => `/usage` returns 200 anonymously. (Fastest.)
-  - **Real Clerk:** backend `CLERK_ENABLED=true` => `/usage` 401s. Sign the page in headlessly first
+  - **Hermetic DEV_USER:** backend `CLERK_ENABLED=false` => `/api/usage` returns 200 anonymously. (Fastest.)
+  - **Real Clerk:** backend `CLERK_ENABLED=true` => `/api/usage` 401s. Sign the page in headlessly first
     (see Real-Clerk section; needs `paymongo-operator`).
 - A host `node` that can read `/nix/store`: `nix develop .`. CJS `require`, not ESM `import from <expr>`.
 - Store artifacts present (resolved at runtime by `store.cjs` — never hardcode a hash; nix GCs old
@@ -133,13 +133,13 @@ nix develop . -c node .pi/skills/hermetic-e2e/scripts/inspect.cjs [--dom]
 
 - `store.cjs` — shared resolve/launch (both runners + your bespoke scripts use it).
 - `e2e.cjs` — assert run. On a real model `/complete` runs inline and can block tens of seconds; it
-  uses a ~90s deadline. Assert "Your performance summary" (FeedbackView) or "scoring wasn't ready"
-  (clicks Retry).
+  uses a ~90s deadline. Assert the review card's copy "is annotated in the transcript below", or the
+  retry notice "your review wasn't ready" (clicks **Retry review**).
 - `inspect.cjs` — the same journey but prints the rendered DOM/URL at each stage, so an ambiguous
   assert becomes visible.
 
 Runners create a real DEV_USER interview and print its id — delete it when judging
-(History / `DELETE /interviews/<id>`). Keep local storage free of host `node_modules`/`install`.
+(**Interviews** page / `DELETE /interviews/<id>`). Keep local storage free of host `node_modules`/`install`.
 
 ## Journey selectors (for MCP or runner runs)
 
@@ -151,8 +151,8 @@ work for both paths — MCP `target` takes a CSS selector or a snapshot ref.
 3. Fill `#role` + optional `#topic`, submit **"Start interview"** -> `/interviews/{uuid}`.
 4. Chat: wait for `textarea`. Send an answer (**Send**); await interviewer stream (**Send** flips
    `disabled` when done); click **Complete**.
-5. Outcome markers: **FeedbackView** body = "Your performance summary"; **absent** = notice
-   "scoring wasn't ready" + **Retry scoring** button. Gate on `browser_wait_for` / `waitFor`, not a
+5. Outcome markers: **FeedbackView** card description = "is annotated in the transcript below";
+   **absent** = notice "your review wasn't ready" + **Retry review** button. Gate on `browser_wait_for` / `waitFor`, not a
    fixed sleep — `/complete` runs inline against a real model and took ~20s in practice (~90s ceiling).
 
 Do not treat `pending → in_progress` auto-transition as a failure.
@@ -168,8 +168,6 @@ If `CLERK_ENABLED=true`, `/app` is behind a signed-out gate. Don't claim hermeti
 `paymongo-operator`: mint a throwaway user (`clerk-mint.sh --email=…`), sign in headlessly with
 `@clerk/testing/playwright` (`clerk.signIn`) until a real `__session` cookie exists, drive the routes,
 then tear down (`clerk-mint.sh --admin-destroy --teardown --user=<id>`). Don't mix postures in one run.
-
-## Browser MCP (notes only — difficulties + advantages; not wired)
 
 ## Browser MCP — wired, and the traps that cost time
 
@@ -216,7 +214,7 @@ make exec    # full gate: frontend typecheck+build+biome; backend ruff+pytest
 
 ## Guardrails
 
-- Test data only; created interviews are real DEV_USER rows (delete via History / `DELETE`).
+- Test data only; created interviews are real DEV_USER rows (delete via the **Interviews** page / `DELETE`).
 - Hermetic path never touches Clerk/PayMongo keys. Real-Clerk leg via `paymongo-operator`
   (headless sign-in; real hosted Checkout needs a human at the card step). No mixing postures.
 - No host `npm install`, no committed store hashes — resolve at runtime. `.playwright-mcp/` is

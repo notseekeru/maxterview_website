@@ -68,7 +68,7 @@ Implemented in `app/billing.py` + `app/main.py`.
 
 Implementation: **raw httpx against PayMongo** (chosen over Xendit — see §7 — and over an MoR for now).
 Both modes write the **same** `subscriptions` row and are read by the same `billing.resolve_tier`, so
-the mode is a payment rail, not an entitlement model.
+the mode is a payment rail, not an entitlement model. Route paths below are relative to the app's `/api` prefix (`curl localhost:8000/api/billing/checkout`).
 
 **Shipped (backend):**
 
@@ -152,8 +152,6 @@ exercisable end-to-end on a real Clerk identity.
 
 **Frontend (2026-08-24 → 09-12):** header tier labels (`UsageBadge`) + lockout/upsell notice (`UpgradeNotice` on 402) wired to the subscribe flow, and a dedicated **billing/plan page** (`/app/settings/billing`) with Free vs Premium cards, current-plan summary, an Upgrade → `/billing/checkout` CTA, and in-app **Cancel** (no provider portal exists). The Maya return URL lands on `/app?upgrade=pending`, which `UpgradePendingNotice` turns into a poll → confirm → hard-navigate flow, because the return URL alone is not proof of payment. See PLAN §8 M10.
 
-**Stripe-era payment test (2026-09-06, superseded):** the previous provider returned a hosted Checkout Session URL and delivered signature-verified `customer.subscription.*` events into a `premium`/`active` row; that run is what exposed the epoch-vs-`datetime` binding bug, and the same guard is kept in `payments._period_end` for PayMongo's `next_billing_schedule` date. Residual: until `CLERK_ENABLED=true`, dev-mode users resolve to `dev` rather than premium; `subscriptions` rows can be seeded directly and `resolve_tier` honors them (`ENTITLED_STATUSES` + `current_period_end`).
-
 ## 4. Phase-2 schema (shipped with M10 backend)
 
 Applied in `backend/migrations/0002_billing.sql`:
@@ -195,10 +193,10 @@ CREATE TABLE IF NOT EXISTS turn_usage (
 
 | Shipped                                                                                                                                                      | Open                                                                                                      |
 | ------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------- |
-| Backend: `billing.py`, `payments.py` (period + subscription modes, cancel, webhook + dev simulate), `0002`/`0008` migrations | **Nothing blocking in code.** Production config still owed: `CLERK_ENABLED=true` (live), a real webhook endpoint whose secret lands in `PAYMONGO_WEBHOOK_SECRET` (register it for `payment.paid` **and** `payment_intent.succeeded`), and a Fully Verified account (DTI + BIR) for live keys. **Subscriptions + Card Vaulting are needed only when/if `BILLING_MODE=subscription`** |
+| Backend: `billing.py`, `payments.py` (period + subscription modes, cancel, webhook + dev simulate), `0002`/`0008` migrations | **Nothing blocking in code.** Production config still owed: set `TF_VAR_MAXTERVIEW_PAYMONGO_SECRET_KEY`/`_WEBHOOK_SECRET` in Infisical (Terraform declares them but they are empty, so deployed `/api/billing/*` 503s — verified 2026-09-16), register the webhook for `payment.paid` **and** `payment_intent.succeeded`, and get Fully Verified (DTI + BIR) for live keys. `CLERK_ENABLED=true` is already live in prod. **Subscriptions + Card Vaulting are needed only when/if `BILLING_MODE=subscription`** |
 | Caps: daily GLOBAL chat-turn per owner (free 10 / premium 250 / dev 500, UTC-day reset; `0004_global_chat_turns`); no per-interview / no daily-interview cap | —                                                                                                         |
 | Frontend: usage badge, upsell/lockout notices, billing/plan page (`/app/settings/billing`)                                                                   | —                                                                                                         |
-| **Postgres-proof (2026-09-12):** activated/past_due/invoice.paid/payment_failed/cancelled transitions + fail-closed signature                                                                  | **Live webhook endpoint** (`payments.sh --register-webhook` once a public URL exists)                                                                                      |
+| **Postgres-proof (2026-09-12):** activated/past_due/invoice.paid/payment_failed/cancelled transitions + fail-closed signature                                                                  | **Register the webhook** — the public URL now exists: `payments.sh --register-webhook --url=https://maxterview.seekeru.tech/api/billing/webhook`, then set its secret + the API key in Infisical (`TF_VAR_MAXTERVIEW_PAYMONGO_*`) and apply                                                                                      |
 | **PayMongo sandbox proof (2026-09-15):** real payment intent → Maya redirect → `payment.paid` → `active` + 30 days; replay-idempotent; a second purchase 409s | —                                                                                                                         |
 
 ## 6. Cancellation & billing terms (M10, PayMongo)

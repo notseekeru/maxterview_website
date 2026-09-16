@@ -1,22 +1,23 @@
 # OBSERVABILITY — maxterview
 
 Observability plan for the MVP. **Docs-first milestone (M13)**: this file captures the design and
-current state; implementation follows in a later code pass. Companion to `PLAN.md` (security in §7) and `README.md`.
+current state; only the structlog calls have landed — configuration and the Grafana half have not.
+Companion to `PLAN.md` (security in §7) and `README.md`.
 
 > **Decided 2026-08-23:** Grafana-only stack (Loki + Prometheus + Grafana Cloud) — **no Sentry.** For an MVP the two overlap on error logging; one vendor keeps one auth/data plane, leaning on structlog JSON. Revisit Sentry only if exception triage at scale demands it.
 
 ---
 
-## Current state (verified 2026-08-23)
+## Current state (verified 2026-09-16)
 
 | Area | Status |
 |---|---|
-| Structured logging | ⚠️ **none wired** — `structlog` is a declared dependency (`pyproject.toml`) but **imported nowhere**; the app uses default/unstructured logging |
+| Structured logging | ⚠️ **half-wired** — `structlog` is imported and used as `log` in `main.py`/`llm.py`/`byok.py`/`payments.py`, but `structlog.configure()` is never called: dev gets its default console output, prod does **not** get JSON, and there is no request context |
 | Request logging | ⚠️ FastAPI default access logs only; no JSON, no per-request context |
 | Error tracking / APM | ❌ none (no Sentry, no error-log queries) |
 | Metrics | ❌ none (no Prometheus metrics endpoint) |
 | Log aggregation / dashboards | ❌ none (no Loki/Grafana) |
-| Health/readiness | ✅ `/health` (liveness only; no readiness/deep-health) |
+| Health/readiness | ⚠️ `/api/health` is shallow (no DB check); the gitops Deployment probes it with `httpGet` for both liveness **and** readiness, so the `tcpSocket` trade-off is gone but the deep check is not |
 
 
 ---
@@ -55,10 +56,6 @@ Single-vendor observability layer:
 - Logs and metrics share the same structlog fields (`duration_ms`, `status`, `user`), so a metric
   trace links back to the raw JSON log line in Loki.
 
-> **Transport decision: OTLP-only for metrics/traces.** The OpenTelemetry Python SDK exports metrics and
-> spans over OTLP to Alloy, which forwards to Grafana Cloud. There is **no Prometheus `/metrics` scrape
-> endpoint** in the pipeline — one protocol (OTLP), one agent (Alloy), one data plane.
-
 > **Error tracking without Sentry:** errors surface as `status>=500` log lines in Loki. Query
 > `{app="backend"} |= "error"` for triage; alert on rate. This covers MVP needs without a second
 > vendor. Defer Sentry unless exception grouping/source-maps become a bottleneck.
@@ -81,9 +78,9 @@ to Alloy. Instrument in the same request middleware, so every signal carries the
 | `interviews_created_total` / `interviews_completed_total` | Counter | product counters |
 ### 4. Probes + infrastructure metrics (Gap B)
 
-- **Probes:** today only liveness `/health` exists. Add **readiness** (reports ready only when the
-  Postgres pool is initialized) and a **startup probe**; then the gitops `apps/maxterview` deployments can
-  use `httpGet` (unlike the diagram apps' `tcpSocket` trade-off).
+- **Probes:** the gitops Deployment already runs `httpGet` liveness + readiness probes against
+  `/api/health`, but that route is shallow (no DB check) — a readiness that consults the Postgres pool
+  and a startup probe are the open items. No `tcpSocket` trade-off is needed.
 - **Infra dashboards:** enable the **Grafana Cloud Kubernetes integration** for out-of-the-box
   node/pod CPU, memory, network, and k8s-events dashboards. This observes the cluster, not just the app.
 
@@ -97,8 +94,8 @@ to Alloy. Instrument in the same request middleware, so every signal carries the
 - **Contact points:** email and/or Slack/Telegram/`webhook` in Grafana; route by severity. Wire through
   the Grafana Cloud UI or `alertmanager` config.
 - **Retention / volume caps (free-tier):** Grafana Cloud free tier limits log retention + ingest volume;
-  verbose structlog + k8s probe/`/health` spam can blow the cap fast. Plan **log shaping**: drop or
-  de-dup `GET /health`, readiness probes, and repeated `404` noise; use `level` thresholds and Loki
+  verbose structlog + k8s probe/`/api/health` spam can blow the cap fast. Plan **log shaping**: drop or
+  de-dup `GET /api/health`, readiness probes, and repeated `404` noise; use `level` thresholds and Loki
   retention/ingest limits. Budget dashboard shows usage.
 
 ### 6. Secrets / credentials for Grafana Cloud (Gap D)
@@ -116,13 +113,14 @@ to Alloy. Instrument in the same request middleware, so every signal carries the
 
 ## Rollout order
 
-**Blocker split (corrected 2026-09-12):** M13 is two halves, not one chain. Steps that are app-local are
+**Blocker split (corrected 2026-09-12, gitops landing verified 2026-09-16):** M13 is two halves, not one chain. Steps that are app-local are
 compose-verifiable today; the cluster half needs the gitops **`infra/`** layer (Alloy DaemonSet + a
 Terraform-created `grafana-cloud` Secret) — which is shared plumbing, does **not** depend on
-`apps/maxterview`, and can land first. Only the probes step waits on `apps/maxterview` (with M17).
+`apps/maxterview` (now landed), and can land first.
 
-1. **structlog JSON logging (foundation)** — cheap, unblocks everything (Design §1). **App-local, no cluster.**
-2. **Probes** — add readiness + startup probes; use `httpGet` in the gitops deployments (Design §4). **Needs `gitops/apps/maxterview`.**
+1. **structlog JSON logging (foundation)** — calls already exist (see Current state); what is missing is
+   `configure()` (JSON renderer in prod, request context). Cheap, unblocks everything (Design §1). **App-local, no cluster.**
+2. **Probes** — probes are wired via `httpGet`; deepen readiness with the DB check (Design §4). **No longer waits on gitops.**
 3. **Grafana Cloud connect** — provision the tenant + secret; deploy **Alloy** as a k8s DaemonSet
    (OTLP forward + stdout→Loki); wire the backend OpenTelemetry **OTLP exporter** (Design §2-3).
    Exporter + dev verification: **app-local** (direct OTLP to Grafana Cloud is the documented escape hatch).

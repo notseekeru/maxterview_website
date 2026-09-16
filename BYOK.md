@@ -40,6 +40,8 @@ Signature-check + `README`-level summary of the two-stage pipeline are unchanged
 
 ## API
 
+All paths carry the app's `/api` prefix (the table below shows it).
+
 | Method | Path | Body / result |
 |---|---|---|
 | `GET` | `/api/settings/llm` | `{enabled, byok, base_url, model, key_hint, system:{configured, base_url, model}}` (`key_hint: null` = keyless row) |

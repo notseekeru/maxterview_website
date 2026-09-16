@@ -31,10 +31,11 @@ PayMongo posts the webhook back. Assertions stay on your own `/api/usage` and `s
 only trustworthy signals (never the redirect itself; `Paymongo-Signature`-verified webhooks are the
 confirmation, per PayMongo's own integration-security guidance).
 
-**Preconditions** (`need-keys.sh` all green, plus two account-level switches):
-- `PAYMONGO_SECRET_KEY` (test) + `PAYMONGO_PLAN_ID` set, `FRONTEND_BASE_URL` set.
-- **Subscriptions enabled on the PayMongo account** (email support@paymongo.com) — without it the
-  `POST /v1/subscriptions` inside `/api/billing/checkout` fails with a provider 400/502.
+**Preconditions** (`need-keys.sh` all green):
+- `PAYMONGO_SECRET_KEY` (test) + `FRONTEND_BASE_URL` set. `PAYMONGO_PLAN_ID` and **Subscriptions enabled
+  on the PayMongo account** (email support@paymongo.com) are needed by `BILLING_MODE=subscription` only
+  — without them the `POST /v1/subscriptions` inside `/api/billing/checkout` fails with a provider
+  403/400/502; the shipping period rail needs neither.
 - Backend + frontend reachable (`make up`; frontend at 5173).
 - Either (a) `CLERK_ENABLED=false` dev fallback → every call is `DEV_USER`, or (b) real Clerk via the
   testing token from `clerk-mint.sh` to authenticate the browser as a chosen user.
@@ -68,8 +69,9 @@ Clerk `__session` cookie on the frontend origin via `context.add_cookies` for th
 - `page.goto("{FRONTEND_BASE_URL}/app")`, then `/app/settings/billing` (or the `UpgradeNotice` CTA).
 - The Upgrade button calls `startSubscription()` → `POST /api/billing/checkout` → the backend creates
   Customer → Subscription (`incomplete`) → attaches a `paymaya` PaymentMethod to the **first
-  invoice's** Payment Intent and returns Maya's redirect URL. A failure here is most often "no email
-  on the account" (409) or "Subscriptions not enabled" (502).
+  invoice's** Payment Intent and returns Maya's redirect URL (subscription mode; period mode instead
+  creates a one-time Payment Intent + a `paymaya` method for it). A failure here is most often "no email
+  on the account" (409), "Subscriptions not enabled" (502), or a 409 for an already-paid period.
 - Navigate the browser to that URL. **Handoff point.**
 
 ### 2. Complete the payment on Maya's page

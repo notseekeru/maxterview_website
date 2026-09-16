@@ -7,12 +7,12 @@
 answer like a chess engine would (brilliant → blunder), and scores the run: accuracy, letter grade,
 hire/reject call, tips. **MVP is text-based.**
 
-Stack: **FastAPI** (backend) + **React + TypeScript + Vite** frontend (SPA) + **PostgreSQL 17**,
+Stack: **FastAPI** (backend) + **React + TypeScript + Vite** frontend (SPA) + **PostgreSQL 18**,
 run with Docker Compose. Frontend: Tailwind 4 + shadcn/ui + react-router.
 
 Docs:
 
-- `PLAN.md` — technical decisions (D1–D12) and milestones (M1–M17)
+- `PLAN.md` — technical decisions (D1–D15) and open milestones (M13–M18)
 - `MONETIZATION.md` — billing spec (quotas + PayMongo period top-up shipped, sandbox-proven)
 - `BYOK.md` — per-owner LLM provider keys (settings panel → `/app/settings/system`)
 - `OBSERVABILITY.md` — logging/error-tracking/metrics plan (doc-first M13)
@@ -22,7 +22,7 @@ Docs:
 ## Architecture
 
 ```
-Browser (React SPA) ── /api ──► nginx/Vite proxy ──► FastAPI ──► PostgreSQL 17
+Browser (React SPA) ── /api ──► nginx/Vite proxy ──► FastAPI ──► PostgreSQL 18
                                 (path passthrough)   │
                                                          └──► LLM (OpenAI-compatible)
 ```
@@ -124,7 +124,7 @@ make migrate     # apply yoyo migrations
 make rollback    # roll back last yoyo migration
 make new-migration name=<name>
 make lint        # ruff (backend) + biome (frontend)
-make test        # backend pytest suite (self-migrates vs Postgres)
+make exec        # full gate: frontend npm ci + biome + typecheck + build; backend ruff + pytest
 make test-llm    # end-to-end LLM smoke test (single turn) — needs a live model + running stack
 scripts/llm-smoke.sh         # the same smoke, callable directly (optional BASE_URL arg)
 make build / buildcache / down / clean  (dev)
@@ -135,9 +135,9 @@ make prod-build / prod-up / prod-logs / prod-down  (prod-style)
 
 ## Testing
 
-- **Backend** (pytest): `make test`. Integration tests hit a real Postgres, self-migrate via yoyo,
+- **Backend** (pytest): `make exec`, or inside the container `docker exec -t maxterview_backend_dev sh -c 'uv run pytest -q'`. Integration tests hit a real Postgres, self-migrate via yoyo,
   and force LLM STUB_MODE (model-free). Tests cover auth (JWT/JWKS negative cases), interview
-  lifecycle, owner-scoping, LLM streaming/extraction, and M10 billing (quotas + PayMongo webhook status map).
+  lifecycle, owner-scoping, LLM streaming/extraction, M10 billing (quotas + PayMongo webhook status map), BYOK (encryption, validation, fallbacks) and the move-review rating scale.
 - **Frontend**: `npm run typecheck`, `npm run build`, `npx biome check .` (in the frontend container).
 - **LLM smoke**: `make test-llm` (`scripts/llm-smoke.sh`) — the ONE check that runs against a live
   provider instead of a monkeypatched one, so it is what catches a rejected `response_format` payload,
@@ -145,8 +145,8 @@ make prod-build / prod-up / prod-logs / prod-down  (prod-style)
 
 CI (`.github/workflows/ci-pipeline.yml`) runs backend (ruff + format + pytest vs Postgres service) and
 frontend (biome + typecheck + build + audit). The backend job runs a **Trivy 0.74 filesystem scan**
-against its per-service `.trivyignore.yaml` dated-ignore policy (`--ignore-unfixed`, HIGH/CRITICAL gate,
-exceptions expire 2026-12-01). The frontend relies on the CD image scan (below), not a source-tree scan,
+against its `.trivyignore.yaml` dated-ignore policy (`--ignore-unfixed`, HIGH/CRITICAL gate; no open
+exceptions today). The frontend relies on the CD image scan (below), not a source-tree scan,
 as it ships only a static bundle. CD (`.github/workflows/cd-pipeline.yml`) runs on successful CI on `main`: it
 builds both prod images, **Trivy-image-scans** them, smoke-tests, and **pushes to GHCR** (`maxterview_backend`/
 `maxterview_frontend`), then a second job bumps the pinned tags in the `gitops` repo (see Deployment).
@@ -170,22 +170,18 @@ This repo is the **app source**; the gitops repo holds the Kubernetes manifests.
    bump to `notseekeru/gitops`, which ArgoCD reconciles.
 2. **Manifests** live in the gitops repo, not here: `apps/maxterview/` (backend + frontend Deployments and
    Services, `imagePullSecrets: [ghcr-login]`), `apps-of-apps/maxterview.yaml`, and
-   `infra/maxterview-ingress.yaml` (host `maxterview.seekeru.tech`, `/api` → `maxterview-prod-backend:8000`,
+   `apps/maxterview/maxterview-ingress.yaml` (host `maxterview.seekeru.tech`, `/api` → `maxterview-prod-backend:8000`,
    `/` → `maxterview-prod-frontend:8080`). The `/api` prefix is served by the **app** (`API_PREFIX` in
    `backend/src/app/__init__.py`): no proxy or ingress rewrite strips it.
-3. **Secrets — still to do**: `maxterview-secrets` must be **added to `~/terraform` (`infra/k3s/main.tf`)** — it
-   cannot copy `diagram_secrets`, because that secret _derives_ `database_url` from `var.POSTGRES_PASSWORD` and
-   points at the in-cluster Postgres (`postgres.database.svc.cluster.local`). An external Neon DSN is not
-   derivable, so it needs:
-   - a new `var.NEON_DATABASE_URL` (sensitive) in `infra/k3s/variables.tf`, value set in **Infisical**
-     (never `secrets.tfvars`),
-   - a new `kubernetes_secret.maxterview_secrets` alongside `diagram_secrets`, carrying `DATABASE_URL`
-     (plus Clerk/LLM/PayMongo keys) with **UPPERCASE keys named exactly as the env vars the app reads** —
-     the Deployment injects the whole secret via `envFrom`, so `DATABASE_URL`, `CLERK_JWKS_URL`,
-     `LLM_API_KEY`, `PAYMONGO_WEBHOOK_SECRET`, … A malformed key name blocks the pod (`envFrom` is all-or-nothing).
-   - that secret added to `kubectl_manifest.gitops_app`'s `depends_on` list, so the root App still applies
-     only after its secrets exist.
-     Never `kubectl apply` secrets and never commit them; Terraform owns them.
+3. **Secrets — landed** (`~/terraform` `infra/k3s`): `kubernetes_secret.maxterview_secrets` lives in its own
+   `maxterview` namespace and carries `DATABASE_URL` (Neon direct host), `MIGRATE_DATABASE_URL`,
+   `CLERK_DOMAIN`/`CLERK_JWKS_URL`/`CLERK_AUDIENCE`, `LLM_*` and `BYOK_ENCRYPTION_KEY`, wired into
+   `kubectl_manifest.gitops_app`'s `depends_on`. Keys are **UPPERCASE and named exactly as the env vars the
+   app reads** — the Deployment injects the whole secret via `envFrom`, so one malformed key blocks the pod.
+   **Gap:** Terraform now declares `PAYMONGO_SECRET_KEY`/`PAYMONGO_WEBHOOK_SECRET` (renamed from the dead
+   `STRIPE_*`), but they stay empty until both `TF_VAR_MAXTERVIEW_PAYMONGO_*` values are set in Infisical and
+   `make apply MOD=k3s ENV=prod` runs — so deployed `/api/billing/*` still 503s (verified 2026-09-16).
+   Never `kubectl apply` secrets and never commit them; Terraform owns them.
 
    The in-cluster Postgres and its `postgres-credentials` secret stay as they are — they serve `diagram`.
    maxterview does not consume them, so the `docs/incident-2026-09-03` rotation runbook does not apply:
@@ -198,7 +194,7 @@ the secret store, the local stack, `APP_ENV`, the Clerk dev instance, and the `d
 
 | Value                                                                      | Home                                                                                                               |
 | -------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| Deployed runtime config (`DATABASE_URL`, `CLERK_*`, `LLM_*`, `PAYMONGO_*`) | Infisical env **`prod`** (renamed from `dev` 2026-09-12) → Terraform → k8s Secret `maxterview-secrets` → `envFrom` |
+| Deployed runtime config (`DATABASE_URL`, `MIGRATE_DATABASE_URL`, `CLERK_*`, `LLM_*`, `BYOK_ENCRYPTION_KEY`) | Infisical env **`prod`** (renamed from `dev` 2026-09-12) → Terraform → k8s Secret `maxterview-secrets` → `envFrom` |
 | Local dev runtime + dev Clerk/LLM/PayMongo keys                            | `backend/.env` (git-ignored) — prod and dev values are _supposed_ to differ                                        |
 | SPA build config (`VITE_CLERK_PUBLISHABLE_KEY`)                            | committed `frontend/.env.production` — public by design (D14)                                                      |
 | CI plumbing (gitops deploy key)                                            | GitHub Actions secret `MAXTERVIEW_SSH`                                                                             |
@@ -217,12 +213,12 @@ PVC, no StatefulSet, and no DB backup/upgrade work in-cluster.
 - The direct host needs zero code changes: the backend is one long-running pod holding ~10 pooled
   connections. Neon's pooler only matters when many short-lived instances share a DB (serverless) —
   and `app/db.py` already auto-detects a `-pooler` DSN (`statement_cache_size=0`) if you ever switch.
-- Migrations on deployed envs run from the **in-cluster Job** with `MIGRATE_DATABASE_URL` (D12, PLAN §8 M17), not from a laptop; `make migrate` stays the dev path against the container. **Prod `public` schema is empty today**: the project exists (2026-09-12) but `0001–0007` are unapplied.
+- Migrations on deployed envs run from the **in-cluster Job** with `MIGRATE_DATABASE_URL` (D12, PLAN §8 M17), not from a laptop; `make migrate` stays the dev path against the container. **Prod schema is live**: all of `0001`–`0012` are applied by the PreSync Job (verified via Neon MCP 2026-09-16) and the DB is non-empty (real rows exist).
 - **Tradeoffs:** public-internet round trips (measure latency from wherever the app runs), and the project runs
   `suspend_timeout_seconds: 0` = scale-to-zero **off** (no cold start, but ≈182 CU-h/month idle vs the 100 CU-h
   free budget — set 300 s before deploy, M17); the free history window is 6 h, so snapshot before each prod
   migration. In exchange you get durability, backups, and disposable branches for testing.
-- **Identity is prod-grade, payments are not:** the backend verifies against the Clerk **production** instance (`clerk.seekeru.tech`, JWKS live) and the SPA's committed `pk_live_` (`frontend/.env.production`, public by design — D14) names the same instance. PayMongo is **test-mode** (live keys need a Fully Verified account), and every deployed value comes from one Infisical environment (`dev`, `SECRETS_PATH=/consumers/terraform`). Pre-launch swaps: PayMongo live keys + endpoint secret (PLAN §7, `MONETIZATION.md` §3).
+- **Identity is prod-grade, payments are not:** the backend verifies against the Clerk **production** instance (`clerk.seekeru.tech`, JWKS live) and the SPA's committed `pk_live_` (`frontend/.env.production`, public by design — D14) names the same instance. PayMongo is **not deployed yet** — `maxterview-secrets` gets `PAYMONGO_*` from Terraform but those vars are empty (billing 503s until the Infisical values land); live keys also need a Fully Verified account. Every deployed value comes from one Infisical environment (`prod`, `SECRETS_PATH=/consumers/terraform`). Pre-launch swaps: PayMongo keys + endpoint secret (PLAN §7, `MONETIZATION.md` §3).
 - Local dev and CI keep the Postgres container / service; only the deployed DSNs change, and prod/staging are
   **separate Neon projects** (D11) — branches are disposable-only, inside staging. (`NEON_API_KEY`
   for the MCP server also lives in root `.env`, which compose injects into the backend container — the app
@@ -264,9 +260,10 @@ basic key is account-wide, so there is no branch-level protection between the ag
 `/api` proxy is a same-origin dev convenience, not the prod path. Because maxterview's backend **has a real
 `/api/health` route**, its pods take `httpGet` probes rather than `diagram`'s `tcpSocket`.
 
-> The GitOps half is **landed**: manifests + CD tag-bump job exist and CD pushes to `notseekeru/gitops`.
-> The app does not schedule until `maxterview-secrets` exists — that is step 3 above (Terraform + Infisical),
-> plus the first `MIGRATE_DATABASE_URL` migration (M17).
+> The GitOps half is **live**: manifests + the CD tag-bump job exist, CD pushes to `notseekeru/gitops`, Argo
+> reconciles the `maxterview` namespace, and `https://maxterview.seekeru.tech` serves the app (`/api/health`
+> 200, `/api/usage` 401 = real Clerk). Migrations run via the PreSync Job; the only deployment gap is the
+> PayMongo keys (step 3, M17).
 
 ---
 
@@ -290,9 +287,9 @@ basic key is account-wide, so there is no branch-level protection between the ag
 - **M11** (security) — docs-first done (threat model + accepted risks + pentest plan in PLAN §7) + Trivy/Renovate; **code pass shipped 2026-09-12**: per-client limiter (`RATE_LIMIT`, `/health` + `/billing/webhook` exempt), `CORS_ALLOW_ORIGINS` allow-list (off by default), prompt-injection guardrails + a 4000-char turn cap. Open: deployed pentest, `CLERK_AUDIENCE`.
 - **BYOK** (per-owner provider keys) — **shipped 2026-09-13**: `/app/settings/system` card → `GET/PUT/DELETE /api/settings/llm` + `/test`; Fernet-encrypted `llm_credentials` row per owner; one OpenAI-compatible target for interviewer + grader + formatter; BYOK turns bypass the daily chat-turn cap (`byok` on `/usage`); contract + threat notes in `BYOK.md`.
 - **M12** (frontend polish) — **done (2026-08-24)**: public landing page, `/app` dashboard with stats + score charts, empty states, skeleton loaders, mobile-responsive layout, code-split routes (`/`, `/app`, `/interviews/:id`).
-- **M13** (observability) — docs-first done (`OBSERVABILITY.md`); structlog + Grafana Cloud (Loki for logs, **pure OTLP** metrics/traces → Prometheus) wiring pending.
+- **M13** (observability) — docs-first done (`OBSERVABILITY.md`); the structlog calls landed (`configure()` so prod is JSON is the open half) and Grafana Cloud (Loki for logs, **pure OTLP** metrics/traces → Prometheus) is unwired.
 - **M14** (OKF / structured-output hardening) — **OKF not started**: no bundle exists, the interviewer's knowledge is still prompt strings. Its structured-output _prerequisite_ shipped (2026-09-11): `response_format=json_schema` + greedy decoding on the grader→formatter surface. OKF bundles are the markdown+frontmatter format M15 RAG will ingest.
 - **M15** (RAG / retrieval-augmented interviewing) — future enhancement, not started (`PLAN.md`).
 - **M16** (live voice interview — TTS + STT + webcam illusion) — future enhancement, not started (`PLAN.md`).
-- **M17** (Neon environments & dedicated DB) — **decided 2026-09-12 (D11/D12), contract only, nothing provisioned**: prod/staging = separate Neon projects, branches disposable-only, app vs migrator DSN (`MIGRATE_DATABASE_URL` reserved), migrations via the in-cluster PreSync Job; prod `public` schema still empty. **First-deploy open items:** push `maxterview_website` (CD bakes the SPA key + bumps the gitops tag off the pre-`/api` image), `make plan/apply MOD=k3s ENV=prod` (creates the `maxterview` namespace + `maxterview-secrets` + the `maxterview.seekeru.tech` tunnel hostname; needs a kubeconfig), a Clerk allowed-origin check for the app host, a Stripe dashboard endpoint, and Neon quota (no suspend on free). Migrations now run via the PreSync Job in `gitops` (`9f46bd3`); the namespace + secret land from `terraform` (`6727cf8`).
+- **M17** (Neon environments & dedicated DB) — **live since 2026-09-12, hardening left**: one Neon project (`neon_maxterview_website`, `production` branch) with all of `0001`–`0012` applied by the in-cluster PreSync Job (verified 2026-09-16); namespace + `maxterview-secrets` come from Terraform; the app serves `maxterview.seekeru.tech`. **Open:** the two `TF_VAR_MAXTERVIEW_PAYMONGO_*` values in Infisical + apply (billing dark until then), migrator-role split + app-DSN swap, the staging project (D11/D13), and the Neon free-tier quota (`suspend_timeout_seconds: 0` ⇒ ≈180 CU-h/month against the 100 CU-h budget; update or watch `cpu_used_sec`).
 - **M18** (load & performance testing) — docs-first, not built: staging-only k6 profiles, off-node generator, **STUB_MODE** for app capacity vs a real-model canary for provider capacity; single-VU runs measure the rate limiter (2 rps/client IP), so the unit is _concurrent open chats_. Needs M13 + staging (D13).

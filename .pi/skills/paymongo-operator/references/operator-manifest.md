@@ -49,8 +49,8 @@ Base: `https://api.paymongo.com`, header `Authorization: Basic base64("$PAYMONGO
 
 | Resource | Endpoints | Notes / guardrail |
 |---|---|---|
-| Plans | `POST /v1/subscriptions/plans`, `GET /v1/subscriptions/plans` | Create the ₱499/mo premium plan once (`scripts/paymongo-stub.sh --create-plan`); the id goes in `PAYMONGO_PLAN_ID`. |
-| Customers | `POST /v1/customers`, `GET /v1/customers`, `DELETE /v1/customers/{id}` | Email is **unique per customer** — reuse the id stored in `subscriptions.provider_customer_id`; never create a second one for the same owner. |
+| Plans | `POST /v1/subscriptions/plans`, `GET /v1/subscriptions/plans` | **Subscription mode only** (blocked today): create the ₱499/mo premium plan once (`scripts/paymongo-stub.sh --create-plan`); the id goes in `PAYMONGO_PLAN_ID`. Period mode needs no plan. |
+| Customers | `POST /v1/customers`, `GET /v1/customers`, `DELETE /v1/customers/{id}` | `default_device` is **required** on create (we send `"email"`); email is **unique per customer** — reuse the id stored in `subscriptions.provider_customer_id`; never create a second one for the same owner. |
 | Subscriptions | `POST /v1/subscriptions`, `GET /v1/subscriptions/{id}`, `DELETE /v1/subscriptions/{id}` | Create generates the **first invoice immediately** (24h to pay it or it self-cancels to `incomplete_cancelled`). `DELETE` is immediate — but our `cancel_subscription` keeps the paid period entitled until `current_period_end`. |
 | Subscription invoices | `GET /subscriptions/invoices?resource_id=subs_…`, `POST /v1/subscriptions/invoices/{id}/pay` | The invoice carries `payment_intent.{id,status}` — the first invoice's intent is what the Maya payment attaches to. |
 | Payment intents | `GET /v1/payment_intents/{id}`, `POST /v1/payment_intents/{id}/attach` | Attach with `payment_method` + `client_key` + `return_url`; the response's `next_action.redirect.url` is the customer-facing redirect. |
@@ -62,6 +62,10 @@ Base: `https://api.paymongo.com`, header `Authorization: Basic base64("$PAYMONGO
 A 400 on `POST /v1/subscriptions` with a valid test key usually means the first.
 
 **Events the backend consumes** (`backend/src/app/payments.py`, `handle_webhook_event`):
+**period mode (shipping)** — `payment.paid` / `payment_intent.succeeded` → `premium`/`active` with
+`current_period_end = now() + PREMIUM_PERIOD_DAYS`, as a compare-and-set on
+`provider_subscription_id = <intent id> AND status = 'incomplete'` (so a replay, the sibling event or a
+retry cannot buy twice); `payment.failed` writes nothing. **Subscription mode (dormant)** —
 `subscription.activated|updated` → upsert `plan`/`status`/`current_period_end`; `invoice.paid` →
 `active` (recovers `past_due`); `invoice.payment_failed` → `past_due`; draft/open invoice churn
 (`invoice.created|finalized|updated`) is ignored. Envelope parsing tolerates both PayMongo shapes
@@ -73,7 +77,7 @@ A 400 on `POST /v1/subscriptions` with a valid test key usually means the first.
 - Delivery is authenticated by HMAC of `"{t}.{raw_body}"` with the endpoint secret (`te` for test,
   `li` for live slots); the handler also enforces a replay window (`PAYMONGO_SIGNATURE_TOLERANCE_S`,
   default 300 s, logged when it rejects) and fails closed when `PAYMONGO_WEBHOOK_SECRET` is unset.
-  `/billing/webhook` is rate-limit exempt on purpose. Deleting a customer makes any vaulted card
+  `/api/billing/webhook` is rate-limit exempt on purpose. Deleting a customer makes any vaulted card
   unusable.
 - Maya's hosted page is a real redirect, not an embeddable widget; there is no test-card number to
   type and the account's own Maya means must be used to complete it.

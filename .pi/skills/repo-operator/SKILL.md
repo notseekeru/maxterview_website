@@ -31,15 +31,19 @@ narrate. Everything here is real infra you can actually reach from this repo.
 - **No Clerk key enabled ⇒ the frontend falls into "no-Clerk dev mode"** (`clerkEnabled=false`),
   which lets you drive the whole auth-gated UI against the backend's `DEV_USER`. This is the fastest
   way to reproduce most UI/behaviour issues WITHOUT any Clerk/PayMongo credentials.
-- **Backend surfaces**: `/health`, `/interviews`, `/interviews/{id}` (+`/start`,`/complete`,
-  `/messages`, `/feedback`), `/usage`, `/billing/checkout`, `/billing/portal`, `/billing/webhook`,
-  `/interviews/{id}/chat/stream` (SSE).
+- **Backend surfaces** (all under the app's `/api` prefix): `/api/health`, `/api/interviews`, `/api/interviews/{id}` (+`/start`,`/complete`,`/archive`,
+  `/messages`, `/feedback`, `/feedback/generate`), `/api/usage`, `/api/settings/llm` (+`/test`),
+  `/api/billing/checkout`, `/api/billing/cancel`, `/api/billing/webhook`, `/api/billing/webhook/simulate`,
+  `/api/interviews/{id}/chat/stream` (SSE).
 - **Auth**: JWT verified against Clerk JWKS when `CLERK_ENABLED=true`; `__session` cookie primary,
   `Authorization: Bearer` accepted. When `CLERK_ENABLED=false` (dev/test only) a fixed `DEV_USER`.
-- **Billing model (MONETIZATION.md)**: free/premium tiers from chat-turn caps; real entitlement via
-  PayMongo webhook events → `subscriptions` table → `resolve_tier`. When `PAYMONGO_*` keys are unset,
-  `/billing/checkout` and `/billing/cancel` return 503; the dev-only
-  `/billing/webhook/simulate` still proves the entitlement path.
+- **Billing model (MONETIZATION.md)**: free/premium tiers from daily GLOBAL per-owner chat-turn caps;
+  real entitlement via PayMongo webhook events → `subscriptions` table → `resolve_tier`. The shipping
+  rail is `BILLING_MODE=period` (one payment buys 30 days; no `PAYMONGO_PLAN_ID` needed). When
+  `PAYMONGO_SECRET_KEY` is unset, `/api/billing/checkout` returns 503 (`/api/billing/cancel` still works —
+  period mode only flips the row); the dev-only `/api/billing/webhook/simulate` still proves the
+  entitlement path. **Prod's `PAYMONGO_*` keys are declared by Terraform but empty**, so billing is dark
+  there until the two Infisical values land.
 
 ## Built-in companion skills (load on demand, don't duplicate)
 
@@ -68,12 +72,12 @@ docker logs --tail 200 maxterview_frontend_dev
 make psql               # open a DB shell
 ```
 
-One-shot context gather (read-only): confirm which services are up + hit `/health` + `/usage`:
+One-shot context gather (read-only): confirm which services are up + hit `/api/health` + `/api/usage`:
 
 ```bash
 docker compose -f compose.yml -f compose.dev.yml ps
-curl -s http://localhost:8000/health; echo
-curl -s http://localhost:8000/usage; echo     # tier for the current (DEV_USER) caller if no __session
+curl -s http://localhost:8000/api/health; echo
+curl -s http://localhost:8000/api/usage; echo     # tier for the current (DEV_USER) caller if no __session
 ```
 
 ## Feature enablement — what to initialize first on a fresh device
@@ -88,7 +92,8 @@ keep secrets sealed (zero-touch) — say which var is missing, never the value.
 | Real Clerk sign-in (UI button) + JWT auth | `backend/.env` → `CLERK_ENABLED=true`, `CLERK_DOMAIN`, `CLERK_JWKS_URL`; `frontend/.env` → `VITE_CLERK_PUBLISHABLE_KEY` | the .accounts.dev HTTPS URL + its JWKS + the `pk_test_…` | public, not secrets; best on the **Development** instance |
 | Headless Clerk ops (mint users/sessions/tokens, read users) — the CLI + mint script | `backend/.env` → `CLERK_SECRET_KEY` | `sk_test_…` (instance secret, Backend API) | this is what drives `clerk` Backend-API commands + `clerk-mint.sh`. The backend itself does NOT read it (JWT verify is public JWKS only). |
 | Clerk CLI shell (needs the tool only) | nix flake (`nix develop .`) has `nodejs`; `clerk` run via container `npx` | — | `docker exec maxterview_frontend_dev sh -c 'npx clerk …'` or `clerk api` with `CLERK_SECRET_KEY` |
-| PayMongo subscription → premium webhook row | `backend/.env` → `PAYMONGO_SECRET_KEY` (`sk_test_`), `PAYMONGO_WEBHOOK_SECRET` (that endpoint's secret), `PAYMONGO_PLAN_ID` | test-mode secret + webhook secret + the ₱499/mo plan id | no CLI/listener exists — deliver events with `webhook-driver.sh` (signed) or `--simulate` |
+| PayMongo → premium webhook row (period rail, the shipping one) | `backend/.env` → `PAYMONGO_SECRET_KEY` (`sk_test_`), `PAYMONGO_WEBHOOK_SECRET` (that endpoint's secret) | test-mode secret + webhook secret; billing is off without them (`/billing/checkout` 503s) | no CLI/listener exists — deliver events with `webhook-driver.sh` (signed) or `--simulate` |
+| Provider-managed recurring (dormant) | `backend/.env` → `BILLING_MODE=subscription` + `PAYMONGO_PLAN_ID` | the plan id | blocked until support enables Subscriptions + Card Vaulting |
 | LLM interview chat / feedback | `backend/.env` → `LLM_BASE_URL`, `LLM_MODEL`, `LLM_API_KEY` (or empty = STUB) | OpenAI-compatible base/model/key | no key → deterministic stub |
 | Observability | OBSERVABILITY.md | n/a | docs-first, not wired |
 
@@ -139,7 +144,7 @@ it refuses `*_live_*`, and anything destructive requires `--admin-destroy`. Repr
 # webhook to flip that user's entitlement row to premium (no listener/CLI exists for PayMongo;
 # --simulate needs no secret, the default signed mode proves the HMAC path):
 ./.pi/skills/paymongo-operator/scripts/webhook-driver.sh --simulate --event=subscription.activated --customer=cus_x --subscription=subs_x
-# read the subscriptions rows + /usage to prove who's premium (read-only debug-state):
+# read the subscriptions rows + /api/usage to prove who's premium (read-only debug-state):
 ./.pi/skills/paymongo-operator/scripts/debug-state.sh
 ```
 
@@ -156,7 +161,7 @@ from the flake devShell; needs pi running inside `nix develop`). Use ref-based `
   nix develop . -c node .pi/skills/hermetic-e2e/scripts/e2e.cjs --feedback  # + chat + Complete
   nix develop . -c node .pi/skills/hermetic-e2e/scripts/inspect.cjs         # dump live DOM per stage
   ```
-  Backend must be `CLERK_ENABLED=false`. Check posture first: `curl -s -o /dev/null -w "%{http_code}" localhost:8000/usage`
+  Backend must be `CLERK_ENABLED=false`. Check posture first: `curl -s -o /dev/null -w "%{http_code}" localhost:8000/api/usage`
   → 200 means DEV_USER (hermetic); 401 means real-Clerk (not hermetic).
 - **Real-Clerk headless sign-in:** use the `paymongo-operator` skill → `@clerk/testing/playwright`
   (`clerkSetup` + `clerk.signIn`) with a throwaway minted user, then render the auth-gated route.
@@ -168,7 +173,7 @@ Never hand-roll a brand-new browser harness when the committed runner / clerk sk
 
 ## Workflow guidance (how to reason as the infra-hands)
 
-1. Gather: is the stack up? health? which env mode? (`docker compose ps`, `/health`, `need-keys.sh`).
+1. Gather: is the stack up? health? which env mode? (`docker compose ps`, `/api/health`, `need-keys.sh`).
 2. If something fails, reproduce smallest: it may not need Clerk at all → use DEV_USER + `make logs`
    + the exact failing request.
 3. Once you see the failing API response/log line, either fix config/env (point the human at the
