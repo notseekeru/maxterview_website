@@ -1,9 +1,12 @@
 // Light/dark/system theme, persisted to localStorage and applied as a `.dark`
 // class on <html> (matches the recharts `.dark` convention in chart.tsx).
+// DARK IS THE DEFAULT: with no stored choice we pick `dark`, not the OS preference.
 
 export type Theme = "light" | "dark" | "system";
 
 const STORAGE_KEY = "maxterview.theme";
+
+export const DEFAULT_THEME: Theme = "dark";
 
 function safeParse(raw: string | null): Theme | null {
     return raw === "light" || raw === "dark" || raw === "system" ? raw : null;
@@ -25,7 +28,7 @@ export function applyTheme(theme: Theme): void {
 }
 
 export function readStoredTheme(): Theme {
-    return safeParse(typeof window !== "undefined" ? window.localStorage.getItem(STORAGE_KEY) : null) ?? "system";
+    return safeParse(typeof window !== "undefined" ? window.localStorage.getItem(STORAGE_KEY) : null) ?? DEFAULT_THEME;
 }
 
 export function storeTheme(theme: Theme): void {

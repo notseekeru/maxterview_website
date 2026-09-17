@@ -11,8 +11,9 @@
         <title>AI Mock Interview Practice with Instant Feedback | maxterview</title>
         <meta name="description" content="Practice interviews with an AI coach: answer questions one at a time, every answer graded like a chess move, a hire/reject verdict and tips. Free to start." />
         <meta name="robots" content="index, follow, max-image-preview:large" />
-        <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
-        <meta name="theme-color" content="#0a0a0a" media="(prefers-color-scheme: dark)" />
+        <!-- theme-color tracks the default theme (dark); explicit light users live with a dark
+             browser chrome rather than the OS-conditioned pair guessing wrong either way. -->
+        <meta name="theme-color" content="#0a0a0a" />
         <link rel="canonical" href="https://maxterview.seekeru.tech/" />
         <link rel="icon" href="/M-Inverted.svg" type="image/svg+xml" />
         <link rel="apple-touch-icon" href="/M-Inverted.svg" />
@@ -67,16 +68,18 @@
         <!-- Boot-time theme: read the stored choice before first paint so a dark
              preference survives page loads landing anywhere in the app (the value is
              otherwise only re-applied once React mounts the settings page). Must stay
-             in sync with frontend/src/lib/theme.ts (incl. the maxterview.theme key). -->
+             in sync with frontend/src/lib/theme.ts (incl. the maxterview.theme key and
+             the dark default). -->
         <script>
             (() => {
                 try {
                     const raw = localStorage.getItem("maxterview.theme");
-                    const theme = (raw === "light" || raw === "dark" || raw === "system") ? raw : "system";
+                    const theme = (raw === "light" || raw === "dark" || raw === "system") ? raw : "dark";
                     const dark = theme === "dark" || (theme === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
                     document.documentElement.classList.toggle("dark", dark);
                 } catch (_e) {
-                    /* localStorage unavailable (private mode) — default light. */
+                    /* localStorage unavailable (private mode) — default dark. */
+                    document.documentElement.classList.add("dark");
                 }
             })();
         </script>
