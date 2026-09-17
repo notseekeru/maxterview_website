@@ -11,6 +11,7 @@
 # FIX
 
 - i think having pointed byok to 100.64.2.2 points to my open llama cpp endpoint cuz the infra lives at my pi(my k3s server) then meaning other people can use my llama cpp on my pc(199.64.2.2) i think. this isnt a problem at first glance since the product is supposed to give free model to use to interview but BYOK is capless, which can abuse the free tier cap. deffered for now next priority
+- fix the dark mode to make it default
 - grill the plan and architecture and code
 - the personalData in portfolio is bloated
 - after wiring the observability pipeline, we can proceed to writing the blog, and then we finish resume and analytics page and then record with recordly for project portfolio asset and maxterview landing page video opener asset
