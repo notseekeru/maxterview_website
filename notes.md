@@ -14,7 +14,6 @@
 
 # REFACTOR
 
-- refactor: brain doc doesnt ask me what i learn, what are my favorite struggles, what i was excited for, what my brain got thinking, etc. and also the crud.md is lowkey redundant. and also it is heavy on specific code that i dont care about, mostly i only care about infra and wiring knowledge and struggles and i actually found interesting.
 
 # INFRA
 
@@ -30,3 +29,5 @@
 - clerk, stripe and paymongo and alot of wiring on the 3rd party side but worth it so it can be automated and review by AI and setup by AI removing friction from using browser just for configuration
 - dev, stage, prod separation haves another mental model that im very excited to show off, staging is the one that needs to be injected into my brain so i can practice how production deployment works
 - currently setting staging rn, i was suprised i needed a separate and extra environment for it. i made another separate module for it in isolation. i shouldve seen this coming this like staging should be isolated not shared, which makes sense but i seemed like i forgot for a moment lol.
+- just finished my staging env, i have done alot of stuff that i supervised with my AI, alot of it just monitor what it does and guiding what it is struggling with. for example i needed him to reference the infisical vars, someone who probably vibecode would trust ai that it is not possible with infisical cli but i persisted and guided it and not guide me there
+- yeah this is a little bit of overengineer and i would probably turn this staging stuff of in the near future cuz i dont need it im a 1 man team and just doing this for fun and i have tradeoffs to manage

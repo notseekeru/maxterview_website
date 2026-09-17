@@ -1,7 +1,8 @@
 # maxterview
 
-[![CI](https://img.shields.io/github/actions/workflow/status/notseekeru/maxterview_website/ci-pipeline.yml?branch=main&label=CI)](https://github.com/notseekeru/maxterview_website/actions/workflows/ci-pipeline.yml)
-[![CD](https://img.shields.io/github/actions/workflow/status/notseekeru/maxterview_website/cd-pipeline.yml?branch=main&label=CD)](https://github.com/notseekeru/maxterview_website/actions/workflows/cd-pipeline.yml)
+[![License](https://img.shields.io/badge/license-MIT-lightgrey)](LICENSE)
+[![CI](https://github.com/notseekeru/portfolio_website/actions/workflows/ci-pipeline.yml/badge.svg)](https://github.com/notseekeru/maxterview_website/actions/workflows/ci-pipeline.yml)
+[![CD](https://github.com/notseekeru/portfolio_website/actions/workflows/cd-pipeline.yml/badge.svg)](https://github.com/notseekeru/maxterview_website/actions/workflows/cd-pipeline.yml)
 
 **AI mock-interview coach** — practice interviews with an LLM that asks questions, annotates every
 answer like a chess engine would (brilliant → blunder), and scores the run: accuracy, letter grade,
@@ -80,14 +81,14 @@ Run `need-keys.sh` to see which are set (names only):
 ./.pi/skills/paymongo-operator/scripts/need-keys.sh   # set/missing, never values
 ```
 
-| Want this feature                                               | Set in `backend/.env`                                                              | plus                                                   | how to run/verify                                                                                                    |
-| --------------------------------------------------------------- | ---------------------------------------------------------------------------------- | ------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------- |
-| UI/API with no auth at all (fast dev)                           | _(nothing)_                                                                        | —                                                      | default works (`CLERK_ENABLED=false` → `DEV_USER`)                                                                   |
-| Real Clerk sign-in button + JWT auth                            | `CLERK_ENABLED=true`, `CLERK_DOMAIN`, `CLERK_JWKS_URL`                             | `frontend/.env` `VITE_CLERK_PUBLISHABLE_KEY=pk_test_…` | `make up`, visit `/app`, sign in                                                                                     |
-| Headless Clerk ops (mint users/sessions, drive the `clerk` CLI) | `CLERK_SECRET_KEY=sk_test_…`                                                       | —                                                      | `docker exec -e CLERK_SECRET_KEY="$CLERK_SECRET_KEY" maxterview_frontend_dev sh -c 'cd /tmp && npx clerk api users'` |
-| PayMongo ₱499 → premium row (30 days)                           | `PAYMONGO_SECRET_KEY` (`sk_test_…`), `PAYMONGO_WEBHOOK_SECRET`                     | —                                                      | upgrade in the UI → Maya page; dev instead: POST `/api/billing/webhook/simulate` (no tunnel, no keys). `BILLING_MODE=subscription` also needs `PAYMONGO_PLAN_ID` + a support-enabled account |
-| Real AI interviewer chat + auto-feedback                        | `LLM_BASE_URL`, `LLM_MODEL`, `LLM_API_KEY`                                         | —                                                      | empty → deterministic STUB (model-free tests/dev)                                                                    |
-| Observability                                                   | _(nothing yet)_                                                                    | —                                                      | `OBSERVABILITY.md` (docs-first, not wired)                                                                           |
+| Want this feature                                               | Set in `backend/.env`                                          | plus                                                   | how to run/verify                                                                                                                                                                            |
+| --------------------------------------------------------------- | -------------------------------------------------------------- | ------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| UI/API with no auth at all (fast dev)                           | _(nothing)_                                                    | —                                                      | default works (`CLERK_ENABLED=false` → `DEV_USER`)                                                                                                                                           |
+| Real Clerk sign-in button + JWT auth                            | `CLERK_ENABLED=true`, `CLERK_DOMAIN`, `CLERK_JWKS_URL`         | `frontend/.env` `VITE_CLERK_PUBLISHABLE_KEY=pk_test_…` | `make up`, visit `/app`, sign in                                                                                                                                                             |
+| Headless Clerk ops (mint users/sessions, drive the `clerk` CLI) | `CLERK_SECRET_KEY=sk_test_…`                                   | —                                                      | `docker exec -e CLERK_SECRET_KEY="$CLERK_SECRET_KEY" maxterview_frontend_dev sh -c 'cd /tmp && npx clerk api users'`                                                                         |
+| PayMongo ₱499 → premium row (30 days)                           | `PAYMONGO_SECRET_KEY` (`sk_test_…`), `PAYMONGO_WEBHOOK_SECRET` | —                                                      | upgrade in the UI → Maya page; dev instead: POST `/api/billing/webhook/simulate` (no tunnel, no keys). `BILLING_MODE=subscription` also needs `PAYMONGO_PLAN_ID` + a support-enabled account |
+| Real AI interviewer chat + auto-feedback                        | `LLM_BASE_URL`, `LLM_MODEL`, `LLM_API_KEY`                     | —                                                      | empty → deterministic STUB (model-free tests/dev)                                                                                                                                            |
+| Observability                                                   | _(nothing yet)_                                                | —                                                      | `OBSERVABILITY.md` (docs-first, not wired)                                                                                                                                                   |
 
 Feature env values come from your Clerk app's **Development instance** (`.clerk.accounts.dev` /
 `pk_test_` / `sk_test_`) and PayMongo **test mode** — both are safe to use on `localhost`. The
@@ -199,14 +200,14 @@ This repo is the **app source**; the gitops repo holds the Kubernetes manifests.
 One map, so nobody re-derives it (the word "dev" alone means five different things in this stack —
 the secret store, the local stack, `APP_ENV`, the Clerk dev instance, and the `dev` billing tier):
 
-| Value                                                                      | Home                                                                                                               |
-| -------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| Value                                                                                                       | Home                                                                                                               |
+| ----------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
 | Deployed runtime config (`DATABASE_URL`, `MIGRATE_DATABASE_URL`, `CLERK_*`, `LLM_*`, `BYOK_ENCRYPTION_KEY`) | Infisical env **`prod`** (renamed from `dev` 2026-09-12) → Terraform → k8s Secret `maxterview-secrets` → `envFrom` |
-| Local dev runtime + dev Clerk/LLM/PayMongo keys                            | `backend/.env` (git-ignored) — prod and dev values are _supposed_ to differ                                        |
-| SPA build config (`VITE_CLERK_PUBLISHABLE_KEY`)                            | committed `frontend/.env.production` (prod) and `frontend/.env.staging` (staging) — public by design (D14)          |
-| CI plumbing (gitops deploy key)                                            | GitHub Actions secret `MAXTERVIEW_SSH`                                                                             |
-| The Neon MCP's API key                                                     | root `.env` (direnv-exported; the app never reads it)                                                              |
-| Deployed objects                                                           | namespace **`maxterview`** (own namespace; diagram/portfolio still share `default`)                                |
+| Local dev runtime + dev Clerk/LLM/PayMongo keys                                                             | `backend/.env` (git-ignored) — prod and dev values are _supposed_ to differ                                        |
+| SPA build config (`VITE_CLERK_PUBLISHABLE_KEY`)                                                             | committed `frontend/.env.production` (prod) and `frontend/.env.staging` (staging) — public by design (D14)         |
+| CI plumbing (gitops deploy key)                                                                             | GitHub Actions secret `MAXTERVIEW_SSH`                                                                             |
+| The Neon MCP's API key                                                                                      | root `.env` (direnv-exported; the app never reads it)                                                              |
+| Deployed objects                                                                                            | namespace **`maxterview`** (own namespace; diagram/portfolio still share `default`)                                |
 
 **Promotion is continuous:** every green `main` builds → Trivy-scans → smoke-tests → CD's
 `update-gitops-repo` job bumps the pinned tag in `gitops` → Argo syncs, and the PreSync Job applies
