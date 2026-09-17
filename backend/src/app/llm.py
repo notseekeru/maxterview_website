@@ -37,7 +37,7 @@ class LLMConfig:
 
     Threaded into every LLM call instead of the module globals, because the target became
     per-owner as soon as BYOK existed (app/byok.py). `byok` marks user-supplied credentials:
-    they change WHO pays, which the chat quota and GET /usage branch on.
+    they change WHO pays, which the chat quota (tier cap -> flat BYOK ceiling) and GET /usage branch on.
     """
 
     base_url: str

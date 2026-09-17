@@ -504,28 +504,30 @@ def test_complete_auto_retry_stops_on_first_success(client, monkeypatch):
 # --- BYOK settings (app/byok.py, BYOK.md) ---
 
 
-def test_byok_chat_turn_skips_the_quota(client, monkeypatch):
-    # BYOK pays the provider, not us: the turn must pass with zero credits left and must not
-    # be metered. Both halves are asserted, since either one alone is a silent billing bug.
+def test_byok_chat_turn_skips_the_tier_quota_but_is_still_metered(client, monkeypatch):
+    # BYOK pays the provider, not us: the turn must pass with the TIER's credits exhausted, and the
+    # tier must not even be resolved. It IS metered, and the flat BYOK ceiling still gates it - a
+    # self-asserted flag that waived both the cap and the counter is a free ride (BYOK.md).
     from cryptography.fernet import Fernet
 
     from app import billing, byok, llm
 
     monkeypatch.setenv("BYOK_ENCRYPTION_KEY", Fernet.generate_key().decode())
     byok._fernet.cache_clear()
-    bumps = {"n": 0}
+    seen = {"tiers": 0, "bumps": 0}
 
-    async def _no_quota(_tier, _owner):
-        return 0
+    async def _count_tier(*_args, **_kwargs):
+        seen["tiers"] += 1
+        return "free"
 
     async def _count_bump(_owner):
-        bumps["n"] += 1
+        seen["bumps"] += 1
 
     async def _fake_stream(_history, config):
         assert config.byok is True  # the owner's target, not the system one
         yield "Sure - "
 
-    monkeypatch.setattr(billing, "chat_turn_remaining", _no_quota)
+    monkeypatch.setattr(billing, "resolve_tier", _count_tier)
     monkeypatch.setattr(billing, "bump_chat_turn", _count_bump)
     monkeypatch.setattr(llm, "stream_chat", _fake_stream)
     try:
@@ -535,9 +537,84 @@ def test_byok_chat_turn_skips_the_quota(client, monkeypatch):
         r = client.post(f"/api/interviews/{iid}/chat/stream", json={"interview_id": iid, "content": "hi"})
         assert r.status_code == 200
         assert "Sure - " in r.text
-        assert bumps["n"] == 0  # unmetered
+        assert (seen["tiers"], seen["bumps"]) == (0, 1)  # tier skipped, turn metered
         assert client.get("/api/usage").json()["byok"] is True
         client.delete(f"/api/interviews/{iid}")
+    finally:
+        client.delete("/api/settings/llm")
+        byok._fernet.cache_clear()
+
+
+def test_byok_turns_stop_at_the_byok_ceiling(client, monkeypatch):
+    # The ceiling is the half of the waiver that is NOT negotiable, and it is the same number /usage
+    # reports, so the counter in the UI and the 402 can never disagree.
+    from cryptography.fernet import Fernet
+
+    from app import billing, byok
+
+    monkeypatch.setenv("BYOK_ENCRYPTION_KEY", Fernet.generate_key().decode())
+    monkeypatch.setattr(billing, "BYOK_CHAT_TURNS", 3)
+    byok._fernet.cache_clear()
+
+    async def _used(_owner):
+        return 3  # exactly at the ceiling
+
+    async def _refuse_to_meter(_owner):
+        raise AssertionError("a refused turn must not spend a credit")
+
+    monkeypatch.setattr(billing, "chat_turns_used", _used)
+    monkeypatch.setattr(billing, "bump_chat_turn", _refuse_to_meter)
+    try:
+        client.put("/api/settings/llm", json={"base_url": "https://api.example.com/v1", "model": "m", "api_key": "sk-unit-test-key-abcd"})
+        usage = client.get("/api/usage").json()
+        assert (usage["byok"], usage["chat_turns_per_day_dev"], usage["chat_turns_remaining_today"]) == (True, 3, 0)
+        iid = client.post("/api/interviews", json={"role": "BYOK ceiling"}).json()["id"]
+        client.post(f"/api/interviews/{iid}/start")
+        r = client.post(f"/api/interviews/{iid}/chat/stream", json={"interview_id": iid, "content": "hi"})
+        assert r.status_code == 402
+        assert "your own provider" in r.json()["detail"]  # not an upsell: premium has the same ceiling
+        client.delete(f"/api/interviews/{iid}")
+    finally:
+        client.delete("/api/settings/llm")
+        byok._fernet.cache_clear()
+
+
+def test_byok_refuses_this_deployments_provider_and_its_network(client, monkeypatch):
+    # Two rules, both about THIS deployment: its own provider while that needs no key (a junk key
+    # plus the higher BYOK ceiling = a free ride on our own GPU), and anything off the public
+    # internet (the backend makes the call, so a private base_url is a probe into our network).
+    # Everyone else's provider stays available - see the last phase.
+    from cryptography.fernet import Fernet
+
+    from app import byok, llm
+
+    monkeypatch.setenv("BYOK_ENCRYPTION_KEY", Fernet.generate_key().decode())
+    monkeypatch.setattr(llm, "SYSTEM_CONFIG", llm.LLMConfig(base_url="http://100.64.2.2:8080/v1", model="qwen", api_key=""))
+    byok._fernet.cache_clear()
+    try:
+        refused = (
+            "http://100.64.2.2:8080/v1",  # the system provider, as written
+            "http://100.64.2.2:8080/other",  # ...any path on that listener
+            "https://100.64.2.2:8080",  # ...in its https spelling
+            "http://[::ffff:100.64.2.2]:8080/v1",  # ...and as a mapped IPv6 literal
+            "http://100.64.2.9:8080/v1",  # the next box on the tailnet
+            "http://10.1.2.3:11434/v1",  # the LAN, and the k8s service range
+            "http://192.168.1.10:11434/v1",  # a LAN box (someone's Ollama)
+            "http://127.0.0.1:11434/v1",  # the pod itself
+            "http://169.254.169.254/v1",  # node metadata
+        )
+        for url in refused:
+            assert client.put("/api/settings/llm", json={"base_url": url, "model": "m", "api_key": ""}).status_code == 422, url
+
+        # Rule 1 on its own: a KEYLESS system provider on a public host is still ours to defend.
+        monkeypatch.setattr(llm, "SYSTEM_CONFIG", llm.LLMConfig(base_url="http://9.9.9.9:8080/v1", model="qwen", api_key=""))
+        assert client.put("/api/settings/llm", json={"base_url": "http://9.9.9.9:8080/v1", "model": "qwen", "api_key": ""}).status_code == 422
+
+        # ...and the moment it needs a key (the documented deepseek swap) the same origin is fine:
+        # an owner bringing their OWN key for the provider we happen to pay is not abusing anything.
+        monkeypatch.setattr(llm, "SYSTEM_CONFIG", llm.LLMConfig(base_url="https://9.9.9.9/v1", model="managed", api_key="sk-deployment-key"))
+        assert client.put("/api/settings/llm", json={"base_url": "https://9.9.9.9/v1", "model": "managed", "api_key": "sk-own-key-1234"}).status_code == 200
+        assert client.put("/api/settings/llm", json={"base_url": "http://93.184.216.34:1234/v1", "model": "m", "api_key": "sk-own-key-1234"}).status_code == 200
     finally:
         client.delete("/api/settings/llm")
         byok._fernet.cache_clear()

@@ -11,7 +11,9 @@ Simple tier model: Free / Premium / dev(-only). Backend-authoritative.
   development/test, so `dev` can never leak to production. Never persisted in `subscriptions`.
 - **Quotas**: a single daily chat-turn credits per owner is the only gate — free = 30,
   premium = 250, dev = 500 (across ALL the owner's interviews in one UTC day). No
-  per-interview cap and no token metering (decisions 2026-08-23 / this change).
+  per-interview cap and no token metering (decisions 2026-08-23 / this change). An owner on their
+  own provider (BYOK) trades the tier cap for the flat, higher `BYOK_CHAT_TURNS` ceiling: the cap
+  is never WAIVED, and every turn is metered either way (see `chat_turn_limit`).
 - **Reset is LAZY**: `day` is part of the `turn_usage` PK, so a new UTC day simply has no row yet;
   the first turn inserts `(owner_id, today, 1)`. There is no cron/job and no global `UPDATE`. Do NOT
   add a scheduled reset (e.g. `UPDATE turn_usage SET turns = 0 WHERE day < today`) — that turns
@@ -32,6 +34,10 @@ from app.models import ClerkUser
 FREE_CHAT_TURNS = int(os.getenv("FREE_CHAT_TURNS", "30"))
 PREMIUM_CHAT_TURNS = int(os.getenv("PREMIUM_CHAT_TURNS", "250"))
 DEV_CHAT_TURNS = int(os.getenv("DEV_CHAT_TURNS", "500"))  # dev > premium
+# BYOK: the owner's own provider pays, so the TIER cap is not the gate - this flat ceiling is. A
+# waived cap would make the self-asserted `byok` flag a free ride on whoever's GPU `base_url` names
+# (BYOK.md). Flat across tiers on purpose: BYOK is a different payer, not an upgrade.
+BYOK_CHAT_TURNS = int(os.getenv("BYOK_CHAT_TURNS", "1000"))
 
 LIMITS = {
     "free": {"chat_turns": FREE_CHAT_TURNS},
@@ -82,6 +88,14 @@ def _quota(tier: str, what: str) -> float:
     return limits[what]
 
 
+def chat_turn_limit(tier: str | None) -> int:
+    """Daily chat-turn ceiling: `tier`'s, or the flat BYOK one when the tier is None.
+
+    None MEANS BYOK (the caller must not resolve a tier it has no other use for); it is never
+    "uncapped" - see BYOK_CHAT_TURNS."""
+    return BYOK_CHAT_TURNS if tier is None else int(_quota(tier, "chat_turns"))
+
+
 def _utc_day() -> date:
     return datetime.now(UTC).date()
 
@@ -95,9 +109,8 @@ async def chat_turns_used(owner_id: str) -> int:
     return (row["turns"] or 0) if row else 0
 
 
-async def chat_turn_remaining(tier: str, owner_id: str) -> int:
-    limit = _quota(tier, "chat_turns")
-    return max(0, int(limit) - await chat_turns_used(owner_id))
+async def chat_turn_remaining(tier: str | None, owner_id: str) -> int:
+    return max(0, chat_turn_limit(tier) - await chat_turns_used(owner_id))
 
 
 async def bump_chat_turn(owner_id: str) -> None:

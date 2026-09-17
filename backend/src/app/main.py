@@ -319,15 +319,18 @@ async def regenerate_feedback(
 async def get_usage(user: CurrentUser, config: LLMConfigDep) -> dict:
     """Cheap quota status: tier + the daily GLOBAL chat-turn dial (per owner, all interviews)."""
     tier = await billing.resolve_tier(user)
-    chat = int(billing._quota(tier, "chat_turns"))
+    # BYOK trades the tier cap for the flat BYOK ceiling (chat_stream gates on this same number), so
+    # `chat` is this owner's effective limit - the UI computes `limit - remaining` and would otherwise
+    # show a negative `used` (lib/api.ts).
+    chat = billing.chat_turn_limit(None if config.byok else tier)
     used = await billing.chat_turns_used(user.sub)
     return {
         "tier": tier,
         f"chat_turns_per_day_{tier}": chat,
         "chat_turns_used_today": used,
         "chat_turns_remaining_today": max(0, chat - used),
-        # BYOK: the turns run on the owner's provider account, so the quota is not enforced
-        # (see chat_stream) and the UI says so instead of showing a stale number.
+        # BYOK: the turns run on the owner's provider account, so the TIER quota is not what gates
+        # them; the ceiling above is, and the UI says which payer this is.
         "byok": config.byok,
         # How money becomes premium, plus when the paid time lapses. Period mode does not
         # auto-renew, so the UI must show the expiry and must not offer a cancel that cancels
@@ -441,17 +444,18 @@ async def chat_stream(
             detail="This interview has asked all of its questions. Press Complete to get your feedback, or start a new interview with a wider question mix.",
         )
 
-    # BYOK pays the provider, not us, so the daily cap does not apply and no turn is metered
-    # (see /usage). resolve_tier is skipped with it: nothing else in this path needs the tier.
-    if not config.byok:
-        tier = await billing.resolve_tier(user)
-        if await billing.chat_turn_remaining(tier, user.sub) == 0:
-            raise HTTPException(
-                status_code=status.HTTP_402_PAYMENT_REQUIRED,
-                detail="Daily chat-turn credits reached. Try again after midnight UTC, or upgrade to premium.",
-            )
+    # BYOK pays the provider, not us, so the TIER cap is not the gate - the flat billing.BYOK_CHAT_TURNS
+    # ceiling is, and the turn is metered either way: `byok` is self-asserted, and a waived + unmetered
+    # cap is a free ride on whoever's GPU the owner's base_url names (BYOK.md). tier=None IS that BYOK
+    # signal, which is what keeps resolve_tier out of this path: nothing else here needs the tier.
+    tier = None if config.byok else await billing.resolve_tier(user)
+    if await billing.chat_turn_remaining(tier, user.sub) == 0:
+        raise HTTPException(
+            status_code=status.HTTP_402_PAYMENT_REQUIRED,
+            detail=(f"Daily chat-turn limit reached ({billing.BYOK_CHAT_TURNS} turns/day on your own provider). Try again after midnight UTC." if config.byok else "Daily chat-turn credits reached. Try again after midnight UTC, or upgrade to premium."),
+        )
 
-        await billing.bump_chat_turn(user.sub)
+    await billing.bump_chat_turn(user.sub)
 
     # A trailing user turn means an earlier attempt died before its reply was written (killed worker,
     # client abort): this send is that turn's retry, so it REPLACES it. Doing it only here, past the

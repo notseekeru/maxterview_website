@@ -31,7 +31,8 @@ Unset → BYOK is **off**: `GET /settings/llm` reports `enabled: false`, writes 
 | Resolution | per request, in the `LLMConfigDep` dependency: a usable BYOK row REPLACES `LLM_*` entirely (base URL, model, key — grader included). No row / BYOK off / undecryptable row → `llm.SYSTEM_CONFIG`. |
 | Never returned | no endpoint echoes the key. `PUT` answers the same shape as `GET` (hint only). `POST /settings/llm/test` returns a short status reason, never a provider body (which can echo the request, and the request carries the key). |
 | Reuse | `api_key: ""` on `PUT` keeps the stored key, so base URL and model stay editable without re-pasting. **A key is optional**: on the first save an empty key saves a keyless row — the right answer for self-hosted endpoints (Ollama, llama.cpp, vLLM) that authenticate nothing. No key = no `Authorization` header. |
-| Quota | BYOK turns skip the daily chat-turn cap and are not metered (`/usage` → `byok: true`, `MONETIZATION.md` §2). The owner pays their provider; the tier label is unchanged. |
+| Quota | BYOK swaps the TIER cap for a flat, higher ceiling (`BYOK_CHAT_TURNS`, default 1000/day) and the turns stay metered (`/usage` → `byok: true`, `MONETIZATION.md` §2). The cap is never waived: it is self-asserted, so a waiver would be a free ride on whoever's GPU the `base_url` names. The tier label is unchanged. |
+| Destinations | two refusals at save (`_base_url`): this deployment's own `LLM_*` origin **while it needs no key**, and anything off the public internet (`is_global`, IP literal or resolved name). Every public provider is allowed, including the one this deployment happens to use — bring your own key for it and nothing is being abused (see the threat notes). |
 | Availability | every tier, including free. Not a premium perk. |
 | Removal | `DELETE /settings/llm` drops the row; the next call is back on the system provider. |
 
@@ -64,20 +65,22 @@ space or newline is a malformed (or injected) request.
 - **In transit:** the browser→backend hop carries the key once, over TLS in deployed envs.
 - **Provider sees the key:** it is the client for that provider, by design. The key is sent only
   to the base URL the owner typed.
-- **SSRF surface (accepted):** `base_url` is attacker-controlled. The impact is bounded by
+- **SSRF surface (bounded 2026-09-14):** `base_url` is attacker-controlled. The impact is bounded by
   construction — every call is a `POST {base_url}/chat/completions` (no arbitrary method/path),
   and no raw provider response body ever reaches the caller (`_completion` returns `None` → `503`;
-  the probe returns a status-class reason only). Two gaps the bound does not cover: `public_view`
-  echoes the *system* provider's `base_url`, so the cluster's own upstream (today a Tailscale
-  address) is advertised to every signed-in owner — saving it as BYOK with a junk key is capless by
-  design and free-rides the system model; and a `base_url` pointing at `10.0.0.0/8`, `172.16/12`,
-  `192.168/16`, `100.64/10` (CGNAT/Tailscale), `169.254/16`, `127/8` or a cluster service is a probe
-  into internal networks with an attacker-chosen `Authorization` header.
-  **Planned (deferred): a private-IP/host deny-list behind `BYOK_ALLOW_PRIVATE_HOSTS`, default off.**
-  A flat deny-list is wrong for this repo's own future: this is meant to be open source, and a
-  self-hosted fork (or a recruiter testing against their own Ollama/LM Studio on `localhost`) needs
-  to point BYOK at a private address on purpose — the flag keeps the hosted deployment safe while a
-  fork flips one env var. Do that work when BYOK becomes a public feature, not before.
+  the probe returns a status-class reason only). On top of that, `_base_url` refuses at save time:
+  anything that is not on the public internet (`is_global` — RFC1918, CGNAT/Tailscale `100.64/10`,
+  loopback, link-local/IMDS, ULA, reserved, as an IP literal **or** as a name that resolves into
+  one), and this deployment's own `LLM_*` origin **while it needs no key**. So "probe my network"
+  and "free-ride my own model with a junk key" are both closed; every public provider still works.
+  What remains: DNS rebinding (the check resolves once at save, so a name can be public then and
+  private at call time — re-check per call or deny private egress at the network layer if BYOK
+  becomes a public feature), and a public KEYLESS endpoint picked precisely to free-ride *someone
+  else's* GPU, which is nobody-here's cost. `BYOK_ALLOW_PRIVATE_HOSTS=true` lifts the private
+  refusal for a single-operator fork whose own box runs the model: on a hosted deployment
+  `localhost` would mean the pod, not the user's laptop, which is why it is off by default.
+  `public_view` still echoes `system.base_url` to every signed-in owner (the settings panel shows
+  it as "System default"); harmless now, since that address is exactly what BYOK refuses.
 - **Prompt injection:** unchanged — the key is not part of any prompt, and the transcript guard in
   `llm.INJECTION_GUARD` still applies.
 - **A BYOK owner can weaken their own grading** by pointing at a weak model; that is their

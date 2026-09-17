@@ -28,9 +28,10 @@ export function LLMProviderCard() {
 
     const apply = useCallback((s: LLMProviderStatus) => {
         setStatus(s);
-        // Prefill with the saved provider, or with the system default as a starting point.
-        setBaseUrl(s.byok ? s.base_url : s.system.base_url);
-        setModel(s.byok ? s.model : s.system.model);
+        // Prefill with the SAVED provider only. The system default is not a valid BYOK target (the
+        // backend refuses its origin), so seeding the form with it only guarantees a 422 on save.
+        setBaseUrl(s.byok ? s.base_url : "");
+        setModel(s.byok ? s.model : "");
     }, []);
 
     const load = useCallback(async () => {

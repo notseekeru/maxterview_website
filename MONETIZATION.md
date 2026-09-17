@@ -48,18 +48,23 @@ Implemented in `app/billing.py` + `app/main.py`.
   (upsert +1 on `(owner_id, today)`). Over → **`402 Payment Required`**. May 402 mid-interview
   once the owner burns today's credits across ALL their interviews.
   Caps: free 30/day, premium 250/day, dev 500/day.
-- **BYOK bypasses the cap** (2026-09-13): when the owner saves their own provider key
-  (`/app/settings/system`, see `BYOK.md`), the turns run on their account, so the check and
-  `bump_chat_turn` are skipped and `GET /usage` returns `byok: true`. The tier label stays:
-  BYOK is not an upgrade, it is a different payer. Nothing else in the tier model moves.
+  Caps: free 30/day, premium 250/day, dev 500/day.
+- **BYOK swaps the cap, it does not waive it** (2026-09-14, was "bypasses the cap"): when the owner
+  saves their own provider key (`/app/settings/system`, see `BYOK.md`), the turns run on their
+  account, so the TIER cap is replaced by the flat `BYOK_CHAT_TURNS` ceiling (default 1000/day) and
+  the turn is still metered. Both halves are load-bearing: `byok` is self-asserted, so an unmetered
+  waiver is a free ride on whoever's GPU the `base_url` names — uncountable, and (pointed at the
+  deployment's own `LLM_*`) free. `GET /usage` returns `byok: true`; the tier label stays: BYOK is
+  not an upgrade, it is a different payer. Nothing else in the tier model moves.
 - **Overage → lockout:** block new turns only. **Never delete, truncate, or hide existing
   user data** — reads stay fully available. Hard rule.
 - **No free trial.** Upgrade is a hard gate.
 - **Cache decision:** no cache-aside for the counters (DB-backed, per-user, low-frequency). `tier`
   cached in the JWT; JWKS cached in `auth.py`.
 - **Usage status (`GET /usage`):** returns `tier`, today's cap
-  (`chat_turns_per_day_<tier>`), and `chat_turns_used_today` / `chat_turns_remaining_today`
-  (computed from `turn_usage` for the caller) plus `byok` (`true` = own key, cap not enforced).
+  (`chat_turns_per_day_<tier>`, the EFFECTIVE one: the tier's, or the BYOK ceiling when the caller
+  brings a key), and `chat_turns_used_today` / `chat_turns_remaining_today`
+  (computed from `turn_usage` for the caller) plus `byok` (`true` = own key, higher ceiling).
   The frontend `/app` header shows a
   **Free / Premium / DEV tier label** (`UsageBadge`). `dev` is returned by the no-Clerk
   dev-fallback identity (see §0).

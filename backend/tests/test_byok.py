@@ -57,6 +57,73 @@ async def test_save_stores_ciphertext_and_only_a_hint(monkeypatch):
     assert hint == "1234"  # last 4 only: enough to identify the key in the UI, not to use it
 
 
+def test_offnet_predicate_covers_cgnat_and_internal_ranges():
+    # `is_global`, not `is_private`: this Python reports 100.64/10 (CGNAT, i.e. Tailscale) as NOT
+    # private, and that is where this deployment's own model lives. A regressed predicate reopens
+    # the free ride and the network probe at once.
+    for host in ("100.64.2.2", "100.64.2.9", "10.1.2.3", "172.16.5.5", "192.168.1.10", "127.0.0.1", "169.254.169.254", "::1", "fd00::1", "::ffff:100.64.2.2", "0.0.0.0"):
+        assert byok._offnet(host), host
+    for host in ("1.1.1.1", "93.184.216.34", "2606:4700:4700::1111", "api.deepseek.com"):
+        assert not byok._offnet(host), host
+
+
+async def test_private_endpoints_are_refused_unless_the_deployment_opts_in(monkeypatch):
+    # The BACKEND is the one making the request, so a private base_url is a probe into (and a free
+    # ride on) this deployment's own network - the tailnet, the LAN, the k8s API, node metadata. On a
+    # hosted deployment `localhost` means the pod, not the user's laptop; a single-operator fork that
+    # really does run Ollama on that box flips BYOK_ALLOW_PRIVATE_HOSTS.
+    calls = _capture(monkeypatch)
+    with pytest.raises(HTTPException) as refused:
+        await byok.save("user_byok", "http://localhost:11434/v1", "qwen3:8b", "")
+    assert refused.value.status_code == 422
+    assert not any(c[0].strip().upper().startswith("INSERT") for c in calls)  # refused before the write
+
+    monkeypatch.setattr(byok, "ALLOW_PRIVATE_HOSTS", True)
+    await byok.save("user_byok", "http://localhost:11434/v1", "qwen3:8b", "")
+    assert _write(calls)[1][1] == "http://localhost:11434/v1"
+
+
+async def test_a_name_pointing_into_the_network_is_refused(monkeypatch):
+    # `evil.example A 100.64.2.2` is one DNS record away, so the check has to run on what the name
+    # resolves to and not only on IP literals. (Resolver patched: hermetic, no real DNS in tests.)
+    async def _points_inside(_host):
+        return ["100.64.2.2"]
+
+    monkeypatch.setattr(byok, "_resolve", _points_inside)
+    _capture(monkeypatch)
+    with pytest.raises(HTTPException) as refused:
+        await byok.save("user_byok", "http://llama.internal:8080/v1", "qwen", "")
+    assert refused.value.status_code == 422
+
+
+async def test_a_name_that_does_not_resolve_is_not_refused(monkeypatch):
+    # An unresolvable name is allowed: the call fails at use time anyway, and a save must not hinge
+    # on this deployment's resolver being up (a transient lookup failure would lock the user out).
+    async def _nxdomain(_host):
+        return []
+
+    monkeypatch.setattr(byok, "_resolve", _nxdomain)
+    calls = _capture(monkeypatch, existing=None)
+    await byok.save("user_byok", "https://api.example.com/v1", "m", "")
+    assert _write(calls)[1][1] == "https://api.example.com/v1"
+
+
+async def test_the_deployments_own_provider_is_refused_only_while_it_needs_no_key(monkeypatch):
+    # Keyless system provider (a self-hosted model): BYOK pointed back at it with a junk key is a
+    # free ride at the higher BYOK ceiling. Keyed system provider (the documented managed swap): no
+    # free ride exists, so the same origin must stay saveable - it is how an owner brings THEIR key
+    # for the provider this deployment happens to pay for.
+    _capture(monkeypatch)
+    monkeypatch.setattr(llm, "SYSTEM_CONFIG", llm.LLMConfig(base_url="http://93.184.216.34:8080/v1", model="qwen", api_key=""))
+    with pytest.raises(HTTPException) as refused:
+        await byok.save("user_byok", "http://93.184.216.34:8080/v1", "qwen", "sk-junk-key-1234")
+    assert refused.value.status_code == 422
+
+    monkeypatch.setattr(llm, "SYSTEM_CONFIG", llm.LLMConfig(base_url="https://9.9.9.9/v1", model="managed", api_key="sk-deployment-key"))
+    await byok.save("user_byok", "https://9.9.9.9/v1", "managed", "sk-own-key-1234")
+    assert byok._origin("https://9.9.9.9/v1") == byok._origin(llm.SYSTEM_CONFIG.base_url)
+
+
 async def test_update_without_a_key_reuses_the_stored_ciphertext(monkeypatch):
     stored = {"base_url": "https://old", "model": "old", "api_key": "cipher-old", "key_hint": "9999"}
     calls = _capture(monkeypatch, existing=stored)
@@ -68,9 +135,10 @@ async def test_update_without_a_key_reuses_the_stored_ciphertext(monkeypatch):
 
 async def test_first_save_without_a_key_is_a_keyless_row(monkeypatch):
     # Self-hosted BYOK (Ollama/llama.cpp/vLLM): no key exists, and none is required. Stored as the
-    # encrypted empty string so "empty = keep the key" stays one uniform rule.
+    # encrypted empty string so "empty = keep the key" stays one uniform rule. The endpoint is a
+    # PUBLIC one: a private address is refused by default, see the ALLOW_PRIVATE_HOSTS test below.
     calls = _capture(monkeypatch, existing=None)
-    await byok.save("user_byok", "http://localhost:11434/v1", "qwen3:8b", "")
+    await byok.save("user_byok", "http://93.184.216.34:11434/v1", "qwen3:8b", "")
 
     _, args = _write(calls)
     assert args[3] != ""  # still ciphertext, not a bare empty string

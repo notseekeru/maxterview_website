@@ -145,15 +145,17 @@ export type Tier = "free" | "premium" | "dev";
 
 export interface Usage {
     tier: Tier;
-    /** Per-tier daily cap for the caller's OWN tier — the server reports only that one, so a
-     *  page may never assume another tier's number from here (see lib/plans.ts for marketing). */
+    /** The caller's EFFECTIVE daily cap: their tier's, or the flat, higher BYOK ceiling when
+     *  `byok` is set. The server reports only the caller's own tier key, so a page may never
+     *  assume another tier's number from here (see lib/plans.ts for marketing). */
     chat_turns_per_day_free?: number;
     chat_turns_per_day_premium?: number;
     chat_turns_per_day_dev?: number;
     /** Turns already spent today (UTC) against the daily global cap. */
     chat_turns_used_today?: number;
     chat_turns_remaining_today?: number;
-    /** Turns run on the owner's own provider key, so the daily cap is not enforced. */
+    /** Turns run on the owner's own provider key: the TIER cap is swapped for the higher BYOK
+     *  ceiling above, never waived, and the turns are still metered. */
     byok?: boolean;
     /** How a payment becomes premium: `period` = one-time top-up with no auto-renew. */
     billing_mode?: "period" | "subscription";

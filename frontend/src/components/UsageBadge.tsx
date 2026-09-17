@@ -38,15 +38,16 @@ export function UsageBadge() {
         <div className="flex min-w-0 flex-col gap-1">
             <div className="flex flex-wrap items-center gap-2">
                 {!clerkEnabled && !isDev && <Badge className="bg-muted text-muted-foreground">DEV</Badge>}
-                {/* BYOK: turns run on the user's own provider account, so the daily cap is not enforced. */}
+                {/* BYOK: the turns run on the user's own provider account, so the tier cap is swapped
+                    for the higher (still finite) BYOK ceiling the server reports above. */}
                 {usage.byok && (
-                    <Badge variant="secondary" title="Your own provider key pays for the turns; the daily chat-turn limit does not apply.">
+                    <Badge variant="secondary" title={`Your own provider key pays for the turns: a higher daily ceiling applies (${today?.limit ?? 0} turns).`}>
                         BYOK
                     </Badge>
                 )}
                 {tierBadge}
             </div>
-            {today && !usage.byok && (
+            {today && (
                 <span className="truncate text-[11px] text-muted-foreground" title={`${today.remaining} of ${today.limit} daily chat turns left. Resets at 00:00 UTC.`}>
                     {today.remaining} of {today.limit} turns left today
                 </span>
