@@ -178,12 +178,13 @@ This repo is the **app source**; the gitops repo holds the Kubernetes manifests.
    `CLERK_DOMAIN`/`CLERK_JWKS_URL`/`CLERK_AUDIENCE`, `LLM_*` and `BYOK_ENCRYPTION_KEY`, wired into
    `kubectl_manifest.gitops_app`'s `depends_on`. Keys are **UPPERCASE and named exactly as the env vars the
    app reads** — the Deployment injects the whole secret via `envFrom`, so one malformed key blocks the pod.
-   **Gap:** Terraform declares `PAYMONGO_SECRET_KEY`/`PAYMONGO_WEBHOOK_SECRET` (renamed from the dead
-   `STRIPE_*`) and both `TF_VAR_MAXTERVIEW_PAYMONGO_*` values now sit in Infisical — the live `sk_live_` key
-   plus the secret of the endpoint registered for `https://maxterview.seekeru.tech/api/billing/webhook`
-   (2026-09-17) — but the in-cluster Secret still carries the old `STRIPE_*` shape, so deployed
-   `/api/billing/*` answers 503 until `make apply MOD=k3s ENV=prod` runs **and the pod restarts** (env comes
-   from `envFrom` at container start: a fresh image tag or a rollout restart does it).
+   **Wired (2026-09-17):** Terraform declares `PAYMONGO_SECRET_KEY`/`PAYMONGO_WEBHOOK_SECRET` (renamed from
+   the dead `STRIPE_*`), both `TF_VAR_MAXTERVIEW_PAYMONGO_*` values are in Infisical — the live `sk_live_` key
+   and the secret of the `payment.paid` endpoint registered for
+   `https://maxterview.seekeru.tech/api/billing/webhook` — and the apply + pod restart landed: the in-cluster
+   Secret carries both keys, a signed live-format delivery answers `200 ok` and an unsigned one `400`.
+   Env arrives via `envFrom` at container start, so a future rotation needs a fresh image tag or a rollout
+   restart. Remaining: one real ₱499 payment (the entitlement flip is provider-driven).
    Never `kubectl apply` secrets and never commit them; Terraform owns them.
 
    The in-cluster Postgres and its `postgres-credentials` secret stay as they are — they serve `diagram`.
@@ -222,7 +223,7 @@ PVC, no StatefulSet, and no DB backup/upgrade work in-cluster.
   2,932 CPU-s / 3.2 h active over 5 days (2026-09-17), so the 100 CU-h free budget is not at risk at this
   traffic (`-1` is the API's never-suspend value); the free history window is 6 h, so snapshot before each prod
   migration. In exchange you get durability, backups, and disposable branches for testing.
-- **Identity is prod-grade, payments are not:** the backend verifies against the Clerk **production** instance (`clerk.seekeru.tech`, JWKS live) and the SPA's committed `pk_live_` (`frontend/.env.production`, public by design — D14) names the same instance. PayMongo is **not deployed yet** — `maxterview-secrets` gets `PAYMONGO_*` from Terraform but those vars are empty (billing 503s until the Infisical values land); live keys also need a Fully Verified account. Every deployed value comes from one Infisical environment (`prod`, `SECRETS_PATH=/consumers/terraform`). Pre-launch swaps: PayMongo keys + endpoint secret (PLAN §7, `MONETIZATION.md` §3).
+- **Identity is prod-grade, and so is the payment wiring — only the charge is unproven:** the backend verifies against the Clerk **production** instance (`clerk.seekeru.tech`, JWKS live) and the SPA's committed `pk_live_` (`frontend/.env.production`, public by design — D14) names the same instance. PayMongo runs on the account's **live** `sk_live_` key (Fully Verified) with the `payment.paid` endpoint registered and its secret applied to `maxterview-secrets` — no real ₱499 has been taken yet (PLAN §7, `MONETIZATION.md` §3). Every deployed value comes from one Infisical environment (`prod`, `SECRETS_PATH=/consumers/terraform`).
 - Local dev and CI keep the Postgres container / service; only the deployed DSNs change, and prod/staging are
   **separate Neon projects** (D11) — branches are disposable-only, inside staging. (`NEON_API_KEY`
   for the MCP server also lives in root `.env`, which compose injects into the backend container — the app
@@ -295,5 +296,5 @@ basic key is account-wide, so there is no branch-level protection between the ag
 - **M14** (OKF / structured-output hardening) — **OKF not started**: no bundle exists, the interviewer's knowledge is still prompt strings. Its structured-output _prerequisite_ shipped (2026-09-11): `response_format=json_schema` + greedy decoding on the grader→formatter surface. OKF bundles are the markdown+frontmatter format M15 RAG will ingest.
 - **M15** (RAG / retrieval-augmented interviewing) — future enhancement, not started (`PLAN.md`).
 - **M16** (live voice interview — TTS + STT + webcam illusion) — future enhancement, not started (`PLAN.md`).
-- **M17** (Neon environments & dedicated DB) — **live since 2026-09-12, hardening left**: one Neon project (`neon_maxterview_website`, `production` branch) with all of `0001`–`0012` applied by the in-cluster PreSync Job (verified 2026-09-16); namespace + `maxterview-secrets` come from Terraform; the app serves `maxterview.seekeru.tech`. **Open:** `make apply MOD=k3s ENV=prod` so the pod env carries `PAYMONGO_*` + a pod restart (Infisical holds the live key and the registered endpoint's secret, the in-cluster Secret is still the old `STRIPE_*` shape ⇒ `/api/billing/*` 503s, 2026-09-17); a live ₱499 payment proof; migrator-role split + app-DSN swap (`MIGRATE_DATABASE_URL` empty ⇒ the PreSync Job migrates as the owner DSN); the staging project (D11/D13). Neon quota is **not** a risk — 2,932 CPU-s of 100 CU-h used and scale-to-zero is on (`0` = plan default; the earlier "≈180 CU-h/month idle" reading was wrong).
+- **M17** (Neon environments & dedicated DB) — **live since 2026-09-12, hardening left**: one Neon project (`neon_maxterview_website`, `production` branch) with all of `0001`–`0012` applied by the in-cluster PreSync Job (verified 2026-09-16); namespace + `maxterview-secrets` come from Terraform; the app serves `maxterview.seekeru.tech`. **Open:** one real ₱499 payment proof — the wiring itself is live (secret applied + pod restart, signed delivery `200 ok` / unsigned `400`, verified 2026-09-17); migrator-role split + app-DSN swap (`MIGRATE_DATABASE_URL` empty ⇒ the PreSync Job migrates as the owner DSN); the staging project (D11/D13). Neon quota is **not** a risk — 2,932 CPU-s of 100 CU-h used and scale-to-zero is on (`0` = plan default; the earlier "≈180 CU-h/month idle" reading was wrong).
 - **M18** (load & performance testing) — docs-first, not built: staging-only k6 profiles, off-node generator, **STUB_MODE** for app capacity vs a real-model canary for provider capacity; single-VU runs measure the rate limiter (2 rps/client IP), so the unit is _concurrent open chats_. Needs M13 + staging (D13).
