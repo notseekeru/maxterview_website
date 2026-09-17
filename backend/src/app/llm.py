@@ -12,7 +12,7 @@ from app.models import DECISIONS, ChatMessage, Dials, FeedbackSummary
 
 log = structlog.get_logger(__name__)
 
-# --- config (D7): OpenAI-compatible, local on dev, DeepSeek on prod ---
+# --- config (D7): OpenAI-compatible, one self-hosted qwen for dev AND prod (DeepSeek deferred) ---
 LLM_BASE_URL = os.getenv("LLM_BASE_URL", "").rstrip("/")
 LLM_MODEL = os.getenv("LLM_MODEL", "")
 LLM_API_KEY = os.getenv("LLM_API_KEY", "")

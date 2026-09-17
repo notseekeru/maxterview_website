@@ -103,9 +103,10 @@ elsewhere.
 ---
 
 > **Local llama.cpp caveat:** some llama.cpp builds return HTTP 500 to **non-streaming**
-> `/chat/completions` when called via httpx, so auto-feedback can come back empty against a local
-> llama.cpp (the streaming chat path is unaffected). Use a chat/OpenAI-compatible provider
-> (e.g. DeepSeek) for structured feedback output. See `backend/.env.example`.
+> `/chat/completions` when called via httpx, which would make auto-feedback come back empty (the
+> streaming chat path is unaffected). The shipped build does not: prod has real grader output for
+> 4/4 completed interviews — verdict, scores and tips (verified 2026-09-17). Keep the fallback in
+> mind if the model server is ever swapped. See `backend/.env.example`.
 >
 > The stage-2 formatter asks for grammar-constrained JSON (`response_format=json_schema`, greedy
 > decoding) and transparently retries with `json_object` when a provider rejects the schema, so
