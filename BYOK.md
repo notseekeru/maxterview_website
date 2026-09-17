@@ -67,8 +67,17 @@ space or newline is a malformed (or injected) request.
 - **SSRF surface (accepted):** `base_url` is attacker-controlled. The impact is bounded by
   construction — every call is a `POST {base_url}/chat/completions` (no arbitrary method/path),
   and no raw provider response body ever reaches the caller (`_completion` returns `None` → `503`;
-  the probe returns a status-class reason only). A private-host/IP allow-list is the upgrade path
-  if that ever changes (e.g. a GET probe or an echoed body).
+  the probe returns a status-class reason only). Two gaps the bound does not cover: `public_view`
+  echoes the *system* provider's `base_url`, so the cluster's own upstream (today a Tailscale
+  address) is advertised to every signed-in owner — saving it as BYOK with a junk key is capless by
+  design and free-rides the system model; and a `base_url` pointing at `10.0.0.0/8`, `172.16/12`,
+  `192.168/16`, `100.64/10` (CGNAT/Tailscale), `169.254/16`, `127/8` or a cluster service is a probe
+  into internal networks with an attacker-chosen `Authorization` header.
+  **Planned (deferred): a private-IP/host deny-list behind `BYOK_ALLOW_PRIVATE_HOSTS`, default off.**
+  A flat deny-list is wrong for this repo's own future: this is meant to be open source, and a
+  self-hosted fork (or a recruiter testing against their own Ollama/LM Studio on `localhost`) needs
+  to point BYOK at a private address on purpose — the flag keeps the hosted deployment safe while a
+  fork flips one env var. Do that work when BYOK becomes a public feature, not before.
 - **Prompt injection:** unchanged — the key is not part of any prompt, and the transcript guard in
   `llm.INJECTION_GUARD` still applies.
 - **A BYOK owner can weaken their own grading** by pointing at a weak model; that is their
