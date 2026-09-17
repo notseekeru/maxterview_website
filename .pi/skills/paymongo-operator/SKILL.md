@@ -166,6 +166,24 @@ curl -sS -X POST localhost:8000/api/billing/webhook -H "Paymongo-Signature: t=$t
   -H 'Content-Type: application/json' --data-binary @body.json
 ```
 
+### Registering an endpoint (learned the hard way, 2026-09-17)
+
+- **Live and test registrations are separate lists.** `GET /v1/webhooks` only ever shows the mode of the
+  key you present, so a test-key `--list-webhooks` returning nothing says nothing about live (and vice
+  versa). Registering live means a raw `POST /v1/webhooks` with the `sk_live_` key (this skill's scripts
+  refuse live keys on purpose) or the dashboard.
+- **Event types are account-scoped.** `payment_intent.succeeded` is rejected in live mode with
+  `parameter_invalid: … is an invalid event type`; register `payment.paid` (the event period mode emits).
+- **The signing secret is `whsk_…` (29 chars) and exact.** `--register-webhook` deliberately never prints
+  it; when you script the registration, store the byte-exact value — a trailing newline from a heredoc or
+  `jq -r > file` silently breaks every signature (`paymongo.webhook_signature` mismatches, money credited
+  nowhere). `jq -r` plus a shell capture (`printf '%s' "$(…)"`) or `jq -j` avoids it.
+- **The endpoint URL is the app's real origin**, e.g. `https://maxterview.seekeru.tech/api/billing/webhook`
+  — the `/api` prefix is part of the route, and PayMongo must be able to reach it from the internet.
+- **A secret change needs a pod restart.** The Deployment injects `maxterview-secrets` with `envFrom`, so
+  a rotated `PAYMONGO_WEBHOOK_SECRET` only reaches the app on the next container start (new image tag or
+  `kubectl rollout restart`).
+
 ---
 
 ## 7. Scripts

@@ -24,9 +24,12 @@ LIMIT=10
 DESC="Maxterview Premium (30 days)"
 URL=""
 PAYMENT_ID=""
-# Both are registered on the endpoint: either may be the only one a method emits, and the app's
-# period write is a compare-and-set, so a double delivery cannot buy two periods.
-EVENTS='["payment.paid","payment_intent.succeeded","payment.failed"]'
+# `payment.paid` is the event period mode emits and the only one this account accepts: live-mode
+# registration REJECTS `payment_intent.succeeded` ("invalid event type", verified 2026-09-17) and
+# `payment.failed` was never registered. The app still accepts `payment_intent.succeeded` for
+# accounts that do emit it, and its period write is a compare-and-set, so a duplicate or sibling
+# delivery cannot buy two periods.
+EVENTS='["payment.paid"]'
 
 for a in "$@"; do
   case "$a" in
