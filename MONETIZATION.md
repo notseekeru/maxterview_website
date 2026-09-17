@@ -13,7 +13,7 @@
 | ----------------------------------------- | -------------------------- | ------------------------------ | -------------------------- |
 | Interviews (creation)                     | **unlimited**              | **unlimited**                  | **unlimited**              |
 | Price                                     | ₱0                         | **₱499 / 30 days** (one payment)     | ₱0                         |
-| Chat turns / day (GLOBAL, all interviews) | **10** (`FREE_CHAT_TURNS`) | **250** (`PREMIUM_CHAT_TURNS`) | **500** (`DEV_CHAT_TURNS`) |
+| Chat turns / day (GLOBAL, all interviews) | **30** (`FREE_CHAT_TURNS`) | **250** (`PREMIUM_CHAT_TURNS`) | **500** (`DEV_CHAT_TURNS`) |
 | Free trial                                | none                       | —                              | —                          |
 
 - **Model change (this pass):** the gate moved from a **per-interview** turn cap to a
@@ -47,7 +47,7 @@ Implemented in `app/billing.py` + `app/main.py`.
   UTC day, check `turns_used(today) < limit` (reads `turn_usage`), then `bump_chat_turn`
   (upsert +1 on `(owner_id, today)`). Over → **`402 Payment Required`**. May 402 mid-interview
   once the owner burns today's credits across ALL their interviews.
-  Caps: free 10/day, premium 250/day, dev 500/day.
+  Caps: free 30/day, premium 250/day, dev 500/day.
 - **BYOK bypasses the cap** (2026-09-13): when the owner saves their own provider key
   (`/app/settings/system`, see `BYOK.md`), the turns run on their account, so the check and
   `bump_chat_turn` are skipped and `GET /usage` returns `byok: true`. The tier label stays:
@@ -194,7 +194,7 @@ CREATE TABLE IF NOT EXISTS turn_usage (
 | Shipped                                                                                                                                                      | Open                                                                                                      |
 | ------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------- |
 | Backend: `billing.py`, `payments.py` (period + subscription modes, cancel, webhook + dev simulate), `0002`/`0008` migrations | **Nothing blocking in code.** Production config still owed: set `TF_VAR_MAXTERVIEW_PAYMONGO_SECRET_KEY`/`_WEBHOOK_SECRET` in Infisical (Terraform declares them but they are empty, so deployed `/api/billing/*` 503s — verified 2026-09-16), register the webhook for `payment.paid` **and** `payment_intent.succeeded`, and get Fully Verified (DTI + BIR) for live keys. `CLERK_ENABLED=true` is already live in prod. **Subscriptions + Card Vaulting are needed only when/if `BILLING_MODE=subscription`** |
-| Caps: daily GLOBAL chat-turn per owner (free 10 / premium 250 / dev 500, UTC-day reset; `0004_global_chat_turns`); no per-interview / no daily-interview cap | —                                                                                                         |
+| Caps: daily GLOBAL chat-turn per owner (free 30 / premium 250 / dev 500, UTC-day reset; `0004_global_chat_turns`); no per-interview / no daily-interview cap | —                                                                                                         |
 | Frontend: usage badge, upsell/lockout notices, billing/plan page (`/app/settings/billing`)                                                                   | —                                                                                                         |
 | **Postgres-proof (2026-09-12):** activated/past_due/invoice.paid/payment_failed/cancelled transitions + fail-closed signature                                                                  | **Register the webhook** — the public URL now exists: `payments.sh --register-webhook --url=https://maxterview.seekeru.tech/api/billing/webhook`, then set its secret + the API key in Infisical (`TF_VAR_MAXTERVIEW_PAYMONGO_*`) and apply                                                                                      |
 | **PayMongo sandbox proof (2026-09-15):** real payment intent → Maya redirect → `payment.paid` → `active` + 30 days; replay-idempotent; a second purchase 409s | —                                                                                                                         |

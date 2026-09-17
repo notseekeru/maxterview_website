@@ -9,7 +9,7 @@ Simple tier model: Free / Premium / dev(-only). Backend-authoritative.
 - **`dev` tier**: only for the no-Clerk dev-fallback identity (`CLERK_ENABLED=false`, i.e. the
   fixed `DEV_USER`). `main.py`'s D2 guard refuses to boot with `CLERK_ENABLED=false` outside
   development/test, so `dev` can never leak to production. Never persisted in `subscriptions`.
-- **Quotas**: a single daily chat-turn credits per owner is the only gate — free = 10,
+- **Quotas**: a single daily chat-turn credits per owner is the only gate — free = 30,
   premium = 250, dev = 500 (across ALL the owner's interviews in one UTC day). No
   per-interview cap and no token metering (decisions 2026-08-23 / this change).
 - **Reset is LAZY**: `day` is part of the `turn_usage` PK, so a new UTC day simply has no row yet;
@@ -29,7 +29,7 @@ from app.models import ClerkUser
 
 # --- tier limits (env-overridable; MONETIZATION.md §0 placeholders) ---
 # Daily GLOBAL chat-turn credits PER OWNER, across all interviews in one UTC day.
-FREE_CHAT_TURNS = int(os.getenv("FREE_CHAT_TURNS", "10"))
+FREE_CHAT_TURNS = int(os.getenv("FREE_CHAT_TURNS", "30"))
 PREMIUM_CHAT_TURNS = int(os.getenv("PREMIUM_CHAT_TURNS", "250"))
 DEV_CHAT_TURNS = int(os.getenv("DEV_CHAT_TURNS", "500"))  # dev > premium
 

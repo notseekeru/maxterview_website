@@ -29,7 +29,7 @@ async def _async_none(*_args, **_kwargs):
 
 
 def test_quota_defaults():
-    assert _quota("free", "chat_turns") == 10
+    assert _quota("free", "chat_turns") == 30
     assert _quota("premium", "chat_turns") == 250
     assert _quota("dev", "chat_turns") == 500
 
@@ -64,12 +64,12 @@ async def test_chat_turns_used_defaults_zero_when_no_row(monkeypatch):
 
 
 async def test_chat_turn_remaining_uses_global_counter(monkeypatch):
-    # Used 7 across all interviews today -> free(10) has 3 left; premium(250) has 243.
+    # Used 7 across all interviews today -> free(30) has 23 left; premium(250) has 243.
     async def _fake(q, owner, day):
         return {"turns": 7}
 
     monkeypatch.setattr(billing, "fetchrow", _fake)
-    assert await billing.chat_turn_remaining("free", "o") == 3
+    assert await billing.chat_turn_remaining("free", "o") == 23
     assert await billing.chat_turn_remaining("premium", "o") == 243
     assert await billing.chat_turn_remaining("dev", "o") == 493
 
