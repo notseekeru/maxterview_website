@@ -20,9 +20,13 @@ CMD ["npm", "run", "dev", "--", "--host"]
 
 FROM base AS builder
 
-# No ARG: Vite reads frontend/.env.production (committed, public value) during `npm run build`.
-# The publishable key is not a secret — it ships in dist/assets/*.js by design.
-RUN npm run build
+# Two builds from one Dockerfile, chosen by mode (D14): the default reads the committed
+# frontend/.env.production, while the staging image is built with --build-arg VITE_MODE=staging and
+# reads frontend/.env.staging (the Development instance's pk_test_). Vite inlines VITE_* at build
+# time, so the choice has to happen here — runtime injection via nginx config.js is the
+# documented-but-unneeded alternative (9 files across 3 repos).
+ARG VITE_MODE=production
+RUN npm run build -- --mode "$VITE_MODE"
 
 FROM nginxinc/nginx-unprivileged:1.31.5@sha256:9d689e987337916e713a2d5fa84966550d9532e4cb512e7d6ad99df87ffe1ec8 AS prod
 

@@ -201,7 +201,7 @@ the secret store, the local stack, `APP_ENV`, the Clerk dev instance, and the `d
 | -------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
 | Deployed runtime config (`DATABASE_URL`, `MIGRATE_DATABASE_URL`, `CLERK_*`, `LLM_*`, `BYOK_ENCRYPTION_KEY`) | Infisical env **`prod`** (renamed from `dev` 2026-09-12) → Terraform → k8s Secret `maxterview-secrets` → `envFrom` |
 | Local dev runtime + dev Clerk/LLM/PayMongo keys                            | `backend/.env` (git-ignored) — prod and dev values are _supposed_ to differ                                        |
-| SPA build config (`VITE_CLERK_PUBLISHABLE_KEY`)                            | committed `frontend/.env.production` — public by design (D14)                                                      |
+| SPA build config (`VITE_CLERK_PUBLISHABLE_KEY`)                            | committed `frontend/.env.production` (prod) and `frontend/.env.staging` (staging) — public by design (D14)          |
 | CI plumbing (gitops deploy key)                                            | GitHub Actions secret `MAXTERVIEW_SSH`                                                                             |
 | The Neon MCP's API key                                                     | root `.env` (direnv-exported; the app never reads it)                                                              |
 | Deployed objects                                                           | namespace **`maxterview`** (own namespace; diagram/portfolio still share `default`)                                |

@@ -25,6 +25,9 @@ jobs:
             context: ./backend
             dockerfile: ./backend/Dockerfile
             image_suffix: maxterview_backend
+            tag_prefix: ""
+            latest: "true"
+            build_args: VITE_MODE=production
             port: 8000
             health_endpoint: /api/health
             # Scan shipped python runtime (app/.venv holds transitive wheels).
@@ -34,16 +37,45 @@ jobs:
             context: ./frontend
             dockerfile: ./frontend/Dockerfile
             image_suffix: maxterview_frontend
+            tag_prefix: ""
+            latest: "true"
+            build_args: VITE_MODE=production
             port: 8080
             health_endpoint: /
             # Nginx image has no venv; skip set is moot-noise only.
+            skip_dirs: "root/.cache,app/.venv,usr/local"
+          # Staging SPA: identical code, DIFFERENT build-time Clerk key (frontend/.env.staging =
+          # the Development instance's pk_test_ vs the committed pk_live_ for prod). D14's revisit
+          # trigger, landed as "one image per env" instead of nginx runtime injection. `latest`
+          # stays the prod SPA on purpose: the staging variant is only ever pulled by tag.
+          - name: frontend-staging
+            context: ./frontend
+            dockerfile: ./frontend/Dockerfile
+            image_suffix: maxterview_frontend
+            tag_prefix: staging-
+            latest: "false"
+            build_args: VITE_MODE=staging
+            port: 8080
+            health_endpoint: /
             skip_dirs: "root/.cache,app/.venv,usr/local"
     steps:
       - name: Checkout
         uses: actions/checkout@v7
 
-      - name: Set image name
-        run: echo "IMAGE=${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ matrix.service.image_suffix }}" >> $GITHUB_ENV
+      - name: Set image names
+        run: |
+          IMAGE="${REGISTRY}/${{ github.repository_owner }}/${{ matrix.service.image_suffix }}"
+          IMAGE_TAG="${IMAGE}:${{ matrix.service.tag_prefix }}${{ github.sha }}"
+          {
+            echo "IMAGE=${IMAGE}"
+            echo "IMAGE_TAG=${IMAGE_TAG}"
+            echo "PUSH_TAGS<<EOF"
+            echo "${IMAGE_TAG}"
+            # One image per env, and only the prod variants own `latest` — the staging SPA carries
+            # a pk_test_ and must never become the tag an unqualified pull resolves to.
+            if [ "${{ matrix.service.latest }}" = "true" ]; then echo "${IMAGE}:latest"; fi
+            echo "EOF"
+          } >> "$GITHUB_ENV"
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v4
@@ -67,7 +99,8 @@ jobs:
           target: prod
           load: true
           push: false
-          tags: ${{ env.IMAGE }}:${{ github.sha }}
+          tags: ${{ env.IMAGE_TAG }}
+          build-args: ${{ matrix.service.build_args }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -80,7 +113,7 @@ jobs:
             --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 \
             --skip-dirs "${{ matrix.service.skip_dirs }}" \
             --ignorefile /.trivyignore.yaml \
-            ${{ env.IMAGE }}:${{ github.sha }}
+            ${{ env.IMAGE_TAG }}
 
       - name: Run smoke container
         run: |
@@ -92,7 +125,7 @@ jobs:
           docker run -d --name smoke-${{ matrix.service.name }}-${{ github.run_id }} \
             -p 127.0.0.1:${{ matrix.service.port }}:${{ matrix.service.port }} \
             --env-file /tmp/smoke-env-${{ matrix.service.name }}.env \
-            ${{ env.IMAGE }}:${{ github.sha }}
+            ${{ env.IMAGE_TAG }}
 
       - name: Wait for service
         run: |
@@ -117,9 +150,8 @@ jobs:
           target: prod
           push: true
           platforms: linux/amd64,linux/arm64
-          tags: |
-            ${{ env.IMAGE }}:${{ github.sha }}
-            ${{ env.IMAGE }}:latest
+          tags: ${{ env.PUSH_TAGS }}
+          build-args: ${{ matrix.service.build_args }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -151,16 +183,29 @@ jobs:
 
       - name: Update Image Tags
         run: |
-          cd gitops/apps/maxterview
-          kustomize edit set image ghcr.io/notseekeru/maxterview_backend=ghcr.io/notseekeru/maxterview_backend:${{ github.sha }}
-          kustomize edit set image ghcr.io/notseekeru/maxterview_frontend=ghcr.io/notseekeru/maxterview_frontend:${{ github.sha }}
+          SHA=${{ github.sha }}
+          BE=ghcr.io/notseekeru/maxterview_backend
+          FE=ghcr.io/notseekeru/maxterview_frontend
+          # One bump per env overlay. Staging pins the `staging-` SPA (its own pk_test_ build);
+          # both envs share the backend tag, which is env-agnostic.
+          for ENV in prod staging; do
+            (
+              cd "gitops/apps/maxterview/overlays/$ENV"
+              kustomize edit set image "$BE=$BE:$SHA"
+              if [ "$ENV" = "staging" ]; then
+                kustomize edit set image "$FE=$FE:staging-$SHA"
+              else
+                kustomize edit set image "$FE=$FE:$SHA"
+              fi
+            )
+          done
 
       - name: Commit and Push Changes
         run: |
           cd gitops
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add apps/maxterview/kustomization.yaml
+          git add apps/maxterview/overlays
           if git diff --staged --quiet; then
             echo "No changes detected. Skipping deployment commit."
           else
