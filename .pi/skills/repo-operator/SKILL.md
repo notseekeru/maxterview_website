@@ -131,6 +131,58 @@ Remember the two runtime modes:
   plus the Clerk `sk_test` operator secret to mint sessions/users for headless browser auth
   (@clerk/testing) on real-Clerk stacks.
 
+## Staging env: Infisical `staging` (what to fidget)
+
+`maxterview-staging` is fed by the Infisical environment `staging`. Project context is
+`~/terraform/.infisical.json`, so **writes must run from `~/terraform`**. The dashboard's environment
+inheritance toggle does **not** reach the API/CLI (verified: 0 injected `TF_VAR_*`), so inheritance here is
+**per-key references** at path `/consumers/terraform` — dot form, nested paths allowed:
+
+```
+TF_VAR_R2_BUCKET=${prod.consumers.terraform.TF_VAR_R2_BUCKET}   # `${prod./a/b.KEY}` does NOT resolve
+```
+
+Five keys are deliberately **local overrides**, never references — they are the only thing keeping staging
+off prod's database, prod's Clerk and live money. Never "revert to inherited" on them:
+
+| override | value |
+| --- | --- |
+| `TF_VAR_MAXTERVIEW_DATABASE_URL` | staging Neon **direct** host (no `-pooler`), `?channel_binding=require&sslmode=require` |
+| `TF_VAR_MAXTERVIEW_CLERK_DOMAIN` / `_CLERK_JWKS_URL` | Clerk **Development** instance (`known-polecat-16.clerk.accounts.dev`) |
+| `TF_VAR_MAXTERVIEW_PAYMONGO_SECRET_KEY` | `sk_test_…` — the inherited prod value is **live** |
+| `TF_VAR_MAXTERVIEW_PAYMONGO_WEBHOOK_SECRET` | `whsk_…` (29 chars) of the endpoint registered for the staging URL |
+
+The reference set should equal prod's key set (24) — **adding a key to prod does not propagate**. Regenerate:
+
+```bash
+cd ~/terraform && P=/consumers/terraform
+prod=$(infisical run --path $P --env prod -- /bin/sh -c 'env | grep -oE "^(TF_VAR_|AWS_)[A-Za-z0-9_]+"' | sort -u)
+mine="TF_VAR_MAXTERVIEW_DATABASE_URL TF_VAR_MAXTERVIEW_CLERK_DOMAIN TF_VAR_MAXTERVIEW_CLERK_JWKS_URL TF_VAR_MAXTERVIEW_PAYMONGO_SECRET_KEY TF_VAR_MAXTERVIEW_PAYMONGO_WEBHOOK_SECRET"
+for n in $prod; do case " $mine " in *" $n "*) continue;; esac
+  infisical secrets set --env staging --path $P --type=shared "$n=\${prod.consumers.terraform.$n}"; done
+```
+
+(Digit-safe `[A-Za-z0-9_]+` matters: `[A-Za-z_]+` truncates `TF_VAR_R2_*` and `AWS_ENDPOINT_URL_S3`, which
+silently writes junk keys and drops the state-backend creds.)
+
+Write mechanics: `--type=shared`, and use the **profile** CLI (`infisical` 0.43.123) — the flake's 0.41.90
+silently no-ops some writes. A path that does not exist in that env 404s the write pre-check, so create it
+first: `infisical secrets folders create --env staging --path /consumers --name terraform`.
+
+Guard (value-free) before any staging apply:
+
+```bash
+cd ~/terraform && infisical run --path /consumers/terraform --env staging -- /bin/sh -c '
+case "$TF_VAR_MAXTERVIEW_DATABASE_URL" in *ep-tiny-hall*) echo FAIL db=prod;; *-pooler*) echo FAIL db=pooled;; *ep-withered-math*sslmode=require*) echo ok db;; *) echo FAIL db;; esac
+case "$TF_VAR_MAXTERVIEW_PAYMONGO_SECRET_KEY" in *sk_live_*) echo FAIL paymongo=live;; *sk_test_*) echo ok paymongo;; *) echo FAIL paymongo;; esac
+[ -n "$TF_VAR_R2_BUCKET" ] && [ -n "$TF_VAR_GITHUB_PAT" ] && [ -n "$TF_VAR_MAXTERVIEW_LLM_BASE_URL" ] && echo ok inherited'
+```
+
+The apply itself (`make init/plan/apply MOD=k3s-staging ENV=staging`, own R2 state key
+`terraform/k3s-staging/terraform.tfstate`) runs on the cluster host — no kubeconfig anywhere else. Expect
+**3 to add**: namespace `maxterview-staging`, `maxterview-staging-secrets`, and the namespace-local
+`ghcr-login` pull secret (`imagePullSecrets` do not cross namespaces, and the GHCR packages are private).
+
 ## Acting on the Clerk/PayMongo sandbox
 
 Use child skill `paymongo-operator` for real account operations, not hand-rolled curl. Recall:
