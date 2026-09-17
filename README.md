@@ -169,11 +169,13 @@ This repo is the **app source**; the gitops repo holds the Kubernetes manifests.
    `ghcr.io/notseekeru/maxterview_frontend`. CD does this on green CI to `main`; a second job
    (`update-gitops-repo`, key `MAXTERVIEW_SSH`) then runs `kustomize edit set image` and pushes the SHA
    bump to `notseekeru/gitops`, which ArgoCD reconciles.
-2. **Manifests** live in the gitops repo, not here: `apps/maxterview/` (backend + frontend Deployments and
-   Services, `imagePullSecrets: [ghcr-login]`), `apps-of-apps/maxterview.yaml`, and
-   `apps/maxterview/maxterview-ingress.yaml` (host `maxterview.seekeru.tech`, `/api` → `maxterview-prod-backend:8000`,
-   `/` → `maxterview-prod-frontend:8080`). The `/api` prefix is served by the **app** (`API_PREFIX` in
-   `backend/src/app/__init__.py`): no proxy or ingress rewrite strips it.
+2. **Manifests** live in the gitops repo, not here: `apps/maxterview/{base,overlays/{prod,staging}}` — the
+   Deployments, Services, nginx Ingress and the PreSync migrate Job are all in `base/`, and each overlay patches
+   its own namespace + host (`imagePullSecrets: [ghcr-login]`, namespace-local). `apps-of-apps/maxterview.yaml`
+   → `overlays/prod`, `apps-of-apps/maxterview-staging.yaml` → `overlays/staging` (host
+   `maxterview.seekeru.tech` / `maxterview-staging.seekeru.tech`, `/api` → `maxterview-backend:8000`,
+   `/` → `maxterview-frontend:8080` — env-neutral names). The `/api` prefix is served by the **app**
+   (`API_PREFIX` in `backend/src/app/__init__.py`): no proxy or ingress rewrite strips it.
 3. **Secrets — landed** (`~/terraform` `infra/k3s`): `kubernetes_secret.maxterview_secrets` lives in its own
    `maxterview` namespace and carries `DATABASE_URL` (Neon direct host), `MIGRATE_DATABASE_URL`,
    `CLERK_DOMAIN`/`CLERK_JWKS_URL`/`CLERK_AUDIENCE`, `LLM_*` and `BYOK_ENCRYPTION_KEY`, wired into
@@ -297,5 +299,5 @@ basic key is account-wide, so there is no branch-level protection between the ag
 - **M14** (OKF / structured-output hardening) — **OKF not started**: no bundle exists, the interviewer's knowledge is still prompt strings. Its structured-output _prerequisite_ shipped (2026-09-11): `response_format=json_schema` + greedy decoding on the grader→formatter surface. OKF bundles are the markdown+frontmatter format M15 RAG will ingest.
 - **M15** (RAG / retrieval-augmented interviewing) — future enhancement, not started (`PLAN.md`).
 - **M16** (live voice interview — TTS + STT + webcam illusion) — future enhancement, not started (`PLAN.md`).
-- **M17** (Neon environments & dedicated DB) — **live since 2026-09-12, hardening left**: one Neon project (`neon_maxterview_website`, `production` branch) with all of `0001`–`0012` applied by the in-cluster PreSync Job (verified 2026-09-16); namespace + `maxterview-secrets` come from Terraform; the app serves `maxterview.seekeru.tech`. **Open:** one real ₱499 payment proof — the wiring itself is live (secret applied + pod restart, signed delivery `200 ok` / unsigned `400`, verified 2026-09-17); migrator-role split + app-DSN swap (`MIGRATE_DATABASE_URL` empty ⇒ the PreSync Job migrates as the owner DSN); the staging project (D11/D13). Neon quota is **not** a risk — 2,932 CPU-s of 100 CU-h used and scale-to-zero is on (`0` = plan default; the earlier "≈180 CU-h/month idle" reading was wrong).
-- **M18** (load & performance testing) — docs-first, not built: staging-only k6 profiles, off-node generator, **STUB_MODE** for app capacity vs a real-model canary for provider capacity; single-VU runs measure the rate limiter (2 rps/client IP), so the unit is _concurrent open chats_. Needs M13 + staging (D13).
+- **M17** (Neon environments & dedicated DB) — **live since 2026-09-12, hardening left**: one Neon project (`neon_maxterview_website`, `production` branch) with all of `0001`–`0012` applied by the in-cluster PreSync Job (verified 2026-09-16); namespace + `maxterview-secrets` come from Terraform; the app serves `maxterview.seekeru.tech`. **Open:** one real ₱499 payment proof — the wiring itself is live (secret applied + pod restart, signed delivery `200 ok` / unsigned `400`, verified 2026-09-17); migrator-role split + app-DSN swap (`MIGRATE_DATABASE_URL` empty ⇒ the PreSync Job migrates as the owner DSN); the staging project (D11/D13) — **live since 2026-09-17**: `maxterview-staging.seekeru.tech` serves `{"status":"ok"}`, `/api/usage` 401s without a session, `0001`–`0012` applied by its own PreSync Job, SPA built with the Development-instance `pk_test_`. Neon quota is **not** a risk — 2,932 CPU-s of 100 CU-h used and scale-to-zero is on (`0` = plan default; the earlier "≈180 CU-h/month idle" reading was wrong).
+- **M18** (load & performance testing) — docs-first, not built: staging-only k6 profiles, off-node generator, **STUB_MODE** for app capacity vs a real-model canary for provider capacity; single-VU runs measure the rate limiter (2 rps/client IP), so the unit is _concurrent open chats_. Needs M13 (staging itself exists since 2026-09-17).
