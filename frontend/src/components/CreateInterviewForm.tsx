@@ -4,7 +4,7 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
-import { apiDetail, createInterview, createTemplate, deleteTemplate, type InterviewDials, type InterviewTemplate, isQuotaError, listTemplates, type TemplateInput, updateTemplate } from "@/lib/api";
+import { apiDetail, createInterview, createTemplate, deleteTemplate, type InterviewDials, type InterviewTemplate, isQuotaError, listResumes, listTemplates, type ResumeSummary, type TemplateInput, updateTemplate } from "@/lib/api";
 import { COMPANY_SIZES, CYNICISM, companySizeLabel, DIAL_FIELDS, LEVELS, MIX_FIELDS, MIX_MAX, mixCountLabel, ROLE_PRESETS } from "@/lib/interviewOptions";
 import { cn } from "@/lib/utils";
 import { RowMenu } from "./RowMenu";
@@ -40,6 +40,11 @@ export function CreateInterviewForm({ onCreated, variant = "compact", className 
     const [quotaLocked, setQuotaLocked] = useState(false);
     // null = still loading or the fetch failed; the preset row hides either way.
     const [templates, setTemplates] = useState<InterviewTemplate[] | null>(null);
+    // Same contract as templates: absent/empty hides the row rather than showing an empty picker.
+    const [resumes, setResumes] = useState<ResumeSummary[]>([]);
+    // null = no resume attached. This is the create-form's bool: it always names WHICH resume, because
+    // an owner with two CVs asking for "my resume" is a question the server cannot answer.
+    const [resumeId, setResumeId] = useState<string | null>(null);
     const [lastUsedId, setLastUsedId] = useState<string | null>(() => localStorage.getItem(LAST_TEMPLATE_KEY));
     const [editor, setEditor] = useState<{ mode: "save" } | { mode: "rename"; id: string } | null>(null);
     const [templateName, setTemplateName] = useState("");
@@ -50,6 +55,12 @@ export function CreateInterviewForm({ onCreated, variant = "compact", className 
         listTemplates()
             .then(setTemplates)
             .catch(() => setTemplates(null));
+    }, []);
+
+    useEffect(() => {
+        listResumes()
+            .then(setResumes)
+            .catch(() => setResumes([]));
     }, []);
 
     // The form's dials in API shape, shared by the create and preset bodies.
@@ -65,7 +76,7 @@ export function CreateInterviewForm({ onCreated, variant = "compact", className 
     }
 
     function fieldsFromForm() {
-        return { role: role.trim(), topic: topic.trim(), level, ...dialsFromForm() };
+        return { role: role.trim(), topic: topic.trim(), level, resume_id: resumeId, ...dialsFromForm() };
     }
 
     /** Template as a PUT body. Spelled out, not spread: a new dial then breaks this line at compile time. */
@@ -75,6 +86,7 @@ export function CreateInterviewForm({ onCreated, variant = "compact", className 
             role: t.role,
             topic: t.topic ?? "",
             level: t.level,
+            resume_id: t.resume_id ?? null,
             company_size: t.company_size,
             cynicism: t.cynicism,
             brutally_honest: t.brutally_honest,
@@ -89,7 +101,7 @@ export function CreateInterviewForm({ onCreated, variant = "compact", className 
 
     function isApplied(t: InterviewTemplate): boolean {
         const dials = dialsFromForm();
-        return t.role === role.trim() && (t.topic ?? "") === topic.trim() && t.level === level && DIAL_FIELDS.every((field) => t[field] === dials[field]);
+        return t.role === role.trim() && (t.topic ?? "") === topic.trim() && t.level === level && (t.resume_id ?? null) === resumeId && DIAL_FIELDS.every((field) => t[field] === dials[field]);
     }
 
     function remember(id: string | null) {
@@ -102,6 +114,7 @@ export function CreateInterviewForm({ onCreated, variant = "compact", className 
         setRole(t.role);
         setLevel(t.level);
         setTopic(t.topic ?? "");
+        setResumeId(t.resume_id ?? null);
         setCompanySize(
             Math.max(
                 0,
@@ -273,6 +286,27 @@ export function CreateInterviewForm({ onCreated, variant = "compact", className 
                                 )}
                             </div>
                             {templateError && <p className="text-xs text-destructive">{templateError}</p>}
+                        </div>
+                    )}
+
+                    {/* Hidden entirely with no resumes: an empty picker is noise when the answer is
+                        "none". Import one on the Resume page and this row appears. */}
+                    {resumes.length > 0 && (
+                        <div className={cn("space-y-1.5", featured && "sm:col-span-2")}>
+                            <span className="text-sm font-medium leading-none">Resume</span>
+                            <div className="flex flex-wrap items-center gap-1.5">
+                                {/* "None" is a chip, not the absence of one: the picker has to read as a
+                                    choice you can undo, like every other row here. */}
+                                <button type="button" onClick={() => setResumeId(null)} className={cn("rounded-full border px-3 py-1 text-xs transition-colors", resumeId === null ? "border-primary bg-primary/10 font-medium text-primary" : "border-input text-muted-foreground hover:bg-accent")}>
+                                    None
+                                </button>
+                                {resumes.map((r) => (
+                                    <button key={r.id} type="button" onClick={() => setResumeId(r.id)} className={cn("rounded-full border px-3 py-1 text-xs transition-colors", resumeId === r.id ? "border-primary bg-primary/10 font-medium text-primary" : "border-input text-muted-foreground hover:bg-accent")}>
+                                        {r.name}
+                                    </button>
+                                ))}
+                            </div>
+                            <p className="text-xs text-muted-foreground">The interviewer asks about what it claims, and the reviewer holds you to it.</p>
                         </div>
                     )}
 

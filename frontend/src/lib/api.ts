@@ -61,6 +61,9 @@ export interface Interview extends InterviewDials {
     verdict?: string | null;
     decision?: Decision | null;
     certainty?: number | null;
+    /** The attached resume, null when the run was created without one (or its resume was deleted:
+     *  the FK is ON DELETE SET NULL). */
+    resume_id?: string | null;
     /** Set = hidden from the history list (NOT from the API or the stats). See archiveInterview. */
     archived_at?: string | null;
 }
@@ -90,6 +93,8 @@ export interface InterviewInput extends InterviewDials {
     role: string;
     topic?: string;
     level: string;
+    /** The attached resume (null/absent = none). Ownership is checked server-side in the INSERT. */
+    resume_id?: string | null;
 }
 
 // The dials arrive together (the create form owns them), so one object beats nine positional args
@@ -127,6 +132,70 @@ export async function updateTemplate(id: string, input: TemplateInput): Promise<
 
 export async function deleteTemplate(id: string): Promise<void> {
     await api.delete(`/templates/${id}`);
+}
+
+// --- resumes (the library; an interview or preset holds `resume_id`) ---
+
+/** One row of the library, WITHOUT its text: the list stays bounded, and the editor fetches one. */
+export interface ResumeSummary {
+    id: string;
+    name: string;
+    /** Pages the import read; 0 for a pasted resume. */
+    page_count: number;
+    chars: number;
+    created_at: string;
+    updated_at: string;
+}
+
+export interface Resume extends ResumeSummary {
+    text: string;
+}
+
+export interface ResumeInput {
+    name: string;
+    text: string;
+}
+
+/** What a PDF gave us before anyone decided to keep it. `truncated` is true for the page cap, the
+ *  character cap, and unreadable pages alike - the UI only has to say "not the whole document". */
+export interface ResumeExtract {
+    text: string;
+    pages: number;
+    truncated: boolean;
+}
+
+export async function listResumes(): Promise<ResumeSummary[]> {
+    const { data } = await api.get<ResumeSummary[]>("/resumes");
+    return data;
+}
+
+export async function getResume(id: string): Promise<Resume> {
+    const { data } = await api.get<Resume>(`/resumes/${id}`);
+    return data;
+}
+
+/** Parse a PDF server-side and hand back the text. Persists NOTHING: the caller decides to save. */
+export async function extractResume(file: File): Promise<ResumeExtract> {
+    const form = new FormData();
+    form.append("file", file);
+    // No manual Content-Type: the browser sets it WITH the multipart boundary, and overriding it
+    // without one makes the server reject the body.
+    const { data } = await api.post<ResumeExtract>("/resumes/extract", form);
+    return data;
+}
+
+export async function createResume(input: ResumeInput): Promise<Resume> {
+    const { data } = await api.post<Resume>("/resumes", input);
+    return data;
+}
+
+export async function updateResume(id: string, input: ResumeInput): Promise<Resume> {
+    const { data } = await api.put<Resume>(`/resumes/${id}`, input);
+    return data;
+}
+
+export async function deleteResume(id: string): Promise<void> {
+    await api.delete(`/resumes/${id}`);
 }
 
 // The dashboard radar's aggregate (mirrors backend models.InterviewDimensions): per-dimension
@@ -268,6 +337,8 @@ export interface Usage {
     /** ISO timestamp when the paid time lapses; period mode never renews itself, so hiding this
      *  leaves the user to discover the downgrade by hitting the cap. */
     premium_until?: string | null;
+    /** How many resumes this tier may keep. Storage, not a meter: nothing is spent by importing one. */
+    resume_limit?: number;
 }
 
 export function chatTurns(usage: Usage): number {

@@ -12,3 +12,10 @@ export { clerkEnabled, clerkPublishableKey };
 //   VITE_OPENING_ASKS_RESUME=""        -> hide the opening entirely
 const envOpening = import.meta.env.VITE_OPENING_ASKS_RESUME as string | undefined;
 export const OPENING_ASKS_RESUME = envOpening === "" ? "" : (envOpening ?? "Before we begin — could you share your resume / background so I can interview you specifically on it?");
+
+// The opening line when a resume IS attached: the interviewer already has it, so the default above
+// would read as if the import had failed. Same env-overridable pattern:
+//   VITE_OPENING_HAS_RESUME="<text>"  -> custom opening
+//   VITE_OPENING_HAS_RESUME=""        -> hide the opening entirely
+const envHasResume = import.meta.env.VITE_OPENING_HAS_RESUME as string | undefined;
+export const OPENING_HAS_RESUME = envHasResume === "" ? "" : (envHasResume ?? "I've read your resume — thanks. Before we start, what are you aiming for in your next role?");

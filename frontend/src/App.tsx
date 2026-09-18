@@ -6,10 +6,11 @@ import { AuthMisconfigBanner } from "@/components/AuthMisconfigBanner";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { clerkEnabled } from "@/lib/config";
 import { BillingPage } from "@/pages/BillingPage";
-import { DocsPage, ManageAccountsPage, ResumePage } from "@/pages/ComingSoonPages";
+import { DocsPage, ManageAccountsPage } from "@/pages/ComingSoonPages";
 import { InterviewsPage } from "@/pages/InterviewsPage";
 import { Landing } from "@/pages/Landing";
 import { NotFound } from "@/pages/NotFound";
+import { ResumePage } from "@/pages/ResumePage";
 import { SystemSettingsPage } from "@/pages/SystemSettingsPage";
 
 // Code-split only the heavy leaves (recharts lives in the Dashboard bundle and

@@ -2,16 +2,6 @@ import { ComingSoon, Page } from "@/components/PagePrimitives";
 
 // Placeholder routes whose backend work isn't built yet.
 
-export function ResumePage() {
-    return (
-        <Page title="Resume" description="Upload and role practice against it.">
-            {/* AI HERE: resume parsing/upload is a designed-but-not-built section (PRD). The
-                interviewer already asks for resume text in the opening turn today. */}
-            <ComingSoon icon="file" title="Resume scoring coming soon" description="Bring a PDF or pasted resume so interviews are tailored to it." />
-        </Page>
-    );
-}
-
 export function ManageAccountsPage() {
     return (
         <Page title="Managed Accounts" description="Admins only — list the accounts on a team/org.">

@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
 import { apiDetail, completeInterview, type Feedback, getFeedback, getInterview, getMessages, httpStatus, MAX_TURN_CHARS, type Message, regenerateFeedback, startInterview, streamChat } from "@/lib/api";
-import { OPENING_ASKS_RESUME } from "@/lib/config";
+import { OPENING_ASKS_RESUME, OPENING_HAS_RESUME } from "@/lib/config";
 import { FeedbackView } from "./FeedbackView";
 import { MoveBadge } from "./MoveBadge";
 import { UpgradeNotice } from "./UsageBadge";
@@ -34,11 +34,17 @@ export function InterviewChat({ interviewId, onExit }: Props) {
     const [hardcoreFailed, setHardcoreFailed] = useState<{ turn: number; class: string } | null>(null);
     const [completing, setCompleting] = useState(false); // 'Completing…' / 'Retry scoring…' spinner
     const [scoringTip, setScoringTip] = useState(false); // completed but feedback not ready yet
+    // The run's attach point, read off whichever call created or fetched it. It only decides the
+    // opening bubble: with a resume in hand, asking the candidate to paste one reads as a bug.
+    const [hasResume, setHasResume] = useState(false);
     // Synchronous turn lock. `status` is React state, so two clicks landing before a re-render both
     // read "ready" and post the answer twice; this ref cannot be raced that way.
     const sendingRef = useRef(false);
     const abortRef = useRef<AbortController | null>(null);
     const scrollRef = useRef<HTMLDivElement | null>(null);
+    // Which opening bubble this thread gets. Read after the state above exists - a resume in hand
+    // means the generic "share your resume" opener would read as if the import had failed.
+    const opening = hasResume ? OPENING_HAS_RESUME : OPENING_ASKS_RESUME;
 
     const loadMessages = useCallback(async () => {
         try {
@@ -60,6 +66,7 @@ export function InterviewChat({ interviewId, onExit }: Props) {
     const loadExisting = useCallback(
         async (id: string) => {
             const [iv] = await Promise.all([getInterview(id), loadMessages()]);
+            setHasResume(Boolean(iv.resume_id));
             if (iv.status !== "completed") return "ready" as const;
             try {
                 setFeedback(await getFeedback(id));
@@ -75,8 +82,9 @@ export function InterviewChat({ interviewId, onExit }: Props) {
         let cancelled = false;
         (async () => {
             try {
-                await startInterview(interviewId);
+                const started = await startInterview(interviewId);
                 if (cancelled) return;
+                setHasResume(Boolean(started.resume_id));
                 await loadMessages();
                 setStatus("ready");
             } catch (e: unknown) {
@@ -309,7 +317,7 @@ export function InterviewChat({ interviewId, onExit }: Props) {
                 {status === "loading" && <p className="text-sm text-muted-foreground">Starting…</p>}
                 {/* Not while loading: a reopened run would flash the opening line before its
                     real transcript arrives. */}
-                {status !== "loading" && messages.length === 0 && OPENING_ASKS_RESUME && <Bubble from="assistant" content={OPENING_ASKS_RESUME} />}
+                {status !== "loading" && messages.length === 0 && opening && <Bubble from="assistant" content={opening} />}
                 {messages.map((m) => (
                     <Bubble key={m.id} from={m.role} content={m.content} moveClass={m.move_class} />
                 ))}
