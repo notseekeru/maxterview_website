@@ -46,7 +46,7 @@ def test_forwarded_for_is_charged_by_its_right_most_hop():
 
 
 def test_cors_stays_off_until_an_origin_is_listed():
-    # Same-origin via the `/api` proxy is the shipping shape (PLAN §7), so the allow-list is empty.
+    # Same-origin via the `/api` proxy is the shipping shape (PLAN, CORS guardrail), so the allow-list is empty.
     assert CORS_ALLOW_ORIGINS == []
     assert cors_origins(" https://a.example ,https://b.example, ") == ["https://a.example", "https://b.example"]
 

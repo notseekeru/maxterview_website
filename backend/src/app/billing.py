@@ -29,7 +29,7 @@ from app.auth import CLERK_ENABLED
 from app.db import fetchrow
 from app.models import ClerkUser
 
-# --- tier limits (env-overridable; MONETIZATION.md §0 placeholders) ---
+# --- tier limits (env-overridable; MONETIZATION.md §0) ---
 # Daily GLOBAL chat-turn credits PER OWNER, across all interviews in one UTC day.
 FREE_CHAT_TURNS = int(os.getenv("FREE_CHAT_TURNS", "30"))
 PREMIUM_CHAT_TURNS = int(os.getenv("PREMIUM_CHAT_TURNS", "250"))

@@ -106,7 +106,7 @@ def _unauthorized() -> HTTPException:
 
 
 def _extract_token(request: Request) -> str | None:
-    # __session cookie is primary (PLAN §4); Bearer accepted for API clients/tests.
+    # __session cookie is primary (app/auth.py); Bearer accepted for API clients/tests.
     token = request.cookies.get("__session")
     if token:
         return token

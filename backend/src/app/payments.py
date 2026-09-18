@@ -4,7 +4,7 @@ Two rails into the SAME entitlement (a paid period on the `subscriptions` row); 
 one and `billing.resolve_tier` is identical for both:
 
 - `period` (default) — one-time Payment Intent → Maya redirect → `payment.paid` extends
-  `current_period_end`. Needs no account capability, so this is the mode that ships (MONETIZATION §7).
+  `current_period_end`. Needs no account capability, so this is the mode that ships (MONETIZATION §4).
 - `subscription` — provider-managed recurring; needs Subscriptions + Card Vaulting enabled by support.
 
 Env lives in `backend/.env.example`. Without `PAYMONGO_WEBHOOK_SECRET` the webhook fails closed, so a

@@ -201,7 +201,7 @@ async def test_subscription_event_legacy_envelope_still_upserts(monkeypatch):
 
 
 async def test_subscription_past_due_keeps_plan_but_loses_entitlement(monkeypatch):
-    """MONETIZATION §6: a failed renewal downgrades immediately, no grace."""
+    """MONETIZATION §5: a failed renewal downgrades immediately, no grace."""
     calls = _capture(monkeypatch)
     await payments.handle_webhook_event(_subscription_event("subscription.past_due", status="past_due"))
     upsert = next(a for q, a in calls if "INSERT INTO subscriptions" in q)

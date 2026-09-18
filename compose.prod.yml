@@ -1,4 +1,4 @@
-# Prod-shape rehearsal only — real prod is k3s + external Neon, no DB pod (PLAN.md 3b).
+# Prod-shape rehearsal only — real prod is k3s + external Neon, no DB pod (DIAGRAM.md).
 # Export DATABASE_URL to rehearse against Neon; the local container is the default.
 services:
   backend:

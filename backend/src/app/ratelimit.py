@@ -1,4 +1,4 @@
-"""M11 app-level per-client rate limit (PLAN §7).
+"""M11 app-level per-client rate limit (PLAN, rate-budget guardrail).
 
 The ingress already limits (`limit-rps` in gitops); this is the in-app backstop, so a client
 that gets in front of the ingress cannot burn LLM tokens or DB connections in a burst. One
