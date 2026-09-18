@@ -1,8 +1,6 @@
 import { BookOpen, ChartLine, CreditCard, FileText, LayoutDashboard, LogOut, type LucideIcon, Menu, MessageSquare, Monitor, Moon, Settings, ShieldCheck, Sun, User, Users, X } from "lucide-react";
 import type { ComponentProps } from "react";
 
-// Single typed icon namespace so pages/nav never import lucide directly.
-
 export type IconName = "dashboard" | "chat" | "chart" | "file" | "settings" | "user" | "users" | "shield" | "card" | "book" | "sun" | "moon" | "monitor" | "logout" | "menu" | "x";
 
 const MAP: Record<IconName, LucideIcon> = {

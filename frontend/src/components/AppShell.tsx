@@ -9,8 +9,6 @@ import { clerkEnabled } from "@/lib/config";
 import { NAV, type NavItem } from "@/lib/nav";
 import { cn } from "@/lib/utils";
 
-// Persistent shell around the Dashboard + its sub-pages: a fixed left rail on
-// ≥lg screens and a slide-over drawer below. `/interviews/:id` is not wrapped here.
 export function AppShell() {
     return (
         <div className="min-h-screen">
@@ -18,8 +16,6 @@ export function AppShell() {
                 <Brand />
                 <NavBody onNavigate={() => undefined} />
                 <aside className="mt-auto border-t border-border p-3">
-                    {/* Tier + BYOK state: the rail footer is the one shell-wide place that can
-                        show what plan/quota this session runs on (MONETIZATION §2). */}
                     <div className="flex items-center justify-between gap-2">
                         <UsageBadge />
                         <SessionFooter />
@@ -30,9 +26,6 @@ export function AppShell() {
             <div className="flex min-h-screen flex-col lg:pl-60">
                 <MobileTopBar />
                 <main className="min-w-0 flex-1">
-                    {/* Per-page net: a crashing page keeps the rail (and therefore a way out) instead
-                        of taking the whole shell down. The app-level boundary stays as the net for
-                        crashes in the shell itself. */}
                     <ErrorBoundary inline>
                         <Outlet />
                     </ErrorBoundary>
@@ -77,8 +70,6 @@ function RailItem({ item, onNavigate }: { item: NavItem; onNavigate: () => void 
     );
 }
 
-// Account / session footer shown in the rail. Clerk => UserButton (avoids a
-// bespoke useUser + sign-out). In no-Clerk dev mode we render a quiet DEV tag.
 function SessionFooter() {
     return clerkEnabled ? <UserButton /> : <DevTag />;
 }
@@ -91,8 +82,6 @@ function DevTag() {
     );
 }
 
-// Mobile/tablet: slim top bar with a menu toggle that opens the same NAV in an
-// overlay drawer (no nav dep needed).
 function MobileTopBar() {
     const [open, setOpen] = useState(false);
     const navigate = useNavigate();

@@ -17,9 +17,6 @@ export function AppHome() {
     const navigate = useNavigate();
     const { interviews, loading, error, refresh, dims } = useInterviews();
     const { stats, loading: statsLoading, error: statsError } = useDashboardStats();
-    // The new-interview form is a panel, not a permanent column: with history on screen every
-    // pixel of it competes with the numbers you came to read. First run (nothing to show yet)
-    // opens it by default; once the user chooses, their choice wins.
     const [formOpen, setFormOpen] = useState(false);
     const [formTouched, setFormTouched] = useState(false);
     const showForm = formTouched ? formOpen : !loading && dims.total === 0;

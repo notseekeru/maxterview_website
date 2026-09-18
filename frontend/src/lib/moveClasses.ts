@@ -1,8 +1,5 @@
 import type { Grade, MoveClass } from "@/lib/api";
 
-// Display half of the review vocabulary: labels, tooltips, tones. The SCALE (class order, point
-// values, accuracy -> grade banding) lives in backend app/rating.py — nothing numeric here.
-// Fill = strength, red = the bad tail.
 export const MOVE_CLASSES: { value: MoveClass; label: string; glyph: string; hint: string; tone: string }[] = [
     {
         value: "brilliant",
@@ -55,13 +52,10 @@ export const MOVE_CLASSES: { value: MoveClass; label: string; glyph: string; hin
     },
 ];
 
-/** Metadata for a class slug, or null for one this build cannot label (the API owns the words). */
 export function moveClassMeta(value?: string | null) {
     return MOVE_CLASSES.find((m) => m.value === value) ?? null;
 }
 
-// Grade tones, best -> worst, same fill-is-strength rule as the badges but TRANSLUCENT: the chip's
-// own text keeps a muted span ("accuracy"), which a solid fill would render unreadable.
 const GRADE_TONES: Record<Grade, string> = {
     S: "border-primary bg-primary/15",
     A: "border-primary/50 bg-primary/10",

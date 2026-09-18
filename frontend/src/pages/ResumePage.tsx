@@ -8,7 +8,6 @@ import { Textarea } from "@/components/ui/textarea";
 import { apiDetail, createResume, deleteResume, extractResume, getResume, getUsage, httpStatus, listResumes, type Resume as ResumeRecord, type ResumeSummary, updateResume } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
-/** The draft the editor holds: `id` null = not saved yet (a paste, or a PDF that was never confirmed). */
 interface Draft {
     id: string | null;
     name: string;
@@ -24,15 +23,9 @@ export function ResumePage() {
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [notice, setNotice] = useState<string | null>(null);
-    // Locked behind the free plan's wall (a 402 from the server): the message IS the upsell.
     const [capped, setCapped] = useState(false);
-    // The drop card's own hover state: the highlight has to survive crossing the card's own children
-    // (each of which fires a dragleave as the cursor moves over it).
     const [dropping, setDropping] = useState(false);
 
-    // The card invites a drag, so a drag that MISSES it must not become the browser's own "open the
-    // PDF" navigation — that would take the unsaved editor text with it. The card's own handler runs
-    // first (target before document), so swallowing the default here cannot eat a real drop.
     useEffect(() => {
         const swallow = (e: DragEvent) => e.preventDefault();
         document.addEventListener("drop", swallow);
@@ -45,7 +38,6 @@ export function ResumePage() {
         } catch {
             setError("Could not load your resumes.");
         }
-        // The cap is a tier number the library page has to show; a failure here must not hide the list.
         try {
             setLimit((await getUsage()).resume_limit ?? null);
         } catch {
@@ -62,8 +54,6 @@ export function ResumePage() {
         setCapped(httpStatus(e) === 402);
     }
 
-    /** One entry point for the picker and the drop: a dropped file skips the `accept` attribute's
-     *  filter, so this is the only place that gets to decide what a resume file is. */
     function pick(file: File | undefined) {
         if (!file || busy) return;
         if (!/\.pdf$/i.test(file.name) && file.type !== "application/pdf") {
@@ -81,8 +71,7 @@ export function ResumePage() {
         setCapped(false);
         setNotice(null);
         try {
-            // Extract is stateless: the PDF is parsed and discarded, and only the TEXT is kept. Nothing
-            // to clean up if the parse is rejected.
+            // Extract is stateless: the PDF is parsed and discarded, and only the TEXT is kept. Nothing to clean.
             const got = await extractResume(file);
             const saved = await createResume({ name: file.name, text: got.text });
             setRows((list) => [saved, ...list]);
@@ -148,26 +137,8 @@ export function ResumePage() {
     const atCap = limit !== null && rows.length >= limit;
 
     return (
-        <Page
-            title="Resume"
-            description="Import a resume so interviews are tailored to your actual projects — and so feedback can hold you to what it claims."
-            actions={
-                <Button
-                    disabled={busy}
-                    onClick={() => {
-                        setDraft(EMPTY_DRAFT);
-                        setError(null);
-                        setNotice("Paste your resume below, then save.");
-                        setCapped(false);
-                    }}
-                >
-                    Paste text
-                </Button>
-            }
-        >
+        <Page title="Resume">
             <div className="space-y-4">
-                {/* The dropper IS the import control, front and centre: one target for a dragged file
-                    and for a click, with no menu in between. */}
                 <label
                     onDragOver={(e) => {
                         e.preventDefault();
@@ -235,14 +206,13 @@ export function ResumePage() {
                 <Card>
                     <CardHeader>
                         <CardTitle>{draft.id ? "Edit resume" : "New resume"}</CardTitle>
-                        <CardDescription>The text below is what the interviewer and the reviewer read. Fix anything the PDF export mangled — the interview uses this, not the file.</CardDescription>
                     </CardHeader>
                     <CardContent className="space-y-3">
                         <div className="space-y-1.5">
                             <label htmlFor="resume-name" className="text-sm font-medium leading-none">
                                 Name
                             </label>
-                            <Input id="resume-name" value={draft.name} maxLength={80} placeholder="Backend CV" onChange={(e) => setDraft((d) => ({ ...d, name: e.target.value }))} />
+                            <Input id="resume-name" value={draft.name} maxLength={80} placeholder="Title" onChange={(e) => setDraft((d) => ({ ...d, name: e.target.value }))} />
                         </div>
                         <div className="space-y-1.5">
                             <label htmlFor="resume-text" className="text-sm font-medium leading-none">
@@ -263,8 +233,6 @@ export function ResumePage() {
                         )}
                     </div>
                 </Card>
-
-                <p className="text-xs text-muted-foreground">The PDF itself is never stored — only the text above. Attach a resume to an interview from the New interview form.</p>
             </div>
         </Page>
     );

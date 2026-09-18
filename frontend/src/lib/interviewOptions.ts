@@ -1,16 +1,14 @@
-// Interview option vocabulary (mirrors backend app/models + app/levels).
-// Role presets are significant tech roles offered as quick picks; the free-text
-// input remains for anything not listed. Levels are the canonical seniority slugs,
-// decisions the canonical post-interview hire/reject spectrum.
-
 import type { CompanySize, Cynicism, Decision } from "@/lib/api";
 
 export const ROLE_PRESETS = [
     "Frontend Engineer",
     "Backend Engineer",
     "Full-Stack Engineer",
-    "DevOps / SRE",
-    "Cloud / Platform Engineer",
+    "Software Engineer",
+    "Devops Engineer",
+    "Site Reliability Engineer",
+    "Cloud Engineer",
+    "Platform Engineer",
     "Systems Infrastructure Engineer",
     "Security Engineer",
     "Network Engineer",
@@ -45,8 +43,6 @@ export function levelLabel(level: string): string {
     return LEVELS.find((l) => l.value === level)?.label ?? level;
 }
 
-// Post-interview decision vocabulary (mirrors backend app/models.DECISIONS, in spectrum
-// order). Labels stay short: they render under a four-segment bar.
 export const DECISIONS: { value: Decision; label: string }[] = [
     { value: "reject", label: "Reject" },
     { value: "lean_reject", label: "Lean reject" },
@@ -58,14 +54,10 @@ export function decisionLabel(decision: string): string {
     return DECISIONS.find((d) => d.value === decision)?.label ?? decision;
 }
 
-/** Right-of-centre half of the spectrum: the run would likely convert. */
 export function isHiring(decision?: string | null): boolean {
     return decision === "hire" || decision === "lean_hire";
 }
 
-// Interview dressing dials (mirrors backend app/dials.py). Slider positions are ARRAY INDEXES, so
-// these orders are the API order and must not be re-sorted for display: company size runs
-// unspecified -> biggest, cynicism kind -> skeptical.
 export const COMPANY_SIZES: { value: CompanySize; label: string }[] = [
     { value: "any", label: "Any / Not sure" },
     { value: "1-10", label: "1-10" },
@@ -76,7 +68,6 @@ export const COMPANY_SIZES: { value: CompanySize; label: string }[] = [
     { value: "5k+", label: "5,000+" },
 ];
 
-/** Suffix for the company-size value caption; "any" reads as a phrase, not a headcount. */
 export function companySizeLabel(size: string): string {
     if (size === "any") return "Any / Not sure";
     return `${size} people`;
@@ -88,7 +79,6 @@ export const CYNICISM: { value: Cynicism; label: string; hint: string }[] = [
     { value: "skeptical", label: "Skeptical", hint: "assumes a polished answer hides an unproven one" },
 ];
 
-/** The chitchat/behavioural/technical sliders are question budgets, 0..MIX_MAX. */
 export const MIX_MAX = 4;
 export const MIX_FIELDS = [
     { field: "mix_chitchat", label: "Chitchat", hint: "warm-up before the real questions" },
@@ -96,7 +86,6 @@ export const MIX_FIELDS = [
     { field: "mix_technical", label: "Technical", hint: "role-specific questions" },
 ] as const;
 
-/** Every dial, in API order (mirrors backend main.DIAL_FIELDS). */
 export const DIAL_FIELDS = ["company_size", "cynicism", "brutally_honest", "human_mode", "hardcore", "mix_chitchat", "mix_behavioural", "mix_technical"] as const;
 
 export function mixCountLabel(n: number): string {

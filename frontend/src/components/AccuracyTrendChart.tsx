@@ -6,9 +6,6 @@ const config: ChartConfig = {
     accuracy: { label: "Accuracy", color: "var(--chart-1)" },
 };
 
-// Monochrome accuracy trend: monotone area of the last N interview accuracies (0-100%). `grow`
-// (not a fixed h-52) so the chart fills the card — a hardcoded height leaves dead space when the
-// sibling card stretches.
 export function AccuracyTrendChart({ data }: { data: { label: string; accuracy: number }[] }) {
     return (
         <ChartContainer config={config} className="h-full min-h-40 w-full grow">

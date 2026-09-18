@@ -38,10 +38,6 @@ export function frontendAuthProblem(): string | null {
     return null;
 }
 
-// --- runtime backend-401 detection ---
-// The backend may be CLERK_ENABLED=true (401 "Missing credentials" on gated calls)
-// while the browser has no usable pk_ key. We can't read backend/.env, so the 401
-// detail string is the signal. api.ts calls markAuthGate401() on that exact error.
 type Listener = (gateOn: boolean) => void;
 let sawMissingCreds401 = false;
 const listeners = new Set<Listener>();

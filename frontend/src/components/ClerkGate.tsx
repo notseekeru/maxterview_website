@@ -29,7 +29,6 @@ export function ClerkGate({ children }: { children: ReactNode }) {
     );
 }
 
-/** Shell-shaped placeholder: same rail/width as AppShell so nothing jumps when auth lands. */
 function GateSkeleton() {
     return (
         <div className="min-h-screen" role="status" aria-label="Checking your session">

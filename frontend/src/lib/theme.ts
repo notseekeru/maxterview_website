@@ -1,5 +1,4 @@
 // Light/dark/system theme, persisted to localStorage and applied as a `.dark`
-// class on <html> (matches the recharts `.dark` convention in chart.tsx).
 // DARK IS THE DEFAULT: with no stored choice we pick `dark`, not the OS preference.
 
 export type Theme = "light" | "dark" | "system";

@@ -10,7 +10,6 @@ import { cn } from "@/lib/utils";
 import { RowMenu } from "./RowMenu";
 import { UpgradeNotice } from "./UsageBadge";
 
-// Last applied preset, per browser: a device habit, not account data.
 const LAST_TEMPLATE_KEY = "maxterview:last-template";
 
 type Variant = "compact" | "featured";
@@ -209,7 +208,6 @@ export function CreateInterviewForm({ onCreated, variant = "compact", className 
             <form onSubmit={submit}>
                 <CardHeader>
                     <CardTitle>New interview</CardTitle>
-                    <CardDescription>Start a simulated interview with an AI coach.</CardDescription>
                 </CardHeader>
                 <CardContent className={featured ? "grid gap-x-4 gap-y-4 sm:grid-cols-2" : "space-y-4"}>
                     {templates && (
@@ -313,7 +311,7 @@ export function CreateInterviewForm({ onCreated, variant = "compact", className 
                     <div className={cn("space-y-1.5", featured && "sm:col-span-2")}>
                         <Label htmlFor="role">Role</Label>
                         <div className="flex flex-wrap gap-1.5">
-                            {ROLE_PRESETS.slice(0, 6).map((preset) => (
+                            {ROLE_PRESETS.slice(0, 9).map((preset) => (
                                 <button
                                     key={preset}
                                     type="button"

@@ -1,5 +1,3 @@
-// Sidebar navigation model shared by the shell layout. Renderer: components/AppShell.tsx.
-
 import type { IconName } from "@/components/AppIcons";
 
 export interface NavItem {

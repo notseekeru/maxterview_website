@@ -2,7 +2,6 @@ import { useEffect, useState } from "react";
 
 import { frontendAuthProblem, onAuthGate } from "@/lib/authHealth";
 
-// Dev/ops aid for self-evidently broken Clerk auth config; never the auth path itself.
 export function AuthMisconfigBanner() {
     const staticProblem = frontendAuthProblem();
     const [runtimeGate, setRuntimeGate] = useState(false);
