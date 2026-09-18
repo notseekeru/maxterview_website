@@ -31,16 +31,18 @@ export function InterviewsPage() {
     }
 
     return (
-        <Page title="Interviews" description="Start a new session or review, reopen or remove your interview history.">
-            <section className="space-y-2">
-                <h2 className="text-sm font-medium uppercase tracking-wide text-muted-foreground">New interview</h2>
-                <CreateInterviewForm onCreated={onCreated} variant="featured" />
-            </section>
+        <Page title="Interviews" description="Start a new session or review, reopen or remove your interview history." wide>
+            <div className="flex min-h-[calc(100dvh-12rem)] flex-col gap-6 lg:min-h-[calc(100dvh-8.5rem)]">
+                <section className="space-y-2">
+                    <h2 className="text-sm font-medium uppercase tracking-wide text-muted-foreground">New interview</h2>
+                    <CreateInterviewForm onCreated={onCreated} variant="featured" />
+                </section>
 
-            <section className="space-y-2">
-                <h2 className="text-sm font-medium uppercase tracking-wide text-muted-foreground">History</h2>
-                <InterviewList interviews={interviews} loading={loading} error={error} onRefresh={() => void refresh()} onOpen={(id) => navigate(`/interviews/${id}`)} onDelete={onDelete} onArchive={onArchive} onRescore={onRescore} />
-            </section>
+                <section className="flex-1 space-y-2">
+                    <h2 className="text-sm font-medium uppercase tracking-wide text-muted-foreground">History</h2>
+                    <InterviewList interviews={interviews} loading={loading} error={error} onRefresh={() => void refresh()} onOpen={(id) => navigate(`/interviews/${id}`)} onDelete={onDelete} onArchive={onArchive} onRescore={onRescore} />
+                </section>
+            </div>
         </Page>
     );
 }

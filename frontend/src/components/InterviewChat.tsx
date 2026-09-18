@@ -276,7 +276,7 @@ export function InterviewChat({ interviewId, onExit }: Props) {
     }
 
     return (
-        <Card className="flex h-[80vh] w-full max-w-2xl flex-col">
+        <Card className="flex min-h-0 w-full flex-1 flex-col">
             <CardHeader className="flex-row items-center justify-between space-y-0">
                 <div>
                     <CardTitle>Interview</CardTitle>
