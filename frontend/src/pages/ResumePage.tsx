@@ -194,26 +194,29 @@ export function ResumePage() {
                     </div>
                 )}
 
-                <div className="space-y-1.5">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                        <span className="text-sm font-medium leading-none">Your resumes</span>
-                        {limit !== null && (
-                            <span className="text-xs text-muted-foreground">
-                                {rows.length} of {limit}
-                                {limit === 1 && " — premium keeps 5"}
-                            </span>
-                        )}
+                {/* Absent with nothing saved: the drop card and the New resume card already say so,
+                    and an empty chip row would just be a second, contradictory "0 of 5". */}
+                {rows.length > 0 && (
+                    <div className="space-y-1.5">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                            <span className="text-sm font-medium leading-none">Your resumes</span>
+                            {limit !== null && (
+                                <span className="text-xs text-muted-foreground">
+                                    {rows.length} of {limit}
+                                    {limit === 1 && " — premium keeps 5"}
+                                </span>
+                            )}
+                        </div>
+                        <div className="flex flex-wrap items-center gap-1.5">
+                            {rows.map((r) => (
+                                <button key={r.id} type="button" onClick={() => void open(r.id)} className={cn("rounded-full border px-3 py-1 text-xs transition-colors", draft.id === r.id ? "border-primary bg-primary/10 font-medium text-primary" : "border-input text-muted-foreground hover:bg-accent")}>
+                                    {r.name}
+                                    <span className="ml-1.5 text-[10px] text-muted-foreground">{r.chars.toLocaleString()} chars</span>
+                                </button>
+                            ))}
+                        </div>
                     </div>
-                    <div className="flex flex-wrap items-center gap-1.5">
-                        {rows.map((r) => (
-                            <button key={r.id} type="button" onClick={() => void open(r.id)} className={cn("rounded-full border px-3 py-1 text-xs transition-colors", draft.id === r.id ? "border-primary bg-primary/10 font-medium text-primary" : "border-input text-muted-foreground hover:bg-accent")}>
-                                {r.name}
-                                <span className="ml-1.5 text-[10px] text-muted-foreground">{r.chars.toLocaleString()} chars</span>
-                            </button>
-                        ))}
-                        {rows.length === 0 && <span className="text-xs text-muted-foreground">Nothing imported yet.</span>}
-                    </div>
-                </div>
+                )}
 
                 <Card>
                     <CardHeader>
