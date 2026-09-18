@@ -9,7 +9,7 @@ Simple tier model: Free / Premium / dev(-only). Backend-authoritative.
 - **`dev` tier**: only for the no-Clerk dev-fallback identity (`CLERK_ENABLED=false`, i.e. the
   fixed `DEV_USER`). `main.py`'s D2 guard refuses to boot with `CLERK_ENABLED=false` outside
   development/test, so `dev` can never leak to production. Never persisted in `subscriptions`.
-- **Quotas**: a single daily chat-turn credits per owner is the only gate — free = 30,
+- **Quotas**: a single daily chat-turn credits per owner is the only METERED gate — free = 30,
   premium = 250, dev = 500 (across ALL the owner's interviews in one UTC day). No
   per-interview cap and no token metering (decisions 2026-08-23 / this change). An owner on their
   own provider (BYOK) trades the tier cap for the flat, higher `BYOK_CHAT_TURNS` ceiling: the cap
@@ -38,11 +38,16 @@ DEV_CHAT_TURNS = int(os.getenv("DEV_CHAT_TURNS", "500"))  # dev > premium
 # waived cap would make the self-asserted `byok` flag a free ride on whoever's GPU `base_url` names
 # (BYOK.md). Flat across tiers on purpose: BYOK is a different payer, not an upgrade.
 BYOK_CHAT_TURNS = int(os.getenv("BYOK_CHAT_TURNS", "1000"))
+# Resume imports per owner. Free is a teaser cap, premium the real ceiling (env-overridable like the
+# turn caps above). `dev` tracks premium: a dev identity is never meant to be the more limited one.
+FREE_RESUMES = int(os.getenv("FREE_RESUMES", "1"))
+PREMIUM_RESUMES = int(os.getenv("PREMIUM_RESUMES", "5"))
+DEV_RESUMES = int(os.getenv("DEV_RESUMES", "5"))
 
 LIMITS = {
-    "free": {"chat_turns": FREE_CHAT_TURNS},
-    "premium": {"chat_turns": PREMIUM_CHAT_TURNS},
-    "dev": {"chat_turns": DEV_CHAT_TURNS},
+    "free": {"chat_turns": FREE_CHAT_TURNS, "resumes": FREE_RESUMES},
+    "premium": {"chat_turns": PREMIUM_CHAT_TURNS, "resumes": PREMIUM_RESUMES},
+    "dev": {"chat_turns": DEV_CHAT_TURNS, "resumes": DEV_RESUMES},
 }
 
 # Statuses that still serve time the customer paid for. `cancelled` is here on purpose: PayMongo
@@ -94,6 +99,12 @@ def chat_turn_limit(tier: str | None) -> int:
     None MEANS BYOK (the caller must not resolve a tier it has no other use for); it is never
     "uncapped" - see BYOK_CHAT_TURNS."""
     return BYOK_CHAT_TURNS if tier is None else int(_quota(tier, "chat_turns"))
+
+
+def resume_limit(tier: str) -> int:
+    """How many resumes this tier may keep. A storage cap, not a metered quota: nothing is spent by
+    importing one, which is why it is counted at INSERT and never decremented."""
+    return int(_quota(tier, "resumes"))
 
 
 def _utc_day() -> date:

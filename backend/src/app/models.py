@@ -1,9 +1,10 @@
 from datetime import datetime
 from typing import Literal
+from uuid import UUID
 
 from pydantic import BaseModel, Field, computed_field
 
-from app import dials, levels, rating
+from app import dials, levels, rating, resumes
 
 # Level slugs accepted on create, unpacked from the canonical levels vocabulary so the
 # API, DB CHECK, prompt, and frontend can never drift (see app/levels.py).
@@ -65,6 +66,10 @@ class InterviewCreate(Dials):
     role: str = Field(min_length=1, max_length=200)
     topic: str = Field(default="", max_length=500)
     level: Level = "any"
+    # The attach point (`resumes` below). `UUID` here, `str` on the way out: a malformed id is a 422
+    # before the handler, and every id the API returns is text like `Interview.id`. Ownership is
+    # enforced in the same statement as the INSERT, never by a pre-check.
+    resume_id: UUID | None = None
 
 
 class Interview(Dials):
@@ -73,6 +78,7 @@ class Interview(Dials):
     role: str
     level: str = "any"
     topic: str = ""
+    resume_id: str | None = None
     status: str
     created_at: datetime
     updated_at: datetime
@@ -100,7 +106,10 @@ class Interview(Dials):
 
 
 class TemplateCreate(InterviewCreate):
-    """A saved preset: a create body plus a name (inherits, so it cannot hold a knob a create rejects)."""
+    """A saved preset: a create body plus a name (inherits, so it cannot hold a knob a create rejects).
+
+    Inherits `resume_id` on purpose: a preset saved from a resume-tailored setup that forgot the
+    resume would silently interview against nothing."""
 
     name: str = Field(min_length=1, max_length=60)
 
@@ -110,6 +119,50 @@ class InterviewTemplate(TemplateCreate):
     owner_id: str
     created_at: datetime
     updated_at: datetime
+
+
+# --- resumes ---
+
+
+class ResumeSummary(BaseModel):
+    """One row of the resume library, WITHOUT its text.
+
+    Deliberately tiny: `text` is up to MAX_CHARS, and a list that carried every resume body would be
+    the per-row fan-out the rate-budget guardrail bans. `chars` is what the UI needs to explain a
+    truncated import without fetching the text."""
+
+    id: str
+    name: str
+    page_count: int
+    chars: int
+    created_at: datetime
+    updated_at: datetime
+
+
+class Resume(ResumeSummary):
+    """One resume with its text: the editor's read, never the list's."""
+
+    text: str
+
+
+class ResumeCreate(BaseModel):
+    """The write body for BOTH import paths: the pasted text, and the extracted text from a PDF.
+
+    `max_length` is the same constant the extractor caps at and the DB CHECK enforces, imported rather
+    than restated so the three cannot drift (the app/levels.py rule). It bounds the JSON body a client
+    may hand us; note none of these caps bound what FastAPI has already buffered."""
+
+    name: str = Field(min_length=1, max_length=80)
+    text: str = Field(min_length=1, max_length=resumes.MAX_CHARS)
+
+
+class ResumeExtract(BaseModel):
+    """What a PDF gave us, before anyone decided to keep it. `truncated` covers the page cap, the
+    character cap, and unreadable pages alike: all three mean "this is not the whole document"."""
+
+    text: str
+    pages: int
+    truncated: bool
 
 
 # --- messages ---

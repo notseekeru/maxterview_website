@@ -6,7 +6,9 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
+from test_resumes import encrypted, mini_pdf
 
+from app import resumes
 from app.main import app
 
 # Integration tests hit a real Postgres. `DATABASE_URL` is provided by CI (Postgres
@@ -370,6 +372,186 @@ def test_template_owner_scoping(client):
     assert c.put(f"/api/templates/{foreign}", json={"name": "Hijack", "role": "Backend Engineer"}).status_code == 404
     assert c.delete(f"/api/templates/{foreign}").status_code == 404
     assert c.delete("/api/templates/00000000-0000-0000-0000-000000000000").status_code == 404
+
+
+# --- resumes: import, library, tiers, attach (app/resumes.py + the endpoints) ---
+
+
+def _wipe_resumes(c):
+    """Resumes are owner-scoped AND capped, so every test here starts from an empty library: leftover
+    rows would otherwise eat the tier cap and make the suite order-dependent."""
+    for row in c.get("/api/resumes").json():
+        c.delete(f"/api/resumes/{row['id']}")
+
+
+def _resume_payload(name="CV", text="Alex Mender - platform engineer. Go, Terraform, Kubernetes."):
+    return {"name": name, "text": text}
+
+
+def test_resume_import_round_trip_and_list_shape(client):
+    c = client
+    _wipe_resumes(c)
+    # The two-step import the UI performs: extract (STATELESS) then save the text the browser got.
+    got = c.post("/api/resumes/extract", files={"file": ("cv.pdf", mini_pdf("Alex Mender - Platform Engineer"), "application/pdf")})
+    assert got.status_code == 200
+    extracted = got.json()
+    assert "Alex Mender" in extracted["text"] and (extracted["pages"], extracted["truncated"]) == (1, False)
+
+    made = c.post("/api/resumes", json={"name": "cv.pdf", "text": extracted["text"]})
+    assert made.status_code == 201
+    row = made.json()
+    # `name` is display text, never a path: the suffix is dropped here, and nothing ever reads a file.
+    assert (row["name"], row["page_count"], row["chars"]) == ("cv", 0, len(extracted["text"]))
+
+    # The list carries no text - a 60k-char body per row is the fan-out the rate budget bans - and the
+    # editor fetches the one row it opened.
+    listed = c.get("/api/resumes").json()
+    assert listed[0]["id"] == row["id"] and "text" not in listed[0]
+    assert c.get(f"/api/resumes/{row['id']}").json()["text"] == extracted["text"]
+
+    # PUT is a full replace, and it is how a bad extraction gets fixed.
+    fixed = c.put(f"/api/resumes/{row['id']}", json={"name": "CV fixed", "text": "Corrected."})
+    assert fixed.status_code == 200
+    assert (fixed.json()["name"], fixed.json()["text"], fixed.json()["chars"]) == ("CV fixed", "Corrected.", 10)
+
+    assert c.delete(f"/api/resumes/{row['id']}").status_code == 204
+    assert c.delete(f"/api/resumes/{row['id']}").status_code == 404
+    assert c.get(f"/api/resumes/{row['id']}").status_code == 404
+
+
+def test_resume_import_rejects_documents_it_cannot_read(client):
+    c = client
+
+    # Filename and Content-Type say "pdf" on every one of these and are deliberately ignored: only the
+    # bytes decide.
+    def upload(data):
+        return c.post("/api/resumes/extract", files={"file": ("cv.pdf", data, "application/pdf")})
+
+    assert upload(b"<html>not a pdf at all</html>").status_code == 422
+    assert "isn't a PDF" in upload(b"PK\x03\x04").json()["detail"]
+    # Over the byte cap: a 413 with the paste hint, refused before any parser sees it.
+    assert upload(b"%PDF-" + b" " * (resumes.MAX_BYTES + 1)).status_code == 413
+    assert "password-protected" in upload(encrypted()).json()["detail"]
+    # A valid PDF with no text layer (a scan or an image export): the paste fallback, not a 500.
+    assert "Paste the text instead" in upload(mini_pdf("")).json()["detail"]
+
+
+def test_resume_tier_caps_free_is_402_paid_is_409(client, monkeypatch):
+    from app import billing
+
+    c = client
+    _wipe_resumes(c)
+
+    # A free owner gets exactly one, and the second is a 402 - which IS the upsell path: the UI turns
+    # isQuotaError(402) into its upgrade notice, so nothing new has to be built for this wall.
+    tier = {"value": "free"}
+
+    async def fake_tier(_user):
+        return tier["value"]
+
+    monkeypatch.setattr(billing, "resolve_tier", fake_tier)
+    monkeypatch.setitem(billing.LIMITS["free"], "resumes", 1)
+    assert c.post("/api/resumes", json=_resume_payload("Free one")).status_code == 201
+    over = c.post("/api/resumes", json=_resume_payload("Free two"))
+    assert over.status_code == 402 and "upgrade" in over.json()["detail"].lower()
+    # The library page reads the cap from /usage, the same place it reads the tier.
+    assert c.get("/api/usage").json()["resume_limit"] == 1
+    # Deleting frees the slot: a live count, not a ratchet.
+    assert c.delete(f"/api/resumes/{c.get('/api/resumes').json()[0]['id']}").status_code == 204
+    assert c.post("/api/resumes", json=_resume_payload("Free two")).status_code == 201
+
+    # A paid owner at the ceiling is a 409: there is nothing to sell them.
+    tier["value"] = "dev"
+    monkeypatch.setitem(billing.LIMITS["dev"], "resumes", 2)
+    assert c.post("/api/resumes", json=_resume_payload("Paid one")).status_code == 201
+    full = c.post("/api/resumes", json=_resume_payload("Paid two"))
+    assert full.status_code == 409 and "maximum" in full.json()["detail"]
+    _wipe_resumes(c)
+
+
+def test_resume_owner_scoping(client):
+    # owner_id is on every statement: another owner's resume is invisible in the list, unreadable and
+    # undeletable by id, and cannot be attached to a run or a preset.
+    import asyncio
+
+    import asyncpg
+
+    c = client
+    _wipe_resumes(c)
+
+    async def insert_foreign():
+        conn = await asyncpg.connect(DB_URL)
+        try:
+            return await conn.fetchval("INSERT INTO resumes (owner_id, name, text) VALUES ('someone-else', 'Not yours', 'secret') RETURNING id::text")
+        finally:
+            await conn.close()
+
+    foreign = asyncio.run(insert_foreign())
+    assert all(x["id"] != foreign for x in c.get("/api/resumes").json())
+    assert c.get(f"/api/resumes/{foreign}").status_code == 404
+    assert c.put(f"/api/resumes/{foreign}", json=_resume_payload("Hijack")).status_code == 404
+    assert c.delete(f"/api/resumes/{foreign}").status_code == 404
+    assert c.post("/api/interviews", json={"role": "Backend Engineer", "resume_id": foreign}).status_code == 404
+    assert c.post("/api/templates", json={"name": "Steal", "role": "Backend Engineer", "resume_id": foreign}).status_code == 404
+    # A malformed id is a 422 from the model, not a 500 from a uuid cast in the query.
+    assert c.post("/api/interviews", json={"role": "Backend Engineer", "resume_id": "not-a-uuid"}).status_code == 422
+
+
+def test_resume_attaches_to_an_interview_and_outlives_its_delete(client):
+    c = client
+    _wipe_resumes(c)
+    rid = c.post("/api/resumes", json=_resume_payload("Attach me")).json()["id"]
+    made = c.post("/api/interviews", json={"role": "Backend Engineer", "resume_id": rid})
+    assert made.status_code == 201
+    interview = made.json()
+    assert interview["resume_id"] == rid
+    # Every read path carries the attach point; the shared column list is why they cannot drift.
+    assert c.get(f"/api/interviews/{interview['id']}").json()["resume_id"] == rid
+    assert next(x for x in c.get("/api/interviews").json() if x["id"] == interview["id"])["resume_id"] == rid
+
+    # Deleting the resume must not delete the run: SET NULL keeps the transcript, and the run simply
+    # stops being tailored to a resume that no longer exists.
+    assert c.delete(f"/api/resumes/{rid}").status_code == 204
+    after = c.get(f"/api/interviews/{interview['id']}")
+    assert after.status_code == 200 and after.json()["resume_id"] is None
+    assert c.delete(f"/api/interviews/{interview['id']}").status_code == 204
+
+
+def test_template_remembers_the_resume(client):
+    c = client
+    _wipe_resumes(c)
+    rid = c.post("/api/resumes", json=_resume_payload("Preset resume")).json()["id"]
+    t = c.post("/api/templates", json={"name": "With resume", "role": "Backend Engineer", "resume_id": rid})
+    assert t.status_code == 201 and t.json()["resume_id"] == rid
+
+    # A rename is a full replace, and it must carry the attachment: a preset that silently dropped it
+    # would interview against nothing (the drift this test exists to catch).
+    renamed = c.put(f"/api/templates/{t.json()['id']}", json={"name": "Renamed", "role": "Backend Engineer", "resume_id": rid})
+    assert renamed.json()["resume_id"] == rid
+    # Omitting it detaches on purpose: nullable, not sticky.
+    assert c.put(f"/api/templates/{t.json()['id']}", json={"name": "Renamed", "role": "Backend Engineer"}).json()["resume_id"] is None
+    assert c.put(f"/api/templates/{t.json()['id']}", json={"name": "Renamed", "role": "Backend Engineer", "resume_id": rid}).json()["resume_id"] == rid
+
+    # Deleting the resume leaves the preset alive and unattached.
+    assert c.delete(f"/api/resumes/{rid}").status_code == 204
+    assert c.get("/api/templates").json()[0]["resume_id"] is None
+    assert c.delete(f"/api/templates/{t.json()['id']}").status_code == 204
+
+
+def test_resume_write_paths_share_one_hygiene(client):
+    # Both write paths run the same sanitizer, so a pasted resume cannot smuggle in what an extracted
+    # one gets stripped. Zero-width joiners and bidi overrides are invisible to a person reading their
+    # own CV and are exactly what "hidden instructions" look like to a model.
+    c = client
+    _wipe_resumes(c)
+    made = c.post("/api/resumes", json={"name": "Hi\u200bthere", "text": "Line one\u200b\u202e\n\n\n\nLine two"})
+    assert made.status_code == 201
+    assert made.json()["name"] == "Hithere"
+    assert c.get(f"/api/resumes/{made.json()['id']}").json()["text"] == "Line one\n\nLine two"
+    # Whitespace-only is not a resume: 422 beats a row the interviewer would read as empty.
+    assert c.post("/api/resumes", json={"name": "Empty", "text": "   \n\u200b  "}).status_code == 422
+    assert c.put(f"/api/resumes/{made.json()['id']}", json={"name": "Empty", "text": " "}).status_code == 422
+    assert c.delete(f"/api/resumes/{made.json()['id']}").status_code == 204
 
 
 def test_dimensions_aggregate_matches_the_per_run_reads(client):

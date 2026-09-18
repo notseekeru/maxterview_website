@@ -6,14 +6,14 @@ from typing import Annotated
 
 import asyncpg
 import structlog
-from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request, status
+from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse, StreamingResponse
 
-from app import API_PREFIX, billing, byok, dials, levels, llm, payments, rating
+from app import API_PREFIX, billing, byok, dials, levels, llm, payments, rating, resumes
 from app.auth import CLERK_ENABLED, get_current_user
 from app.db import close_pool, fetch, fetchrow, init_pool
-from app.models import Analytics, ChatMessage, ChatTurn, ClerkUser, Dials, Feedback, FeedbackCreate, Interview, InterviewCreate, InterviewDimensions, InterviewTemplate, LLMProvider, LLMProviderUpdate, Message, TemplateCreate
+from app.models import Analytics, ChatMessage, ChatTurn, ClerkUser, Dials, Feedback, FeedbackCreate, Interview, InterviewCreate, InterviewDimensions, InterviewTemplate, LLMProvider, LLMProviderUpdate, Message, Resume, ResumeCreate, ResumeExtract, ResumeSummary, TemplateCreate
 from app.ratelimit import ClientRateLimitMiddleware
 
 APP_ENV = os.getenv("APP_ENV", "development")
@@ -88,7 +88,7 @@ DIAL_FIELDS = ("company_size", "cynicism", "brutally_honest", "human_mode", "har
 # Interview row columns for every SELECT/RETURNING that builds an `Interview`. Shared because
 # `Interview` fills an absent field from its default, so a query that forgets a dial would answer
 # 200 with a WRONG value ('neutral' for a run created skeptical) rather than an error.
-INTERVIEW_COLS = "id::text, owner_id, role, level, topic, status, created_at, updated_at, failed_turn, failed_class, archived_at, " + ", ".join(DIAL_FIELDS)
+INTERVIEW_COLS = "id::text, owner_id, role, level, topic, resume_id::text, status, created_at, updated_at, failed_turn, failed_class, archived_at, " + ", ".join(DIAL_FIELDS)
 
 
 @api.get("/interviews", response_model=list[Interview])
@@ -97,7 +97,7 @@ async def list_interviews(user: CurrentUser) -> list[dict]:
     # grade scale lives only in app/rating.py, and `grade` is a computed field on the model.
     rows = await fetch(
         f"""
-        SELECT i.id::text, i.owner_id, i.role, i.level, i.topic, i.status, i.created_at, i.updated_at,
+        SELECT i.id::text, i.owner_id, i.role, i.level, i.topic, i.resume_id::text, i.status, i.created_at, i.updated_at,
                {", ".join(f"i.{c}" for c in DIAL_FIELDS)},
                i.failed_turn, i.failed_class, i.archived_at,
                f.verdict AS verdict, f.decision AS decision, f.certainty AS certainty, f.accuracy AS accuracy
@@ -116,25 +116,26 @@ async def create_interview(
     body: InterviewCreate,
     user: CurrentUser,
 ) -> dict:
+    # The attached resume is proven to be the caller's IN THE INSERT (the `WHERE` below), not by a
+    # pre-check: a foreign or deleted id yields no row, which is the same one round trip and cannot
+    # race a delete between the two statements. None row here means exactly that — this path has no
+    # cap to confuse it with.
     row = await fetchrow(
-        """
-        INSERT INTO interviews (owner_id, role, level, topic, company_size, cynicism, brutally_honest, human_mode, hardcore, mix_chitchat, mix_behavioural, mix_technical)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+        f"""
+        INSERT INTO interviews (owner_id, role, level, topic, resume_id, {", ".join(DIAL_FIELDS)})
+        SELECT $1, $2, $3, $4, $5::uuid, {", ".join(f"${i}" for i in range(6, 6 + len(DIAL_FIELDS)))}
+        WHERE $5::uuid IS NULL OR EXISTS (SELECT 1 FROM resumes WHERE id = $5::uuid AND owner_id = $1)
         RETURNING """
         + INTERVIEW_COLS,
         user.sub,
         body.role,
         body.level,
         body.topic,
-        body.company_size,
-        body.cynicism,
-        body.brutally_honest,
-        body.human_mode,
-        body.hardcore,
-        body.mix_chitchat,
-        body.mix_behavioural,
-        body.mix_technical,
+        str(body.resume_id) if body.resume_id else None,
+        *[getattr(body, f) for f in DIAL_FIELDS],
     )
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Resume not found")
     return dict(row)
 
 
@@ -317,7 +318,15 @@ async def regenerate_feedback(
 # Per-owner ceiling: presets render as one chip row above the create form.
 TEMPLATE_CAP = 20
 
-TEMPLATE_COLS = "id::text, owner_id, name, role, level, topic, created_at, updated_at, " + ", ".join(DIAL_FIELDS)
+TEMPLATE_COLS = "id::text, owner_id, name, role, level, topic, resume_id::text, created_at, updated_at, " + ", ".join(DIAL_FIELDS)
+
+# Dials are appended after each template statement's own prefix, generated from these bases rather
+# than hand-counted: a hole in the numbering (a dropped or skipped placeholder) makes Postgres parse
+# fine and asyncpg fail at bind with "could not determine data type of parameter $n".
+# CREATE: $1..$6 = owner_id, name, role, level, topic, resume_id. UPDATE: $1..$7 = id, owner_id, then
+# the same five. Two bases, because the two statements do NOT share a prefix.
+TEMPLATE_CREATE_DIAL_PARAM = 7
+TEMPLATE_UPDATE_DIAL_PARAM = 8
 
 
 @api.get("/templates", response_model=list[InterviewTemplate])
@@ -334,12 +343,15 @@ async def create_template(
     body: TemplateCreate,
     user: CurrentUser,
 ) -> dict:
-    # Cap checked inside the INSERT: one round trip, and no pre-count race. None row = cap reached.
+    # Cap AND resume ownership checked inside the INSERT: one round trip, no pre-count race. The
+    # caller cannot tell which condition returned no row, so the message names the cap (the only one
+    # an honest client can hit — a foreign resume id is caught here too, as a 404).
     row = await fetchrow(
         f"""
-        INSERT INTO interview_templates (owner_id, name, role, level, topic, {", ".join(DIAL_FIELDS)})
-        SELECT $1, $2, $3, $4, $5, {", ".join(f"${i}" for i in range(6, 6 + len(DIAL_FIELDS)))}
+        INSERT INTO interview_templates (owner_id, name, role, level, topic, resume_id, {", ".join(DIAL_FIELDS)})
+        SELECT $1, $2, $3, $4, $5, $6::uuid, {", ".join(f"${i}" for i in range(TEMPLATE_CREATE_DIAL_PARAM, TEMPLATE_CREATE_DIAL_PARAM + len(DIAL_FIELDS)))}
         WHERE (SELECT count(*) FROM interview_templates WHERE owner_id = $1) < {TEMPLATE_CAP}
+          AND ($6::uuid IS NULL OR EXISTS (SELECT 1 FROM resumes WHERE id = $6::uuid AND owner_id = $1))
         RETURNING {TEMPLATE_COLS}
         """,
         user.sub,
@@ -347,9 +359,13 @@ async def create_template(
         body.role,
         body.level,
         body.topic,
+        str(body.resume_id) if body.resume_id else None,
         *[getattr(body, f) for f in DIAL_FIELDS],
     )
     if row is None:
+        # Distinguish the two no-row causes: a foreign resume is a 404, the cap is a 409.
+        if body.resume_id and not await fetchrow("SELECT 1 FROM resumes WHERE id = $1 AND owner_id = $2", str(body.resume_id), user.sub):
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Resume not found")
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"Template limit reached ({TEMPLATE_CAP}); delete one to save another.")
     return dict(row)
 
@@ -361,18 +377,21 @@ async def update_template(
     user: CurrentUser,
 ) -> dict:
     """Full replace, not a merge: the caller holds every field of the preset it is editing."""
-    assignments = ", ".join(f"{f} = ${i}" for i, f in enumerate(DIAL_FIELDS, start=7))
+    assignments = ", ".join(f"{f} = ${i}" for i, f in enumerate(DIAL_FIELDS, start=TEMPLATE_UPDATE_DIAL_PARAM))
     row = await fetchrow(
-        f"UPDATE interview_templates SET name = $3, role = $4, level = $5, topic = $6, {assignments}, updated_at = now() WHERE id = $1 AND owner_id = $2 RETURNING {TEMPLATE_COLS}",
+        f"UPDATE interview_templates SET name = $3, role = $4, level = $5, topic = $6, resume_id = $7::uuid, {assignments}, updated_at = now() WHERE id = $1 AND owner_id = $2 AND ($7::uuid IS NULL OR EXISTS (SELECT 1 FROM resumes WHERE id = $7::uuid AND owner_id = $2)) RETURNING {TEMPLATE_COLS}",
         template_id,
         user.sub,
         body.name,
         body.role,
         body.level,
         body.topic,
+        str(body.resume_id) if body.resume_id else None,
         *[getattr(body, f) for f in DIAL_FIELDS],
     )
     if row is None:
+        if body.resume_id and not await fetchrow("SELECT 1 FROM resumes WHERE id = $1 AND owner_id = $2", str(body.resume_id), user.sub):
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Resume not found")
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Template not found")
     return dict(row)
 
@@ -389,6 +408,148 @@ async def delete_template(
     )
     if row is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Template not found")
+
+
+# --- resumes (the library; an interview/preset holds `resume_id`, nothing else references one) ---
+
+# No `text` in the list projection: `MAX_CHARS` per row is the per-row fan-out the rate-budget
+# guardrail bans, and the editor only ever opens one. `chars` is computed from the column, so there is
+# no stored length to keep in step with an edit.
+RESUME_COLS = "id::text, owner_id, name, page_count, created_at, updated_at, length(text) AS chars"
+RESUME_COLS_WITH_TEXT = RESUME_COLS + ", text"
+
+
+def _resume_name(raw: str | None, fallback: str = "Untitled resume") -> str:
+    """The display name, from a filename stem on the upload path and as typed on the paste path.
+
+    The filename is attacker-controlled and is used as TEXT ONLY — never as a path, never to decide
+    anything. It gets the same hygiene as the body (which also caps it at the column's 80), so a name
+    cannot carry control characters or a zero-width join into the UI.
+    """
+    stem = (raw or "").replace("\\", "/").rsplit("/", 1)[-1]
+    if stem.lower().endswith(".pdf"):
+        stem = stem[:-4]
+    return resumes.sanitize(stem, 80).strip() or fallback
+
+
+def _resume_body(text: str) -> str:
+    """The text a resume is allowed to hold, or 422. Shared by both write paths and the extract route's
+    successor, so a pasted resume cannot skip the hygiene an extracted one gets."""
+    body = resumes.sanitize(text, resumes.MAX_CHARS)
+    if not body:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="There is no text to save. Paste some, or upload a PDF with selectable text.")
+    return body
+
+
+def _resume_cap_error(tier: str, cap: int) -> HTTPException:
+    """402 when the CAP is what free-ness costs you — the UI already turns 402 into its upgrade notice
+    — and 409 when a paid owner simply hit the ceiling (nothing to sell them)."""
+    if tier == "free":
+        return HTTPException(status_code=status.HTTP_402_PAYMENT_REQUIRED, detail=f"The free plan includes {cap} resume. Delete it to import another, or upgrade to premium for {billing.PREMIUM_RESUMES}.")
+    return HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"You already have {cap} resumes, the maximum. Delete one to import another.")
+
+
+async def _insert_resume(owner_id: str, tier: str, name: str, text: str, page_count: int = 0) -> dict:
+    """The one write path for both import routes (PDF extract, paste).
+
+    Ownership is not a question here — the row is being created — but the tier cap is checked INSIDE
+    the INSERT, so two imports racing cannot both pass a count taken a moment earlier."""
+    cap = billing.resume_limit(tier)
+    row = await fetchrow(
+        f"""
+        INSERT INTO resumes (owner_id, name, text, page_count)
+        SELECT $1, $2, $3, $4
+        WHERE (SELECT count(*) FROM resumes WHERE owner_id = $1) < $5
+        RETURNING {RESUME_COLS_WITH_TEXT}
+        """,
+        owner_id,
+        _resume_name(name),
+        _resume_body(text),
+        page_count,
+        cap,
+    )
+    if row is None:
+        raise _resume_cap_error(tier, cap)
+    return dict(row)
+
+
+@api.get("/resumes", response_model=list[ResumeSummary])
+async def list_resumes(user: CurrentUser) -> list[dict]:
+    rows = await fetch(f"SELECT {RESUME_COLS} FROM resumes WHERE owner_id = $1 ORDER BY created_at DESC", user.sub)
+    return [dict(r) for r in rows]
+
+
+@api.get("/resumes/{resume_id}", response_model=Resume)
+async def get_resume(
+    resume_id: str,
+    user: CurrentUser,
+) -> dict:
+    row = await fetchrow(f"SELECT {RESUME_COLS_WITH_TEXT} FROM resumes WHERE id = $1 AND owner_id = $2", resume_id, user.sub)
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Resume not found")
+    return dict(row)
+
+
+@api.post("/resumes/extract", response_model=ResumeExtract)
+async def extract_resume(file: UploadFile, user: CurrentUser) -> ResumeExtract:
+    """PDF in, text out. Persists NOTHING: a hostile document runs inside this call and leaves no row,
+    no transaction and no attachable id behind — which is the whole reason the parse and the write are
+    two endpoints.
+
+    `read(MAX_BYTES + 1)` is what bounds what WE allocate: asking for one byte more than the cap
+    detects "too big" without ever holding the whole file. It does not bound what Starlette already
+    spooled while parsing the form (a part over 1MB goes to a temp file on disk — the pod needs a
+    writable /tmp), and nothing upstream caps the request body itself.
+    """
+    data = await file.read(resumes.MAX_BYTES + 1)
+    if len(data) > resumes.MAX_BYTES:
+        raise HTTPException(status_code=status.HTTP_413_CONTENT_TOO_LARGE, detail=f"That file is larger than {resumes.MAX_BYTES // (1024 * 1024)} MB. Trim it down, or paste the text instead.")
+    try:
+        got = await resumes.extract_pdf(data)
+    except resumes.ExtractError as exc:
+        # The message is written for the user by app/resumes.py; pypdf's own messages are
+        # attacker-controlled and never reach a response body.
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
+    return ResumeExtract(text=got.text, pages=got.pages, truncated=got.truncated)
+
+
+@api.post("/resumes", response_model=Resume, status_code=status.HTTP_201_CREATED)
+async def create_resume(body: ResumeCreate, user: CurrentUser) -> dict:
+    """Save. The paste path and the second half of the PDF import are the same request: the browser
+    posts text it already has, so `page_count` is 0 there and provenance only."""
+    return await _insert_resume(user.sub, await billing.resolve_tier(user), body.name, body.text)
+
+
+@api.put("/resumes/{resume_id}", response_model=Resume)
+async def update_resume(
+    resume_id: str,
+    body: ResumeCreate,
+    user: CurrentUser,
+) -> dict:
+    """Full replace, like presets: the editor holds every field it is writing. This is also the fix for
+    a bad extraction — paste the corrected text over it."""
+    row = await fetchrow(
+        f"UPDATE resumes SET name = $3, text = $4, updated_at = now() WHERE id = $1 AND owner_id = $2 RETURNING {RESUME_COLS_WITH_TEXT}",
+        resume_id,
+        user.sub,
+        _resume_name(body.name),
+        _resume_body(body.text),
+    )
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Resume not found")
+    return dict(row)
+
+
+@api.delete("/resumes/{resume_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_resume(
+    resume_id: str,
+    user: CurrentUser,
+) -> None:
+    # Interviews and presets attached to it keep their rows: the FK is ON DELETE SET NULL, so a run
+    # keeps its transcript and merely stops being tailored to a resume that no longer exists.
+    row = await fetchrow("DELETE FROM resumes WHERE id = $1 AND owner_id = $2 RETURNING id", resume_id, user.sub)
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Resume not found")
 
 
 # --- dashboard stats (aggregates, not per-row reads) ---
@@ -600,6 +761,9 @@ async def get_usage(user: CurrentUser, config: LLMConfigDep) -> dict:
         # BYOK: the turns run on the owner's provider account, so the TIER quota is not what gates
         # them; the ceiling above is, and the UI says which payer this is.
         "byok": config.byok,
+        # Storage, not a meter: the resume library's ceiling. `used` is the list length the resume page
+        # already has, so this is the only number it needs from here.
+        "resume_limit": billing.resume_limit(tier),
         # How money becomes premium, plus when the paid time lapses. Period mode does not
         # auto-renew, so the UI must show the expiry and must not offer a cancel that cancels
         # nothing (`billing_mode` is what tells the two apart).
