@@ -18,6 +18,12 @@ lint:
 	docker exec -t $(BACKEND_DEV) sh -c "uv run ruff check src tests --fix"
 	docker exec -t $(BACKEND_DEV) sh -c "uv run ruff format src tests"
 
+seed: ## Artificial dev-user history for the dashboard/history/analytics pages. See scripts/seed-dev-data.py.
+	@nix shell nixpkgs#python3 --command python3 scripts/seed-dev-data.py
+
+seed-wipe: ## Same, replacing this owner's existing rows.
+	@nix shell nixpkgs#python3 --command python3 scripts/seed-dev-data.py --wipe
+
 test-llm: ## End-to-end LLM smoke test (needs live model + running stack). See scripts/llm-smoke.sh.
 	@scripts/llm-smoke.sh
 # DEV
