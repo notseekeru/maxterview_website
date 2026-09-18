@@ -164,7 +164,11 @@ export function ResumePage() {
                             setDropping(false);
                             pick(e.dataTransfer.files?.[0]);
                         }}
-                        className={cn("flex min-h-[calc(100dvh-10.5rem)] flex-col items-center justify-center gap-3 rounded-lg border border-dashed px-6 text-center transition-colors lg:min-h-[calc(100dvh-6.5rem)]", busy ? "cursor-default opacity-60" : "cursor-pointer", dropping ? "border-primary bg-primary/10 text-primary" : "text-muted-foreground hover:bg-accent")}
+                        className={cn(
+                            "flex min-h-[calc(100dvh-10.5rem)] flex-col items-center justify-center gap-3 rounded-lg border border-dashed px-6 text-center transition-colors lg:min-h-[calc(100dvh-6.5rem)]",
+                            busy ? "cursor-default opacity-60" : "cursor-pointer",
+                            dropping ? "border-primary bg-primary/10 text-primary" : "text-muted-foreground hover:bg-accent",
+                        )}
                     >
                         <Icon name="file" className="h-10 w-10" />
                         <span className="text-base">{dropping ? "Drop it" : busy ? "Reading the PDF…" : "Drop a PDF here, or click to browse"}</span>
