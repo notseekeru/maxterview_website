@@ -65,6 +65,11 @@ export function ResumePage() {
         void importPdf(file);
     }
 
+    /** Escape hatch for a PDF the parser chokes on: the textarea below is the manual path. */
+    function pasteInstead() {
+        document.getElementById("resume-text")?.focus();
+    }
+
     async function importPdf(file: File) {
         setBusy(true);
         setError(null);
@@ -139,36 +144,43 @@ export function ResumePage() {
     return (
         <Page title="Resume">
             <div className="space-y-4">
-                <label
-                    onDragOver={(e) => {
-                        e.preventDefault();
-                        setDropping(true);
-                    }}
-                    onDragLeave={(e) => {
-                        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDropping(false);
-                    }}
-                    onDrop={(e) => {
-                        e.preventDefault();
-                        setDropping(false);
-                        pick(e.dataTransfer.files?.[0]);
-                    }}
-                    className={cn("flex flex-col items-center gap-1.5 rounded-lg border border-dashed px-6 py-10 text-center transition-colors", busy ? "cursor-default opacity-60" : "cursor-pointer", dropping ? "border-primary bg-primary/10 text-primary" : "text-muted-foreground hover:bg-accent")}
-                >
-                    <Icon name="file" className="h-6 w-6" />
-                    <span className="text-sm">{dropping ? "Drop it" : busy ? "Reading the PDF…" : "Drop a PDF here, or click to browse"}</span>
-                    <input
-                        type="file"
-                        accept="application/pdf,.pdf"
-                        disabled={busy}
-                        className="hidden"
-                        onChange={(e) => {
-                            const file = e.target.files?.[0];
-                            // Reset first: picking the SAME file twice must fire again.
-                            e.target.value = "";
-                            pick(file);
+                <div className="flex flex-col items-center gap-2">
+                    <label
+                        onDragOver={(e) => {
+                            e.preventDefault();
+                            setDropping(true);
                         }}
-                    />
-                </label>
+                        onDragLeave={(e) => {
+                            if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDropping(false);
+                        }}
+                        onDrop={(e) => {
+                            e.preventDefault();
+                            setDropping(false);
+                            pick(e.dataTransfer.files?.[0]);
+                        }}
+                        className={cn("flex flex-col items-center gap-1.5 rounded-lg border border-dashed px-6 py-10 text-center transition-colors", busy ? "cursor-default opacity-60" : "cursor-pointer", dropping ? "border-primary bg-primary/10 text-primary" : "text-muted-foreground hover:bg-accent")}
+                    >
+                        <Icon name="file" className="h-6 w-6" />
+                        <span className="text-sm">{dropping ? "Drop it" : busy ? "Reading the PDF…" : "Drop a PDF here, or click to browse"}</span>
+                        <input
+                            type="file"
+                            accept="application/pdf,.pdf"
+                            disabled={busy}
+                            className="hidden"
+                            onChange={(e) => {
+                                const file = e.target.files?.[0];
+                                // Reset first: picking the SAME file twice must fire again.
+                                e.target.value = "";
+                                pick(file);
+                            }}
+                        />
+                    </label>
+                    {!draft.id && (
+                        <button type="button" onClick={pasteInstead} className="text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground">
+                            Paste text instead
+                        </button>
+                    )}
+                </div>
 
                 {(error || notice || (capped && atCap)) && (
                     <div className="space-y-1 text-sm">
