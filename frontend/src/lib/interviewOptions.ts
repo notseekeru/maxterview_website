@@ -21,7 +21,6 @@ export const ROLE_PRESETS = [
     "Mobile Engineer",
     "Embedded / Firmware Engineer",
     "Game Developer",
-    "Site Reliability Engineer",
     "Engineering Manager",
     "Product Manager",
     "Product Designer",

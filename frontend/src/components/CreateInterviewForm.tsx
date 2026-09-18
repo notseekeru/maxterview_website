@@ -47,6 +47,8 @@ export function CreateInterviewForm({ onCreated, variant = "compact", className 
     const [lastUsedId, setLastUsedId] = useState<string | null>(() => localStorage.getItem(LAST_TEMPLATE_KEY));
     const [editor, setEditor] = useState<{ mode: "save" } | { mode: "rename"; id: string } | null>(null);
     const [templateName, setTemplateName] = useState("");
+    // Preset list is long enough to bury the input below it on a phone.
+    const [showAllRoles, setShowAllRoles] = useState(false);
     const [templateBusy, setTemplateBusy] = useState(false);
     const [templateError, setTemplateError] = useState<string | null>(null);
 
@@ -311,7 +313,7 @@ export function CreateInterviewForm({ onCreated, variant = "compact", className 
                     <div className={cn("space-y-1.5", featured && "sm:col-span-2")}>
                         <Label htmlFor="role">Role</Label>
                         <div className="flex flex-wrap gap-1.5">
-                            {ROLE_PRESETS.slice(0, 9).map((preset) => (
+                            {(showAllRoles ? ROLE_PRESETS : ROLE_PRESETS.slice(0, 9)).map((preset) => (
                                 <button
                                     key={preset}
                                     type="button"
@@ -324,6 +326,11 @@ export function CreateInterviewForm({ onCreated, variant = "compact", className 
                                     {preset}
                                 </button>
                             ))}
+                            {ROLE_PRESETS.length > 9 && (
+                                <button type="button" onClick={() => setShowAllRoles((v) => !v)} aria-expanded={showAllRoles} className="rounded-full border border-dashed border-input px-3 py-1 text-xs text-muted-foreground hover:bg-accent">
+                                    {showAllRoles ? "Show fewer" : `+${ROLE_PRESETS.length - 9} more`}
+                                </button>
+                            )}
                         </div>
                         <Input id="role" value={role} onChange={(e) => setRole(e.target.value)} placeholder="e.g. Software Engineer — or pick a preset above" required />
                     </div>
