@@ -3,13 +3,13 @@ import { useNavigate } from "react-router-dom";
 import { CreateInterviewForm } from "@/components/CreateInterviewForm";
 import { InterviewList } from "@/components/InterviewList";
 import { Page } from "@/components/PagePrimitives";
-import { useInterviewData } from "@/hooks/useInterviewData";
+import { useInterviews } from "@/hooks/useInterviewData";
 import { archiveInterview, deleteInterview, regenerateFeedback, unarchiveInterview } from "@/lib/api";
 
 // /app/interviews — a management home for your sessions.
 export function InterviewsPage() {
     const navigate = useNavigate();
-    const { interviews, loading, error, refresh } = useInterviewData();
+    const { interviews, loading, error, refresh } = useInterviews();
 
     async function onCreated(id: string) {
         navigate(`/interviews/${id}`);

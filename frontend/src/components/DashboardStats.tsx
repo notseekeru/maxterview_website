@@ -5,11 +5,14 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { type ChartConfig, ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { InterviewDims } from "@/hooks/useInterviewData";
-import type { Feedback } from "@/lib/api";
+import type { InterviewDimensions } from "@/lib/api";
 import { dimShort, groupDims, orderDims } from "@/lib/dimensions";
 
 interface Props {
-    feedback: Feedback[];
+    /** One aggregate (backend models.InterviewDimensions), not a Feedback per rated run. Null until
+     *  it lands; `statsError` is the separate failure line, so "no data" and "could not load" differ. */
+    stats: InterviewDimensions | null;
+    statsError?: string | null;
     loading: boolean;
     dims: InterviewDims;
 }
@@ -18,7 +21,7 @@ interface Props {
 // VIEWPORT breakpoints on purpose — this is a top-level page, not a column inside one, so
 // `xl:grid-cols-4` gives ~380px tiles instead of the ~110px it used to hand out when the same
 // grid lived inside a 3/5 column of a max-w-4xl page.
-export function DashboardStats({ loading, dims, feedback }: Props) {
+export function DashboardStats({ loading, dims, stats, statsError }: Props) {
     if (loading) {
         return (
             <div className="space-y-4" aria-busy="true">
@@ -62,7 +65,7 @@ export function DashboardStats({ loading, dims, feedback }: Props) {
             </div>
             <div className="grid gap-4 lg:grid-cols-2">
                 <AccuracyTrend data={dims.accuracyTrend} />
-                <DimensionScores feedback={feedback} />
+                <DimensionScores stats={stats} error={statsError} />
             </div>
         </div>
     );
@@ -127,11 +130,12 @@ const round1 = (n: number) => Math.round(n * 10) / 10;
 // Radar, not tiles: ten 1-10 dims is where a tile grid stops reading, and a polygon shows the SHAPE
 // of the run - a collapsed substance axis is one glance, not ten numbers to compare. The exact
 // values it cannot give are the per-axis rollup underneath (and the full list in the review page).
-function DimensionScores({ feedback }: { feedback: Feedback[] }) {
-    const scored = orderDims([...new Set(feedback.flatMap((f) => Object.keys(f.scores ?? {})))]);
-    // GET /interviews is created_at DESC and `feedback` is built in that order, so [0] is the newest.
-    const latest = feedback[0]?.scores ?? {};
-    const averages = Object.fromEntries(scored.map((d) => [d, round1(avg(feedback.map((f) => f.scores?.[d]).filter((v): v is number => typeof v === "number")))]));
+function DimensionScores({ stats, error }: { stats: InterviewDimensions | null; error?: string | null }) {
+    // The server owns both the averaging (over the runs that scored a dimension) and the rounding;
+    // this component only re-keys them for the radar.
+    const averages = stats?.averages ?? {};
+    const latest = stats?.latest ?? {};
+    const scored = orderDims(Object.keys(averages));
     const data = scored.map((d) => ({ dim: dimShort(d), latest: typeof latest[d] === "number" ? latest[d] : null, average: averages[d] }));
 
     if (data.length === 0) {
@@ -141,7 +145,7 @@ function DimensionScores({ feedback }: { feedback: Feedback[] }) {
                     <CardTitle className="text-sm">Secondary scores (1-10)</CardTitle>
                 </CardHeader>
                 <CardContent>
-                    <p className="text-sm text-muted-foreground">Complete an interview with a review to unlock the secondary breakdown.</p>
+                    <p className="text-sm text-muted-foreground">{error ?? "Complete an interview with a review to unlock the secondary breakdown."}</p>
                 </CardContent>
             </Card>
         );
@@ -175,7 +179,7 @@ function DimensionScores({ feedback }: { feedback: Feedback[] }) {
                     ))}
                     <span className="ml-auto inline-flex items-center gap-1">
                         <span className="h-2 w-2 rounded-full bg-[var(--chart-1)]" /> latest
-                        <span className="ml-1.5 h-2 w-2 rounded-full bg-[var(--chart-2)]" /> avg of {feedback.length}
+                        <span className="ml-1.5 h-2 w-2 rounded-full bg-[var(--chart-2)]" /> avg of {stats?.count ?? 0}
                     </span>
                 </div>
             </CardContent>

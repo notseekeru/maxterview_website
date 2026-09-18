@@ -7,7 +7,7 @@ import { InterviewList } from "@/components/InterviewList";
 import { Page } from "@/components/PagePrimitives";
 import { UpgradePendingNotice } from "@/components/UpgradePendingNotice";
 import { Button } from "@/components/ui/button";
-import { useInterviewData } from "@/hooks/useInterviewData";
+import { useDashboardStats, useInterviews } from "@/hooks/useInterviewData";
 import { archiveInterview, deleteInterview, regenerateFeedback, unarchiveInterview } from "@/lib/api";
 import { clerkEnabled } from "@/lib/config";
 
@@ -15,7 +15,8 @@ import { clerkEnabled } from "@/lib/config";
 // needs the horizontal room a 4xl reading column cannot give it.
 export function AppHome() {
     const navigate = useNavigate();
-    const { interviews, feedback, loading, error, refresh, dims } = useInterviewData();
+    const { interviews, loading, error, refresh, dims } = useInterviews();
+    const { stats, loading: statsLoading, error: statsError } = useDashboardStats();
     // The new-interview form is a panel, not a permanent column: with history on screen every
     // pixel of it competes with the numbers you came to read. First run (nothing to show yet)
     // opens it by default; once the user chooses, their choice wins.
@@ -66,7 +67,7 @@ export function AppHome() {
 
             {showForm && <CreateInterviewForm onCreated={onCreated} variant="featured" />}
 
-            <DashboardStats loading={loading} dims={dims} feedback={feedback} />
+            <DashboardStats loading={loading || statsLoading} dims={dims} stats={stats} statsError={statsError} />
 
             <section className="space-y-2">
                 <h2 className="text-sm font-medium uppercase tracking-wide text-muted-foreground">History</h2>

@@ -13,7 +13,7 @@ from fastapi.responses import PlainTextResponse, StreamingResponse
 from app import API_PREFIX, billing, byok, llm, payments, rating
 from app.auth import CLERK_ENABLED, get_current_user
 from app.db import close_pool, fetch, fetchrow, init_pool
-from app.models import ChatMessage, ChatTurn, ClerkUser, Dials, Feedback, FeedbackCreate, Interview, InterviewCreate, InterviewTemplate, LLMProvider, LLMProviderUpdate, Message, TemplateCreate
+from app.models import ChatMessage, ChatTurn, ClerkUser, Dials, Feedback, FeedbackCreate, Interview, InterviewCreate, InterviewDimensions, InterviewTemplate, LLMProvider, LLMProviderUpdate, Message, TemplateCreate
 from app.ratelimit import ClientRateLimitMiddleware
 
 APP_ENV = os.getenv("APP_ENV", "development")
@@ -389,6 +389,44 @@ async def delete_template(
     )
     if row is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Template not found")
+
+
+# --- dashboard stats (aggregates, not per-row reads) ---
+
+# The dashboard radar, as ONE row. It used to be a GET /feedback per rated run (N HTTP requests, 2N SQL
+# round trips, a payload growing with history) to average `scores` client-side; the reader wants the
+# averages, the newest run, and the count, so the server answers with exactly that. `runs` is the same
+# population the client filtered for (finished AND scored: accuracy lives on feedback, not interviews),
+# jsonb_each_text skips a dimension a run never scored, and ROUND(...,1) matches the UI's rounding.
+DIMENSIONS_SQL = """
+WITH runs AS (
+    SELECT i.created_at, f.scores
+    FROM interviews i
+    JOIN feedback f ON f.interview_id = i.id
+    WHERE i.owner_id = $1
+      AND i.status = 'completed'
+      AND f.accuracy IS NOT NULL
+)
+SELECT
+    (SELECT count(*) FROM runs) AS count,
+    (SELECT coalesce((SELECT scores FROM runs ORDER BY created_at DESC LIMIT 1), '{}'::jsonb)) AS latest,
+    (SELECT coalesce(jsonb_object_agg(d, avg_val), '{}'::jsonb)
+       FROM (SELECT s.dim AS d, ROUND(avg(s.value::numeric), 1) AS avg_val
+               FROM runs, jsonb_each_text(runs.scores) AS s(dim, value)
+              GROUP BY s.dim) per_dim) AS averages
+"""
+
+
+@api.get("/stats/dimensions", response_model=InterviewDimensions)
+async def get_interview_dimensions(user: CurrentUser) -> dict:
+    # /stats, not /interviews/dimensions: /interviews/{interview_id} is declared above, so a literal
+    # sibling would be matched as an id and 500 on UUID parsing.
+    # AI HERE: the RESPONSE is flat whatever the history, but the query still aggregates this owner's
+    # feedback rows per request. Upgrade path if it ever gets hot: a rollup table or a short-TTL cache
+    # keyed by owner. The window is all-time on purpose - trimming it is a product call, not a perf one.
+    row = await fetchrow(DIMENSIONS_SQL, user.sub)
+    assert row is not None  # three scalar subqueries and no FROM: always exactly one row
+    return dict(row)
 
 
 # --- usage ---

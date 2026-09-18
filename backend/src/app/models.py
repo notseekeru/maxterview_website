@@ -157,6 +157,20 @@ class Feedback(BaseModel):
         return rating.grade(self.accuracy, failed=self.failed_turn is not None)
 
 
+# --- dashboard stats ---
+
+
+class InterviewDimensions(BaseModel):
+    """The dashboard radar in one aggregate (main.get_interview_dimensions): per-dimension averages
+    over the rated runs, the newest run's scores, and how many runs those averages cover.
+
+    Flat in size on purpose - the reader wanted 17 numbers, not one Feedback per run."""
+
+    count: int
+    averages: dict
+    latest: dict
+
+
 # --- LLM context / feedback / chat-turn payloads ---
 
 

@@ -1,3 +1,4 @@
+import json
 import os
 import subprocess
 import sys
@@ -369,6 +370,96 @@ def test_template_owner_scoping(client):
     assert c.put(f"/api/templates/{foreign}", json={"name": "Hijack", "role": "Backend Engineer"}).status_code == 404
     assert c.delete(f"/api/templates/{foreign}").status_code == 404
     assert c.delete("/api/templates/00000000-0000-0000-0000-000000000000").status_code == 404
+
+
+def test_dimensions_aggregate_matches_the_per_run_reads(client):
+    # One aggregate replaces the dashboard's per-rated-run GET /feedback fan-out, so it must produce
+    # byte-identical numbers to the client math it replaces: average over the runs that SCORED a
+    # dimension (absent = skipped, never 0), rounded to 1 decimal, latest = the newest finished run.
+    import asyncio
+
+    import asyncpg
+
+    c = client
+
+    # Seed straight to the DB: accuracy is only written by the scoring path, and the aggregate's
+    # filter is the same "finished AND scored" the client applied to the list.
+    async def seed(rows):
+        conn = await asyncpg.connect(DB_URL)
+        try:
+            ids = []
+            for age_min, role, status, accuracy, scores in rows:
+                iid = await conn.fetchval(
+                    "INSERT INTO interviews (owner_id, role, status, created_at) VALUES ($1, $2, $3, now() - make_interval(mins => $4)) RETURNING id::text",
+                    "dev-user",
+                    role,
+                    status,
+                    age_min,
+                )
+                await conn.execute(
+                    "INSERT INTO feedback (interview_id, verdict, scores, accuracy) VALUES ($1::uuid, 'v', $2::jsonb, $3)",
+                    iid,
+                    json.dumps(scores),
+                    accuracy,
+                )
+                ids.append(iid)
+            return ids
+        finally:
+            await conn.close()
+
+    # Ages, not insert order: "latest" means the newest FINISHED run, which is what the client took
+    # from the list's created_at DESC order. The unrated and unfinished rows must not count at all.
+    ids = asyncio.run(
+        seed(
+            [
+                (10, "Dim older", "completed", 60, {"clarity": 1, "structure": 2}),
+                (5, "Dim newer", "completed", 80, {"clarity": 3}),
+                (1, "Dim unrated", "completed", None, {"clarity": 9, "structure": 9}),
+                (0, "Dim unfinished", "in_progress", 90, {"clarity": 10}),
+            ]
+        )
+    )
+
+    r = c.get("/api/stats/dimensions")
+    assert r.status_code == 200
+    d = r.json()
+    assert d["count"] == 2
+    assert d["averages"] == {"clarity": 2.0, "structure": 2.0}  # (1+3)/2, and structure only from run 1
+    assert d["latest"] == {"clarity": 3}
+
+    for iid in ids:
+        assert c.delete(f"/api/interviews/{iid}").status_code == 204
+
+    # Nothing scored yet is an empty radar, not a 404 or a NULL-crash.
+    empty = c.get("/api/stats/dimensions").json()
+    assert empty == {"count": 0, "averages": {}, "latest": {}}
+
+
+def test_dimensions_are_owner_scoped(client):
+    import asyncio
+
+    import asyncpg
+
+    async def seed_foreign():
+        conn = await asyncpg.connect(DB_URL)
+        try:
+            iid = await conn.fetchval("INSERT INTO interviews (owner_id, role, status) VALUES ('someone-else', 'Not yours', 'completed') RETURNING id::text")
+            await conn.execute("INSERT INTO feedback (interview_id, verdict, scores, accuracy) VALUES ($1::uuid, 'v', '{\"clarity\": 10}'::jsonb, 90)", iid)
+            return iid
+        finally:
+            await conn.close()
+
+    foreign = asyncio.run(seed_foreign())
+    assert client.get("/api/stats/dimensions").json() == {"count": 0, "averages": {}, "latest": {}}
+
+    async def cleanup():
+        conn = await asyncpg.connect(DB_URL)
+        try:
+            await conn.execute("DELETE FROM interviews WHERE id = $1::uuid", foreign)
+        finally:
+            await conn.close()
+
+    asyncio.run(cleanup())
 
 
 def test_move_review_annotates_every_candidate_turn(client):

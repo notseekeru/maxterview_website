@@ -129,6 +129,21 @@ export async function deleteTemplate(id: string): Promise<void> {
     await api.delete(`/templates/${id}`);
 }
 
+// The dashboard radar's aggregate (mirrors backend models.InterviewDimensions): per-dimension
+// averages over the rated runs, the newest run's scores, and how many runs those cover. One request
+// and a payload that does not grow with history, where per-run Feedback reads used to be fetched to
+// average client-side.
+export interface InterviewDimensions {
+    count: number;
+    averages: Record<string, number>;
+    latest: Record<string, number>;
+}
+
+export async function getInterviewDimensions(): Promise<InterviewDimensions> {
+    const { data } = await api.get<InterviewDimensions>("/stats/dimensions");
+    return data;
+}
+
 export interface Message {
     id: string;
     interview_id: string;

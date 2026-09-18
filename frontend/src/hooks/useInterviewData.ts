@@ -1,24 +1,19 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-import { type Feedback, getFeedback, type Interview, listInterviews } from "@/lib/api";
+import { getInterviewDimensions, type Interview, type InterviewDimensions, listInterviews } from "@/lib/api";
 import { isHiring } from "@/lib/interviewOptions";
 
-// Single source of truth for the dashboard home: one interviews fetch + the
-// per-completed-interview feedback needed for the dimension chart. Refresh once
-// and push slices down as props — no duplicate listInterviews() calls.
-export function useInterviewData() {
+// Dashboard data, in two hooks on purpose: the list (and everything derived from it) is cheap and
+// shared, while the radar's dimension aggregate is a separate request the History page never needs.
+// One hook for both made every History visit pay for chart data it does not render.
+export function useInterviews() {
     const [interviews, setInterviews] = useState<Interview[] | null>(null);
-    const [feedback, setFeedback] = useState<Feedback[]>([]);
     const [error, setError] = useState<string | null>(null);
 
     const refresh = useCallback(async () => {
         try {
-            const list = await listInterviews();
-            setInterviews(list);
+            setInterviews(await listInterviews());
             setError(null);
-            const completed = list.filter((i) => i.status === "completed" && typeof i.accuracy === "number");
-            const fbs = await Promise.all(completed.map((i) => getFeedback(i.id).catch(() => null)));
-            setFeedback(fbs.filter((f): f is Feedback => f !== null));
         } catch {
             setError("Could not load interviews.");
         }
@@ -30,9 +25,32 @@ export function useInterviewData() {
 
     const loading = interviews === null && !error;
 
+    // Accuracy, decision and certainty are already joined into the list, so the trend and the stat
+    // tiles cost no extra request; only the 1-10 dimensions need the aggregate above.
     const dims = useMemo(() => computeDims(interviews), [interviews]);
 
-    return { interviews: interviews ?? [], feedback, loading, error, refresh, dims };
+    return { interviews: interviews ?? [], loading, error, refresh, dims };
+}
+
+export function useDashboardStats() {
+    const [stats, setStats] = useState<InterviewDimensions | null>(null);
+    const [error, setError] = useState<string | null>(null);
+
+    useEffect(() => {
+        let alive = true;
+        getInterviewDimensions()
+            .then((s) => {
+                if (alive) setStats(s);
+            })
+            .catch(() => {
+                if (alive) setError("Could not load the secondary breakdown.");
+            });
+        return () => {
+            alive = false;
+        };
+    }, []);
+
+    return { stats, error, loading: stats === null && !error };
 }
 
 export interface InterviewDims {
