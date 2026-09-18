@@ -144,6 +144,67 @@ export async function getInterviewDimensions(): Promise<InterviewDimensions> {
     return data;
 }
 
+// The analytics page's single aggregate (mirrors backend models.Analytics). One request over the
+// whole history, like the dashboard's radar: the payload is bounded, so no per-run fan-out.
+export interface AnalyticsRun {
+    id: string;
+    role: string;
+    level: string;
+    /** Lifecycle state. The run log shows unfinished runs, so it must label them. */
+    status: "pending" | "in_progress" | "completed";
+    /** ISO timestamp in UTC. Chart buckets are UTC days on purpose: the streak tile and the daily
+     *  quota reset are both UTC, so local-time buckets would disagree with the tile above them. */
+    created_at: string;
+    accuracy?: number | null;
+    grade?: Grade | null;
+    decision?: Decision | null;
+    certainty?: number | null;
+    failed_class?: MoveClass | null;
+    /** The create dials that produced this run (drives the log's Dials column). */
+    dials: InterviewDials;
+    /** 1-10 dimension scores; empty when the run was never scored. */
+    scores: Record<string, number>;
+    /** Candidate turns in the run. */
+    turns: number;
+    /** Move class -> turns the reviewer classed so. A run can have fewer moves than turns. */
+    moves: Partial<Record<MoveClass, number>>;
+}
+
+export interface AnalyticsActivityWeek {
+    week: string;
+    started: number;
+    completed: number;
+}
+
+export interface AnalyticsDial {
+    key: string;
+    label: string;
+    runs: number;
+    /** Runs that were actually scored; `avgAccuracy` covers only these. */
+    rated: number;
+    /** Null when nothing under this value was scored (NOT 0, which would read as failure). */
+    avg_accuracy?: number | null;
+    /** Over DECIDED runs only; null when nothing was decided. */
+    hire_rate?: number | null;
+}
+
+export interface Analytics {
+    /** Newest first, every run ever created (archived and unfinished included). */
+    runs: AnalyticsRun[];
+    activity: AnalyticsActivityWeek[];
+    move_classes: Record<MoveClass, number>;
+    /** Dial name -> its values, in the vocabulary's own order. */
+    dials: Record<string, AnalyticsDial[]>;
+    total_turns: number;
+    streak_days: number;
+    hardcore_failures: number;
+}
+
+export async function getAnalytics(): Promise<Analytics> {
+    const { data } = await api.get<Analytics>("/stats/analytics");
+    return data;
+}
+
 export interface Message {
     id: string;
     interview_id: string;

@@ -171,6 +171,78 @@ class InterviewDimensions(BaseModel):
     latest: dict
 
 
+class AnalyticsRun(BaseModel):
+    """One interview this owner created, as the analytics page reads it: pending, in-progress and
+    finished runs all appear, because the page's activity strip and run log are about the practice
+    history, not only the graded slice. Deliberately tiny: the charts need the shape of the history,
+    not the transcripts behind it."""
+
+    id: str
+    role: str
+    level: str
+    status: str
+    created_at: datetime
+    accuracy: int | None = None
+    grade: Grade | None = None
+    decision: Decision | None = None
+    certainty: int | None = None
+    failed_class: MoveClass | None = None
+    # The create knobs, carried so the run log can show what produced each row (and so a surprising
+    # dial average above can be traced to the runs behind it). Dials has the vocabulary + defaults.
+    dials: Dials = Field(default_factory=Dials)
+    # NULL on an ungraded run (feedback.scores is NOT NULL, but the LEFT JOIN has no row): a run with
+    # no review legitimately has no dimensions, and an empty dict is what "not assessed" reads as.
+    scores: dict = Field(default_factory=dict)
+    # Candidate turns in the run, and how the reviewer classed each one. `moves` holds only the
+    # turns that got a class, so a run can legitimately report fewer moves than `turns`.
+    turns: int = 0
+    moves: dict[str, int] = Field(default_factory=dict)
+
+
+class AnalyticsActivityWeek(BaseModel):
+    """One ISO week of the activity chart. `started` counts every run created that week, `completed`
+    the subset that finished: the gap between the two bars is runs begun and dropped, which is why
+    they are drawn side by side rather than stacked."""
+
+    week: str
+    started: int
+    completed: int
+
+
+class AnalyticsDial(BaseModel):
+    """One value of one create-dial, with the outcome of the runs created under it.
+
+    Averaged over the runs that SCORED, same denominator honesty as the dashboard: a dial whose
+    runs are all unrated reports `rated: 0` and a null accuracy, never a 0% that reads as failure."""
+
+    key: str
+    label: str
+    runs: int
+    rated: int
+    avg_accuracy: float | None = None
+    hire_rate: int | None = None
+
+
+class Analytics(BaseModel):
+    """Everything /stats/analytics answers, in one bounded payload (models.InterviewDimensions for
+    the dashboard radar is the precedent: aggregate server-side, never fan out per run).
+
+    All-time on purpose - a window is a product call, and the activity strip already shows WHEN."""
+
+    runs: list[AnalyticsRun]
+    activity: list[AnalyticsActivityWeek]
+    # Move-class slug -> annotated-turn count across every run. Every class is present (0 when
+    # unused) so the chart can render a fixed-strength-to-weakness axis without filling gaps.
+    move_classes: dict[str, int]
+    # Dial name -> its values, in the vocabulary's own order (app/dials.py, app/levels.py).
+    dials: dict[str, list[AnalyticsDial]]
+    total_turns: int
+    # Consecutive UTC days ending today (or yesterday - a streak dies at midnight, not at 24h) with
+    # at least one run created.
+    streak_days: int
+    hardcore_failures: int
+
+
 # --- LLM context / feedback / chat-turn payloads ---
 
 

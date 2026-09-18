@@ -2,17 +2,6 @@ import { ComingSoon, Page } from "@/components/PagePrimitives";
 
 // Placeholder routes whose backend work isn't built yet.
 
-export function AnalyticsPage() {
-    return (
-        <Page title="Analytics" description="Trends across your practice sessions.">
-            {/* AI HERE: build on top of GET /interviews' completed runs (score trend). The
-                Dashboard already draws a small trend; enrich it here with per-dimension
-                history once a chart slice (or reuse recharts like ScoreTrendChart) lands. */}
-            <ComingSoon icon="chart" title="Analytics coming soon" description="Your score-by-dimension history and progress chart will live here." />
-        </Page>
-    );
-}
-
 export function ResumePage() {
     return (
         <Page title="Resume" description="Upload and role practice against it.">

@@ -6,7 +6,7 @@ import { AuthMisconfigBanner } from "@/components/AuthMisconfigBanner";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { clerkEnabled } from "@/lib/config";
 import { BillingPage } from "@/pages/BillingPage";
-import { AnalyticsPage, DocsPage, ManageAccountsPage, ResumePage } from "@/pages/ComingSoonPages";
+import { DocsPage, ManageAccountsPage, ResumePage } from "@/pages/ComingSoonPages";
 import { InterviewsPage } from "@/pages/InterviewsPage";
 import { Landing } from "@/pages/Landing";
 import { NotFound } from "@/pages/NotFound";
@@ -15,6 +15,7 @@ import { SystemSettingsPage } from "@/pages/SystemSettingsPage";
 // Code-split only the heavy leaves (recharts lives in the Dashboard bundle and
 // the chat lives in its own route) so the shell/nav stay light.
 const DashboardHome = lazy(() => import("@/pages/AppHome").then((m) => ({ default: m.AppHome })));
+const AnalyticsPage = lazy(() => import("@/pages/AnalyticsPage").then((m) => ({ default: m.AnalyticsPage })));
 const InterviewRoute = lazy(() => import("@/pages/InterviewRoute").then((m) => ({ default: m.InterviewRoute })));
 // EVERY module that imports @clerk/react must sit below this line. A static import of AppShell /
 // AccountSettingsPage here would pull the SDK back into the entry chunk that the public landing
@@ -49,7 +50,14 @@ function App() {
                             />
 
                             <Route path="interviews" element={<InterviewsPage />} />
-                            <Route path="analytics" element={<AnalyticsPage />} />
+                            <Route
+                                path="analytics"
+                                element={
+                                    <Suspense fallback={<GateLoading />}>
+                                        <AnalyticsPage />
+                                    </Suspense>
+                                }
+                            />
                             <Route path="resume" element={<ResumePage />} />
 
                             <Route path="settings/system" element={<SystemSettingsPage />} />

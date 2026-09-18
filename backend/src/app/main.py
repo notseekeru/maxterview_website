@@ -10,10 +10,10 @@ from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse, StreamingResponse
 
-from app import API_PREFIX, billing, byok, llm, payments, rating
+from app import API_PREFIX, billing, byok, dials, levels, llm, payments, rating
 from app.auth import CLERK_ENABLED, get_current_user
 from app.db import close_pool, fetch, fetchrow, init_pool
-from app.models import ChatMessage, ChatTurn, ClerkUser, Dials, Feedback, FeedbackCreate, Interview, InterviewCreate, InterviewDimensions, InterviewTemplate, LLMProvider, LLMProviderUpdate, Message, TemplateCreate
+from app.models import Analytics, ChatMessage, ChatTurn, ClerkUser, Dials, Feedback, FeedbackCreate, Interview, InterviewCreate, InterviewDimensions, InterviewTemplate, LLMProvider, LLMProviderUpdate, Message, TemplateCreate
 from app.ratelimit import ClientRateLimitMiddleware
 
 APP_ENV = os.getenv("APP_ENV", "development")
@@ -427,6 +427,157 @@ async def get_interview_dimensions(user: CurrentUser) -> dict:
     row = await fetchrow(DIMENSIONS_SQL, user.sub)
     assert row is not None  # three scalar subqueries and no FROM: always exactly one row
     return dict(row)
+
+
+# --- analytics (the deep-dive page; same one-aggregate rule as the dashboard above) ---
+
+# Every run this owner ever created, newest first, with its review joined. `archived_at` is NOT
+# filtered: the dashboard counts archived runs on purpose, and a page that silently dropped them would
+# disagree with the numbers one route over. `moves` is pre-aggregated so the response carries no
+# per-turn rows.
+ANALYTICS_RUNS_SQL = (
+    """
+SELECT i.id::text, i.role, i.level, i.status, i.created_at,
+       """
+    + ", ".join(f"i.{c}" for c in DIAL_FIELDS)
+    + """,
+       f.accuracy, f.decision, f.certainty, f.scores, i.failed_class,
+       (SELECT count(*) FROM messages m WHERE m.interview_id = i.id AND m.role = 'user') AS turns,
+       (SELECT coalesce(jsonb_object_agg(mc.cls, mc.n), '{}'::jsonb)
+          FROM (SELECT m.move_class AS cls, count(*) AS n FROM messages m
+                 WHERE m.interview_id = i.id AND m.move_class IS NOT NULL GROUP BY m.move_class) mc) AS moves
+FROM interviews i
+LEFT JOIN feedback f ON f.interview_id = i.id
+WHERE i.owner_id = $1
+ORDER BY i.created_at DESC
+"""
+)
+
+# Created vs completed runs per ISO week, over the last 12 weeks; weeks with no runs are absent
+# rather than zero-filled. date_trunc('week') is Monday-based, which the frontend's label assumes.
+ANALYTICS_ACTIVITY_SQL = """
+SELECT to_char(date_trunc('week', created_at), 'YYYY-MM-DD') AS week,
+       count(*) AS started,
+       count(*) FILTER (WHERE status = 'completed') AS completed
+FROM interviews
+WHERE owner_id = $1 AND created_at >= now() - interval '12 weeks'
+GROUP BY 1 ORDER BY 1
+"""
+
+# Dial breakdowns, one row per (dial, value), over the COMPLETED runs only: an in-progress run has no
+# outcome to attribute to its dials. `runs` and `rated` are separate on purpose - a dial whose runs
+# were never scored reports avg_accuracy NULL, not a 0% that reads as failure.
+ANALYTICS_DIALS_SQL = """
+WITH runs AS (
+    SELECT i.level, i.cynicism, i.company_size, i.hardcore, i.human_mode, i.brutally_honest,
+           i.mix_chitchat, i.mix_behavioural, i.mix_technical, f.accuracy, f.decision
+    FROM interviews i
+    LEFT JOIN feedback f ON f.interview_id = i.id
+    WHERE i.owner_id = $1 AND i.status = 'completed'
+), labelled AS (
+    SELECT 'level' AS dial, level AS value, accuracy, decision FROM runs
+    UNION ALL SELECT 'cynicism', cynicism, accuracy, decision FROM runs
+    UNION ALL SELECT 'company_size', company_size, accuracy, decision FROM runs
+    UNION ALL SELECT 'mix', CASE WHEN mix_technical >= mix_behavioural AND mix_technical >= mix_chitchat THEN 'technical'
+                                 WHEN mix_behavioural >= mix_chitchat THEN 'behavioural' ELSE 'chitchat' END, accuracy, decision FROM runs
+    UNION ALL SELECT 'hardcore', CASE WHEN hardcore THEN 'hardcore' ELSE 'standard' END, accuracy, decision FROM runs
+    UNION ALL SELECT 'honesty', CASE WHEN brutally_honest THEN 'brutally_honest' ELSE 'diplomatic' END, accuracy, decision FROM runs
+    UNION ALL SELECT 'register', CASE WHEN human_mode THEN 'human' ELSE 'corporate' END, accuracy, decision FROM runs
+)
+SELECT dial, value, count(*) AS runs, count(accuracy) AS rated,
+       ROUND(avg(accuracy)::numeric, 1) AS avg_accuracy,
+       -- Denominated on DECIDED runs (count(decision)), not all rated ones: an undecided run is not
+       -- a miss. NULL when nothing was decided, so the UI can say "—" instead of 0%.
+       (100.0 * count(*) FILTER (WHERE decision IN ('hire', 'lean_hire')) / nullif(count(decision), 0))::int AS hire_rate
+FROM labelled
+GROUP BY dial, value
+"""
+
+# Streak: consecutive UTC days with activity, counting back from today. A day's rank and its age
+# (gap) move together, so `gap - rn` is constant across a consecutive run and shifts the moment one is
+# missing: -1 while the run includes today, 0 when the newest day is yesterday. Both count, so a
+# streak does not read 0 for the whole of a day the candidate is still practising in.
+ANALYTICS_STREAK_SQL = """
+WITH days AS (
+    SELECT DISTINCT (created_at AT TIME ZONE 'UTC')::date AS d FROM interviews WHERE owner_id = $1
+), ranked AS (
+    SELECT d, (CURRENT_DATE - d) AS gap, row_number() OVER (ORDER BY d DESC) AS rn FROM days
+)
+SELECT count(*) FROM ranked WHERE gap - rn IN (-1, 0)
+"""
+
+
+@api.get("/stats/analytics", response_model=Analytics)
+async def get_analytics(user: CurrentUser) -> dict:
+    # Four statements, not one: the runs list, the weekly activity and the dial breakdown each filter
+    # a different population (all runs / all runs / completed only), and folding them together would
+    # cost more to read than the extra round trips cost to run.
+    # AI HERE: each statement re-scans this owner's full history, and the response carries one row per
+    # run. Fine at a personal history's size. Upgrade path, in order: aggregate the per-day series
+    # server-side (the charts only need day buckets, not every run), cap the run log to the most recent
+    # N with the rest behind a cursor, then a rollup table or a short-TTL cache keyed by owner. The
+    # all-time window is a product call, not a perf one, so none of that trims what is shown.
+    run_rows = await fetch(ANALYTICS_RUNS_SQL, user.sub)
+    activity = await fetch(ANALYTICS_ACTIVITY_SQL, user.sub)
+    dial_rows = await fetch(ANALYTICS_DIALS_SQL, user.sub)
+    streak = await fetchrow(ANALYTICS_STREAK_SQL, user.sub)
+
+    runs = []
+    move_classes = dict.fromkeys(rating.MOVE_CLASSES, 0)
+    total_turns = 0
+    hardcore_failures = 0
+    for r in run_rows:
+        moves = r["moves"]
+        for cls in rating.MOVE_CLASSES:
+            move_classes[cls] += moves.get(cls, 0)
+        total_turns += r["turns"]
+        hardcore_failures += 1 if r["failed_class"] else 0
+        runs.append({**dict(r), "dials": {k: r[k] for k in DIAL_FIELDS}, "scores": r["scores"] or {}, "grade": rating.grade(r["accuracy"], failed=r["failed_class"] is not None)})
+
+    return {
+        "runs": runs,
+        "activity": [dict(a) for a in activity],
+        "move_classes": move_classes,
+        "dials": dial_groups(dial_rows),
+        "total_turns": total_turns,
+        "streak_days": streak["count"] if streak else 0,
+        "hardcore_failures": hardcore_failures,
+    }
+
+
+# Every dial the page breaks down, in render order: key -> (value slug -> label). The vocabularies
+# come from app/dials.py and app/levels.py, so a new slug shows up here before its label does rather
+# than vanishing from the page; `mix` and the two booleans are DERIVED buckets the SQL above computes.
+# No group TITLE: headings are presentation the page owns (lib/moveClasses.ts labels are the
+# precedent). This table owns ORDER + labels.
+ANALYTICS_DIALS: tuple[tuple[str, dict[str, str]], ...] = (
+    ("level", {s: levels.label(s) for s in levels.LEVELS}),
+    ("cynicism", dict(zip(dials.CYNICISM, ("Kind", "Neutral", "Skeptical"), strict=True))),
+    ("company_size", dict(zip(dials.COMPANY_SIZES, ("Any", "1-10", "11-50", "51-200", "201-1k", "1k-5k", "5k+"), strict=True))),
+    ("mix", {"technical": "Technical-heavy", "behavioural": "Behavioural-heavy", "chitchat": "Chitchat-heavy"}),
+    ("hardcore", {"hardcore": "Hardcore", "standard": "Standard"}),
+    ("honesty", {"brutally_honest": "Brutally honest", "diplomatic": "Diplomatic"}),
+    ("register", {"human": "Human", "corporate": "Corporate"}),
+)
+
+
+def dial_groups(rows: list[asyncpg.Record]) -> dict[str, list[dict]]:
+    """Bucket the flat (dial, value) aggregate rows into the page's dial groups.
+
+    Vocabulary order, not whatever order Postgres grouped in: a bar chart that reshuffles between
+    loads is unreadable. A value this file does not know (a slug added to the DB ahead of it) is
+    appended unlabelled rather than dropped - the page then shows a number it cannot name, which is
+    a bug report, instead of a silent hole.
+    """
+    seen = {}
+    for r in rows:
+        seen.setdefault(r["dial"], {})[r["value"]] = {"runs": r["runs"], "rated": r["rated"], "avg_accuracy": r["avg_accuracy"], "hire_rate": r["hire_rate"]}
+    groups = {}
+    for key, labels in ANALYTICS_DIALS:
+        values = seen.pop(key, {})
+        ordered = [v for v in labels if v in values] + [v for v in values if v not in labels]
+        groups[key] = [{"key": v, "label": labels.get(v, v), **values[v]} for v in ordered]
+    return groups
 
 
 # --- usage ---

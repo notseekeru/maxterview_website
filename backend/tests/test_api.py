@@ -880,3 +880,173 @@ def test_hardcore_lets_a_clean_answer_through(client, monkeypatch):
     assert [m["move_class"] for m in c.get(f"/api/interviews/{iid}/messages").json() if m["role"] == "user"] == ["inaccuracy"]
     assert c.post(f"/api/interviews/{iid}/chat/stream", json={"interview_id": iid, "content": "let me be specific"}).status_code == 200
     c.delete(f"/api/interviews/{iid}")
+
+
+def test_analytics_aggregates_the_whole_history(client):
+    # One aggregate replaces a per-run fan-out, so it must agree with the rows it summarizes:
+    # move classes summed over every annotated turn, accuracy averaged over the SCORED runs only
+    # (an unscored run is absence, not 0%), and dial breakdowns bucketed from the create knobs.
+    import asyncio
+
+    import asyncpg
+
+    c = client
+
+    async def seed(rows):
+        conn = await asyncpg.connect(DB_URL)
+        try:
+            ids = []
+            for role, level, hardcore, status, accuracy, decision, classes in rows:
+                iid = await conn.fetchval(
+                    "INSERT INTO interviews (owner_id, role, level, hardcore, status, created_at) VALUES ($1, $2, $3, $4, $5, now() - make_interval(mins => $6)) RETURNING id::text",
+                    "dev-user",
+                    role,
+                    level,
+                    hardcore,
+                    status,
+                    len(ids),
+                )
+                for cls in classes:
+                    await conn.execute(
+                        "INSERT INTO messages (interview_id, role, content, move_class) VALUES ($1::uuid, 'user', 'a', $2)",
+                        iid,
+                        cls,
+                    )
+                if status == "completed" and accuracy is not None:
+                    await conn.execute(
+                        "INSERT INTO feedback (interview_id, verdict, scores, accuracy, decision) VALUES ($1::uuid, 'v', '{\"clarity\": 4}'::jsonb, $2, $3)",
+                        iid,
+                        accuracy,
+                        decision,
+                    )
+                ids.append(iid)
+            return ids
+        finally:
+            await conn.close()
+
+    ids = asyncio.run(
+        seed(
+            [
+                # role, level, hardcore, status, accuracy, decision, left-to-right move classes
+                ("An senior", "senior", False, "completed", 90, "hire", ["brilliant", "great"]),
+                ("An junior", "junior", False, "completed", 30, "reject", ["mistake", "blunder"]),
+                ("An hardcore", "junior", True, "completed", 50, None, ["good", "inaccuracy"]),
+                ("An unscored", "mid", False, "completed", None, None, []),
+                ("An running", "mid", False, "in_progress", None, None, ["good"]),
+            ]
+        )
+    )
+    try:
+        r = c.get("/api/stats/analytics")
+        assert r.status_code == 200
+        d = r.json()
+
+        seeded = [run for run in d["runs"] if run["id"] in ids]
+        assert {run["id"] for run in seeded} == set(ids)  # archived/unfinished runs are still listed
+        by_id = {run["id"]: run for run in seeded}
+        assert (by_id[ids[0]]["accuracy"], by_id[ids[0]]["grade"], by_id[ids[0]]["decision"]) == (90, "S", "hire")
+        # The run log mixes finished and unfinished runs, so the row must say which it is; the page
+        # renders incomplete rows differently rather than letting them read as a scored zero.
+        assert (by_id[ids[0]]["status"], by_id[ids[4]]["status"]) == ("completed", "in_progress")
+        # An ungraded run reports no dimensions and no grade, not a zeroed review.
+        assert (by_id[ids[3]]["scores"], by_id[ids[3]]["grade"]) == ({}, None)
+        assert by_id[ids[4]]["turns"] == 1 and by_id[ids[4]]["moves"] == {"good": 1}
+
+        # Move distribution: every annotated turn, including the in-progress run's.
+        moves = d["move_classes"]
+        assert set(moves) == {"brilliant", "great", "good", "book", "inaccuracy", "mistake", "blunder"}
+        assert (moves["brilliant"], moves["great"], moves["good"], moves["book"]) == (1, 1, 2, 0)
+        assert (moves["inaccuracy"], moves["mistake"], moves["blunder"]) == (1, 1, 1)
+        assert sum(moves.values()) == 7
+        assert d["hardcore_failures"] >= 0 and isinstance(d["streak_days"], int)
+
+        # Dials bucket COMPLETED runs only, and the level group is in the vocabulary's order.
+        levels_group = {row["key"]: row for row in d["dials"]["level"]}
+        assert levels_group["senior"]["runs"] == 1
+        assert levels_group["senior"]["avg_accuracy"] == 90.0
+        assert levels_group["junior"]["runs"] == 2
+        assert levels_group["junior"]["rated"] == 2
+        assert levels_group["junior"]["avg_accuracy"] == 40.0  # mean(30, 50), not diluted by the unscored run
+        # `mid` has one completed-but-unscored run: it appears, with no accuracy to report.
+        assert levels_group["mid"]["runs"] == 1 and levels_group["mid"]["avg_accuracy"] is None
+        assert levels_group["mid"]["hire_rate"] is None  # nothing decided, not a 0% rejection rate
+
+        hardcore_group = {row["key"]: row for row in d["dials"]["hardcore"]}
+        assert hardcore_group["hardcore"]["runs"] == 1 and hardcore_group["standard"]["runs"] == 3
+        # Hire rate is denominated on DECIDED runs: 1 of 2 here, unaffected by the undecided ones.
+        assert levels_group["junior"]["hire_rate"] == 0 and levels_group["senior"]["hire_rate"] == 100
+
+        # Activity: the weekly buckets the page charts, over the recent seeded runs. Without this the
+        # field could silently stay empty and the panel would render its "no runs" state forever.
+        assert d["activity"], "activity must be populated"
+        assert all({"week", "started", "completed"} <= set(a) for a in d["activity"])
+        assert sum(a["started"] for a in d["activity"]) >= 5
+        assert sum(a["completed"] for a in d["activity"]) >= 4
+        assert d["total_turns"] >= 5
+    finally:
+        for iid in ids:
+            c.delete(f"/api/interviews/{iid}")
+
+
+def test_analytics_is_owner_scoped(client):
+    import asyncio
+
+    import asyncpg
+
+    async def seed_foreign():
+        conn = await asyncpg.connect(DB_URL)
+        try:
+            iid = await conn.fetchval("INSERT INTO interviews (owner_id, role, status) VALUES ('someone-else', 'Not yours', 'completed') RETURNING id::text")
+            await conn.execute("INSERT INTO messages (interview_id, role, content, move_class) VALUES ($1::uuid, 'user', 'a', 'brilliant')", iid)
+            await conn.execute("INSERT INTO feedback (interview_id, verdict, scores, accuracy) VALUES ($1::uuid, 'v', '{\"clarity\": 10}'::jsonb, 100)", iid)
+            return iid
+        finally:
+            await conn.close()
+
+    async def cleanup(iid):
+        conn = await asyncpg.connect(DB_URL)
+        try:
+            await conn.execute("DELETE FROM interviews WHERE id = $1::uuid", iid)
+        finally:
+            await conn.close()
+
+    foreign = asyncio.run(seed_foreign())
+    try:
+        d = client.get("/api/stats/analytics").json()
+        assert all(run["id"] != foreign for run in d["runs"])
+        assert all(v == 0 for v in d["move_classes"].values())
+        assert all(not group for group in d["dials"].values())
+    finally:
+        asyncio.run(cleanup(foreign))
+
+
+def test_analytics_streak_counts_consecutive_days(client):
+    # The streak is the one piece of non-obvious arithmetic in the analytics aggregate (rank vs day
+    # age), so pin its edges: consecutive days, a broken run, and the "practised yesterday, not yet
+    # today" case that must NOT read as zero.
+    import asyncio
+
+    import asyncpg
+
+    from app.main import ANALYTICS_STREAK_SQL
+
+    async def streak_for(offsets):
+        """Streak for an owner whose only activity is `offsets` days ago (one run per offset)."""
+        conn = await asyncpg.connect(DB_URL)
+        try:
+            await conn.execute("DELETE FROM interviews WHERE owner_id = 'streak-probe-owner'")
+            for off in offsets:
+                await conn.execute(
+                    "INSERT INTO interviews (owner_id, role, status, created_at) VALUES ('streak-probe-owner', 'Streak Probe', 'pending', CURRENT_DATE - make_interval(days => $1))",
+                    off,
+                )
+            return await conn.fetchval(ANALYTICS_STREAK_SQL, "streak-probe-owner")
+        finally:
+            await conn.execute("DELETE FROM interviews WHERE owner_id = 'streak-probe-owner'")
+            await conn.close()
+
+    assert asyncio.run(streak_for([0, 1, 2])) == 3  # today, yesterday, the day before
+    assert asyncio.run(streak_for([1, 2, 3])) == 3  # still alive: practised yesterday, not yet today
+    assert asyncio.run(streak_for([0, 3])) == 1  # today only; the older day starts a separate run
+    assert asyncio.run(streak_for([5])) == 0  # a week idle is over
+    assert asyncio.run(streak_for([])) == 0  # never practised

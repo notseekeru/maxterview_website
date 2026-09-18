@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-import { getInterviewDimensions, type Interview, type InterviewDimensions, listInterviews } from "@/lib/api";
+import { type Analytics, getAnalytics, getInterviewDimensions, type Interview, type InterviewDimensions, listInterviews } from "@/lib/api";
 import { isHiring } from "@/lib/interviewOptions";
 
 // Dashboard data, in two hooks on purpose: the list (and everything derived from it) is cheap and
@@ -99,4 +99,28 @@ function computeDims(interviews: Interview[] | null): InterviewDims {
     const certainties = decided.map((i) => i.certainty).filter((c): c is number => typeof c === "number");
     const avgCertainty = certainties.length === 0 ? null : Math.round(certainties.reduce((a, b) => a + b, 0) / certainties.length);
     return { total: list.length, completed: completed.length, rated: recent.length, avgAccuracy, accuracyTrend, decided: decided.length, hiring: hiring.length, avgCertainty };
+}
+
+// The analytics page's aggregate: one request, loaded only when that route mounts (the dashboard
+// must not pay for it, and vice versa). Mirrors useDashboardStats deliberately - same shape, same
+// "no data" vs "could not load" split.
+export function useAnalytics() {
+    const [data, setData] = useState<Analytics | null>(null);
+    const [error, setError] = useState<string | null>(null);
+
+    useEffect(() => {
+        let alive = true;
+        getAnalytics()
+            .then((a) => {
+                if (alive) setData(a);
+            })
+            .catch(() => {
+                if (alive) setError("Could not load your analytics.");
+            });
+        return () => {
+            alive = false;
+        };
+    }, []);
+
+    return { data, error, loading: data === null && !error };
 }
