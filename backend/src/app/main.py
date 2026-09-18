@@ -845,8 +845,11 @@ async def chat_stream(
     config: LLMConfigDep,
 ) -> StreamingResponse:
     await _require_interview_owned(interview_id, user.sub)
+    # The resume comes back with the interview. A correlated scalar subquery rather than a JOIN because
+    # INTERVIEW_COLS is deliberately unqualified and `resumes` has `id`/`owner_id` too - a join would
+    # make every one of those columns ambiguous.
     interview = await fetchrow(
-        f"SELECT {INTERVIEW_COLS} FROM interviews WHERE id = $1 AND owner_id = $2",
+        f"SELECT {INTERVIEW_COLS}, (SELECT r.text FROM resumes r WHERE r.id = interviews.resume_id) AS resume_text FROM interviews WHERE id = $1 AND owner_id = $2",
         interview_id,
         user.sub,
     )
@@ -920,7 +923,7 @@ async def chat_stream(
             log.warning("chat.turn_rollback_failed", interview_id=interview_id)
 
     history = [
-        ChatMessage(role="system", content=llm.system_prompt(interview["role"], interview["level"], interview["topic"], asked=asked, dials=dials)),
+        ChatMessage(role="system", content=llm.system_prompt(interview["role"], interview["level"], interview["topic"], asked=asked, dials=dials, resume=interview["resume_text"] or "")),
         *[ChatMessage(role=r["role"], content=r["content"]) for r in prior_rows],
         ChatMessage(role="user", content=body.content),
     ]
@@ -1055,14 +1058,15 @@ async def _generate_and_persist_feedback(interview_id: str, config: llm.LLMConfi
         interview_id,
     )
     history = [ChatMessage(role=r["role"], content=r["content"]) for r in history_rows]
-    # Dials come from the interview, not the caller: regenerate_feedback has no body to trust.
-    row = await fetchrow(f"SELECT {', '.join(DIAL_FIELDS)}, failed_turn, failed_class FROM interviews WHERE id = $1", interview_id)
+    # Dials come from the interview, not the caller: regenerate_feedback has no body to trust. The
+    # attached resume comes with them (same scalar-subquery reason as chat_stream).
+    row = await fetchrow(f"SELECT {', '.join(DIAL_FIELDS)}, failed_turn, failed_class, (SELECT r.text FROM resumes r WHERE r.id = interviews.resume_id) AS resume_text FROM interviews WHERE id = $1", interview_id)
     dials = Dials(**{k: row[k] for k in DIAL_FIELDS}) if row else None
     failure = (row["failed_turn"], row["failed_class"]) if row and row["failed_turn"] else None
     # A hardcore run was already judged turn by turn as it was answered (chat_stream), so its
     # annotation pass would only re-litigate verdicts the candidate was told about.
     hardcore = bool(dials and dials.hardcore)
-    summary = await llm.generate_feedback(history, dials, config, failure=failure, annotate=not hardcore)
+    summary = await llm.generate_feedback(history, dials, config, failure=failure, annotate=not hardcore, resume=(row["resume_text"] or "") if row else "")
     if summary is None:
         return None
     classes = [r["move_class"] for r in history_rows if r["role"] == "user"] if hardcore else await _persist_move_classes(interview_id, [r["id"] for r in history_rows if r["role"] == "user"], summary.moves)
