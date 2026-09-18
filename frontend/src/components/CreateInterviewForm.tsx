@@ -1,13 +1,17 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
-import { createInterview, isQuotaError } from "@/lib/api";
-import { COMPANY_SIZES, CYNICISM, companySizeLabel, LEVELS, MIX_FIELDS, MIX_MAX, mixCountLabel, ROLE_PRESETS } from "@/lib/interviewOptions";
+import { apiDetail, createInterview, createTemplate, deleteTemplate, type InterviewDials, type InterviewTemplate, isQuotaError, listTemplates, type TemplateInput, updateTemplate } from "@/lib/api";
+import { COMPANY_SIZES, CYNICISM, companySizeLabel, DIAL_FIELDS, LEVELS, MIX_FIELDS, MIX_MAX, mixCountLabel, ROLE_PRESETS } from "@/lib/interviewOptions";
 import { cn } from "@/lib/utils";
+import { RowMenu } from "./RowMenu";
 import { UpgradeNotice } from "./UsageBadge";
+
+// Last applied preset, per browser: a device habit, not account data.
+const LAST_TEMPLATE_KEY = "maxterview:last-template";
 
 type Variant = "compact" | "featured";
 
@@ -34,6 +38,140 @@ export function CreateInterviewForm({ onCreated, variant = "compact", className 
     const [error, setError] = useState<string | null>(null);
     const [busy, setBusy] = useState(false);
     const [quotaLocked, setQuotaLocked] = useState(false);
+    // null = still loading or the fetch failed; the preset row hides either way.
+    const [templates, setTemplates] = useState<InterviewTemplate[] | null>(null);
+    const [lastUsedId, setLastUsedId] = useState<string | null>(() => localStorage.getItem(LAST_TEMPLATE_KEY));
+    const [editor, setEditor] = useState<{ mode: "save" } | { mode: "rename"; id: string } | null>(null);
+    const [templateName, setTemplateName] = useState("");
+    const [templateBusy, setTemplateBusy] = useState(false);
+    const [templateError, setTemplateError] = useState<string | null>(null);
+
+    useEffect(() => {
+        listTemplates()
+            .then(setTemplates)
+            .catch(() => setTemplates(null));
+    }, []);
+
+    // The form's dials in API shape, shared by the create and preset bodies.
+    function dialsFromForm(): InterviewDials {
+        return {
+            company_size: COMPANY_SIZES[companySize].value,
+            cynicism: CYNICISM[cynicism].value,
+            brutally_honest: brutallyHonest,
+            human_mode: humanMode,
+            hardcore,
+            ...mix,
+        };
+    }
+
+    function fieldsFromForm() {
+        return { role: role.trim(), topic: topic.trim(), level, ...dialsFromForm() };
+    }
+
+    /** Template as a PUT body. Spelled out, not spread: a new dial then breaks this line at compile time. */
+    function bodyFrom(t: InterviewTemplate, patch: Partial<TemplateInput> = {}): TemplateInput {
+        return {
+            name: t.name,
+            role: t.role,
+            topic: t.topic ?? "",
+            level: t.level,
+            company_size: t.company_size,
+            cynicism: t.cynicism,
+            brutally_honest: t.brutally_honest,
+            human_mode: t.human_mode,
+            hardcore: t.hardcore,
+            mix_chitchat: t.mix_chitchat,
+            mix_behavioural: t.mix_behavioural,
+            mix_technical: t.mix_technical,
+            ...patch,
+        };
+    }
+
+    function isApplied(t: InterviewTemplate): boolean {
+        const dials = dialsFromForm();
+        return t.role === role.trim() && (t.topic ?? "") === topic.trim() && t.level === level && DIAL_FIELDS.every((field) => t[field] === dials[field]);
+    }
+
+    function remember(id: string | null) {
+        setLastUsedId(id);
+        if (id) localStorage.setItem(LAST_TEMPLATE_KEY, id);
+        else localStorage.removeItem(LAST_TEMPLATE_KEY);
+    }
+
+    function applyTemplate(t: InterviewTemplate) {
+        setRole(t.role);
+        setLevel(t.level);
+        setTopic(t.topic ?? "");
+        setCompanySize(
+            Math.max(
+                0,
+                COMPANY_SIZES.findIndex((c) => c.value === t.company_size),
+            ),
+        );
+        setCynicism(
+            Math.max(
+                0,
+                CYNICISM.findIndex((c) => c.value === t.cynicism),
+            ),
+        );
+        setBrutallyHonest(t.brutally_honest);
+        setHumanMode(t.human_mode);
+        setHardcore(t.hardcore);
+        setMix({ mix_chitchat: t.mix_chitchat, mix_behavioural: t.mix_behavioural, mix_technical: t.mix_technical });
+        remember(t.id);
+        setError(null);
+        setEditor(null);
+        setTemplateError(null);
+    }
+
+    async function submitTemplate() {
+        const name = templateName.trim();
+        if (!name) return;
+        const renaming = editor?.mode === "rename" ? templates?.find((t) => t.id === editor.id) : undefined;
+        setTemplateBusy(true);
+        try {
+            const ok = renaming ? await putTemplate(renaming, { name }) : await createPreset(name);
+            if (ok) setEditor(null);
+        } finally {
+            setTemplateBusy(false);
+        }
+    }
+
+    /** POST the form as a named preset; false = failed. */
+    async function createPreset(name: string): Promise<boolean> {
+        setTemplateError(null);
+        try {
+            const saved = await createTemplate({ name, ...fieldsFromForm() });
+            setTemplates((list) => [saved, ...(list ?? [])]);
+            return true;
+        } catch (e) {
+            setTemplateError(apiDetail(e, "Could not save the preset."));
+            return false;
+        }
+    }
+
+    async function putTemplate(t: InterviewTemplate, patch: Partial<TemplateInput>): Promise<boolean> {
+        setTemplateError(null);
+        try {
+            const saved = await updateTemplate(t.id, bodyFrom(t, patch));
+            setTemplates((list) => (list ?? []).map((x) => (x.id === saved.id ? saved : x)));
+            return true;
+        } catch (e) {
+            setTemplateError(apiDetail(e, "Could not update the preset."));
+            return false;
+        }
+    }
+
+    async function removeTemplate(t: InterviewTemplate) {
+        if (!confirm(`Delete preset "${t.name}"?`)) return;
+        try {
+            await deleteTemplate(t.id);
+            setTemplates((list) => (list ?? []).filter((x) => x.id !== t.id));
+            if (lastUsedId === t.id) remember(null);
+        } catch (e) {
+            setTemplateError(apiDetail(e, "Could not delete the preset."));
+        }
+    }
 
     async function submit(e: React.FormEvent) {
         e.preventDefault();
@@ -44,17 +182,7 @@ export function CreateInterviewForm({ onCreated, variant = "compact", className 
         setBusy(true);
         setError(null);
         try {
-            const interview = await createInterview({
-                role: role.trim(),
-                topic: topic.trim(),
-                level,
-                company_size: COMPANY_SIZES[companySize].value,
-                cynicism: CYNICISM[cynicism].value,
-                brutally_honest: brutallyHonest,
-                human_mode: humanMode,
-                hardcore,
-                ...mix,
-            });
+            const interview = await createInterview(fieldsFromForm());
             onCreated(interview.id);
         } catch (e) {
             if (isQuotaError(e)) setQuotaLocked(true);
@@ -71,6 +199,83 @@ export function CreateInterviewForm({ onCreated, variant = "compact", className 
                     <CardDescription>Start a simulated interview with an AI coach.</CardDescription>
                 </CardHeader>
                 <CardContent className={featured ? "grid gap-x-4 gap-y-4 sm:grid-cols-2" : "space-y-4"}>
+                    {templates && (
+                        <div className={cn("space-y-1.5", featured && "sm:col-span-2")}>
+                            <span className="text-sm font-medium leading-none">Presets</span>
+                            <div className="flex flex-wrap items-center gap-1.5">
+                                {templates.map((t) => {
+                                    const applied = isApplied(t);
+                                    return (
+                                        <div key={t.id} className={cn("flex items-center rounded-full border text-xs transition-colors", applied ? "border-primary bg-primary/10 text-primary" : "border-input text-muted-foreground hover:bg-accent", !applied && t.id === lastUsedId && "border-dashed")}>
+                                            <button type="button" onClick={() => applyTemplate(t)} className={cn("py-1 pl-2.5 pr-0.5", applied && "font-medium")}>
+                                                {t.name}
+                                            </button>
+                                            <RowMenu
+                                                label={`${t.name} options`}
+                                                items={[
+                                                    {
+                                                        label: "Rename",
+                                                        onSelect: () => {
+                                                            setTemplateName(t.name);
+                                                            setEditor({ mode: "rename", id: t.id });
+                                                        },
+                                                    },
+                                                    { label: "Update from dials", onSelect: () => void putTemplate(t, fieldsFromForm()) },
+                                                    { label: "Delete", onSelect: () => void removeTemplate(t), destructive: true },
+                                                ]}
+                                            />
+                                        </div>
+                                    );
+                                })}
+                                {editor ? (
+                                    <div className="flex items-center gap-1">
+                                        <Input
+                                            autoFocus
+                                            value={templateName}
+                                            onChange={(e) => setTemplateName(e.target.value)}
+                                            onKeyDown={(e) => {
+                                                if (e.key === "Enter") {
+                                                    e.preventDefault();
+                                                    void submitTemplate();
+                                                }
+                                            }}
+                                            placeholder="Preset name"
+                                            maxLength={60}
+                                            className="h-7 w-36 text-xs"
+                                        />
+                                        <Button type="button" size="sm" variant="secondary" disabled={templateBusy || !templateName.trim()} onClick={() => void submitTemplate()}>
+                                            {templateBusy ? "Saving..." : editor.mode === "save" ? "Save" : "Rename"}
+                                        </Button>
+                                        <Button
+                                            type="button"
+                                            size="sm"
+                                            variant="ghost"
+                                            onClick={() => {
+                                                setEditor(null);
+                                                setTemplateError(null);
+                                            }}
+                                        >
+                                            Cancel
+                                        </Button>
+                                    </div>
+                                ) : (
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            setTemplateName("");
+                                            setTemplateError(null);
+                                            setEditor({ mode: "save" });
+                                        }}
+                                        className="rounded-full border border-dashed border-input px-3 py-1 text-xs text-muted-foreground hover:bg-accent"
+                                    >
+                                        + Save current
+                                    </button>
+                                )}
+                            </div>
+                            {templateError && <p className="text-xs text-destructive">{templateError}</p>}
+                        </div>
+                    )}
+
                     <div className={cn("space-y-1.5", featured && "sm:col-span-2")}>
                         <Label htmlFor="role">Role</Label>
                         <div className="flex flex-wrap gap-1.5">

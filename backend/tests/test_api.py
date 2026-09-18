@@ -293,6 +293,84 @@ def test_archive_hides_a_run_from_history_but_keeps_it_in_the_stats(client):
     assert c.delete(f"/api/interviews/{iid}").status_code == 204
 
 
+def test_templates_round_trip_rename_and_cap(client):
+    c = client
+    # A preset body IS a create body, so the same payload has to be accepted by both endpoints.
+    body = {
+        "name": "Senior BE @5k",
+        "role": "Backend Engineer",
+        "level": "senior",
+        "topic": "system design",
+        "company_size": "5k+",
+        "cynicism": "skeptical",
+        "brutally_honest": True,
+        "human_mode": False,
+        "hardcore": True,
+        "mix_chitchat": 1,
+        "mix_behavioural": 3,
+        "mix_technical": 4,
+    }
+    # The same dials are a valid create body: one vocabulary, two endpoints.
+    made = c.post("/api/interviews", json={k: v for k, v in body.items() if k != "name"})
+    assert made.status_code == 201
+    assert c.delete(f"/api/interviews/{made.json()['id']}").status_code == 204
+
+    r = c.post("/api/templates", json=body)
+    assert r.status_code == 201
+    preset = r.json()
+    assert all(preset[k] == v for k, v in body.items())
+    assert c.get("/api/templates").json()[0]["id"] == preset["id"]  # newest first
+
+    # Unspecified dials default from the same model an interview's do.
+    bare = c.post("/api/templates", json={"name": "Bare", "role": "Any Role"}).json()
+    assert (bare["cynicism"], bare["human_mode"], bare["mix_technical"]) == ("neutral", True, 4)
+
+    # PUT is a full replace; rename is just that same call with a new name.
+    r = c.put(f"/api/templates/{preset['id']}", json={**body, "name": "Renamed", "cynicism": "kind"})
+    assert (r.status_code, r.json()["name"], r.json()["cynicism"]) == (200, "Renamed", "kind")
+    assert next(x for x in c.get("/api/templates").json() if x["id"] == preset["id"])["cynicism"] == "kind"
+
+    assert c.delete(f"/api/templates/{preset['id']}").status_code == 204
+    assert c.delete(f"/api/templates/{preset['id']}").status_code == 404
+    assert [x["name"] for x in c.get("/api/templates").json()] == ["Bare"]
+
+    # Cap per owner, and the 409 names the number instead of failing blind.
+    for n in range(2, 21):
+        assert c.post("/api/templates", json={"name": f"Cap {n}", "role": "Filler"}).status_code == 201
+    r = c.post("/api/templates", json={"name": "Over", "role": "Filler"})
+    assert r.status_code == 409 and "20" in r.json()["detail"]
+    # Deleting frees a slot: the cap is a live count, not a ratchet.
+    listed = c.get("/api/templates").json()
+    assert c.delete(f"/api/templates/{next(x for x in listed if x['name'] == 'Cap 2')['id']}").status_code == 204
+    assert c.post("/api/templates", json={"name": "Fits", "role": "Filler"}).status_code == 201
+
+    for t in c.get("/api/templates").json():
+        assert c.delete(f"/api/templates/{t['id']}").status_code == 204
+
+
+def test_template_owner_scoping(client):
+    # The predicate is owner_id on every statement, create included: another owner's preset is
+    # invisible in the list and unreadable/unwritable by id (404, never a silent success).
+    import asyncio
+
+    import asyncpg
+
+    c = client
+
+    async def insert_foreign():
+        conn = await asyncpg.connect(DB_URL)
+        try:
+            return await conn.fetchval("INSERT INTO interview_templates (owner_id, name, role) VALUES ('someone-else', 'Not yours', 'Backend Engineer') RETURNING id::text")
+        finally:
+            await conn.close()
+
+    foreign = asyncio.run(insert_foreign())
+    assert all(x["id"] != foreign for x in c.get("/api/templates").json())
+    assert c.put(f"/api/templates/{foreign}", json={"name": "Hijack", "role": "Backend Engineer"}).status_code == 404
+    assert c.delete(f"/api/templates/{foreign}").status_code == 404
+    assert c.delete("/api/templates/00000000-0000-0000-0000-000000000000").status_code == 404
+
+
 def test_move_review_annotates_every_candidate_turn(client):
     # The stub cycles good -> inaccuracy. Two answers is the smallest case that exercises the turn ->
     # row mapping as an ARRAY (one answer passes trivially), and accuracy must average both classes.

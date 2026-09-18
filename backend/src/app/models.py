@@ -96,6 +96,22 @@ class Interview(Dials):
         return rating.grade(self.accuracy, failed=self.failed_turn is not None)
 
 
+# --- interview templates ---
+
+
+class TemplateCreate(InterviewCreate):
+    """A saved preset: a create body plus a name (inherits, so it cannot hold a knob a create rejects)."""
+
+    name: str = Field(min_length=1, max_length=60)
+
+
+class InterviewTemplate(TemplateCreate):
+    id: str
+    owner_id: str
+    created_at: datetime
+    updated_at: datetime
+
+
 # --- messages ---
 
 

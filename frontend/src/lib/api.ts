@@ -99,6 +99,36 @@ export async function createInterview(input: InterviewInput): Promise<Interview>
     return data;
 }
 
+// Saved create-interview presets (mirrors backend models.InterviewTemplate).
+export interface InterviewTemplate extends InterviewInput {
+    id: string;
+    name: string;
+    owner_id: string;
+    created_at: string;
+    updated_at: string;
+}
+
+export type TemplateInput = InterviewInput & { name: string };
+
+export async function listTemplates(): Promise<InterviewTemplate[]> {
+    const { data } = await api.get<InterviewTemplate[]>("/templates");
+    return data;
+}
+
+export async function createTemplate(input: TemplateInput): Promise<InterviewTemplate> {
+    const { data } = await api.post<InterviewTemplate>("/templates", input);
+    return data;
+}
+
+export async function updateTemplate(id: string, input: TemplateInput): Promise<InterviewTemplate> {
+    const { data } = await api.put<InterviewTemplate>(`/templates/${id}`, input);
+    return data;
+}
+
+export async function deleteTemplate(id: string): Promise<void> {
+    await api.delete(`/templates/${id}`);
+}
+
 export interface Message {
     id: string;
     interview_id: string;

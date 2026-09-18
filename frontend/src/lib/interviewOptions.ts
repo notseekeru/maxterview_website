@@ -96,6 +96,9 @@ export const MIX_FIELDS = [
     { field: "mix_technical", label: "Technical", hint: "role-specific questions" },
 ] as const;
 
+/** Every dial, in API order (mirrors backend main.DIAL_FIELDS). */
+export const DIAL_FIELDS = ["company_size", "cynicism", "brutally_honest", "human_mode", "hardcore", "mix_chitchat", "mix_behavioural", "mix_technical"] as const;
+
 export function mixCountLabel(n: number): string {
     return n === 0 ? "none" : n === 1 ? "1 question" : `${n} questions`;
 }

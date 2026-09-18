@@ -13,7 +13,7 @@ from fastapi.responses import PlainTextResponse, StreamingResponse
 from app import API_PREFIX, billing, byok, llm, payments, rating
 from app.auth import CLERK_ENABLED, get_current_user
 from app.db import close_pool, fetch, fetchrow, init_pool
-from app.models import ChatMessage, ChatTurn, ClerkUser, Dials, Feedback, FeedbackCreate, Interview, InterviewCreate, LLMProvider, LLMProviderUpdate, Message
+from app.models import ChatMessage, ChatTurn, ClerkUser, Dials, Feedback, FeedbackCreate, Interview, InterviewCreate, InterviewTemplate, LLMProvider, LLMProviderUpdate, Message, TemplateCreate
 from app.ratelimit import ClientRateLimitMiddleware
 
 APP_ENV = os.getenv("APP_ENV", "development")
@@ -310,6 +310,85 @@ async def regenerate_feedback(
             detail="Scoring model could not produce feedback right now; try again later.",
         )
     return dict(row)
+
+
+# --- interview templates (saved create-interview presets, owner-scoped, D4) ---
+
+# Per-owner ceiling: presets render as one chip row above the create form.
+TEMPLATE_CAP = 20
+
+TEMPLATE_COLS = "id::text, owner_id, name, role, level, topic, created_at, updated_at, " + ", ".join(DIAL_FIELDS)
+
+
+@api.get("/templates", response_model=list[InterviewTemplate])
+async def list_templates(user: CurrentUser) -> list[dict]:
+    rows = await fetch(
+        f"SELECT {TEMPLATE_COLS} FROM interview_templates WHERE owner_id = $1 ORDER BY created_at DESC",
+        user.sub,
+    )
+    return [dict(r) for r in rows]
+
+
+@api.post("/templates", response_model=InterviewTemplate, status_code=status.HTTP_201_CREATED)
+async def create_template(
+    body: TemplateCreate,
+    user: CurrentUser,
+) -> dict:
+    # Cap checked inside the INSERT: one round trip, and no pre-count race. None row = cap reached.
+    row = await fetchrow(
+        f"""
+        INSERT INTO interview_templates (owner_id, name, role, level, topic, {", ".join(DIAL_FIELDS)})
+        SELECT $1, $2, $3, $4, $5, {", ".join(f"${i}" for i in range(6, 6 + len(DIAL_FIELDS)))}
+        WHERE (SELECT count(*) FROM interview_templates WHERE owner_id = $1) < {TEMPLATE_CAP}
+        RETURNING {TEMPLATE_COLS}
+        """,
+        user.sub,
+        body.name,
+        body.role,
+        body.level,
+        body.topic,
+        *[getattr(body, f) for f in DIAL_FIELDS],
+    )
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"Template limit reached ({TEMPLATE_CAP}); delete one to save another.")
+    return dict(row)
+
+
+@api.put("/templates/{template_id}", response_model=InterviewTemplate)
+async def update_template(
+    template_id: str,
+    body: TemplateCreate,
+    user: CurrentUser,
+) -> dict:
+    """Full replace, not a merge: the caller holds every field of the preset it is editing."""
+    assignments = ", ".join(f"{f} = ${i}" for i, f in enumerate(DIAL_FIELDS, start=7))
+    row = await fetchrow(
+        f"UPDATE interview_templates SET name = $3, role = $4, level = $5, topic = $6, {assignments}, updated_at = now() WHERE id = $1 AND owner_id = $2 RETURNING {TEMPLATE_COLS}",
+        template_id,
+        user.sub,
+        body.name,
+        body.role,
+        body.level,
+        body.topic,
+        *[getattr(body, f) for f in DIAL_FIELDS],
+    )
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Template not found")
+    return dict(row)
+
+
+@api.delete("/templates/{template_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_template(
+    template_id: str,
+    user: CurrentUser,
+) -> None:
+    row = await fetchrow(
+        "DELETE FROM interview_templates WHERE id = $1 AND owner_id = $2 RETURNING id",
+        template_id,
+        user.sub,
+    )
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Template not found")
 
 
 # --- usage ---

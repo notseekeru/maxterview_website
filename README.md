@@ -41,6 +41,7 @@ create → start → chat/stream (SSE) → … → complete → feedback
 ```
 
 - `POST /api/interviews` (create, role required) → `pending`
+- `GET|POST|PUT|DELETE /api/templates` — owner-scoped create presets (dials + role/topic/level), 20 max; the form saves the current dials and applies a preset in one click
 - `POST /api/interviews/{id}/start` → `in_progress`
 - `POST /api/interviews/{id}/chat/stream` — **SSE**: user answer in, assistant reply streamed out
   (`event: message` / `done` / `error`). Persists both turns.
