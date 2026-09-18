@@ -13,9 +13,6 @@ interface Props {
     onExit: () => void;
 }
 
-// Shown to the candidate when a turn fails for a reason they cannot act on. The backend's
-// `event: error` payload is `str(exc)` from the LLM client — provider URLs, timeouts, DNS — which
-// is ops detail, not user copy.
 const STREAM_FAILED = "The interviewer couldn't answer just now — the model was unreachable. Your turn wasn't saved, so send it again in a moment.";
 
 export function InterviewChat({ interviewId, onExit }: Props) {
@@ -26,24 +23,14 @@ export function InterviewChat({ interviewId, onExit }: Props) {
     const [error, setError] = useState<string | null>(null);
     const [feedback, setFeedback] = useState<Feedback | null>(null);
     const [quotaLocked, setQuotaLocked] = useState(false);
-    // The question mix is a budget: once it is spent the API refuses further turns (409) and the
-    // composer stops, leaving Complete as the only move.
     const [interviewOver, setInterviewOver] = useState(false);
-    // Hardcore: the turn and class that ended the run, from the done frame. The run is over and the
-    // review will shout, so the transcript says why instead of the generic "mix is spent" notice.
     const [hardcoreFailed, setHardcoreFailed] = useState<{ turn: number; class: string } | null>(null);
-    const [completing, setCompleting] = useState(false); // 'Completing…' / 'Retry scoring…' spinner
-    const [scoringTip, setScoringTip] = useState(false); // completed but feedback not ready yet
-    // The run's attach point, read off whichever call created or fetched it. It only decides the
-    // opening bubble: with a resume in hand, asking the candidate to paste one reads as a bug.
+    const [completing, setCompleting] = useState(false);
+    const [scoringTip, setScoringTip] = useState(false);
     const [hasResume, setHasResume] = useState(false);
-    // Synchronous turn lock. `status` is React state, so two clicks landing before a re-render both
-    // read "ready" and post the answer twice; this ref cannot be raced that way.
     const sendingRef = useRef(false);
     const abortRef = useRef<AbortController | null>(null);
     const scrollRef = useRef<HTMLDivElement | null>(null);
-    // Which opening bubble this thread gets. Read after the state above exists - a resume in hand
-    // means the generic "share your resume" opener would read as if the import had failed.
     const opening = hasResume ? OPENING_HAS_RESUME : OPENING_ASKS_RESUME;
 
     const loadMessages = useCallback(async () => {
@@ -57,12 +44,6 @@ export function InterviewChat({ interviewId, onExit }: Props) {
         }
     }, [interviewId]);
 
-    // Reopening an existing (non-pending) run. POST /start 409s for BOTH in_progress and
-    // completed runs, so read the authoritative status rather than inferring "completed"
-    // from the conflict. Completed runs show stored feedback, or flag that scoring never
-    // landed: 404 from /feedback is that case (the backend writes no row when generation
-    // fails) and is the same signal `finish()` sets after a fresh /complete, so both paths
-    // render one warning block.
     const loadExisting = useCallback(
         async (id: string) => {
             const [iv] = await Promise.all([getInterview(id), loadMessages()]);
@@ -90,15 +71,10 @@ export function InterviewChat({ interviewId, onExit }: Props) {
             } catch (e: unknown) {
                 if (!cancelled) {
                     const st = httpStatus(e);
-                    // NB: do NOT replace with `e.status` — axios nests the status at
-                    // response.status, so the top-level read is undefined and this branch
-                    // never runs (reopening a run then skips transcript + feedback).
                     if (st !== 409) {
                         setError("Could not start interview.");
                         setStatus("ready");
                     } else {
-                        // Not pending (in_progress or completed) — let the interview's real
-                        // status drive the UI state.
                         setStatus(await loadExisting(interviewId));
                     }
                 }
@@ -114,8 +90,6 @@ export function InterviewChat({ interviewId, onExit }: Props) {
         scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
     }, []);
 
-    // A landed review is the first thing in the scroller; without this the view stays parked on the
-    // last answer instead of the grade.
     useEffect(() => {
         if (feedback) scrollRef.current?.scrollTo({ top: 0 });
     }, [feedback]);
@@ -128,7 +102,6 @@ export function InterviewChat({ interviewId, onExit }: Props) {
         setError(null);
         setStatus("streaming");
 
-        // Optimistically show the user's message; the backend persists it too.
         const localId = `local-${Date.now()}`;
         const userMsg: Message = {
             id: localId,
@@ -140,9 +113,6 @@ export function InterviewChat({ interviewId, onExit }: Props) {
         setMessages((m) => [...m, userMsg]);
         setAssistBuf("");
 
-        // A failed turn is rolled back server-side (the backend deletes the just-inserted user
-        // row), so the optimistic bubble must go too — otherwise the transcript here disagrees
-        // with the transcript after a reload, and the answer is silently lost.
         const rollback = () => {
             setMessages((m) => m.filter((x) => x.id !== localId));
             setAssistBuf("");
@@ -150,12 +120,7 @@ export function InterviewChat({ interviewId, onExit }: Props) {
 
         const ac = new AbortController();
         abortRef.current = ac;
-        // Local accumulator, deliberately not state: a fast reply (the canned closing line) delivers
-        // message+done in the same tick, before React re-renders, so a ref mirrored from state is
-        // still empty at "done" and the reply never reaches the transcript.
         let buffer = "";
-        // Did the server give the turn a verdict? A stream can also just stop (proxy drop, worker
-        // death), and that must not read as a finished turn.
         let settled = false;
         try {
             await streamChat(
@@ -181,14 +146,9 @@ export function InterviewChat({ interviewId, onExit }: Props) {
                         }
                         setAssistBuf("");
                         setStatus("ready");
-                        // The sign-off is the end of the run: stop the composer here rather than
-                        // letting the next message discover the same thing via a 409.
                         if (ev.closing) setInterviewOver(true);
                         if (ev.failed) {
                             setHardcoreFailed(ev.failed);
-                            // The server stored this class already, so badge the answer now instead of
-                            // waiting for the review to be generated. By this point the reply above has
-                            // been appended, so the turn to mark is this one by id, not "the last one".
                             setMessages((m) => m.map((x) => (x.id === localId ? { ...x, move_class: ev.failed?.class ?? null } : x)));
                         }
                     } else if (ev.kind === "error") {
@@ -202,8 +162,6 @@ export function InterviewChat({ interviewId, onExit }: Props) {
                 { signal: ac.signal },
             );
             if (!settled) {
-                // The stream ended with neither a reply nor an error. The server may have stored the
-                // reply we never saw, or rolled the turn back, so ask it rather than guess.
                 setAssistBuf("");
                 const rows = await loadMessages();
                 if (rows?.some((m) => m.role === "user" && m.content === content)) setError(null);
@@ -220,13 +178,9 @@ export function InterviewChat({ interviewId, onExit }: Props) {
                 else if (st === 409) setInterviewOver(true);
                 else setError("Connection lost while streaming.");
                 rollback();
-                // Only worth restoring when the turn could still be sent (quota/transport); the
-                // arc being over (409) means the text can never be accepted.
                 if (st !== 409) setDraft(content);
             }
         } finally {
-            // Unconditional: every path through a turn has to hand the composer back, including the
-            // truncated stream above, which throws nothing for the catch to reset on.
             sendingRef.current = false;
             setStatus("ready");
         }
@@ -239,16 +193,9 @@ export function InterviewChat({ interviewId, onExit }: Props) {
         try {
             const fb = await loaded();
             setFeedback(fb);
-            // The review and the per-answer annotations are written by the same pass, so the transcript
-            // fetched when this run was opened predates them: without this reload the badges only show
-            // up after a manual refresh (they did exactly that once).
             await loadMessages();
         } catch (e: unknown) {
-            // Feedback genuinely absent (or not ready after a scoring attempt). Keep the
-            // completed view and offer a retry rather than a hard error or fabricated scores.
             setScoringTip(true);
-            // 409 = structural refusal (nothing left to score); 404/503 are retryable and the
-            // tip above already says so, so don't stack a jargon error line on top of it.
             if (httpStatus(e) === 409) setError(apiDetail(e));
         }
     }
@@ -363,8 +310,6 @@ export function InterviewChat({ interviewId, onExit }: Props) {
     );
 }
 
-// Memoized: the streaming reply re-renders on every delta, and without this the whole transcript
-// re-renders per token. Only the live bubble's content changes.
 const Bubble = memo(function Bubble({ from, content, streaming, moveClass }: { from: string; content: string; streaming?: boolean; moveClass?: string | null }) {
     const isUser = from === "user";
     return (

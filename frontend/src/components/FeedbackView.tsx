@@ -56,7 +56,6 @@ export function FeedbackView({ feedback, messages = [], onAnnotate, annotating }
                                 </span>
                             ))}
                         </div>
-                        <p className="text-xs text-muted-foreground">Accuracy is the average of those annotations, and each one is marked against the answer it graded.</p>
                     </div>
                 ) : (
                     <div className="space-y-2 rounded-lg border border-dashed p-3">

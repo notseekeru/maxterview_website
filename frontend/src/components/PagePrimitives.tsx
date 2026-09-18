@@ -1,5 +1,4 @@
 import type { ReactNode } from "react";
-import { Icon, type IconName } from "@/components/AppIcons";
 import { Separator } from "@/components/ui/separator";
 import { useDocumentTitle } from "@/hooks/useDocumentTitle";
 import { cn } from "@/lib/utils";
@@ -21,19 +20,6 @@ export function Page({ title, description, children, actions, wide }: { title: s
                 {actions && <div className="flex items-center gap-2">{actions}</div>}
             </header>
             {children}
-        </div>
-    );
-}
-
-// Graceful stand-in for sections whose backend work is not built yet.
-export function ComingSoon({ icon, title, description }: { icon: IconName; title: string; description: string }) {
-    return (
-        <div className="flex min-h-[40vh] flex-col items-center justify-center gap-3 rounded-lg border border-dashed p-8 text-center">
-            <Icon name={icon} className="h-8 w-8 text-muted-foreground" />
-            <div>
-                <h2 className="text-lg font-medium">{title}</h2>
-                <p className="mt-1 max-w-sm text-sm text-muted-foreground">{description}</p>
-            </div>
         </div>
     );
 }

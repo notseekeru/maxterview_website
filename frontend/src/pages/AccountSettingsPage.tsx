@@ -8,8 +8,7 @@ import { Card, CardDescription, CardFooter, CardHeader, CardTitle } from "@/comp
 import { chatTurns, getUsage, turnsToday, type Usage } from "@/lib/api";
 import { clerkEnabled } from "@/lib/config";
 
-// /settings/account — single-user account + plan. Managed accounts live under
-// /manage/accounts (see the PRD "Future" notes).
+// /settings/account — single-user account + plan.
 export function AccountSettingsPage() {
     const [usage, setUsage] = useState<Usage | null>(null);
     const load = useCallback(async () => setUsage(await getUsage()), []);

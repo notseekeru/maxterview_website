@@ -6,7 +6,7 @@ import { AuthMisconfigBanner } from "@/components/AuthMisconfigBanner";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { clerkEnabled } from "@/lib/config";
 import { BillingPage } from "@/pages/BillingPage";
-import { DocsPage, ManageAccountsPage } from "@/pages/ComingSoonPages";
+import { DocsPage } from "@/pages/DocsPage";
 import { InterviewsPage } from "@/pages/InterviewsPage";
 import { Landing } from "@/pages/Landing";
 import { NotFound } from "@/pages/NotFound";
@@ -65,9 +65,7 @@ function App() {
                             <Route path="/settings/system" element={<SystemSettingsPage />} />
                             <Route path="/settings/account" element={<AccountSettingsPage />} />
                             <Route path="/settings/billing" element={<BillingPage />} />
-
-                            <Route path="/manage/accounts" element={<ManageAccountsPage />} />
-                            <Route path="/manage/docs" element={<DocsPage />} />
+                            <Route path="/settings/docs" element={<DocsPage />} />
                         </Route>
 
                         <Route

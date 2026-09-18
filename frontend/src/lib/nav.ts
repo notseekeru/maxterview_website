@@ -30,14 +30,7 @@ export const NAV: NavSection[] = [
             { label: "System", to: "/settings/system", icon: "settings" },
             { label: "Account", to: "/settings/account", icon: "user" },
             { label: "Billing", to: "/settings/billing", icon: "card" },
-        ],
-    },
-    {
-        id: "management",
-        title: "Management",
-        items: [
-            { label: "Managed accounts", to: "/manage/accounts", icon: "users" },
-            { label: "Docs", to: "/manage/docs", icon: "book" },
+            { label: "Docs", to: "/settings/docs", icon: "book" },
         ],
     },
 ];

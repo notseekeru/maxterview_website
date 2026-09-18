@@ -42,10 +42,8 @@ export function SystemSettingsPage() {
             </Card>
 
             {/* Language / region — stub, no backend persistence. */}
-            {/* AI HERE: language + timezone are single-user prefs we could persist via a
-                small per-account row (backend `accounts` object). Deferred: the account
-                model (D4/D7) predates multi-account "managed accounts", so it'd live under
-                the same accounts table when that lands. */}
+            {/* AI HERE: language + timezone would need a per-account prefs row; deferred
+                until that model exists. */}
             <Card>
                 <CardHeader>
                     <CardTitle>Language & region</CardTitle>

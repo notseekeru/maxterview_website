@@ -355,7 +355,6 @@ export function CreateInterviewForm({ onCreated, variant = "compact", className 
                         when you don't, and the defaults already match the standard arc. */}
                     <details open={featured} className={cn("rounded-md border px-3 py-2", featured && "sm:col-span-2")}>
                         <summary className="cursor-pointer text-sm font-medium">Question mix</summary>
-                        <p className="mt-1 text-xs text-muted-foreground">How many questions of each kind. The interviewer closes the interview once every budget is spent.</p>
                         <div className="mt-3 grid gap-x-4 gap-y-3 sm:grid-cols-3">
                             {MIX_FIELDS.map((f) => (
                                 <DialSlider

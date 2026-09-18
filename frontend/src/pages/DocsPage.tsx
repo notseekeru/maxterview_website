@@ -1,17 +1,6 @@
-import { ComingSoon, Page } from "@/components/PagePrimitives";
+import { Page } from "@/components/PagePrimitives";
 
-// Placeholder routes whose backend work isn't built yet.
-
-export function ManageAccountsPage() {
-    return (
-        <Page title="Managed Accounts" description="Admins only — list the accounts on a team/org.">
-            {/* AI HERE: real multi-account support requires widening D4's single-owner
-                scoping + the backend "accounts" model. Single-owner accounts are out of
-                scope for MVP; see PRD Future notes. */}
-            <ComingSoon icon="users" title="Managed accounts coming soon" description="Manage org roles/usage once team accounts exist." />
-        </Page>
-    );
-}
+// /settings/docs
 
 export function DocsPage() {
     return (
