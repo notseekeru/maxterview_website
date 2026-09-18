@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Icon } from "@/components/AppIcons";
 import { Page } from "@/components/PagePrimitives";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -25,7 +26,35 @@ export function ResumePage() {
     const [notice, setNotice] = useState<string | null>(null);
     // Locked behind the free plan's wall (a 402 from the server): the message IS the upsell.
     const [capped, setCapped] = useState(false);
-    const fileRef = useRef<HTMLInputElement>(null);
+    const menuRef = useRef<HTMLDetailsElement>(null);
+    // The drop panel's own hover state: the highlight has to survive crossing the panel's own
+    // children (each of which fires a dragleave as the cursor moves over it).
+    const [dropping, setDropping] = useState(false);
+
+    // Same open/close contract as RowMenu: <details> gives the toggle, these two listeners make it
+    // behave like a menu. AI HERE: no focus trap / arrow keys — the panel holds one label.
+    useEffect(() => {
+        const onDown = (e: MouseEvent) => {
+            const el = menuRef.current;
+            if (el?.open && !el.contains(e.target as Node)) el.open = false;
+        };
+        const onKey = (e: KeyboardEvent) => {
+            if (e.key === "Escape" && menuRef.current) menuRef.current.open = false;
+        };
+        // A drag that MISSES the panel is the browser's own "open the PDF" navigation, and the
+        // unsaved editor text goes with it. Cancel that default for as long as the panel is open.
+        const onDrop = (e: DragEvent) => {
+            if (menuRef.current?.open && !menuRef.current.contains(e.target as Node)) e.preventDefault();
+        };
+        document.addEventListener("mousedown", onDown);
+        document.addEventListener("keydown", onKey);
+        document.addEventListener("drop", onDrop);
+        return () => {
+            document.removeEventListener("mousedown", onDown);
+            document.removeEventListener("keydown", onKey);
+            document.removeEventListener("drop", onDrop);
+        };
+    }, []);
 
     const load = useCallback(async () => {
         try {
@@ -48,6 +77,21 @@ export function ResumePage() {
     function fail(e: unknown, fallback: string) {
         setError(apiDetail(e, fallback));
         setCapped(httpStatus(e) === 402);
+    }
+
+    /** One entry point for the picker and the drop: a dropped file skips the `accept` attribute's
+     *  filter, so this is the only place that gets to decide what a resume file is. */
+    function pick(file: File | undefined) {
+        if (!file) return;
+        if (!/\.pdf$/i.test(file.name) && file.type !== "application/pdf") {
+            // Rejected files leave the panel open: the retry belongs where the cursor already is.
+            setError("That isn't a PDF — import a PDF, or paste the text instead.");
+            setNotice(null);
+            setCapped(false);
+            return;
+        }
+        if (menuRef.current) menuRef.current.open = false;
+        void importPdf(file);
     }
 
     async function importPdf(file: File) {
@@ -128,21 +172,43 @@ export function ResumePage() {
             description="Import a resume so interviews are tailored to your actual projects — and so feedback can hold you to what it claims."
             actions={
                 <>
-                    <input
-                        ref={fileRef}
-                        type="file"
-                        accept="application/pdf,.pdf"
-                        className="hidden"
-                        onChange={(e) => {
-                            const file = e.target.files?.[0];
-                            // Reset first: picking the SAME file twice must fire again.
-                            e.target.value = "";
-                            if (file) void importPdf(file);
-                        }}
-                    />
-                    <Button variant="outline" disabled={busy} onClick={() => fileRef.current?.click()}>
-                        Import PDF
-                    </Button>
+                    {/* A dropdown rather than a plain button: browsing and dropping are the same
+                        intent, and the panel is where that instruction fits without shouting it on
+                        the page. `<details>` again, for the reasons RowMenu documents. */}
+                    <details ref={menuRef} className="relative">
+                        <summary className={cn(buttonVariants({ variant: "outline" }), "cursor-pointer list-none [&::-webkit-details-marker]:hidden", busy && "pointer-events-none opacity-50")}>Import PDF</summary>
+                        <div className="absolute right-0 z-20 mt-1 w-64 rounded-md border bg-popover p-2 shadow-md">
+                            <label
+                                onDragOver={(e) => {
+                                    e.preventDefault();
+                                    setDropping(true);
+                                }}
+                                onDragLeave={(e) => {
+                                    if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDropping(false);
+                                }}
+                                onDrop={(e) => {
+                                    e.preventDefault();
+                                    setDropping(false);
+                                    pick(e.dataTransfer.files?.[0]);
+                                }}
+                                className={cn("flex cursor-pointer flex-col items-center gap-1.5 rounded-md border border-dashed px-3 py-6 text-center text-xs transition-colors", dropping ? "border-primary bg-primary/10 text-primary" : "text-muted-foreground hover:bg-accent")}
+                            >
+                                <Icon name="file" className="h-5 w-5" />
+                                <span>{dropping ? "Drop it" : "Drop a PDF here, or click to browse"}</span>
+                                <input
+                                    type="file"
+                                    accept="application/pdf,.pdf"
+                                    className="hidden"
+                                    onChange={(e) => {
+                                        const file = e.target.files?.[0];
+                                        // Reset first: picking the SAME file twice must fire again.
+                                        e.target.value = "";
+                                        pick(file);
+                                    }}
+                                />
+                            </label>
+                        </div>
+                    </details>
                     <Button
                         disabled={busy}
                         onClick={() => {
