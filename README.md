@@ -15,7 +15,7 @@ Docs:
 
 - `PLAN.md` — binding decisions and open milestones (M13–M18)
 - `MONETIZATION.md` — billing spec (quotas + PayMongo period top-up, shipped)
-- `BYOK.md` — per-owner LLM provider keys (settings panel → `/app/settings/system`)
+- `BYOK.md` — per-owner LLM provider keys (settings panel → `/settings/system`)
 - `OBSERVABILITY.md` — logging/metrics plan (doc-first M13)
 
 ---
@@ -85,7 +85,7 @@ you only need the vars for the features you actually use. Check which are set (n
 | Want this feature                        | Set in `backend/.env`                                          | plus                                                   | how to run/verify                                                                                                    |
 | ---------------------------------------- | -------------------------------------------------------------- | ------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------- |
 | UI/API with no auth at all (fast dev)    | _(nothing)_                                                    | —                                                      | default works (`CLERK_ENABLED=false` → `DEV_USER`)                                                                   |
-| Real Clerk sign-in + JWT auth            | `CLERK_ENABLED=true`, `CLERK_DOMAIN`, `CLERK_JWKS_URL`         | `frontend/.env` `VITE_CLERK_PUBLISHABLE_KEY=pk_test_…` | `make up`, visit `/app`, sign in                                                                                     |
+| Real Clerk sign-in + JWT auth            | `CLERK_ENABLED=true`, `CLERK_DOMAIN`, `CLERK_JWKS_URL`         | `frontend/.env` `VITE_CLERK_PUBLISHABLE_KEY=pk_test_…` | `make up`, visit `/dashboard`, sign in                                                                                     |
 | Headless Clerk ops (mint users/sessions) | `CLERK_SECRET_KEY=sk_test_…`                                   | —                                                      | `docker exec -e CLERK_SECRET_KEY="$CLERK_SECRET_KEY" maxterview_frontend_dev sh -c 'cd /tmp && npx clerk api users'` |
 | PayMongo ₱499 → premium row (30 days)    | `PAYMONGO_SECRET_KEY` (`sk_test_…`), `PAYMONGO_WEBHOOK_SECRET` | —                                                      | upgrade in the UI → Maya page; dev instead: POST `/api/billing/webhook/simulate` (no tunnel, no keys)                |
 | Real AI interviewer chat + auto-feedback | `LLM_BASE_URL`, `LLM_MODEL`, `LLM_API_KEY`                     | —                                                      | empty → deterministic STUB (model-free tests/dev)                                                                    |

@@ -163,7 +163,7 @@ async def _redirect_for_intent(intent_id: str) -> str:
     # AI HERE: one extra GET for `client_key` so the attach body satisfies both the secret-key and
     # the public-key flow. Drop it once a sandbox attach proves the key is unnecessary.
     intent = await _api("GET", f"/v1/payment_intents/{intent_id}")
-    body = {"payment_method": method["data"]["id"], "return_url": f"{FRONTEND_BASE_URL}/app?upgrade=pending"}
+    body = {"payment_method": method["data"]["id"], "return_url": f"{FRONTEND_BASE_URL}/dashboard?upgrade=pending"}
     attach = await _try_variants(
         # `client_key` is documented for the public-key attach and is a browser-safe token, so send it
         # first (matching the only documented shape) and fall back to a secret-key-only body.

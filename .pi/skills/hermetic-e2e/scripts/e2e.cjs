@@ -41,7 +41,7 @@ function miniPdf(lines) {
   return Buffer.concat([...out, Buffer.from(xref, "latin1")]);
 }
 
-/** Opens the /app create form: it is behind a toggle whenever the owner already has interviews, and
+/** Opens the /dashboard create form: it is behind a toggle whenever the owner already has interviews, and
  *  the toggle is not painted yet on the frame after the route change (clicking too early is a no-op,
  *  clicking twice closes it again). */
 async function openNewInterviewForm(page) {
@@ -86,7 +86,7 @@ async function resumeLeg(page, createdIds) {
   // ("e2e-cv94 chars" - the gap between them is margin, not text).
   const chip = () => page.getByRole("button", { name: new RegExp(stem) });
   const listed = resumesLoaded(page);
-  await page.goto(BASE + "/app/resume", { waitUntil: "domcontentloaded" });
+  await page.goto(BASE + "/resume", { waitUntil: "domcontentloaded" });
   await page.locator("#resume-name").waitFor({ state: "visible", timeout: 15000 });
   // The rows are painted from the response's promise callback, so one frame after it is the first
   // frame that can hold them — without this, a leftover row from a failed run reads as "no row"
@@ -95,7 +95,7 @@ async function resumeLeg(page, createdIds) {
   await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => resolve())));
   // A rerun must not stack rows against the tier's cap: start from no `stem` row either way.
   await deleteResumeNamed(page, chip);
-  console.log("  \u2713 /app/resume loaded");
+  console.log("  \u2713 /resume loaded");
 
   // The drop target bypasses the input's `accept` attribute, so the client-side filter is what makes
   // a stray .txt a readable error instead of a 400 from the extract endpoint.
@@ -124,7 +124,7 @@ async function resumeLeg(page, createdIds) {
 
   // Attach it from the create form and check the thread the attach produces: OPENING_HAS_RESUME is
   // chosen from `resume_id` only, so its copy is the UI's proof that the FK landed.
-  await page.goto(BASE + "/app", { waitUntil: "domcontentloaded" });
+  await page.goto(BASE + "/dashboard", { waitUntil: "domcontentloaded" });
   await openNewInterviewForm(page);
   if ((await chip().count()) === 0) {
     console.log("  \u2717 the create form shows no resume picker");
@@ -143,7 +143,7 @@ async function resumeLeg(page, createdIds) {
   // Delete the imported row so reruns stay inside the tier's cap. The row MUST be there after a
   // successful import, so its absence after the reload is a real failure (not a paint race).
   const reloaded = resumesLoaded(page);
-  await page.goto(BASE + "/app/resume", { waitUntil: "domcontentloaded" });
+  await page.goto(BASE + "/resume", { waitUntil: "domcontentloaded" });
   await page.locator("#resume-name").waitFor({ state: "visible", timeout: 15000 });
   await reloaded;
   await chip().first().waitFor({ state: "visible", timeout: 15000 });
@@ -178,15 +178,15 @@ async function main() {
   const createdIds = [];
 
   try {
-    // Landing -> Start free -> /app. (The CTA is an anchor, not a button: a crawler only follows
+    // Landing -> Start free -> /dashboard. (The CTA is an anchor, not a button: a crawler only follows
     // links — so match it by LINK role: a hero copy tweak fails loudly here instead of timing out.)
     await page.goto(BASE + "/", { waitUntil: "domcontentloaded" });
     await page.getByRole("link", { name: /start (practicing )?free/i }).first().click();
-    await page.waitForURL(/\/app/, { timeout: 15000 });
+    await page.waitForURL(/\/dashboard/, { timeout: 15000 });
     // The create form is behind a toggle whenever the owner already has interviews (it auto-opens
     // only on an empty dashboard).
     await openNewInterviewForm(page);
-    console.log("  \u2713 Landing -> /app");
+    console.log("  \u2713 Landing -> /dashboard");
 
     if (wantResume) {
       await resumeLeg(page, createdIds);

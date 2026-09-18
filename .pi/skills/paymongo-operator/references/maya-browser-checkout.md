@@ -66,7 +66,7 @@ Clerk `__session` cookie on the frontend origin via `context.add_cookies` for th
 (e.g. `http://localhost:5173`). In no-Clerk dev mode skip this — the backend returns `DEV_USER`.
 
 ### 1. Drive the SPA to the Upgrade UX
-- `page.goto("{FRONTEND_BASE_URL}/app")`, then `/app/settings/billing` (or the `UpgradeNotice` CTA).
+- `page.goto("{FRONTEND_BASE_URL}/dashboard")`, then `/settings/billing` (or the `UpgradeNotice` CTA).
 - The Upgrade button calls `startSubscription()` → `POST /api/billing/checkout` → the backend creates
   Customer → Subscription (`incomplete`) → attaches a `paymaya` PaymentMethod to the **first
   invoice's** Payment Intent and returns Maya's redirect URL (subscription mode; period mode instead
@@ -81,10 +81,10 @@ Clerk `__session` cookie on the frontend origin via `context.add_cookies` for th
 - If anything challenges the run, STOP automation and let the human finish in the visible browser.
 
 ### 3. Let the webhook round-trip
-PayMongo redirects the browser back to `{FRONTEND_BASE_URL}/app?upgrade=pending`, where
+PayMongo redirects the browser back to `{FRONTEND_BASE_URL}/dashboard?upgrade=pending`, where
 `UpgradePendingNotice` polls `GET /api/usage` for ~1 minute and then hands the user a manual "Check
 again". The return URL is a claim, not a confirmation — a verified webhook is — so the notice is the
-"I paid and nothing happened" guard: on a `premium` read it confirms, then hard-navigates to `/app` so
+"I paid and nothing happened" guard: on a `premium` read it confirms, then hard-navigates to `/dashboard` so
 the shell's badge, the billing page and the notice all agree.
 
 PayMongo also posts `payment_token.activation` / `payment_session.completed` (both ignored by our

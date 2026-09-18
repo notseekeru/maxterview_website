@@ -8,8 +8,8 @@ import { Card, CardDescription, CardFooter, CardHeader, CardTitle } from "@/comp
 import { chatTurns, getUsage, turnsToday, type Usage } from "@/lib/api";
 import { clerkEnabled } from "@/lib/config";
 
-// /app/settings/account — single-user account + plan. Managed accounts live under
-// /app/manage/accounts (see the PRD "Future" notes).
+// /settings/account — single-user account + plan. Managed accounts live under
+// /manage/accounts (see the PRD "Future" notes).
 export function AccountSettingsPage() {
     const [usage, setUsage] = useState<Usage | null>(null);
     const load = useCallback(async () => setUsage(await getUsage()), []);
@@ -23,7 +23,7 @@ export function AccountSettingsPage() {
     return (
         <Page title="Account Settings" description="Your sign-in details and subscription.">
             {/* Plan — summary only; the full tiers, upgrade and cancel surface lives on
-                /app/settings/billing (PayMongo has no billing portal to link out to). */}
+                /settings/billing (PayMongo has no billing portal to link out to). */}
             <Card>
                 <CardHeader className="flex-row items-center justify-between space-y-0">
                     <div>
@@ -41,19 +41,19 @@ export function AccountSettingsPage() {
                 <CardFooter className="flex flex-row flex-wrap items-center gap-3">
                     {usage?.tier !== "premium" && usage?.tier !== "dev" && (
                         <Button asChild size="sm">
-                            <Link to="/app/settings/billing">Upgrade to Premium</Link>
+                            <Link to="/settings/billing">Upgrade to Premium</Link>
                         </Button>
                     )}
                     {usage?.tier === "premium" && (
                         <Button asChild variant="outline" size="sm">
-                            <Link to="/app/settings/billing">Manage billing</Link>
+                            <Link to="/settings/billing">Manage billing</Link>
                         </Button>
                     )}
                     <Button asChild variant="ghost" size="sm">
-                        <Link to="/app/settings/billing">See plans</Link>
+                        <Link to="/settings/billing">See plans</Link>
                     </Button>
                     <Button asChild variant="ghost" size="sm">
-                        <Link to="/app/settings/system">Bring your own key</Link>
+                        <Link to="/settings/system">Bring your own key</Link>
                     </Button>
                 </CardFooter>
             </Card>

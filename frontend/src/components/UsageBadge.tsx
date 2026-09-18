@@ -85,7 +85,7 @@ export function UpgradeNotice({ reason }: { reason: string }) {
                     {busy ? "Opening Maya…" : "Upgrade to Premium"}
                 </Button>
                 {/* No provider portal exists; plan management (incl. cancel) lives on the billing page. */}
-                <a href="/app/settings/billing" className="text-xs text-muted-foreground underline underline-offset-2">
+                <a href="/settings/billing" className="text-xs text-muted-foreground underline underline-offset-2">
                     Manage billing
                 </a>
             </div>

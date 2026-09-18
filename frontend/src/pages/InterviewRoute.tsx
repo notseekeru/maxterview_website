@@ -15,7 +15,7 @@ export function InterviewRoute() {
                 <h1 className="text-2xl font-semibold tracking-tight">maxterview</h1>
                 <span className="text-sm text-muted-foreground">Interview</span>
             </header>
-            <InterviewChat interviewId={id} onExit={() => navigate("/app")} />
+            <InterviewChat interviewId={id} onExit={() => navigate("/dashboard")} />
         </div>
     );
 }

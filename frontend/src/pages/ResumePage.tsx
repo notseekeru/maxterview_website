@@ -175,7 +175,7 @@ export function ResumePage() {
                         {error && <p className="text-destructive">{error}</p>}
                         {notice && !error && <p className="text-muted-foreground">{notice}</p>}
                         {capped && (
-                            <a href="/app/settings/billing" className="text-xs text-muted-foreground underline underline-offset-2">
+                            <a href="/settings/billing" className="text-xs text-muted-foreground underline underline-offset-2">
                                 See plans
                             </a>
                         )}

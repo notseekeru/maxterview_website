@@ -37,12 +37,13 @@ function App() {
                 <Routes>
                     <Route path="/" element={<Landing />} />
 
-                    {/* Gated subtree: this pathless route renders the shell/lightbox around an
-                        <Outlet/> — the recursion is intentional, do not flatten it. */}
+                    {/* Gated subtree: these pathless routes render the shell/lightbox around an
+                        <Outlet/> — the recursion is intentional, do not flatten it. Every app
+                        page owns a top-level path; unknown ones fall to the 404 below. */}
                     <Route element={<Gate />}>
-                        <Route path="/app" element={<AppShell />}>
+                        <Route element={<AppShell />}>
                             <Route
-                                index
+                                path="/dashboard"
                                 element={
                                     <Suspense fallback={<GateLoading />}>
                                         <DashboardHome />
@@ -50,33 +51,23 @@ function App() {
                                 }
                             />
 
-                            <Route path="interviews" element={<InterviewsPage />} />
+                            <Route path="/interviews" element={<InterviewsPage />} />
                             <Route
-                                path="analytics"
+                                path="/analytics"
                                 element={
                                     <Suspense fallback={<GateLoading />}>
                                         <AnalyticsPage />
                                     </Suspense>
                                 }
                             />
-                            <Route path="resume" element={<ResumePage />} />
+                            <Route path="/resume" element={<ResumePage />} />
 
-                            <Route path="settings/system" element={<SystemSettingsPage />} />
-                            <Route path="settings/account" element={<AccountSettingsPage />} />
-                            <Route path="settings/billing" element={<BillingPage />} />
+                            <Route path="/settings/system" element={<SystemSettingsPage />} />
+                            <Route path="/settings/account" element={<AccountSettingsPage />} />
+                            <Route path="/settings/billing" element={<BillingPage />} />
 
-                            <Route path="manage/accounts" element={<ManageAccountsPage />} />
-                            <Route path="manage/docs" element={<DocsPage />} />
-
-                            {/* Unknown /app/* path -> dashboard (graceful). */}
-                            <Route
-                                path="*"
-                                element={
-                                    <Suspense fallback={<GateLoading />}>
-                                        <DashboardHome />
-                                    </Suspense>
-                                }
-                            />
+                            <Route path="/manage/accounts" element={<ManageAccountsPage />} />
+                            <Route path="/manage/docs" element={<DocsPage />} />
                         </Route>
 
                         <Route

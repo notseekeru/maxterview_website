@@ -4,12 +4,12 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { getUsage, type Tier } from "@/lib/api";
 
-// /app?upgrade=pending — the return_url PayMongo sends the customer back to after they pay on Maya.
+// /dashboard?upgrade=pending — the return_url PayMongo sends the customer back to after they pay on Maya.
 // The flip is asynchronous (PayMongo posts the webhook, `resolve_tier` reads the DB at read time), so
 // this is the "I paid and nothing happened" guard: poll a bounded window, then hand the user a manual
 // retry rather than leaving them staring at a Free badge.
 //
-// On success we do a full `window.location.replace('/app')` instead of patching state: the shell's
+// On success we do a full `window.location.replace('/dashboard')` instead of patching state: the shell's
 // UsageBadge fetches once on mount, and a remount is the only way it, the BillingPage and this notice
 // all agree without an event bus. The navigation also strips the query param.
 const POLL_MS = 5000;
@@ -44,7 +44,7 @@ export function UpgradePendingNotice() {
 
     useEffect(() => {
         if (!pending || tier !== "premium") return;
-        const go = setTimeout(() => window.location.replace("/app"), 1500);
+        const go = setTimeout(() => window.location.replace("/dashboard"), 1500);
         return () => clearTimeout(go);
     }, [pending, tier]);
 

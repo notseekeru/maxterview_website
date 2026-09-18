@@ -44,7 +44,7 @@ export class ErrorBoundary extends Component<Props, State> {
                 <h1 className="text-xl font-semibold tracking-tight">Something broke on this screen</h1>
                 <p className="max-w-md text-sm text-muted-foreground">Your interviews are stored server-side and are not affected. Reload to get back to the dashboard.</p>
                 <p className="max-w-md font-mono text-xs text-muted-foreground">{this.state.error.message}</p>
-                <Button onClick={() => window.location.assign("/app")}>Back to dashboard</Button>
+                <Button onClick={() => window.location.assign("/dashboard")}>Back to dashboard</Button>
             </div>
         );
     }

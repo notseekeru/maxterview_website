@@ -11,7 +11,7 @@ import { useDashboardStats, useInterviews } from "@/hooks/useInterviewData";
 import { archiveInterview, deleteInterview, regenerateFeedback, unarchiveInterview } from "@/lib/api";
 import { clerkEnabled } from "@/lib/config";
 
-// /app (dashboard) — the shell index. Full width on purpose (Page wide): the stats/chart grid
+// /dashboard — the shell index. Full width on purpose (Page wide): the stats/chart grid
 // needs the horizontal room a 4xl reading column cannot give it.
 export function AppHome() {
     const navigate = useNavigate();

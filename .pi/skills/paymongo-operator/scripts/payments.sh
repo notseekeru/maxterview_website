@@ -78,7 +78,7 @@ case "$MODE" in
     # The client_key form is the one a real run against this account accepted (backend
     # `_redirect_for_intent` sends it first and never had to fall back), so there is no second shape
     # to hedge here.
-    attach=$(_post "/v1/payment_intents/$intent_id/attach" "$(printf '{"data":{"attributes":{"payment_method":"%s","return_url":"%s/app?upgrade=pending","client_key":"%s"}}}' "$pm_id" "${FRONTEND_BASE_URL:-http://localhost:5173}" "$client_key")")
+    attach=$(_post "/v1/payment_intents/$intent_id/attach" "$(printf '{"data":{"attributes":{"payment_method":"%s","return_url":"%s/dashboard?upgrade=pending","client_key":"%s"}}}' "$pm_id" "${FRONTEND_BASE_URL:-http://localhost:5173}" "$client_key")")
     url=$(printf '%s' "$attach" | grep -o '"url": *"[^"]*"' | head -1 | sed -E 's/.*"([^"]*)"/\1/')
     [ -n "$url" ] || { echo "  FAILED: no redirect URL"; exit 5; }
     echo "  redirect: $url"

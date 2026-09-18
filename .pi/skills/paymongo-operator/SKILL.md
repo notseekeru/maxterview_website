@@ -112,7 +112,7 @@ To exercise the **real** HMAC path (`Paymongo-Signature`, not the simulate short
    resolves an owner from).
    A **409** here means a paid period is live or a first payment is pending in the 24h window —
    deliberate (a second payment is a second charge). Don't clear the row to "fix" it.
-2. **Pay on Maya**, then the browser returns to `/app?upgrade=pending` (`UpgradePendingNotice`
+2. **Pay on Maya**, then the browser returns to `/dashboard?upgrade=pending` (`UpgradePendingNotice`
    polls `/api/usage`; in no-Clerk dev mode it can never flip because `resolve_tier` short-circuits
    to `dev` — assert on the row instead).
 3. **Webhook** — `payment.paid` (or `payment_intent.succeeded`; register both) sets

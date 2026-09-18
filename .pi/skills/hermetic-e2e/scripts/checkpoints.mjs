@@ -22,8 +22,8 @@ export const TOPIC = "system design for a mock-interview coach";
 // The agent drives the MCP browser and evaluates these; a "mock-test" for an ad-hoc run.
 export const CHECKPOINTS = [
   { step: 1, name: "Landing loads", expectedAt: "/" },
-  { step: 2, name: "Click the 'Start free' link navigates to /app", expectedAt: "/app", click: /start (practicing )?free/i },
-  { step: 3, name: "Dev-mode banner visible on /app", text: "Dev mode (no Clerk key)" },
+  { step: 2, name: "Click the 'Start free' link navigates to /dashboard", expectedAt: "/dashboard", click: /start (practicing )?free/i },
+  { step: 3, name: "Dev-mode banner visible on /dashboard", text: "Dev mode (no Clerk key)" },
   { step: 4, name: "Fill role + topic in 'New interview' form", fill: ["#role", "#topic"] },
   { step: 5, name: "Submit 'Start interview'", submit: "Start interview" },
   { step: 6, name: "Navigates to /interviews/:id (created)", urlPattern: /\/interviews\/[0-9a-f-]+/ },

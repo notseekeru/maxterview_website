@@ -38,7 +38,7 @@ async function main() {
     await dump(page, "landing /");
 
     await page.getByRole("link", { name: /start (practicing )?free/i }).first().click();
-    await page.waitForURL(/\/app/, { timeout: 15000 });
+    await page.waitForURL(/\/dashboard/, { timeout: 15000 });
     // The create form is a panel that auto-opens only on an EMPTY dashboard
     // (AppHome: showForm = formTouched ? formOpen : dims.total === 0), so on any database that
     // already has interviews it has to be opened with the toggle first. Poll for either — the
@@ -53,7 +53,7 @@ async function main() {
     }
     // wait for actual dashboard chrome (role input) so we don't dump a mid-transition Landing frame
     await page.locator("#role").waitFor({ state: "visible", timeout: 15000 });
-    await dump(page, "dashboard /app (role input visible)");
+    await dump(page, "dashboard /dashboard (role input visible)");
 
     // Need to type into the form before dumping the post-input structure.
     await page.fill("#role", process.env.E2E_ROLE ?? "Software Engineer Inspect Run");

@@ -5,7 +5,7 @@ import { Separator } from "@/components/ui/separator";
 import { useDocumentTitle } from "@/hooks/useDocumentTitle";
 import { PLANS } from "@/lib/plans";
 
-// / — public marketing landing. It is the only crawlable route (everything under /app is behind
+// / — public marketing landing. It is the only crawlable route (everything under /dashboard is behind
 // auth), which is why the copy is plain HTML with no auth or chart code anywhere near it: the
 // Clerk SDK and recharts are in lazy chunks this route never fetches.
 // Navigation here must stay <Link>/<a href>: an onClick handler is a <button>, which is not a
@@ -38,10 +38,10 @@ export function Landing() {
                 <span className="text-xl font-semibold tracking-tight">maxterview</span>
                 <nav className="flex items-center gap-2">
                     <Button variant="ghost" asChild>
-                        <Link to="/app">Sign in</Link>
+                        <Link to="/dashboard">Sign in</Link>
                     </Button>
                     <Button asChild>
-                        <Link to="/app">Start free</Link>
+                        <Link to="/dashboard">Start free</Link>
                     </Button>
                 </nav>
             </header>
@@ -52,10 +52,10 @@ export function Landing() {
                     <p className="max-w-xl text-lg text-muted-foreground">Answer questions one at a time, get every answer annotated like a chess engine annotates moves, and track your accuracy across every practice run.</p>
                     <div className="flex flex-wrap items-center justify-center gap-3">
                         <Button size="lg" asChild>
-                            <Link to="/app">Start practicing free</Link>
+                            <Link to="/dashboard">Start practicing free</Link>
                         </Button>
                         <Button size="lg" variant="outline" asChild>
-                            <Link to="/app">Sign in</Link>
+                            <Link to="/dashboard">Sign in</Link>
                         </Button>
                     </div>
                     <p className="text-sm text-muted-foreground">No credit card · {PLANS.free.turns} free turns a day · Cancel anytime</p>
@@ -103,7 +103,7 @@ export function Landing() {
                                         <li>Bring your own model key if you prefer</li>
                                     </ul>
                                     <Button asChild variant={id === "premium" ? "default" : "outline"} className="mt-auto">
-                                        <Link to="/app">{id === "premium" ? `Upgrade · ${plan.monthly}` : "Start free"}</Link>
+                                        <Link to="/dashboard">{id === "premium" ? `Upgrade · ${plan.monthly}` : "Start free"}</Link>
                                     </Button>
                                 </div>
                             );
@@ -128,7 +128,7 @@ export function Landing() {
                 <section className="flex flex-col items-center gap-3 rounded-lg border p-8 text-center">
                     <h2 className="text-xl font-semibold tracking-tight">Your next interview is practice, not the real one.</h2>
                     <Button size="lg" asChild>
-                        <Link to="/app">Start practicing free</Link>
+                        <Link to="/dashboard">Start practicing free</Link>
                     </Button>
                 </section>
             </main>
@@ -138,10 +138,10 @@ export function Landing() {
                 <div className="flex flex-wrap items-center justify-between gap-3">
                     <span>maxterview — AI mock-interview coach.</span>
                     <div className="flex items-center gap-4">
-                        <Link to="/app" className="underline underline-offset-2 hover:text-foreground">
+                        <Link to="/dashboard" className="underline underline-offset-2 hover:text-foreground">
                             Sign in
                         </Link>
-                        <Link to="/app" className="underline underline-offset-2 hover:text-foreground">
+                        <Link to="/dashboard" className="underline underline-offset-2 hover:text-foreground">
                             Dashboard
                         </Link>
                     </div>

@@ -1,13 +1,18 @@
-# Indexable content is the marketing surface only. Everything under /app and /interviews is
-# per-user state behind auth, and crawling it yields sign-in walls rather than content.
+# Indexable content is the marketing surface only (/). Every app page is per-user state behind
+# auth, and crawling it yields sign-in walls rather than content.
 #
 # This Disallow is the operative rule for every crawler that honours robots.txt, and it also
 # stops crawl budget being spent on login walls. nginx *additionally* sends X-Robots-Tag:
-# noindex on both prefixes (see nginx.conf) — that only reaches fetchers which ignore robots.txt,
-# since a compliant crawler never requests the URL. So if those bare URLs ever show up in search,
-# the fix is to REMOVE the Disallow and let the crawler fetch them to read the noindex.
+# noindex on the same prefixes (see nginx.conf) — that only reaches fetchers which ignore
+# robots.txt, since a compliant crawler never requests the URL. So if those bare URLs ever show
+# up in search, the fix is to REMOVE the Disallow and let the crawler fetch them to read the
+# noindex. Keep this list and the nginx location regex in sync.
 User-agent: *
-Disallow: /app
-Disallow: /interviews/
+Disallow: /dashboard
+Disallow: /resume
+Disallow: /interviews
+Disallow: /analytics
+Disallow: /settings/
+Disallow: /manage/
 
 Sitemap: https://maxterview.seekeru.tech/sitemap.xml

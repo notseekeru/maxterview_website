@@ -160,7 +160,7 @@ a second module, not a rewrite.
 ## 6. Frontend
 
 Header tier label (`UsageBadge`), lockout/upsell notice (`UpgradeNotice` on 402), and a
-billing/plan page (`/app/settings/billing`) with Free vs Premium cards, current-plan summary, an
-Upgrade CTA, and in-app **Cancel**. The Maya return URL lands on `/app?upgrade=pending`, which
+billing/plan page (`/settings/billing`) with Free vs Premium cards, current-plan summary, an
+Upgrade CTA, and in-app **Cancel**. The Maya return URL lands on `/dashboard?upgrade=pending`, which
 `UpgradePendingNotice` turns into a poll → confirm → hard-navigate flow, because the return URL alone
 is not proof of payment.

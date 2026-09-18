@@ -12,7 +12,7 @@ const THEME_OPTIONS: { value: Theme; label: string; icon: "sun" | "moon" | "moni
     { value: "system", label: "System", icon: "monitor" },
 ];
 
-// /app/settings/system — per-user app preferences. Appearance (theme) and the LLM provider
+// /settings/system — per-user app preferences. Appearance (theme) and the LLM provider
 // (BYOK, see LLMProviderCard) are live; the remaining cards are ops-facing knobs with no
 // backend yet (inert, see `AI HERE:`).
 export function SystemSettingsPage() {

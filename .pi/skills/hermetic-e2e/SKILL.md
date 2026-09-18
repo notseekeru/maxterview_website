@@ -9,7 +9,7 @@ description: >-
   journey PASS/FAIL (--feedback adds chat+Complete, --resume the PDF drop/attach leg), inspect.cjs
   dumps the live DOM per stage. DEFAULT TO MCP: run a canned runner only as-is, and when one fails or
   lacks a leg, go back to MCP — do NOT refactor the .cjs mid-task (needs an explicit user ask). Covers
-  onboarding -> /app -> create interview -> chat -> Complete-scoring, plus the resume library (drop a
+  onboarding -> /dashboard -> create interview -> chat -> Complete-scoring, plus the resume library (drop a
   PDF -> attach -> resume-aware thread). Hermetic when the backend runs
   CLERK_ENABLED=false (no-Clerk DEV_USER); if real Clerk, sign in headlessly first via
   paymongo-operator. Use to reproduce/eyeball onboarding / new-interview / complete-scoring in a
@@ -159,7 +159,7 @@ nix develop . -c node .pi/skills/hermetic-e2e/scripts/inspect.cjs [--dom]
   uses a ~90s deadline. Assert the review card's copy "is annotated in the transcript below", or the
   retry notice "your review wasn't ready" (clicks **Retry review**). `--resume` is a separate leg: it
   builds its PDF in-process (the backend test's offsets-are-computed trick, so no binary fixture),
-  drops it on `/app/resume`'s import panel — the DROP path, which bypasses `accept` and is the only
+  drops it on `/resume`'s import panel — the DROP path, which bypasses `accept` and is the only
   place the non-PDF filter is exercised — attaches the saved row from the create form, and deletes
   the row again. A created interview outlives the run: delete it as below.
 - `inspect.cjs` — the same journey but prints the rendered DOM/URL at each stage, so an ambiguous
@@ -170,11 +170,11 @@ Runners create a real DEV_USER interview and print its id — delete it when jud
 
 ## Journey selectors (for MCP or runner runs)
 
-Real DOM / routes (`react-router-dom`): Landing `/`, app `/app`, chat `/interviews/:id`. Selectors below
+Real DOM / routes (`react-router-dom`): Landing `/`, app `/dashboard`, chat `/interviews/:id`. Selectors below
 work for both paths — MCP `target` takes a CSS selector or a snapshot ref.
 
-1. Landing: click the **"Start free"** link (real `<a href="/app">`; `#` on `/`) -> `/app`.
-2. `/app`: wait for `#role` input (dev-mode banner: "Dev mode (no Clerk key)…").
+1. Landing: click the **"Start free"** link (real `<a href="/dashboard">`; `#` on `/`) -> `/dashboard`.
+2. `/dashboard`: wait for `#role` input (dev-mode banner: "Dev mode (no Clerk key)…").
 3. Fill `#role` + optional `#topic`, submit **"Start interview"** -> `/interviews/{uuid}`.
 4. Chat: wait for `textarea`. Send an answer (**Send**); await interviewer stream (**Send** flips
    `disabled` when done); click **Complete**.
@@ -191,7 +191,7 @@ follows `<a href>` and a JS click handler is invisible to it. Match by LINK role
 
 ## Real-Clerk posture (NOT hermetic)
 
-If `CLERK_ENABLED=true`, `/app` is behind a signed-out gate. Don't claim hermetic; use
+If `CLERK_ENABLED=true`, `/dashboard` is behind a signed-out gate. Don't claim hermetic; use
 `paymongo-operator`: mint a throwaway user (`clerk-mint.sh --email=…`), sign in headlessly with
 `@clerk/testing/playwright` (`clerk.signIn`) until a real `__session` cookie exists, drive the routes,
 then tear down (`clerk-mint.sh --admin-destroy --teardown --user=<id>`). Don't mix postures in one run.

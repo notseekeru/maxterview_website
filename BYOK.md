@@ -2,7 +2,7 @@
 
 **Shipped 2026-09-13.** An owner can point their interviews at their own OpenAI-compatible provider
 (OpenAI, DeepSeek, OpenRouter, Ollama, a self-hosted llama.cpp…) instead of the deployment's `LLM_*`.
-UI: **`/app/settings/system`** → "Interview engine (BYOK)". Code: `backend/src/app/byok.py`
+UI: **`/settings/system`** → "Interview engine (BYOK)". Code: `backend/src/app/byok.py`
 (policy/storage), `llm.LLMConfig` (transport), `frontend/src/components/LLMProviderCard.tsx`.
 
 Customization is deliberately three fields — **base URL + model + API key** (the key is optional;

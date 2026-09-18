@@ -8,7 +8,7 @@ import { cancelUpgrade, chatTurns, getUsage, startUpgrade, type Tier, turnsToday
 import { clerkEnabled } from "@/lib/config";
 import { PLANS } from "@/lib/plans";
 
-// /app/settings/billing. Free vs Premium cards + current-plan summary. The upgrade CTA posts to
+// /settings/billing. Free vs Premium cards + current-plan summary. The upgrade CTA posts to
 // /billing/checkout, which answers with PayMongo's Maya page; PayMongo has no billing portal, so our
 // own copy has to carry the billing terms. GET /usage reports which mode is live:
 //   `period`       one-time top-up — nothing renews itself, so show the expiry and offer no cancel

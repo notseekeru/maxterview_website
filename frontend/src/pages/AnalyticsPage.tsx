@@ -14,7 +14,7 @@ import { DECISIONS, decisionLabel, isHiring } from "@/lib/interviewOptions";
 import { gradeTone, MOVE_CLASSES, moveClassMeta } from "@/lib/moveClasses";
 import { cn } from "@/lib/utils";
 
-// /app/analytics — the deep dive behind the dashboard's tiles. Every chart and the raw run log come
+// /analytics — the deep dive behind the dashboard's tiles. Every chart and the raw run log come
 // from ONE aggregate request (GET /stats/analytics).
 const TITLE = "Analytics";
 const DESCRIPTION = "Every run you have started, and what the numbers say about them.";

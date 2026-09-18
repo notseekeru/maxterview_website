@@ -6,7 +6,7 @@ import { Page } from "@/components/PagePrimitives";
 import { useInterviews } from "@/hooks/useInterviewData";
 import { archiveInterview, deleteInterview, regenerateFeedback, unarchiveInterview } from "@/lib/api";
 
-// /app/interviews — a management home for your sessions.
+// /interviews — a management home for your sessions.
 export function InterviewsPage() {
     const navigate = useNavigate();
     const { interviews, loading, error, refresh } = useInterviews();
