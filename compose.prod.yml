@@ -1,4 +1,3 @@
-# Prod-shape rehearsal only — real prod is k3s + external Neon, no DB pod (DIAGRAM.md).
 # Export DATABASE_URL to rehearse against Neon; the local container is the default.
 services:
   backend:
@@ -18,7 +17,13 @@ services:
       postgres:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')",
+        ]
       interval: 10s
       timeout: 5s
       retries: 5

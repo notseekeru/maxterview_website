@@ -14,7 +14,6 @@ Docker Compose. Frontend: Tailwind 4 + shadcn/ui + react-router.
 Docs:
 
 - `PLAN.md` — binding decisions and open milestones (M13–M18)
-- `DIAGRAM.md` — runtime topology, deploy pipeline, config plane
 - `MONETIZATION.md` — billing spec (quotas + PayMongo period top-up, shipped)
 - `BYOK.md` — per-owner LLM provider keys (settings panel → `/app/settings/system`)
 - `OBSERVABILITY.md` — logging/metrics plan (doc-first M13)
@@ -34,8 +33,6 @@ Browser (React SPA) ── /api ──► nginx/Vite proxy ──► FastAPI ─
   Migrations via **yoyo** (`backend/migrations/*.sql`).
 - **Frontend** (`frontend/`): React 19 + Vite 8 + TypeScript 7. Consumes the SSE `chat/stream`
   endpoint with native fetch streaming.
-
-Deployment shape, namespaces, secrets and the config plane: **`DIAGRAM.md`**.
 
 ### The interview loop
 
@@ -84,15 +81,15 @@ Everything below reads git-ignored env in `backend/.env` (backend) or `frontend/
 you only need the vars for the features you actually use. Check which are set (names only) with
 `./.pi/skills/paymongo-operator/scripts/need-keys.sh`.
 
-| Want this feature | Set in `backend/.env` | plus | how to run/verify |
-| --- | --- | --- | --- |
-| UI/API with no auth at all (fast dev) | _(nothing)_ | — | default works (`CLERK_ENABLED=false` → `DEV_USER`) |
-| Real Clerk sign-in + JWT auth | `CLERK_ENABLED=true`, `CLERK_DOMAIN`, `CLERK_JWKS_URL` | `frontend/.env` `VITE_CLERK_PUBLISHABLE_KEY=pk_test_…` | `make up`, visit `/app`, sign in |
-| Headless Clerk ops (mint users/sessions) | `CLERK_SECRET_KEY=sk_test_…` | — | `docker exec -e CLERK_SECRET_KEY="$CLERK_SECRET_KEY" maxterview_frontend_dev sh -c 'cd /tmp && npx clerk api users'` |
-| PayMongo ₱499 → premium row (30 days) | `PAYMONGO_SECRET_KEY` (`sk_test_…`), `PAYMONGO_WEBHOOK_SECRET` | — | upgrade in the UI → Maya page; dev instead: POST `/api/billing/webhook/simulate` (no tunnel, no keys) |
-| Real AI interviewer chat + auto-feedback | `LLM_BASE_URL`, `LLM_MODEL`, `LLM_API_KEY` | — | empty → deterministic STUB (model-free tests/dev) |
-| BYOK (own provider key) | `BYOK_ENCRYPTION_KEY` | — | `BYOK.md` |
-| Observability | _(nothing yet)_ | — | `OBSERVABILITY.md` (docs-first, not wired) |
+| Want this feature                        | Set in `backend/.env`                                          | plus                                                   | how to run/verify                                                                                                    |
+| ---------------------------------------- | -------------------------------------------------------------- | ------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------- |
+| UI/API with no auth at all (fast dev)    | _(nothing)_                                                    | —                                                      | default works (`CLERK_ENABLED=false` → `DEV_USER`)                                                                   |
+| Real Clerk sign-in + JWT auth            | `CLERK_ENABLED=true`, `CLERK_DOMAIN`, `CLERK_JWKS_URL`         | `frontend/.env` `VITE_CLERK_PUBLISHABLE_KEY=pk_test_…` | `make up`, visit `/app`, sign in                                                                                     |
+| Headless Clerk ops (mint users/sessions) | `CLERK_SECRET_KEY=sk_test_…`                                   | —                                                      | `docker exec -e CLERK_SECRET_KEY="$CLERK_SECRET_KEY" maxterview_frontend_dev sh -c 'cd /tmp && npx clerk api users'` |
+| PayMongo ₱499 → premium row (30 days)    | `PAYMONGO_SECRET_KEY` (`sk_test_…`), `PAYMONGO_WEBHOOK_SECRET` | —                                                      | upgrade in the UI → Maya page; dev instead: POST `/api/billing/webhook/simulate` (no tunnel, no keys)                |
+| Real AI interviewer chat + auto-feedback | `LLM_BASE_URL`, `LLM_MODEL`, `LLM_API_KEY`                     | —                                                      | empty → deterministic STUB (model-free tests/dev)                                                                    |
+| BYOK (own provider key)                  | `BYOK_ENCRYPTION_KEY`                                          | —                                                      | `BYOK.md`                                                                                                            |
+| Observability                            | _(nothing yet)_                                                | —                                                      | `OBSERVABILITY.md` (docs-first, not wired)                                                                           |
 
 Feature env values come from your Clerk app's **Development instance** (`.clerk.accounts.dev` /
 `pk_test_` / `sk_test_`) and PayMongo **test mode** — both safe on `localhost`. Live keys are locked
@@ -155,9 +152,8 @@ backend uv/pep621, Docker base images (digest-pinned) and GitHub Actions refs.
 Production is a **k3s cluster managed by GitOps** in the separate
 [`gitops` repo](https://github.com/notseekeru/gitops). This repo is the app source; the gitops repo
 holds the manifests (`apps/maxterview/{base,overlays/{prod,staging}}`) and Argo reconciles them.
-**Topology, promotion flow and the config plane: `DIAGRAM.md`.**
 
-Operator notes that are not topology:
+Operator notes:
 
 - **Secrets** (`~/terraform` `infra/k3s`) come from Infisical and are consumed via `envFrom`, so
   **the secret keys ARE the app's env-var names** (uppercase). Never `kubectl apply` a secret, never
@@ -172,9 +168,6 @@ Operator notes that are not topology:
   **snapshot before each prod migration**.
 - **Migrations on deployed envs** run from the in-cluster Job, not a laptop; `make migrate` is the dev
   path against the container.
-- The in-cluster Postgres and its `postgres-credentials` secret stay as they are — they serve
-  `diagram`. maxterview does not consume them, so the `docs/incident-2026-09-03` rotation runbook does
-  not apply: Neon owns the role, so rotation is an Infisical change + re-apply, with no `ALTER USER`.
 
 ---
 

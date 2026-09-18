@@ -2,8 +2,9 @@
 
 # FEATURES
 
-- have resume feature with import resume with pdf with deps for maintanibility no hand rolling a pdf parser
+- have resume feature with import resume with pdf with deps for maintanibility no hand rolling
 - and then after the resume feature we can add direct integration to interviews to just pull the resume in the imported by the user (have a button in the interview chat not at dials to have resume included in the new interview)
+- lazy loading cuz everything just render and causes fps drops (not latency or unoptimized roundtrips)
 - the voice feature and tts with video input from user
 - ai resume fixer with pdf to latex? if theres no resume then create new maybe with max 5 resume file upload/saving for different roles
 

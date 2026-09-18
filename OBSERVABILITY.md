@@ -6,14 +6,14 @@ only if exception triage at scale demands it).
 
 ## Current state
 
-| Area | Status |
-|---|---|
-| Structured logging | ⚠️ **half-wired** — `structlog` is used as `log` in `main.py`/`llm.py`/`byok.py`/`payments.py`, but `structlog.configure()` is never called: dev gets console output, prod does **not** get JSON, and there is no request context |
-| Request logging | ⚠️ FastAPI default access logs only; no JSON, no per-request context |
-| Error tracking / APM | ❌ none |
-| Metrics | ❌ none |
-| Log aggregation / dashboards | ❌ none |
-| Health / readiness | ⚠️ `/api/health` is shallow (no DB check), yet the Deployment probes it with `httpGet` for **both** liveness and readiness |
+| Area                         | Status                                                                                                                                                                                                                            |
+| ---------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Structured logging           | ⚠️ **half-wired** — `structlog` is used as `log` in `main.py`/`llm.py`/`byok.py`/`payments.py`, but `structlog.configure()` is never called: dev gets console output, prod does **not** get JSON, and there is no request context |
+| Request logging              | ⚠️ FastAPI default access logs only; no JSON, no per-request context                                                                                                                                                              |
+| Error tracking / APM         | ❌ none                                                                                                                                                                                                                           |
+| Metrics                      | ❌ none                                                                                                                                                                                                                           |
+| Log aggregation / dashboards | ❌ none                                                                                                                                                                                                                           |
+| Health / readiness           | ⚠️ `/api/health` is shallow (no DB check), yet the Deployment probes it with `httpGet` for **both** liveness and readiness                                                                                                        |
 
 ## Design
 
@@ -33,9 +33,9 @@ M13 is two halves: app-local work is compose-verifiable today; the cluster half 
 **`infra/`** layer (Alloy DaemonSet + a Terraform-created `grafana-cloud` Secret), which is shared
 plumbing and does not depend on `apps/maxterview`.
 
-1. **structlog `configure()`** — JSON renderer in prod + request context. Cheap, unblocks everything. *App-local.*
-2. **Deepen readiness** with a DB check. *No longer waits on gitops.*
-3. **Grafana Cloud connect** — tenant + secret + Alloy DaemonSet; wire the OTLP exporter. Exporter and dev verification are *app-local* (direct OTLP is the escape hatch); DaemonSet + secret *need `gitops/infra/`*.
+1. **structlog `configure()`** — JSON renderer in prod + request context. Cheap, unblocks everything. _App-local._
+2. **Deepen readiness** with a DB check. _No longer waits on gitops._
+3. **Grafana Cloud connect** — tenant + secret + Alloy DaemonSet; wire the OTLP exporter. Exporter and dev verification are _app-local_ (direct OTLP is the escape hatch); DaemonSet + secret _need `gitops/infra/`_.
 4. **Dashboards** — request/latency/error panels + the k8s integration.
 5. **Alerts + log shaping** — rules and contact points; enforce free-tier retention caps.
 
