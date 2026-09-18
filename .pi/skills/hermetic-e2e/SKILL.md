@@ -6,9 +6,10 @@ description: >-
   call browser_navigate/browser_snapshot/browser_click by element ref, or batch multi-step work with
   mcpScript. Secondary path is the host-direct nix-store runners (playwright-core + chromium resolved
   at runtime by scripts/store.cjs — no @playwright/test, no host npm install): e2e.cjs asserts the
-  journey PASS/FAIL (--feedback adds chat+Complete), inspect.cjs dumps the live DOM per stage. Keep
-  the runners for DETERMINISTIC assertions — MCP tool calls have no assert/fail semantics. Covers
-  onboarding -> /app -> create interview -> chat -> Complete-scoring. Hermetic when the backend runs
+  journey PASS/FAIL (--feedback adds chat+Complete, --resume the PDF drop/attach leg), inspect.cjs
+  dumps the live DOM per stage. Keep the runners for DETERMINISTIC assertions — MCP tool calls have no
+  assert/fail semantics. Covers onboarding -> /app -> create interview -> chat -> Complete-scoring,
+  plus the resume library (drop a PDF -> attach -> resume-aware thread). Hermetic when the backend runs
   CLERK_ENABLED=false (no-Clerk DEV_USER); if real Clerk, sign in headlessly first via
   paymongo-operator. Use to reproduce/eyeball onboarding / new-interview / complete-scoring in a
   browser, or after frontend/backend changes.
@@ -126,6 +127,8 @@ nix develop . -c node .pi/skills/hermetic-e2e/scripts/inspect.cjs   # see resolv
 nix develop . -c node .pi/skills/hermetic-e2e/scripts/e2e.cjs
 # full assert: send answer -> Complete -> FeedbackView OR Retry-scoring notice:
 nix develop . -c node .pi/skills/hermetic-e2e/scripts/e2e.cjs --feedback
+# resume library: drop a generated PDF on the import dropdown -> attach -> resume-aware thread:
+nix develop . -c node .pi/skills/hermetic-e2e/scripts/e2e.cjs --resume
 # debug: same journey but dump live DOM per stage (--dom for raw innerHTML):
 nix develop . -c node .pi/skills/hermetic-e2e/scripts/inspect.cjs [--dom]
 # env overrides: E2E_BASE, E2E_ROLE, E2E_TOPIC, E2E_ANSWER
@@ -134,7 +137,11 @@ nix develop . -c node .pi/skills/hermetic-e2e/scripts/inspect.cjs [--dom]
 - `store.cjs` — shared resolve/launch (both runners + your bespoke scripts use it).
 - `e2e.cjs` — assert run. On a real model `/complete` runs inline and can block tens of seconds; it
   uses a ~90s deadline. Assert the review card's copy "is annotated in the transcript below", or the
-  retry notice "your review wasn't ready" (clicks **Retry review**).
+  retry notice "your review wasn't ready" (clicks **Retry review**). `--resume` is a separate leg: it
+  builds its PDF in-process (the backend test's offsets-are-computed trick, so no binary fixture),
+  drops it on `/app/resume`'s import panel — the DROP path, which bypasses `accept` and is the only
+  place the non-PDF filter is exercised — attaches the saved row from the create form, and deletes
+  the row again. A created interview outlives the run: delete it as below.
 - `inspect.cjs` — the same journey but prints the rendered DOM/URL at each stage, so an ambiguous
   assert becomes visible.
 
