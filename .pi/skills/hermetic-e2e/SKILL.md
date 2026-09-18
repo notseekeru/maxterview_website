@@ -7,9 +7,10 @@ description: >-
   mcpScript. Secondary path is the host-direct nix-store runners (playwright-core + chromium resolved
   at runtime by scripts/store.cjs — no @playwright/test, no host npm install): e2e.cjs asserts the
   journey PASS/FAIL (--feedback adds chat+Complete, --resume the PDF drop/attach leg), inspect.cjs
-  dumps the live DOM per stage. Keep the runners for DETERMINISTIC assertions — MCP tool calls have no
-  assert/fail semantics. Covers onboarding -> /app -> create interview -> chat -> Complete-scoring,
-  plus the resume library (drop a PDF -> attach -> resume-aware thread). Hermetic when the backend runs
+  dumps the live DOM per stage. DEFAULT TO MCP: run a canned runner only as-is, and when one fails or
+  lacks a leg, go back to MCP — do NOT refactor the .cjs mid-task (needs an explicit user ask). Covers
+  onboarding -> /app -> create interview -> chat -> Complete-scoring, plus the resume library (drop a
+  PDF -> attach -> resume-aware thread). Hermetic when the backend runs
   CLERK_ENABLED=false (no-Clerk DEV_USER); if real Clerk, sign in headlessly first via
   paymongo-operator. Use to reproduce/eyeball onboarding / new-interview / complete-scoring in a
   browser, or after frontend/backend changes.
@@ -29,9 +30,25 @@ strengths — pick per task:
   resolved from the nix store. `e2e.cjs` asserts onboarding + chat + Complete-scoring (PASS/FAIL).
   `inspect.cjs` dumps the live DOM at each stage so you can SEE what rendered.
 
-**Choose by what you need:** MCP for interactivity and ref-based adaptation; the runners when you need
-an actual pass/fail verdict or raw DOM. MCP tool calls cannot assert — they return observations, so a
-"did onboarding work?" check still needs a runner (or an agent judging the snapshot).
+**Choose by what you need:** MCP for interactivity, ref-based adaptation, and every ad-hoc verdict;
+the runners for a canned PASS/FAIL line. MCP tool calls cannot assert — they return observations,
+which is enough for you to judge.
+
+## DECISION ORDER — read before you open any runner
+
+1. **MCP is the default.** Repro, eyeball, "does this work?", "verify the feature I just changed" — all
+   of it goes through the `browser_*` tools. Driving the real browser and reading the snapshot,
+   `browser_wait_for` text, or `browser_evaluate` IS a verdict. That includes "did onboarding work?" —
+   read the a11y tree. You do not need a script to have an opinion.
+2. **Run a canned runner only when the journey you need already exists in it, unchanged.** One command
+   (`--feedback`, `--resume`), read the PASS/FAIL line, done.
+3. **A runner that fails, misses a selector, or lacks the leg you want is a DEAD END, not a task.**
+   Stop editing the script. Switch to MCP, finish the verification there, and report the breakage
+   ("`e2e.cjs --resume` regex no longer matches the chip") as a finding.
+4. **Editing a runner — a new leg, a helper, a fixture builder, a selector fix — needs an explicit user
+   ask.** The scripts are a convenience for repeatable journeys, not the test suite. Reworking one
+   mid-verification is time burned on the wrong artifact; drift is expected and is not yours to fix
+   unless asked.
 
 Both paths hit the same target: the real frontend at `localhost:5173`, real backend at `:8000`. Real
 DOM, real network, DEV_USER.
@@ -121,6 +138,9 @@ nix develop . -c node .pi/skills/hermetic-e2e/scripts/inspect.cjs   # see resolv
   will fail to launch on first call.
 
 ## Canned runners (presets for the routine path)
+
+Rule 2/3 above applies: run these as-is for their verdict. If one fails or has no leg for what you are
+checking, go to MCP instead of touching the file.
 
 ```bash
 # onboarding + dashboard nav only (fast): 
