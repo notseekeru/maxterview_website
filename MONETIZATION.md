@@ -10,12 +10,16 @@ stays implemented and dormant behind that one env var. Decisions: PLAN D10 (and 
 |                                           | Free                       | Premium                              | dev                        |
 | ----------------------------------------- | -------------------------- | ------------------------------------ | -------------------------- |
 | Interviews (creation)                     | **unlimited**              | **unlimited**                        | **unlimited**              |
+| Resumes kept                              | **1** (`FREE_RESUMES`)     | **5** (`PREMIUM_RESUMES`)            | **5** (`DEV_RESUMES`)      |
 | Price                                     | ₱0                         | **₱499 / 30 days** (one payment)     | ₱0                         |
 | Chat turns / day (GLOBAL, all interviews) | **30** (`FREE_CHAT_TURNS`) | **250** (`PREMIUM_CHAT_TURNS`)       | **500** (`DEV_CHAT_TURNS`) |
 
 - The gate is a **global daily credit per owner** spanning ALL their interviews in one UTC day, reset
   at 00:00 UTC. No per-interview cap, no daily-interview cap, no free trial. Count **turns, not
   tokens** (2026-08-23 decision) — token tables were deliberately dropped.
+- The resume cap is **storage, not a meter**: importing one spends nothing (parsing is local CPU), so
+  it is counted at INSERT and never decremented. At the cap a free owner gets `402` and a paid one
+  `409`, which is the difference between an upsell and a wall.
 - Limits are env-overridable (`backend/.env.example`). The **`dev` tier** is for developers only and
   never persists in `subscriptions`; it is what the no-Clerk fallback identity resolves to.
 - **Feedback is not feature-gated** — same quality across tiers. The turn cap is the cost lever.

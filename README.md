@@ -48,6 +48,7 @@ prefix, which the **app** owns (`API_PREFIX`) — no proxy or ingress rewrite st
 - `GET /interviews/{id}/messages` · `GET /interviews/{id}/feedback` (accuracy + grade / verdict / tips + 1-10 dims)
 - `POST /interviews/{id}/feedback/generate` — (re)score a completed run. `409` when not completed or empty, `503` when the model is down (retryable)
 - `GET|POST|PUT|DELETE /templates` — owner-scoped dial presets (20 max)
+- `POST /resumes/extract` (multipart PDF → text, **persists nothing**) · `GET|POST /resumes` · `GET|PUT|DELETE /resumes/{id}` — the resume library. Text only: the uploaded PDF is never stored or served back. An interview or preset holds `resume_id` (`ON DELETE SET NULL`), and both prompts read the text from the row
 - `GET /stats/dimensions` · `GET /analytics` — server-side aggregates for the dashboard radar and deep-dive. Ask for exactly what `AnalyticsPage.tsx` renders; drop the route when the page does
 - `GET /usage` · `GET /health`
 - `GET|PUT|DELETE /settings/llm` + `POST /settings/llm/test` — BYOK (`BYOK.md`)
