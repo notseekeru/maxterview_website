@@ -82,27 +82,30 @@ curl -s http://localhost:8000/api/usage; echo     # tier for the current (DEV_US
 
 ## Feature enablement — what to initialize first on a fresh device
 
-Every repo feature gates on some git-ignored env value. On a new clone you set ONLY what you
-need; nothing is required for everything. Read each key from its account dashboard (Clerk/PayMongo);
-keep secrets sealed (zero-touch) — say which var is missing, never the value.
+Every repo feature gates on some git-ignored env value. On a new clone you set ONLY what you need;
+nothing is required for everything. **The canonical feature → env-var table is `README.md` § "What to
+initialize to use each feature"** — read it there instead of keeping a second copy here. Read each
+key from its account dashboard (Clerk/PayMongo) and keep secrets sealed (zero-touch): say *which*
+var is missing, never its value.
 
-| Feature | git-ignored file + var | Value you set once | Notes |
-| --- | --- | --- | --- |
-| Run the UI/API on no-auth dev fallback | *(nothing)* | — | default: `CLERK_ENABLED=false` → `DEV_USER`; fastest path, no keys |
-| Real Clerk sign-in (UI button) + JWT auth | `backend/.env` → `CLERK_ENABLED=true`, `CLERK_DOMAIN`, `CLERK_JWKS_URL`; `frontend/.env` → `VITE_CLERK_PUBLISHABLE_KEY` | the .accounts.dev HTTPS URL + its JWKS + the `pk_test_…` | public, not secrets; best on the **Development** instance |
-| Headless Clerk ops (mint users/sessions/tokens, read users) — the CLI + mint script | `backend/.env` → `CLERK_SECRET_KEY` | `sk_test_…` (instance secret, Backend API) | this is what drives `clerk` Backend-API commands + `clerk-mint.sh`. The backend itself does NOT read it (JWT verify is public JWKS only). |
-| Clerk CLI shell (needs the tool only) | nix flake (`nix develop .`) has `nodejs`; `clerk` run via container `npx` | — | `docker exec maxterview_frontend_dev sh -c 'npx clerk …'` or `clerk api` with `CLERK_SECRET_KEY` |
-| PayMongo → premium webhook row (period rail, the shipping one) | `backend/.env` → `PAYMONGO_SECRET_KEY` (`sk_test_`), `PAYMONGO_WEBHOOK_SECRET` (that endpoint's secret) | test-mode secret + webhook secret; billing is off without them (`/billing/checkout` 503s) | no CLI/listener exists — deliver events with `webhook-driver.sh` (signed) or `--simulate` |
-| Provider-managed recurring (dormant) | `backend/.env` → `BILLING_MODE=subscription` + `PAYMONGO_PLAN_ID` | the plan id | blocked until support enables Subscriptions + Card Vaulting |
-| LLM interview chat / feedback | `backend/.env` → `LLM_BASE_URL`, `LLM_MODEL`, `LLM_API_KEY` (or empty = STUB) | OpenAI-compatible base/model/key | no key → deterministic stub |
-| Observability | OBSERVABILITY.md | n/a | docs-first, not wired |
+Skill-specific notes the README does not carry:
+
+- `CLERK_SECRET_KEY` drives the `clerk` Backend-API CLI + `clerk-mint.sh`. **The backend itself never
+  reads it** — JWT verification is public-JWKS only.
+- The clerk CLI runs as `docker exec maxterview_frontend_dev sh -c 'npx clerk …'` (the nix flake has
+  `nodejs`; NixOS cannot run the npm-global `clerk` binary).
+- PayMongo has **no CLI and no webhook listener** — deliver events with `webhook-driver.sh` (signed)
+  or `--simulate`.
+- Unset `PAYMONGO_SECRET_KEY` → `/billing/checkout` 503s (`/billing/cancel` still works; period mode
+  only flips the row) and the dev-only `/billing/webhook/simulate` still proves the entitlement path.
+- `BILLING_MODE=subscription` + `PAYMONGO_PLAN_ID` is **blocked** until support enables Subscriptions
+  + Card Vaulting (`MONETIZATION.md` §4).
 
 **Not needed** on any device: `clerk auth login`, `clerk link`, or a `CLERK_PLATFORM_API_KEY`.
-That Platform/admin path requires an account opted into the Platform API beta (many accounts
-show no such page) and, where present, its dashboard-only creation. It manages apps/domains —
-NOT needed to run the app, sign in, mint users, or accept PayMongo subscriptions. Everything an
-operator/agent needs runs off the instance `CLERK_SECRET_KEY` (Backend API) + the PayMongo test
-keys above.
+That Platform/admin path needs an account opted into the Platform API beta (many accounts show no
+such page) and, where present, its dashboard-only creation. It manages apps/domains — NOT needed to
+run the app, sign in, mint users, or accept PayMongo subscriptions. Everything an operator/agent
+needs runs off the instance `CLERK_SECRET_KEY` (Backend API) + the PayMongo test keys.
 
 Fast reproducible check that feature env is in place (lists set/missing names only):
 
@@ -256,20 +259,9 @@ make exec      # full gate: frontend npm ci + biome + typecheck + build; backend
   `hermetic-e2e` onboarding/navigation walkthrough (host-direct playwright-core browser) so behavior
   is exercised, since `make exec` is static checks + unit tests, not a browser.
 
-Then commit per the repo's AGENTS.md policy:
-- Conventional commits only: `feat(scope):`, `test(scope):`, `fix(scope):`, `ref(scope):`,
-  `docs(scope):`, `chore(scope):`, `revert(scope):`. Subject < 60 chars, no body needed for
-  trivial; add a short body when the scope is non-obvious.
-- Atomic by relevance: group files of ONE logical change into one commit; never cram unrelated
-  edits together. If unsure whether separate edits are one change, ask.
-- Amend, do not farm: if this edit extends the last unpushed commit's same logical concern, fold
-  it in with `git commit --amend` instead of opening a new commit. Open a new commit only when
-  the change is genuinely distinct.
-- Do not commit half-finished or speculative work. `git status` should reflect exactly what is
-  intended; never `git add -A` blindly.
-- Never push without the user asking; surface divergence/amends clearly if relevant.
-- If uncertain whether the change is one logical scope, or whether to amend vs open new, ask the
-  user first rather than guessing.
+Then commit per the repo's `AGENTS.md` commit policy (conventional prefixes, atomic scope, amend
+don't farm, never `git add -A` blindly, never push unprompted).
+
 ## Guardrails
 
 - ZERO TOUCH on secrets: presence-check only; never print/commit/log a key. Paste-steps always stay

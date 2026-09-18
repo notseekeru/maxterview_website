@@ -1,168 +1,63 @@
 # OBSERVABILITY — maxterview
 
-Observability plan for the MVP. **Docs-first milestone (M13)**: this file captures the design and
-current state; only the structlog calls have landed — configuration and the Grafana half have not.
-Companion to `PLAN.md` (security in §7) and `README.md`.
+**Docs-first (M13).** Only the structlog calls have landed; `configure()` and the Grafana half have
+not. Decisions: Grafana-only (**no Sentry** — for an MVP it overlaps with Loki error logs; revisit
+only if exception triage at scale demands it).
 
-> **Decided 2026-08-23:** Grafana-only stack (Loki + Prometheus + Grafana Cloud) — **no Sentry.** For an MVP the two overlap on error logging; one vendor keeps one auth/data plane, leaning on structlog JSON. Revisit Sentry only if exception triage at scale demands it.
-
----
-
-## Current state (verified 2026-09-16)
+## Current state
 
 | Area | Status |
 |---|---|
-| Structured logging | ⚠️ **half-wired** — `structlog` is imported and used as `log` in `main.py`/`llm.py`/`byok.py`/`payments.py`, but `structlog.configure()` is never called: dev gets its default console output, prod does **not** get JSON, and there is no request context |
+| Structured logging | ⚠️ **half-wired** — `structlog` is used as `log` in `main.py`/`llm.py`/`byok.py`/`payments.py`, but `structlog.configure()` is never called: dev gets console output, prod does **not** get JSON, and there is no request context |
 | Request logging | ⚠️ FastAPI default access logs only; no JSON, no per-request context |
-| Error tracking / APM | ❌ none (no Sentry, no error-log queries) |
-| Metrics | ❌ none (no Prometheus metrics endpoint) |
-| Log aggregation / dashboards | ❌ none (no Loki/Grafana) |
-| Health/readiness | ⚠️ `/api/health` is shallow (no DB check); the gitops Deployment probes it with `httpGet` for both liveness **and** readiness, so the `tcpSocket` trade-off is gone but the deep check is not |
+| Error tracking / APM | ❌ none |
+| Metrics | ❌ none |
+| Log aggregation / dashboards | ❌ none |
+| Health / readiness | ⚠️ `/api/health` is shallow (no DB check), yet the Deployment probes it with `httpGet` for **both** liveness and readiness |
 
+## Design
 
----
-
-## Design (Grafana-focused) — 6 parts: logging, pipelines, metrics, probes, alerts, secrets
-
-### 1. Logging — foundation (structlog JSON)
-
-Use the already-declared `structlog` dependency. Output shape:
-- **Production:** JSON (`structlog.processors.JSONRenderer`) — machine-parseable for Loki ingestion.
-- **Development:** human-readable colored key/value output.
-
-Wiring intent (future code pass):
-- Configure `structlog` once at app startup (bind `app` name, env, request id).
-- Add a FastAPI middleware/`logging` integration so every request emits one structured access log:
-  `method`, `path`, `status`, `duration_ms`, `user` (`sub`), `interview_id` where present.
-- Log LLM calls (model, tokens, latency) and feedback generation at info/debug.
-  - Feedback-pipeline events: `llm.feedback.schema_mismatch` / `no_json` / `formatter_unavailable`
-    (warning/error), `json_schema_unsupported` (info — provider lacks grammar-constrained JSON so
-    the formatter downgrades to `json_object`). `schema_mismatch` carries a **content-free**
-    `shape=` fingerprint (keys + scalar values/lengths) instead of the model's text — same rule as
-    message bodies: shape is diagnosable without shipping the transcript anywhere.
-- **Never log secrets:** no `DATABASE_URL`, `LLM_API_KEY`, Clerk tokens, or message bodies that could
-  contain them. Log user message **lengths/ids**, not content, at debug-only if at all.
-
-### 2. Log aggregation + metrics — Grafana Cloud (Loki + Prometheus + Grafana)
-
-Single-vendor observability layer:
-- **Loki** ingests the JSON structlog output. In the k3s cluster, a single **Alloy** agent (**DaemonSet, not a sidecar**) ships pod stdout to Loki; label by `app`, `pod`, `env`. A DaemonSet is one agent per node tailing every pod's stdout and exposing node-level metrics; a per-pod sidecar duplicates the agent per workload and still needs manifests.
-- **Escape hatch (M13 is not hostage to GitOps):** the backend can push OTLP straight to Grafana Cloud's OTLP gateway (and Loki's push API) using the same `OTEL_EXPORTER_OTLP_*` env + token — identical exporter code, no Alloy and no cluster manifest, at the cost of `pod`/`node` metadata and node/pod metrics until the DaemonSet lands.
-- **Prometheus (Grafana Cloud managed metrics)** receives **metrics via pure OTLP** from the backend
-  (no HTTP `/metrics` scrape path).
-- **Grafana dashboards:** request rate / latency / error rate over time, panel filters by
-  `status`/`user`/`role`. Alerts on e.g. `status>=500` or error-rate thresholds — driven **from Loki
-  queries** so we do not need a separate APM for error visibility.
-- Logs and metrics share the same structlog fields (`duration_ms`, `status`, `user`), so a metric
-  trace links back to the raw JSON log line in Loki.
-
-> **Error tracking without Sentry:** errors surface as `status>=500` log lines in Loki. Query
-> `{app="backend"} |= "error"` for triage; alert on rate. This covers MVP needs without a second
-> vendor. Defer Sentry unless exception grouping/source-maps become a bottleneck.
-
-### 3. Concrete metrics (Gap A)
-
-Expose the metric set via the **OpenTelemetry Python SDK** (counters/histograms), exported over **OTLP**
-to Alloy. Instrument in the same request middleware, so every signal carries the same labels
-(`method`, `path`, `status`, `user`). No `/metrics` HTTP endpoint is needed for ingestion.
-
-**Metric set (MVP):**
-
-| Metric | Kind | Meaning |
-|---|---|---|
-| `http_requests_total` | Counter | count, labeled by `method/path/status` |
-| `http_request_duration_seconds` | Histogram | latency buckets (e.g. `status` label) |
-| `llm_call_duration_seconds` / `llm_call_tokens_total` | Histogram/Counter | LLM latency + input/output tokens |
-| `feedback_generation_duration_seconds` | Histogram | auto-feedback latency |
-| `db_query_duration_seconds` | Histogram | asyncpg query latency (if instrumenting db.py) |
-| `interviews_created_total` / `interviews_completed_total` | Counter | product counters |
-### 4. Probes + infrastructure metrics (Gap B)
-
-- **Probes:** the gitops Deployment already runs `httpGet` liveness + readiness probes against
-  `/api/health`, but that route is shallow (no DB check) — a readiness that consults the Postgres pool
-  and a startup probe are the open items. No `tcpSocket` trade-off is needed.
-- **Infra dashboards:** enable the **Grafana Cloud Kubernetes integration** for out-of-the-box
-  node/pod CPU, memory, network, and k8s-events dashboards. This observes the cluster, not just the app.
-
-### 5. Alerts + retention / volume caps (Gap C)
-
-- **Alert rules (MVP):**
-  - `status>=500` rate over 5m > threshold (from Loki logs).
-  - `http_request_duration_seconds` p95 > target (e.g. 5s) over 5m.
-  - `feature`/`feedback_generation` error count > 0 in 5m.
-  - Pod not ready for > N minutes (from k8s integration).
-- **Contact points:** email and/or Slack/Telegram/`webhook` in Grafana; route by severity. Wire through
-  the Grafana Cloud UI or `alertmanager` config.
-- **Retention / volume caps (free-tier):** Grafana Cloud free tier limits log retention + ingest volume;
-  verbose structlog + k8s probe/`/api/health` spam can blow the cap fast. Plan **log shaping**: drop or
-  de-dup `GET /api/health`, readiness probes, and repeated `404` noise; use `level` thresholds and Loki
-  retention/ingest limits. Budget dashboard shows usage.
-
-### 6. Secrets / credentials for Grafana Cloud (Gap D)
-
-- The Grafana Cloud **OTLP endpoint**, **Loki push URL**, **cloud instance ID**, and **API token(s)** are
-  credentials. They must reach the app/Alloy **without being committed** — supply via a k8s `Secret`,
-  created by the Terraform installer from Infisical (same pattern as `maxterview-secrets`/`ghcr-login`).
-- Alloy reads the token via `envFrom.secretRef`; the backend reads `OTEL_EXPORTER_OTLP_ENDPOINT` and
-  any needed token from the same secret if it pushes directly.
-- **No token in client code or committed manifests.**
-
-> **Frontend observability (Grafana Faro / RUM) is deferred — keep server-side-only for MVP** (decision,
-> Gap D). Revisit web-vitals / client error reporting in a later pass if needed.
----
+- **Logging:** JSON in prod (`structlog.processors.JSONRenderer`), human-readable in dev. Configure once at startup (bind app name, env, request id) + a middleware emitting one structured access log per request: `method`, `path`, `status`, `duration_ms`, `user` (`sub`), `interview_id`. Log LLM calls (model, latency, tokens) and feedback generation; feedback failures carry a **content-free** `shape=` fingerprint (keys + scalar values/lengths), never the transcript — same rule as message bodies.
+- **Never log secrets:** no `DATABASE_URL`, `LLM_API_KEY`, Clerk tokens, or message bodies.
+- **Pipeline:** one **Alloy DaemonSet** (not a sidecar) ships pod stdout to **Loki**, labelled `app`/`pod`/`env`. Metrics go to Grafana Cloud Prometheus via **pure OTLP** from the OpenTelemetry SDK — no `/metrics` scrape endpoint.
+- **Escape hatch:** the backend can push OTLP straight to Grafana Cloud's gateway with the same `OTEL_EXPORTER_OTLP_*` env, no Alloy and no cluster manifest — same exporter code, minus pod/node metadata.
+- **Error tracking without Sentry:** `status>=500` log lines in Loki, alerted on rate.
+- **Metrics:** `http_requests_total`, `http_request_duration_seconds`, `llm_call_duration_seconds`/`llm_call_tokens_total`, `feedback_generation_duration_seconds`, `db_query_duration_seconds`, `interviews_created_total`/`interviews_completed_total` — all labelled in the same request middleware.
+- **Alerts:** 500-rate > threshold (from Loki), p95 latency > target, feedback errors > 0, pod not ready > N min. **Log shaping** matters on the free tier: drop `GET /api/health` and probe spam.
+- **Secrets:** the OTLP endpoint, Loki push URL, instance ID and API token are credentials — a k8s `Secret` created by Terraform from Infisical, same pattern as `maxterview-secrets`. Never committed.
+- **Deferred:** frontend RUM (Faro), Tempo traces, edge/ingress observability, uptime probes, dashboards-as-code — all recorded as deliberate deferrals for a single-service hobby app.
 
 ## Rollout order
 
-**Blocker split (corrected 2026-09-12, gitops landing verified 2026-09-16):** M13 is two halves, not one chain. Steps that are app-local are
-compose-verifiable today; the cluster half needs the gitops **`infra/`** layer (Alloy DaemonSet + a
-Terraform-created `grafana-cloud` Secret) — which is shared plumbing, does **not** depend on
-`apps/maxterview` (now landed), and can land first.
+M13 is two halves: app-local work is compose-verifiable today; the cluster half needs the gitops
+**`infra/`** layer (Alloy DaemonSet + a Terraform-created `grafana-cloud` Secret), which is shared
+plumbing and does not depend on `apps/maxterview`.
 
-1. **structlog JSON logging (foundation)** — calls already exist (see Current state); what is missing is
-   `configure()` (JSON renderer in prod, request context). Cheap, unblocks everything (Design §1). **App-local, no cluster.**
-2. **Probes** — probes are wired via `httpGet`; deepen readiness with the DB check (Design §4). **No longer waits on gitops.**
-3. **Grafana Cloud connect** — provision the tenant + secret; deploy **Alloy** as a k8s DaemonSet
-   (OTLP forward + stdout→Loki); wire the backend OpenTelemetry **OTLP exporter** (Design §2-3).
-   Exporter + dev verification: **app-local** (direct OTLP to Grafana Cloud is the documented escape hatch).
-   DaemonSet + secret: **needs `gitops/infra/`.**
-4. **Dashboards + infra integration** — app request/latency/error panels + k8s resource dashboards (Design §4). **Needs Alloy + the Grafana Cloud k8s integration.**
-5. **Alerts + log shaping** — alert rules + contact points; enforce free-tier retention/volume caps (Design §5). **Mostly UI-side once 1-4 land.**
+1. **structlog `configure()`** — JSON renderer in prod + request context. Cheap, unblocks everything. *App-local.*
+2. **Deepen readiness** with a DB check. *No longer waits on gitops.*
+3. **Grafana Cloud connect** — tenant + secret + Alloy DaemonSet; wire the OTLP exporter. Exporter and dev verification are *app-local* (direct OTLP is the escape hatch); DaemonSet + secret *need `gitops/infra/`*.
+4. **Dashboards** — request/latency/error panels + the k8s integration.
+5. **Alerts + log shaping** — rules and contact points; enforce free-tier retention caps.
 
 ```mermaid
 flowchart LR
-  B[FastAPI backend - OTel/OTLP] -->|OTLP: traces + metrics (pure)| A[Alloy DaemonSet]
+  B[FastAPI backend - OTel/OTLP] -->|OTLP: traces + metrics| A[Alloy DaemonSet]
   B -->|structlog JSON stdout| A
   A -->|Loki| L[(Loki)]
   A -->|OTLP| P[(Prometheus)]
-  A -->|OTLP optional| T[(Tempo - deferred)]
   L --> G[Grafana dashboards + alerts]
   P --> G
   K[Grafana Cloud k8s integration] -->|infra metrics| G
+```
 
----
+## Acceptance criteria
 
-## Out of scope (deliberately deferred — hobby, app-scoped)
-
-Real but not worth it for a single-service hobby app; recorded so the deferral is explicit. Revisit at real traffic / multiple services.
-
-- **Edge / ingress observability** — nginx + Cloudflare/WAF dashboards. Single pod scale; site-down is visible in Cloudflare analytics.
-- **Trace correlation across layers** — effectively single-service (one backend/DB/LLM); low payoff until that changes.
-- **Synthetic / uptime probes** — cheap but optional; rely on Cloudflare's uptime checks instead.
-- **Dashboards/alerts as code** — hand-built Grafana is fine for personal use; provisioning-as-code is cosmetic until the k3s repo's everything-as-git demands it.
-
-**Tempo (distributed tracing) remains deferred** (already noted) for the same scoped reason.
----
-
-
-## Acceptance criteria (when implemented)
-
-- [ ] Production logs are JSON; dev logs are human-readable.
+- [ ] Prod logs are JSON; dev logs are human-readable.
 - [ ] Every API request emits a structured access log (method/path/status/duration/user).
 - [ ] No secrets appear in logs.
 - [ ] Loki stores backend logs (via agent); labels `app`/`pod`/`env` populated.
 - [ ] Grafana shows request rate/latency/error dashboards + an alert on `status>=500`.
-- [ ] Metrics reach Grafana Cloud Prometheus via **pure OTLP** (no `/metrics` scrape endpoint) (Gap A).
-- [ ] Backend has readiness + startup probes (Gap B); k8s infra dashboards enabled.
-- [ ] Alert rules + contact points exist; log shaping keeps under free-tier retention (Gap C).
-- [ ] Grafana Cloud credentials come only from a k8s Secret (no committed tokens) (Gap D).
-- [ ] (Deferred) Tempo traces; frontend Faro RUM not in MVP.
+- [ ] Metrics reach Grafana Cloud Prometheus via **pure OTLP** (no `/metrics` scrape endpoint).
+- [ ] Backend has readiness + startup probes; k8s infra dashboards enabled.
+- [ ] Alert rules + contact points exist; log shaping keeps under free-tier retention.
+- [ ] Grafana Cloud credentials come only from a k8s Secret (no committed tokens).

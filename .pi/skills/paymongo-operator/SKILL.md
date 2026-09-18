@@ -56,7 +56,7 @@ Maya (`PERIOD_METHODS`), which is exactly the rail `payments.sh --create-period`
 - Entitlement state is the `subscriptions` row (owner_id → provider ids, `plan`, `status`,
   `current_period_end`). `billing.resolve_tier` is the only reader; `payments.py` is the only writer.
 - `status` is the entitlement lever: `active`/`cancelled` are entitled **only until
-  `current_period_end`**; `past_due`/`unpaid` are not entitled at all (MONETIZATION §6: a failed
+  `current_period_end`**; `past_due`/`unpaid` are not entitled at all (MONETIZATION §5: a failed
   renewal revokes immediately, a cancellation keeps the already-paid period).
 
 ---

@@ -6,17 +6,18 @@
 
 **AI mock-interview coach** — practice interviews with an LLM that asks questions, annotates every
 answer like a chess engine would (brilliant → blunder), and scores the run: accuracy, letter grade,
-hire/reject call, tips. **MVP is text-based.**
+hire/reject call, tips. **MVP is text-based; voice is a later phase.**
 
-Stack: **FastAPI** (backend) + **React + TypeScript + Vite** frontend (SPA) + **PostgreSQL 18**,
-run with Docker Compose. Frontend: Tailwind 4 + shadcn/ui + react-router.
+Stack: **FastAPI** (backend) + **React + TypeScript + Vite** (SPA) + **PostgreSQL 18**, run with
+Docker Compose. Frontend: Tailwind 4 + shadcn/ui + react-router.
 
 Docs:
 
-- `PLAN.md` — technical decisions (D1–D15) and open milestones (M13–M18)
-- `MONETIZATION.md` — billing spec (quotas + PayMongo period top-up shipped, sandbox-proven)
+- `PLAN.md` — binding decisions and open milestones (M13–M18)
+- `DIAGRAM.md` — runtime topology, deploy pipeline, config plane
+- `MONETIZATION.md` — billing spec (quotas + PayMongo period top-up, shipped)
 - `BYOK.md` — per-owner LLM provider keys (settings panel → `/app/settings/system`)
-- `OBSERVABILITY.md` — logging/error-tracking/metrics plan (doc-first M13)
+- `OBSERVABILITY.md` — logging/metrics plan (doc-first M13)
 
 ---
 
@@ -28,31 +29,36 @@ Browser (React SPA) ── /api ──► nginx/Vite proxy ──► FastAPI ─
                                                          └──► LLM (OpenAI-compatible)
 ```
 
-- **Backend** (`backend/`): monolith FastAPI in `app/main.py`, raw SQL via asyncpg (`app/db.py`),
+- **Backend** (`backend/`): FastAPI monolith in `app/main.py`, raw SQL via asyncpg (`app/db.py`),
   manual Clerk JWT/JWKS verification (`app/auth.py`), OpenAI-compatible LLM client (`app/llm.py`).
   Migrations via **yoyo** (`backend/migrations/*.sql`).
-- **Frontend** (`frontend/`): React 19 + Vite 8 + TypeScript 7, Tailwind 4 + shadcn/ui + react-router.
-  Serves the interview UI and consumes the SSE `chat/stream` endpoint with native fetch streaming.
+- **Frontend** (`frontend/`): React 19 + Vite 8 + TypeScript 7. Consumes the SSE `chat/stream`
+  endpoint with native fetch streaming.
 
-### Key flow (the interview loop)
+Deployment shape, namespaces, secrets and the config plane: **`DIAGRAM.md`**.
+
+### The interview loop
 
 ```
 create → start → chat/stream (SSE) → … → complete → feedback
 ```
 
-- `POST /api/interviews` (create, role required) → `pending`
-- `GET|POST|PUT|DELETE /api/templates` — owner-scoped create presets (dials + role/topic/level), 20 max; the form saves the current dials and applies a preset in one click
-- `GET /api/stats/dimensions` → per-dimension averages + newest run + count for the dashboard radar, aggregated server-side in one query (was one `GET /feedback` per rated run)
-- `POST /api/interviews/{id}/start` → `in_progress`
-- `POST /api/interviews/{id}/chat/stream` — **SSE**: user answer in, assistant reply streamed out
-  (`event: message` / `done` / `error`). Persists both turns.
-- `POST /api/interviews/{id}/complete` → `completed` + auto-generated feedback (409 if no turn was ever
-  sent — an empty transcript is unscorable, so completion is refused instead of dead-ending a
-  completed interview with no score)
-- `GET /api/interviews/{id}/feedback` → accuracy + grade / verdict / tips (+ secondary 1-10 dims)
-- `POST /api/interviews/{id}/feedback/generate` → (re)score a completed interview; 409 when it is not
-  completed or has no answers, 503 when the model is unavailable right now (retryable)
-- Every query is scoped to the owner (`ClerkUser.sub` / dev `DEV_USER`).
+Every query is scoped to the owner (`ClerkUser.sub`, or dev `DEV_USER`). All paths carry the `/api`
+prefix, which the **app** owns (`API_PREFIX`) — no proxy or ingress rewrite strips it.
+
+- `POST /interviews` (role required → `pending`) · `GET|DELETE /interviews[/{id}]` · `POST /interviews/{id}/start|complete`
+- `POST /interviews/{id}/chat/stream` — **SSE** (`event: message` / `done` / `error`); persists both turns. Over quota → `402`
+- `GET /interviews/{id}/messages` · `GET /interviews/{id}/feedback` (accuracy + grade / verdict / tips + 1-10 dims)
+- `POST /interviews/{id}/feedback/generate` — (re)score a completed run. `409` when not completed or empty, `503` when the model is down (retryable)
+- `GET|POST|PUT|DELETE /templates` — owner-scoped dial presets (20 max)
+- `GET /stats/dimensions` · `GET /analytics` — server-side aggregates for the dashboard radar and deep-dive. Ask for exactly what `AnalyticsPage.tsx` renders; drop the route when the page does
+- `GET /usage` · `GET /health`
+- `GET|PUT|DELETE /settings/llm` + `POST /settings/llm/test` — BYOK (`BYOK.md`)
+- `POST /billing/checkout|cancel|webhook|webhook/simulate` — (`MONETIZATION.md` §3)
+
+`complete` auto-generates feedback and refuses with `409` if no turn was ever sent — an empty
+transcript is unscorable, so completion fails instead of dead-ending a completed interview with no
+score.
 
 ---
 
@@ -70,50 +76,41 @@ make up                     # builds + starts postgres, backend, frontend   (dev
 - Backend API: http://localhost:8000/api (`/api/health`)
 - Frontend UI: http://localhost:5173
 
-Then open the frontend, create an interview (role + optional topic), answer the AI's questions,
-and click **Complete** to see feedback.
+Then create an interview (role + optional topic), answer the AI's questions, and click **Complete**.
 
 ### What to initialize to use each feature
 
-Everything below reads git-ignored env in `backend/.env` (backend) or `frontend/.env` (frontend).
-`cp *.env.example *.env` first; you only need to fill the vars for the features you actually use.
-Run `need-keys.sh` to see which are set (names only):
+Everything below reads git-ignored env in `backend/.env` (backend) or `frontend/.env` (frontend);
+you only need the vars for the features you actually use. Check which are set (names only) with
+`./.pi/skills/paymongo-operator/scripts/need-keys.sh`.
 
-```bash
-./.pi/skills/paymongo-operator/scripts/need-keys.sh   # set/missing, never values
-```
-
-| Want this feature                                               | Set in `backend/.env`                                          | plus                                                   | how to run/verify                                                                                                                                                                            |
-| --------------------------------------------------------------- | -------------------------------------------------------------- | ------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| UI/API with no auth at all (fast dev)                           | _(nothing)_                                                    | —                                                      | default works (`CLERK_ENABLED=false` → `DEV_USER`)                                                                                                                                           |
-| Real Clerk sign-in button + JWT auth                            | `CLERK_ENABLED=true`, `CLERK_DOMAIN`, `CLERK_JWKS_URL`         | `frontend/.env` `VITE_CLERK_PUBLISHABLE_KEY=pk_test_…` | `make up`, visit `/app`, sign in                                                                                                                                                             |
-| Headless Clerk ops (mint users/sessions, drive the `clerk` CLI) | `CLERK_SECRET_KEY=sk_test_…`                                   | —                                                      | `docker exec -e CLERK_SECRET_KEY="$CLERK_SECRET_KEY" maxterview_frontend_dev sh -c 'cd /tmp && npx clerk api users'`                                                                         |
-| PayMongo ₱499 → premium row (30 days)                           | `PAYMONGO_SECRET_KEY` (`sk_test_…`), `PAYMONGO_WEBHOOK_SECRET` | —                                                      | upgrade in the UI → Maya page; dev instead: POST `/api/billing/webhook/simulate` (no tunnel, no keys). `BILLING_MODE=subscription` also needs `PAYMONGO_PLAN_ID` + a support-enabled account |
-| Real AI interviewer chat + auto-feedback                        | `LLM_BASE_URL`, `LLM_MODEL`, `LLM_API_KEY`                     | —                                                      | empty → deterministic STUB (model-free tests/dev)                                                                                                                                            |
-| Observability                                                   | _(nothing yet)_                                                | —                                                      | `OBSERVABILITY.md` (docs-first, not wired)                                                                                                                                                   |
+| Want this feature | Set in `backend/.env` | plus | how to run/verify |
+| --- | --- | --- | --- |
+| UI/API with no auth at all (fast dev) | _(nothing)_ | — | default works (`CLERK_ENABLED=false` → `DEV_USER`) |
+| Real Clerk sign-in + JWT auth | `CLERK_ENABLED=true`, `CLERK_DOMAIN`, `CLERK_JWKS_URL` | `frontend/.env` `VITE_CLERK_PUBLISHABLE_KEY=pk_test_…` | `make up`, visit `/app`, sign in |
+| Headless Clerk ops (mint users/sessions) | `CLERK_SECRET_KEY=sk_test_…` | — | `docker exec -e CLERK_SECRET_KEY="$CLERK_SECRET_KEY" maxterview_frontend_dev sh -c 'cd /tmp && npx clerk api users'` |
+| PayMongo ₱499 → premium row (30 days) | `PAYMONGO_SECRET_KEY` (`sk_test_…`), `PAYMONGO_WEBHOOK_SECRET` | — | upgrade in the UI → Maya page; dev instead: POST `/api/billing/webhook/simulate` (no tunnel, no keys) |
+| Real AI interviewer chat + auto-feedback | `LLM_BASE_URL`, `LLM_MODEL`, `LLM_API_KEY` | — | empty → deterministic STUB (model-free tests/dev) |
+| BYOK (own provider key) | `BYOK_ENCRYPTION_KEY` | — | `BYOK.md` |
+| Observability | _(nothing yet)_ | — | `OBSERVABILITY.md` (docs-first, not wired) |
 
 Feature env values come from your Clerk app's **Development instance** (`.clerk.accounts.dev` /
-`pk_test_` / `sk_test_`) and PayMongo **test mode** — both are safe to use on `localhost`. The
-production `pk_live_…` / `sk_live_…` keys are locked to `seekeru.tech` and will be rejected
-elsewhere.
+`pk_test_` / `sk_test_`) and PayMongo **test mode** — both safe on `localhost`. Live keys are locked
+to `seekeru.tech` and are rejected elsewhere. `BILLING_MODE=subscription` additionally needs
+`PAYMONGO_PLAN_ID` and a support-enabled account (`MONETIZATION.md` §4).
 
-> **You do NOT need** `clerk auth login`, `clerk link`, or a `CLERK_PLATFORM_API_KEY` to use any
-> repo feature. Those Platform/admin tools manage apps/domains (a beta, dashboard-only capability)
-> and add nothing here — the instance `CLERK_SECRET_KEY` (Backend API) plus `curl` and the PayMongo dashboard cover
-> everything an operator needs. Avoid the dead-ends: NixOS can't run the npm-global `clerk` binary,
-> and the container's OAuth loopback isn't reachable from a host browser.
+> **You do NOT need** `clerk auth login`, `clerk link`, or a `CLERK_PLATFORM_API_KEY` for any repo
+> feature. Those Platform/admin tools manage apps/domains (a beta, dashboard-only capability). The
+> instance `CLERK_SECRET_KEY` (Backend API) plus `curl` and the PayMongo dashboard cover everything an
+> operator needs. Avoid the dead-ends: NixOS can't run the npm-global `clerk` binary, and the
+> container's OAuth loopback isn't reachable from a host browser.
 
----
-
-> **Local llama.cpp caveat:** some llama.cpp builds return HTTP 500 to **non-streaming**
-> `/chat/completions` when called via httpx, which would make auto-feedback come back empty (the
-> streaming chat path is unaffected). The shipped build does not: prod has real grader output for
-> 4/4 completed interviews — verdict, scores and tips (verified 2026-09-17). Keep the fallback in
-> mind if the model server is ever swapped. See `backend/.env.example`.
->
-> The stage-2 formatter asks for grammar-constrained JSON (`response_format=json_schema`, greedy
-> decoding) and transparently retries with `json_object` when a provider rejects the schema, so
-> dim-name / 1-10-range drift is no longer a scoring failure.
+> **Local llama.cpp caveat:** some builds return HTTP 500 to **non-streaming**
+> `/chat/completions` via httpx, which would make auto-feedback come back empty (streaming chat is
+> unaffected). The shipped build does not. Keep the fallback in mind if the model server is swapped
+> (`backend/.env.example`). The stage-2 formatter asks for grammar-constrained JSON
+> (`response_format=json_schema`, greedy decoding) and retries with `json_object` when a provider
+> rejects the schema, so dim-name / 1-10-range drift is no longer a scoring failure.
 
 ---
 
@@ -139,94 +136,48 @@ make prod-build / prod-up / prod-logs / prod-down  (prod-style)
 
 ## Testing
 
-- **Backend** (pytest): `make exec`, or inside the container `docker exec -t maxterview_backend_dev sh -c 'uv run pytest -q'`. Integration tests hit a real Postgres, self-migrate via yoyo,
-  and force LLM STUB_MODE (model-free). Tests cover auth (JWT/JWKS negative cases), interview
-  lifecycle, owner-scoping, LLM streaming/extraction, M10 billing (quotas + PayMongo webhook status map), BYOK (encryption, validation, fallbacks) and the move-review rating scale.
+- **Backend** (pytest): `make exec`, or in the container `docker exec -t maxterview_backend_dev sh -c 'uv run pytest -q'`. Integration tests hit a real Postgres, self-migrate via yoyo, and force LLM STUB_MODE. Coverage: auth (JWT/JWKS negative cases), interview lifecycle, owner-scoping, LLM streaming/extraction, billing (quotas + webhook status map), BYOK (encryption, validation, fallbacks) and the move-review rating scale.
 - **Frontend**: `npm run typecheck`, `npm run build`, `npx biome check .` (in the frontend container).
-- **LLM smoke**: `make test-llm` (`scripts/llm-smoke.sh`) — the ONE check that runs against a live
-  provider instead of a monkeypatched one, so it is what catches a rejected `response_format` payload,
-  a model drifting dim names, or unparseable feedback JSON.
+- **LLM smoke**: `make test-llm` — the ONE check that runs against a live provider instead of a monkeypatched one, so it is what catches a rejected `response_format` payload, a model drifting dim names, or unparseable feedback JSON.
 
-CI (`.github/workflows/ci-pipeline.yml`) runs backend (ruff + format + pytest vs Postgres service) and
-frontend (biome + typecheck + build + audit). The backend job runs a **Trivy 0.74 filesystem scan**
-against its `.trivyignore.yaml` dated-ignore policy (`--ignore-unfixed`, HIGH/CRITICAL gate; no open
-exceptions today). The frontend relies on the CD image scan (below), not a source-tree scan,
-as it ships only a static bundle. CD (`.github/workflows/cd-pipeline.yml`) runs on successful CI on `main`: it
-builds both prod images, **Trivy-image-scans** them, smoke-tests, and **pushes to GHCR** (`maxterview_backend`/
-`maxterview_frontend`), then a second job bumps the pinned tags in the `gitops` repo (see Deployment).
-**Renovate** (renovate.json, GitHub-hosted app) opens weekly grouped PRs for frontend npm, backend
-uv/pep621, Docker base images (digest-pinned), and GitHub Actions refs. Dependabot _alerts_ stay on;
-Native Dependabot update-stream is disabled.
+CI (`.github/workflows/ci-pipeline.yml`) runs backend (ruff + format + pytest vs Postgres service)
+and frontend (biome + typecheck + build + audit), plus a **Trivy 0.74 filesystem scan** of the backend
+(`.trivyignore.yaml` dated-ignore policy, `--ignore-unfixed`, HIGH/CRITICAL gate, no open exceptions).
+The frontend relies on the CD image scan instead, as it ships only a static bundle. CD runs on
+successful CI on `main`: build both prod images → Trivy-image-scan → smoke-test → push to GHCR →
+bump the pinned tags in the `gitops` repo. **Renovate** opens weekly grouped PRs for frontend npm,
+backend uv/pep621, Docker base images (digest-pinned) and GitHub Actions refs.
 
 ---
 
-## Deployment (k3s + GitOps)
+## Deployment
 
-The production target is a **k3s cluster managed by GitOps** in the separate
-[`gitops` repo](https://github.com/notseekeru/gitops) (Argo CD App-of-Apps, Terraform-installed).
-This repo is the **app source**; the gitops repo holds the Kubernetes manifests.
+Production is a **k3s cluster managed by GitOps** in the separate
+[`gitops` repo](https://github.com/notseekeru/gitops). This repo is the app source; the gitops repo
+holds the manifests (`apps/maxterview/{base,overlays/{prod,staging}}`) and Argo reconciles them.
+**Topology, promotion flow and the config plane: `DIAGRAM.md`.**
 
-**How an app ships here (per the gitops repo's existing `portfolio` / `diagram` convention):**
+Operator notes that are not topology:
 
-1. **Build & push images** to GHCR as immutable SHAs — `ghcr.io/notseekeru/maxterview_backend` and
-   `ghcr.io/notseekeru/maxterview_frontend`. CD does this on green CI to `main`; a second job
-   (`update-gitops-repo`, key `MAXTERVIEW_SSH`) then runs `kustomize edit set image` and pushes the SHA
-   bump to `notseekeru/gitops`, which ArgoCD reconciles.
-2. **Manifests** live in the gitops repo, not here: `apps/maxterview/{base,overlays/{prod,staging}}` — the
-   Deployments, Services, nginx Ingress and the PreSync migrate Job are all in `base/`, and each overlay patches
-   its own namespace + host (`imagePullSecrets: [ghcr-login]`, namespace-local). `apps-of-apps/maxterview.yaml`
-   → `overlays/prod`, `apps-of-apps/maxterview-staging.yaml` → `overlays/staging` (host
-   `maxterview.seekeru.tech` / `maxterview-staging.seekeru.tech`, `/api` → `maxterview-backend:8000`,
-   `/` → `maxterview-frontend:8080` — env-neutral names). The `/api` prefix is served by the **app**
-   (`API_PREFIX` in `backend/src/app/__init__.py`): no proxy or ingress rewrite strips it.
-3. **Secrets — landed** (`~/terraform` `infra/k3s`): `kubernetes_secret.maxterview_secrets` lives in its own
-   `maxterview` namespace and carries `DATABASE_URL` (Neon direct host), `MIGRATE_DATABASE_URL`,
-   `CLERK_DOMAIN`/`CLERK_JWKS_URL`/`CLERK_AUDIENCE`, `LLM_*` and `BYOK_ENCRYPTION_KEY`, wired into
-   `kubectl_manifest.gitops_app`'s `depends_on`. Keys are **UPPERCASE and named exactly as the env vars the
-   app reads** — the Deployment injects the whole secret via `envFrom`, so one malformed key blocks the pod.
-   **Wired (2026-09-17):** Terraform declares `PAYMONGO_SECRET_KEY`/`PAYMONGO_WEBHOOK_SECRET` (renamed from
-   the dead `STRIPE_*`), both `TF_VAR_MAXTERVIEW_PAYMONGO_*` values are in Infisical — the live `sk_live_` key
-   and the secret of the `payment.paid` endpoint registered for
-   `https://maxterview.seekeru.tech/api/billing/webhook` — and the apply + pod restart landed: the in-cluster
-   Secret carries both keys, a signed live-format delivery answers `200 ok` and an unsigned one `400`.
-   Env arrives via `envFrom` at container start, so a future rotation needs a fresh image tag or a rollout
-   restart. Remaining: one real ₱499 payment (the entitlement flip is provider-driven).
-   Never `kubectl apply` secrets and never commit them; Terraform owns them.
-
-   The in-cluster Postgres and its `postgres-credentials` secret stay as they are — they serve `diagram`.
-   maxterview does not consume them, so the `docs/incident-2026-09-03` rotation runbook does not apply:
-   Neon owns the role, so rotation is an Infisical change + re-apply, with no `ALTER USER` step.
-
-### Maps
-
-One map, so nobody re-derives it (the word "dev" alone means five different things in this stack —
-the secret store, the local stack, `APP_ENV`, the Clerk dev instance, and the `dev` billing tier):
-
-**Promotion is continuous:** every green `main` builds → Trivy-scans → smoke-tests → CD's
-`update-gitops-repo` job bumps the pinned tag in `gitops` → Argo syncs, and the PreSync Job applies
-migrations before the pods roll. No manual promotion step; CI is the gate.
-
-**Database:** production runs against **Neon** (managed Postgres)
-
-- `DATABASE_URL` comes from the `maxterview-secrets` Secret — use Neon's **direct** host
-  (`ep-<id>.c-<cell>.<region>.aws.neon.tech`, e.g. `ep-tiny-hall-b3e0wb3g.c-4.ap-southeast-1.aws.neon.tech`) with `?sslmode=require`, **not** the `-pooler` host.
-- The direct host needs zero code changes: the backend is one long-running pod holding ~10 pooled
-  connections. Neon's pooler only matters when many short-lived instances share a DB (serverless) —
-  and `app/db.py` already auto-detects a `-pooler` DSN (`statement_cache_size=0`) if you ever switch.
-- Migrations on deployed envs run from the **in-cluster Job** with `MIGRATE_DATABASE_URL` (D12, PLAN §8 M17), not from a laptop; `make migrate` stays the dev path against the container. **Prod schema is live**: all of `0001`–`0012` are applied by the PreSync Job (verified via Neon MCP 2026-09-16) and the DB is non-empty (real rows exist).
-- **Tradeoffs:** public-internet round trips (measure latency from wherever the app runs), and the project's
-  `suspend_timeout_seconds: 0` means **"use the plan default" (5 min), not "never suspend"** — measured
-  2,932 CPU-s / 3.2 h active over 5 days (2026-09-17), so the 100 CU-h free budget is not at risk at this
-  traffic (`-1` is the API's never-suspend value); the free history window is 6 h, so snapshot before each prod
-  migration. In exchange you get durability, backups, and disposable branches for testing.
+- **Secrets** (`~/terraform` `infra/k3s`) come from Infisical and are consumed via `envFrom`, so
+  **the secret keys ARE the app's env-var names** (uppercase). Never `kubectl apply` a secret, never
+  commit one; rotation is an Infisical change + `make apply` + a rollout restart. Live-mode
+  `PAYMONGO_*` and the `payment.paid` webhook secret are applied — a signed live-format delivery
+  answers `200 ok`, an unsigned one `400`. The remaining item is one real ₱499 payment.
+- **Database:** Neon, **direct host** (not `-pooler`) with `?sslmode=require`. The direct host needs
+  no code change — the backend is one long-running pod holding ~10 pooled connections; Neon's pooler
+  only matters when many short-lived instances share a DB, and `app/db.py` auto-detects a `-pooler`
+  DSN (`statement_cache_size=0`) anyway. **Prod schema is live** (all migrations applied by the
+  PreSync Job). Trade-offs: public-internet round trips, and the free tier's 6-hour history window —
+  **snapshot before each prod migration**.
+- **Migrations on deployed envs** run from the in-cluster Job, not a laptop; `make migrate` is the dev
+  path against the container.
+- The in-cluster Postgres and its `postgres-credentials` secret stay as they are — they serve
+  `diagram`. maxterview does not consume them, so the `docs/incident-2026-09-03` rotation runbook does
+  not apply: Neon owns the role, so rotation is an Infisical change + re-apply, with no `ALTER USER`.
 
 ---
 
 ## Status
 
-- **M13** (observability) — docs-first done (`OBSERVABILITY.md`); the structlog calls landed (`configure()` so prod is JSON is the open half) and Grafana Cloud (Loki for logs, **pure OTLP** metrics/traces → Prometheus) is unwired.
-- **M14** (OKF / structured-output hardening) — **OKF not started**: no bundle exists, the interviewer's knowledge is still prompt strings. Its structured-output _prerequisite_ shipped (2026-09-11): `response_format=json_schema` + greedy decoding on the grader→formatter surface. OKF bundles are the markdown+frontmatter format M15 RAG will ingest.
-- **M15** (RAG / retrieval-augmented interviewing) — future enhancement, not started (`PLAN.md`).
-- **M16** (live voice interview — TTS + STT + webcam illusion) — future enhancement, not started (`PLAN.md`).
-- **M17** (Neon environments & dedicated DB) — **live since 2026-09-12, hardening left**: one Neon project (`neon_maxterview_website`, `production` branch) with all of `0001`–`0012` applied by the in-cluster PreSync Job (verified 2026-09-16); namespace + `maxterview-secrets` come from Terraform; the app serves `maxterview.seekeru.tech`. **Open:** one real ₱499 payment proof — the wiring itself is live (secret applied + pod restart, signed delivery `200 ok` / unsigned `400`, verified 2026-09-17); migrator-role split + app-DSN swap (`MIGRATE_DATABASE_URL` empty ⇒ the PreSync Job migrates as the owner DSN); the staging project (D11/D13) — **live since 2026-09-17**: `maxterview-staging.seekeru.tech` serves `{"status":"ok"}`, `/api/usage` 401s without a session, `0001`–`0012` applied by its own PreSync Job, SPA built with the Development-instance `pk_test_`. Neon quota is **not** a risk — 2,932 CPU-s of 100 CU-h used and scale-to-zero is on (`0` = plan default; the earlier "≈180 CU-h/month idle" reading was wrong).
-- **M18** (load & performance testing) — docs-first, not built: staging-only k6 profiles, off-node generator, **STUB_MODE** for app capacity vs a real-model canary for provider capacity; single-VU runs measure the rate limiter (2 rps/client IP), so the unit is _concurrent open chats_. Needs M13 (staging itself exists since 2026-09-17).
+Open milestones and their current state: **`PLAN.md`**.
