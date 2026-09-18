@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Icon } from "@/components/AppIcons";
 import { Page } from "@/components/PagePrimitives";
-import { Button, buttonVariants } from "@/components/ui/button";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -26,34 +26,17 @@ export function ResumePage() {
     const [notice, setNotice] = useState<string | null>(null);
     // Locked behind the free plan's wall (a 402 from the server): the message IS the upsell.
     const [capped, setCapped] = useState(false);
-    const menuRef = useRef<HTMLDetailsElement>(null);
-    // The drop panel's own hover state: the highlight has to survive crossing the panel's own
-    // children (each of which fires a dragleave as the cursor moves over it).
+    // The drop card's own hover state: the highlight has to survive crossing the card's own children
+    // (each of which fires a dragleave as the cursor moves over it).
     const [dropping, setDropping] = useState(false);
 
-    // Same open/close contract as RowMenu: <details> gives the toggle, these two listeners make it
-    // behave like a menu. AI HERE: no focus trap / arrow keys — the panel holds one label.
+    // The card invites a drag, so a drag that MISSES it must not become the browser's own "open the
+    // PDF" navigation — that would take the unsaved editor text with it. The card's own handler runs
+    // first (target before document), so swallowing the default here cannot eat a real drop.
     useEffect(() => {
-        const onDown = (e: MouseEvent) => {
-            const el = menuRef.current;
-            if (el?.open && !el.contains(e.target as Node)) el.open = false;
-        };
-        const onKey = (e: KeyboardEvent) => {
-            if (e.key === "Escape" && menuRef.current) menuRef.current.open = false;
-        };
-        // A drag that MISSES the panel is the browser's own "open the PDF" navigation, and the
-        // unsaved editor text goes with it. Cancel that default for as long as the panel is open.
-        const onDrop = (e: DragEvent) => {
-            if (menuRef.current?.open && !menuRef.current.contains(e.target as Node)) e.preventDefault();
-        };
-        document.addEventListener("mousedown", onDown);
-        document.addEventListener("keydown", onKey);
-        document.addEventListener("drop", onDrop);
-        return () => {
-            document.removeEventListener("mousedown", onDown);
-            document.removeEventListener("keydown", onKey);
-            document.removeEventListener("drop", onDrop);
-        };
+        const swallow = (e: DragEvent) => e.preventDefault();
+        document.addEventListener("drop", swallow);
+        return () => document.removeEventListener("drop", swallow);
     }, []);
 
     const load = useCallback(async () => {
@@ -82,15 +65,13 @@ export function ResumePage() {
     /** One entry point for the picker and the drop: a dropped file skips the `accept` attribute's
      *  filter, so this is the only place that gets to decide what a resume file is. */
     function pick(file: File | undefined) {
-        if (!file) return;
+        if (!file || busy) return;
         if (!/\.pdf$/i.test(file.name) && file.type !== "application/pdf") {
-            // Rejected files leave the panel open: the retry belongs where the cursor already is.
-            setError("That isn't a PDF — import a PDF, or paste the text instead.");
+            setError("That isn't a PDF — drop a PDF, or paste the text instead.");
             setNotice(null);
             setCapped(false);
             return;
         }
-        if (menuRef.current) menuRef.current.open = false;
         void importPdf(file);
     }
 
@@ -171,59 +152,65 @@ export function ResumePage() {
             title="Resume"
             description="Import a resume so interviews are tailored to your actual projects — and so feedback can hold you to what it claims."
             actions={
-                <>
-                    {/* A dropdown rather than a plain button: browsing and dropping are the same
-                        intent, and the panel is where that instruction fits without shouting it on
-                        the page. `<details>` again, for the reasons RowMenu documents. */}
-                    <details ref={menuRef} className="relative">
-                        <summary className={cn(buttonVariants({ variant: "outline" }), "cursor-pointer list-none [&::-webkit-details-marker]:hidden", busy && "pointer-events-none opacity-50")}>Import PDF</summary>
-                        <div className="absolute right-0 z-20 mt-1 w-64 rounded-md border bg-popover p-2 shadow-md">
-                            <label
-                                onDragOver={(e) => {
-                                    e.preventDefault();
-                                    setDropping(true);
-                                }}
-                                onDragLeave={(e) => {
-                                    if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDropping(false);
-                                }}
-                                onDrop={(e) => {
-                                    e.preventDefault();
-                                    setDropping(false);
-                                    pick(e.dataTransfer.files?.[0]);
-                                }}
-                                className={cn("flex cursor-pointer flex-col items-center gap-1.5 rounded-md border border-dashed px-3 py-6 text-center text-xs transition-colors", dropping ? "border-primary bg-primary/10 text-primary" : "text-muted-foreground hover:bg-accent")}
-                            >
-                                <Icon name="file" className="h-5 w-5" />
-                                <span>{dropping ? "Drop it" : "Drop a PDF here, or click to browse"}</span>
-                                <input
-                                    type="file"
-                                    accept="application/pdf,.pdf"
-                                    className="hidden"
-                                    onChange={(e) => {
-                                        const file = e.target.files?.[0];
-                                        // Reset first: picking the SAME file twice must fire again.
-                                        e.target.value = "";
-                                        pick(file);
-                                    }}
-                                />
-                            </label>
-                        </div>
-                    </details>
-                    <Button
-                        disabled={busy}
-                        onClick={() => {
-                            setDraft(EMPTY_DRAFT);
-                            setError(null);
-                            setNotice("Paste your resume below, then save.");
-                            setCapped(false);
-                        }}
-                    >
-                        Paste text
-                    </Button>
-                </>
+                <Button
+                    disabled={busy}
+                    onClick={() => {
+                        setDraft(EMPTY_DRAFT);
+                        setError(null);
+                        setNotice("Paste your resume below, then save.");
+                        setCapped(false);
+                    }}
+                >
+                    Paste text
+                </Button>
             }
         >
             <div className="space-y-4">
+                {/* The dropper IS the import control, front and centre: one target for a dragged file
+                    and for a click, with no menu in between. */}
+                <label
+                    onDragOver={(e) => {
+                        e.preventDefault();
+                        setDropping(true);
+                    }}
+                    onDragLeave={(e) => {
+                        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDropping(false);
+                    }}
+                    onDrop={(e) => {
+                        e.preventDefault();
+                        setDropping(false);
+                        pick(e.dataTransfer.files?.[0]);
+                    }}
+                    className={cn("flex flex-col items-center gap-1.5 rounded-lg border border-dashed px-6 py-10 text-center transition-colors", busy ? "cursor-default opacity-60" : "cursor-pointer", dropping ? "border-primary bg-primary/10 text-primary" : "text-muted-foreground hover:bg-accent")}
+                >
+                    <Icon name="file" className="h-6 w-6" />
+                    <span className="text-sm">{dropping ? "Drop it" : busy ? "Reading the PDF…" : "Drop a PDF here, or click to browse"}</span>
+                    <input
+                        type="file"
+                        accept="application/pdf,.pdf"
+                        disabled={busy}
+                        className="hidden"
+                        onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            // Reset first: picking the SAME file twice must fire again.
+                            e.target.value = "";
+                            pick(file);
+                        }}
+                    />
+                </label>
+
+                {(error || notice || (capped && atCap)) && (
+                    <div className="space-y-1 text-sm">
+                        {error && <p className="text-destructive">{error}</p>}
+                        {notice && !error && <p className="text-muted-foreground">{notice}</p>}
+                        {capped && (
+                            <a href="/app/settings/billing" className="text-xs text-muted-foreground underline underline-offset-2">
+                                See plans
+                            </a>
+                        )}
+                    </div>
+                )}
+
                 <div className="space-y-1.5">
                     <div className="flex flex-wrap items-center justify-between gap-2">
                         <span className="text-sm font-medium leading-none">Your resumes</span>
@@ -244,18 +231,6 @@ export function ResumePage() {
                         {rows.length === 0 && <span className="text-xs text-muted-foreground">Nothing imported yet.</span>}
                     </div>
                 </div>
-
-                {(error || notice || (capped && atCap)) && (
-                    <div className="space-y-1 text-sm">
-                        {error && <p className="text-destructive">{error}</p>}
-                        {notice && !error && <p className="text-muted-foreground">{notice}</p>}
-                        {capped && (
-                            <a href="/app/settings/billing" className="text-xs text-muted-foreground underline underline-offset-2">
-                                See plans
-                            </a>
-                        )}
-                    </div>
-                )}
 
                 <Card>
                     <CardHeader>
