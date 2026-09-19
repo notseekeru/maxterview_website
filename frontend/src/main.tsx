@@ -2,6 +2,7 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import App from "./App.tsx";
 import "./index.css";
+import { initErrorBeacon } from "./lib/errorBeacon.ts";
 
 // No ClerkProvider here on purpose: the public landing route must not download the auth SDK.
 // The provider lives in the lazy <ClerkGate> (see App.tsx).
@@ -16,3 +17,5 @@ createRoot(rootElement).render(
         <App />
     </StrictMode>,
 );
+
+initErrorBeacon();

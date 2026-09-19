@@ -1,5 +1,5 @@
 import { UserButton } from "@clerk/react";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { Icon } from "@/components/AppIcons";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
@@ -7,9 +7,14 @@ import { UsageBadge } from "@/components/UsageBadge";
 import { Button } from "@/components/ui/button";
 import { clerkEnabled } from "@/lib/config";
 import { NAV, type NavItem } from "@/lib/nav";
+import { initSentry } from "@/lib/sentry";
 import { cn } from "@/lib/utils";
 
 export function AppShell() {
+    // Signed-in only, deliberately: the full SDK is 146 kB gz and the anonymous pages carry
+    // src/lib/errorBeacon.ts instead. Effects run per mount, so the landing route never starts it.
+    useEffect(() => initSentry(), []);
+
     return (
         <div className="min-h-screen">
             <aside className="fixed inset-y-0 left-0 z-30 hidden w-60 flex-col border-r border-border bg-background lg:flex">

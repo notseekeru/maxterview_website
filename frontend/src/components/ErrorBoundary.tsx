@@ -1,6 +1,7 @@
 import { Component, type ErrorInfo, type ReactNode } from "react";
 
 import { Button } from "@/components/ui/button";
+import { captureError } from "@/lib/sentry";
 
 interface Props {
     children: ReactNode;
@@ -24,8 +25,10 @@ export class ErrorBoundary extends Component<Props, State> {
     }
 
     componentDidCatch(error: Error, info: ErrorInfo): void {
-        // No Sentry by decision (M13); the console is where the browser-reproduction starts.
+        // The card below only shows `error.message`, so whoever is looking at the screen cannot
+        // report what actually broke: the stack goes to Sentry, the console stays for local runs.
         console.error("unhandled render error", error, info.componentStack);
+        void captureError(error, { componentStack: info.componentStack });
     }
 
     render() {

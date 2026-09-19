@@ -43,3 +43,19 @@ def test_access_log_skips_health():
     assert access[0]["status"] == 404
     assert access[0]["request_id"]  # the bound context, not only an argument
     assert "duration_ms" in access[0]
+
+
+def test_client_error_beacon_is_capped_and_logged():
+    """The anonymous half of browser error capture (the authenticated half is Sentry)."""
+    handler, lines = _capture_json()
+    root = logging.getLogger()
+    root.addHandler(handler)
+    try:
+        with TestClient(app) as client:
+            assert client.post("/api/client-errors", json={"message": "boom", "route": "/"}).status_code == 204
+            over = client.post("/api/client-errors", json={"message": "x" * 301, "route": "/"})
+    finally:
+        root.removeHandler(handler)
+
+    assert over.status_code == 422  # unauthenticated input: the field cap is the size ceiling
+    assert [(line["message"], line["route"]) for line in lines if line.get("event") == "browser.error"] == [("boom", "/")]

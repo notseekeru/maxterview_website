@@ -7,7 +7,7 @@ from typing import Annotated
 
 import asyncpg
 import structlog
-from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request, UploadFile, status
+from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request, Response, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse, StreamingResponse
 
@@ -15,7 +15,7 @@ from app import API_PREFIX, billing, byok, dials, levels, llm, payments, rating,
 from app.auth import CLERK_ENABLED, get_current_user
 from app.db import close_pool, fetch, fetchrow, init_pool
 from app.logs import RequestContextMiddleware, configure_logging
-from app.models import Analytics, ChatMessage, ChatTurn, ClerkUser, Dials, Feedback, FeedbackCreate, Interview, InterviewCreate, InterviewDimensions, InterviewTemplate, LLMProvider, LLMProviderUpdate, Message, Resume, ResumeCreate, ResumeExtract, ResumeSummary, TemplateCreate
+from app.models import Analytics, ChatMessage, ChatTurn, ClerkUser, ClientError, Dials, Feedback, FeedbackCreate, Interview, InterviewCreate, InterviewDimensions, InterviewTemplate, LLMProvider, LLMProviderUpdate, Message, Resume, ResumeCreate, ResumeExtract, ResumeSummary, TemplateCreate
 from app.ratelimit import ClientRateLimitMiddleware
 
 APP_ENV = os.getenv("APP_ENV", "development")
@@ -85,6 +85,15 @@ app.add_middleware(RequestContextMiddleware)
 async def health() -> dict:
     # No DB call — CD smoke runs with a dummy DATABASE_URL and no Postgres.
     return {"status": "ok"}
+
+
+@api.post("/client-errors", status_code=status.HTTP_204_NO_CONTENT)
+async def client_errors(body: ClientError) -> Response:
+    """Browser errors from the ANONYMOUS pages, where no Sentry SDK is loaded. Message and path only:
+    no stack (nothing here could symbolicate it), no query string (ids and tokens live there). The
+    per-client rate limit is the abuse ceiling and the field caps are the size ceiling."""
+    log.info("browser.error", message=body.message, route=body.route)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 # --- interviews (all scoped to owner_id, D4) ---

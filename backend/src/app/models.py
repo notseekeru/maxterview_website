@@ -346,6 +346,14 @@ class SystemLLM(BaseModel):
     model: str = ""
 
 
+class ClientError(BaseModel):
+    """Browser-error beacon from the anonymous pages (the authenticated app reports to Sentry
+    instead). Capped because this is unauthenticated input heading straight for the log pipeline."""
+
+    message: str = Field(min_length=1, max_length=300)
+    route: str = Field(default="", max_length=200)
+
+
 class LLMProvider(BaseModel):
     """BYOK status as the UI sees it: NEVER the key, only its last 4 characters as a hint."""
 
