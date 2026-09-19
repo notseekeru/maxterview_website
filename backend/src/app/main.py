@@ -328,9 +328,40 @@ TEMPLATE_COLS = "id::text, owner_id, name, role, level, topic, resume_id::text, 
 TEMPLATE_CREATE_DIAL_PARAM = 7
 TEMPLATE_UPDATE_DIAL_PARAM = 8
 
+# The built-ins every owner is given once: full create bodies, so a new account's first click starts
+# a run. After seeding they are ordinary rows - renameable, updatable, deletable like any other.
+DEFAULT_TEMPLATES: tuple[TemplateCreate, ...] = (
+    TemplateCreate(name="The Killer", role="Software Engineer", company_size="5k+", cynicism="skeptical", brutally_honest=True, human_mode=False, hardcore=True, mix_behavioural=1),
+    TemplateCreate(name="The Griller", role="Software Engineer", company_size="201-1k", cynicism="skeptical", brutally_honest=True),
+    TemplateCreate(name="The Chiller", role="Software Engineer", company_size="1-10", cynicism="kind", mix_chitchat=2, mix_behavioural=1, mix_technical=2),
+)
+# Rows as plain dicts: the asyncpg jsonb codec encodes them (a pre-dumped STRING would arrive as a
+# JSON scalar, and jsonb_to_recordset would refuse it).
+DEFAULT_TEMPLATES_ROWS = [t.model_dump(mode="json") for t in DEFAULT_TEMPLATES]
+
+# One statement: the marker insert only returns a row the first time (ON CONFLICT), and the presets
+# are only inserted when it does, so a later read is a no-op and a deleted default stays deleted.
+# The three arrive as ONE jsonb parameter with their column types declared in the recordset
+# signature: a 3x14 VALUES list would mean hand-counting 42 placeholders, and a hole in that
+# numbering fails at bind, not at parse (see the DIAL_PARAM constants above).
+# `ordinality` is the array position, microsecond-staggered onto created_at so the row order matches
+# the order declared above (the list is newest-first, and all three would otherwise share one
+# transaction timestamp and come back in whatever order Postgres liked).
+SEED_DEFAULTS_SQL = f"""
+        WITH seed AS (
+            INSERT INTO template_seeds (owner_id) VALUES ($1) ON CONFLICT DO NOTHING RETURNING owner_id
+        )
+        INSERT INTO interview_templates (owner_id, name, role, level, topic, resume_id, {", ".join(DIAL_FIELDS)}, created_at)
+        SELECT $1, d.name, d.role, d.level, d.topic, d.resume_id, {", ".join(f"d.{f}" for f in DIAL_FIELDS)}, now() - (d.ordinality * interval '1 microsecond')
+        FROM seed, ROWS FROM (jsonb_to_recordset($2::jsonb) AS (name text, role text, level text, topic text, resume_id uuid, company_size text, cynicism text, brutally_honest boolean, human_mode boolean, hardcore boolean, mix_chitchat smallint, mix_behavioural smallint, mix_technical smallint)) WITH ORDINALITY AS d
+        """
+
 
 @api.get("/templates", response_model=list[InterviewTemplate])
 async def list_templates(user: CurrentUser) -> list[dict]:
+    # The seed rides the read every client already makes on mount: there is no signup hook to hang it
+    # on (identity is Clerk's), and the marker makes the repeat cost one no-op statement.
+    await fetchrow(SEED_DEFAULTS_SQL, user.sub, DEFAULT_TEMPLATES_ROWS)
     rows = await fetch(
         f"SELECT {TEMPLATE_COLS} FROM interview_templates WHERE owner_id = $1 ORDER BY created_at DESC",
         user.sub,

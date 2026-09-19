@@ -296,8 +296,54 @@ def test_archive_hides_a_run_from_history_but_keeps_it_in_the_stats(client):
     assert c.delete(f"/api/interviews/{iid}").status_code == 204
 
 
+def _wipe_templates(c):
+    """Presets are owner-scoped AND seeded with the built-ins (DEFAULT_TEMPLATES) on first read, so
+    every test here starts from an empty row: a leftover default would otherwise eat the 20-cap and
+    the suite would depend on test order."""
+    for row in c.get("/api/templates").json():
+        c.delete(f"/api/templates/{row['id']}")
+
+
+def test_default_templates_seeded_once(client):
+    # The identity is fixed in tests, so re-arm the owner's seed marker directly (the same way
+    # test_template_owner_scoping reaches for asyncpg) to observe the first read of a new account.
+    import asyncio
+
+    import asyncpg
+
+    c = client
+    _wipe_templates(c)
+
+    async def unseed():
+        conn = await asyncpg.connect(DB_URL)
+        try:
+            await conn.execute("DELETE FROM template_seeds WHERE owner_id = 'dev-user'")
+        finally:
+            await conn.close()
+
+    asyncio.run(unseed())
+    seeded = c.get("/api/templates").json()
+    assert [t["name"] for t in seeded] == ["The Killer", "The Griller", "The Chiller"]
+
+    # The presets are the point: each is a body the create endpoint accepts unchanged.
+    killer = seeded[0]
+    assert (killer["hardcore"], killer["brutally_honest"], killer["human_mode"]) == (True, True, False)
+    assert (killer["company_size"], killer["cynicism"]) == ("5k+", "skeptical")
+    made = c.post("/api/interviews", json={k: v for k, v in killer.items() if k not in ("id", "name", "owner_id", "created_at", "updated_at")})
+    assert made.status_code == 201
+    assert c.delete(f"/api/interviews/{made.json()['id']}").status_code == 204
+    # A later read does not seed a second copy.
+    assert [t["id"] for t in c.get("/api/templates").json()] == [t["id"] for t in seeded]
+
+    # Deleting one is permanent: the marker, not the row count, decides whether to seed again.
+    assert c.delete(f"/api/templates/{killer['id']}").status_code == 204
+    assert [t["name"] for t in c.get("/api/templates").json()] == ["The Griller", "The Chiller"]
+    _wipe_templates(c)
+
+
 def test_templates_round_trip_rename_and_cap(client):
     c = client
+    _wipe_templates(c)
     # A preset body IS a create body, so the same payload has to be accepted by both endpoints.
     body = {
         "name": "Senior BE @5k",
@@ -359,6 +405,7 @@ def test_template_owner_scoping(client):
     import asyncpg
 
     c = client
+    _wipe_templates(c)
 
     async def insert_foreign():
         conn = await asyncpg.connect(DB_URL)
