@@ -116,10 +116,18 @@ def _extract_token(request: Request) -> str | None:
     return None
 
 
+def _attributed(request: Request, user: ClerkUser) -> ClerkUser:
+    """Record the identity on the request so the access log can attribute the line: it reads
+    `scope["state"]` after the route ran, and a contextvar could not carry the value back up past the
+    rate limiter, which is a `BaseHTTPMiddleware`."""
+    request.state.user_sub = user.sub
+    return user
+
+
 async def get_current_user(request: Request) -> ClerkUser:
     if not CLERK_ENABLED:
-        return DEV_USER
+        return _attributed(request, DEV_USER)
     token = _extract_token(request)
     if token is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing credentials")
-    return verify_jwt(token, _fetch_jwks())
+    return _attributed(request, verify_jwt(token, _fetch_jwks()))

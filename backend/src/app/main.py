@@ -1,6 +1,7 @@
 import asyncio
 import json
 import os
+import time
 from contextlib import asynccontextmanager
 from typing import Annotated
 
@@ -13,6 +14,7 @@ from fastapi.responses import PlainTextResponse, StreamingResponse
 from app import API_PREFIX, billing, byok, dials, levels, llm, payments, rating, resumes
 from app.auth import CLERK_ENABLED, get_current_user
 from app.db import close_pool, fetch, fetchrow, init_pool
+from app.logs import RequestContextMiddleware, configure_logging
 from app.models import Analytics, ChatMessage, ChatTurn, ClerkUser, Dials, Feedback, FeedbackCreate, Interview, InterviewCreate, InterviewDimensions, InterviewTemplate, LLMProvider, LLMProviderUpdate, Message, Resume, ResumeCreate, ResumeExtract, ResumeSummary, TemplateCreate
 from app.ratelimit import ClientRateLimitMiddleware
 
@@ -60,6 +62,9 @@ async def lifespan(_app: FastAPI):
     await close_pool()
 
 
+# Before anything can log: one chain for structlog and stdlib (uvicorn, unhandled tracebacks) alike.
+configure_logging()
+
 app = FastAPI(title="maxterview", lifespan=lifespan)
 
 # AI HERE: /api is owned here (matches diagram), not by the dev proxy or the ingress — every layer
@@ -70,6 +75,10 @@ api = APIRouter(prefix=API_PREFIX)
 app.add_middleware(ClientRateLimitMiddleware)
 if CORS_ALLOW_ORIGINS:
     app.add_middleware(CORSMiddleware, allow_origins=CORS_ALLOW_ORIGINS, allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
+
+# Added last => outermost: it therefore sees the 429s and CORS rejections the inner layers return,
+# and it is the layer that stamps X-Request-ID on every response.
+app.add_middleware(RequestContextMiddleware)
 
 
 @api.get("/health")
@@ -992,6 +1001,7 @@ async def chat_stream(
             return
 
         collected: list[str] = []
+        turn_started = time.perf_counter()
         try:
             async for delta in llm.stream_chat(history, config):
                 if delta:
@@ -1005,9 +1015,15 @@ async def chat_stream(
                 interview_id,
                 reply,
             )
+            # The one number an access log cannot give: what a turn cost in wall-clock and in output.
+            # AI HERE: tokens are not requested (the provider only reports usage when the payload asks
+            # via stream_options.include_usage), so `chars` stands in; add the payload key when exact
+            # cost accounting is needed.
+            log.info("llm.chat.completed", interview_id=interview_id, model=config.model, turn=asked, chars=len(reply), latency_ms=round((time.perf_counter() - turn_started) * 1000, 1))
         except Exception as exc:
             # Model or DB failure while the turn is in flight: the user's row must not outlive it, or
             # the next send duplicates the answer (see the repair above).
+            log.warning("llm.chat.failed", interview_id=interview_id, model=config.model, turn=asked, reason=type(exc).__name__, latency_ms=round((time.perf_counter() - turn_started) * 1000, 1))
             await _discard_turn()
             yield f"event: error\ndata: {str(exc)}\n\n"
             return

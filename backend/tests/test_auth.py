@@ -1,5 +1,6 @@
 import base64
 import time
+from types import SimpleNamespace
 
 import jwt
 import pytest
@@ -14,6 +15,7 @@ class _FakeRequest:
     def __init__(self, cookies=None, headers=None):
         self.cookies = cookies or {}
         self.headers = headers or {}
+        self.state = SimpleNamespace()  # the access log's attribution channel (app/logs.py)
 
 
 # --- helpers: self-generated keypair + JWKS + tokens (no real Clerk needed) ---
