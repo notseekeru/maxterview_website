@@ -85,7 +85,7 @@ you only need the vars for the features you actually use. Check which are set (n
 | Want this feature                        | Set in `backend/.env`                                          | plus                                                   | how to run/verify                                                                                                    |
 | ---------------------------------------- | -------------------------------------------------------------- | ------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------- |
 | UI/API with no auth at all (fast dev)    | _(nothing)_                                                    | —                                                      | default works (`CLERK_ENABLED=false` → `DEV_USER`)                                                                   |
-| Real Clerk sign-in + JWT auth            | `CLERK_ENABLED=true`, `CLERK_DOMAIN`, `CLERK_JWKS_URL`         | `frontend/.env` `VITE_CLERK_PUBLISHABLE_KEY=pk_test_…` | `make up`, visit `/dashboard`, sign in                                                                                     |
+| Real Clerk sign-in + JWT auth            | `CLERK_ENABLED=true`, `CLERK_DOMAIN`, `CLERK_JWKS_URL`         | `frontend/.env` `VITE_CLERK_PUBLISHABLE_KEY=pk_test_…` | `make up`, visit `/dashboard`, sign in                                                                               |
 | Headless Clerk ops (mint users/sessions) | `CLERK_SECRET_KEY=sk_test_…`                                   | —                                                      | `docker exec -e CLERK_SECRET_KEY="$CLERK_SECRET_KEY" maxterview_frontend_dev sh -c 'cd /tmp && npx clerk api users'` |
 | PayMongo ₱499 → premium row (30 days)    | `PAYMONGO_SECRET_KEY` (`sk_test_…`), `PAYMONGO_WEBHOOK_SECRET` | —                                                      | upgrade in the UI → Maya page; dev instead: POST `/api/billing/webhook/simulate` (no tunnel, no keys)                |
 | Real AI interviewer chat + auto-feedback | `LLM_BASE_URL`, `LLM_MODEL`, `LLM_API_KEY`                     | —                                                      | empty → deterministic STUB (model-free tests/dev)                                                                    |
@@ -96,19 +96,6 @@ Feature env values come from your Clerk app's **Development instance** (`.clerk.
 `pk_test_` / `sk_test_`) and PayMongo **test mode** — both safe on `localhost`. Live keys are locked
 to `seekeru.tech` and are rejected elsewhere. `BILLING_MODE=subscription` additionally needs
 `PAYMONGO_PLAN_ID` and a support-enabled account (`MONETIZATION.md` §4).
-
-> **You do NOT need** `clerk auth login`, `clerk link`, or a `CLERK_PLATFORM_API_KEY` for any repo
-> feature. Those Platform/admin tools manage apps/domains (a beta, dashboard-only capability). The
-> instance `CLERK_SECRET_KEY` (Backend API) plus `curl` and the PayMongo dashboard cover everything an
-> operator needs. Avoid the dead-ends: NixOS can't run the npm-global `clerk` binary, and the
-> container's OAuth loopback isn't reachable from a host browser.
-
-> **Local llama.cpp caveat:** some builds return HTTP 500 to **non-streaming**
-> `/chat/completions` via httpx, which would make auto-feedback come back empty (streaming chat is
-> unaffected). The shipped build does not. Keep the fallback in mind if the model server is swapped
-> (`backend/.env.example`). The stage-2 formatter asks for grammar-constrained JSON
-> (`response_format=json_schema`, greedy decoding) and retries with `json_object` when a provider
-> rejects the schema, so dim-name / 1-10-range drift is no longer a scoring failure.
 
 ---
 
@@ -133,10 +120,6 @@ make prod-build / prod-up / prod-logs / prod-down  (prod-style)
 ---
 
 ## Testing
-
-- **Backend** (pytest): `make exec`, or in the container `docker exec -t maxterview_backend_dev sh -c 'uv run pytest -q'`. Integration tests hit a real Postgres, self-migrate via yoyo, and force LLM STUB_MODE. Coverage: auth (JWT/JWKS negative cases), interview lifecycle, owner-scoping, LLM streaming/extraction, billing (quotas + webhook status map), BYOK (encryption, validation, fallbacks) and the move-review rating scale.
-- **Frontend**: `npm run typecheck`, `npm run build`, `npx biome check .` (in the frontend container).
-- **LLM smoke**: `make test-llm` — the ONE check that runs against a live provider instead of a monkeypatched one, so it is what catches a rejected `response_format` payload, a model drifting dim names, or unparseable feedback JSON.
 
 CI (`.github/workflows/ci-pipeline.yml`) runs backend (ruff + format + pytest vs Postgres service)
 and frontend (biome + typecheck + build + audit), plus a **Trivy 0.74 filesystem scan** of the backend
