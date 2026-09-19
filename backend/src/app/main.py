@@ -10,6 +10,7 @@ import structlog
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request, Response, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse, StreamingResponse
+from pydantic import ValidationError
 
 from app import API_PREFIX, billing, byok, dials, levels, llm, payments, rating, resumes
 from app.auth import CLERK_ENABLED, get_current_user
@@ -81,6 +82,10 @@ if CORS_ALLOW_ORIGINS:
 app.add_middleware(RequestContextMiddleware)
 
 
+# The beacon's payload is ~300 bytes; this is the boundary between a report and a body worth parsing.
+CLIENT_ERROR_MAX_BYTES = 4096
+
+
 @api.get("/health")
 async def health() -> dict:
     # No DB call — CD smoke runs with a dummy DATABASE_URL and no Postgres.
@@ -88,10 +93,21 @@ async def health() -> dict:
 
 
 @api.post("/client-errors", status_code=status.HTTP_204_NO_CONTENT)
-async def client_errors(body: ClientError) -> Response:
+async def client_errors(request: Request) -> Response:
     """Browser errors from the ANONYMOUS pages, where no Sentry SDK is loaded. Message and path only:
-    no stack (nothing here could symbolicate it), no query string (ids and tokens live there). The
-    per-client rate limit is the abuse ceiling and the field caps are the size ceiling."""
+    no stack (nothing here could symbolicate it), no query string (ids and tokens live there).
+
+    The body is bounded before it is parsed and the route stays inside the per-client rate limit, so
+    the pair is the abuse ceiling. AI HERE: a chunked request with no Content-Length still reaches the
+    parser — the ingress `proxy-body-size` is the outer bound until a global limit exists.
+    """
+    declared = request.headers.get("content-length", "")
+    if declared.isdigit() and int(declared) > CLIENT_ERROR_MAX_BYTES:
+        raise HTTPException(status_code=status.HTTP_413_CONTENT_TOO_LARGE, detail="Not a browser error report")
+    try:
+        body = ClientError.model_validate_json(await request.body())
+    except ValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Not a browser error report") from exc
     log.info("browser.error", message=body.message, route=body.route)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
@@ -1028,11 +1044,11 @@ async def chat_stream(
             # AI HERE: tokens are not requested (the provider only reports usage when the payload asks
             # via stream_options.include_usage), so `chars` stands in; add the payload key when exact
             # cost accounting is needed.
-            log.info("llm.chat.completed", interview_id=interview_id, model=config.model, turn=asked, chars=len(reply), latency_ms=round((time.perf_counter() - turn_started) * 1000, 1))
+            log.info("llm.chat.completed", interview_id=interview_id, model=config.model, asked=asked, chars=len(reply), latency_ms=round((time.perf_counter() - turn_started) * 1000, 1))
         except Exception as exc:
             # Model or DB failure while the turn is in flight: the user's row must not outlive it, or
             # the next send duplicates the answer (see the repair above).
-            log.warning("llm.chat.failed", interview_id=interview_id, model=config.model, turn=asked, reason=type(exc).__name__, latency_ms=round((time.perf_counter() - turn_started) * 1000, 1))
+            log.warning("llm.chat.failed", interview_id=interview_id, model=config.model, asked=asked, reason=type(exc).__name__, latency_ms=round((time.perf_counter() - turn_started) * 1000, 1))
             await _discard_turn()
             yield f"event: error\ndata: {str(exc)}\n\n"
             return

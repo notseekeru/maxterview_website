@@ -54,8 +54,27 @@ def test_client_error_beacon_is_capped_and_logged():
         with TestClient(app) as client:
             assert client.post("/api/client-errors", json={"message": "boom", "route": "/"}).status_code == 204
             over = client.post("/api/client-errors", json={"message": "x" * 301, "route": "/"})
+            huge = client.post("/api/client-errors", content=b'{"message": "' + b"x" * 8192 + b'", "route": "/"}')
     finally:
         root.removeHandler(handler)
 
     assert over.status_code == 422  # unauthenticated input: the field cap is the size ceiling
+    assert huge.status_code == 413  # and the declared length is checked before the body is parsed
     assert [(line["message"], line["route"]) for line in lines if line.get("event") == "browser.error"] == [("boom", "/")]
+
+
+def test_throttled_requests_still_reach_the_access_log(monkeypatch):
+    """The access-log middleware is outermost, so a 429 the limiter returns is still recorded."""
+    monkeypatch.setenv("RATE_LIMIT", "1/minute")
+    handler, lines = _capture_json()
+    root = logging.getLogger()
+    root.addHandler(handler)
+    try:
+        with TestClient(app) as client:
+            assert client.get("/api/absent").status_code == 404
+            throttled = client.get("/api/absent")
+    finally:
+        root.removeHandler(handler)
+
+    assert throttled.status_code == 429
+    assert [line["status"] for line in lines if line.get("event") == "http.request"] == [404, 429]
