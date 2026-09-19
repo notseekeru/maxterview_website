@@ -3,8 +3,8 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
 import { apiDetail, completeInterview, type Feedback, getFeedback, getInterview, getMessages, httpStatus, MAX_TURN_CHARS, type Message, regenerateFeedback, startInterview, streamChat } from "@/lib/api";
-import { cn } from "@/lib/utils";
 import { OPENING_ASKS_RESUME, OPENING_HAS_RESUME } from "@/lib/config";
+import { cn } from "@/lib/utils";
 import { FeedbackView } from "./FeedbackView";
 import { MoveBadge } from "./MoveBadge";
 import { UpgradeNotice } from "./UsageBadge";
@@ -229,11 +229,7 @@ export function InterviewChat({ interviewId, onExit }: Props) {
     // Hardcore is the only dial with a body count, so it gets the only glow: ambient while the run
     // is live, full strength once it fails. Light-mode red is the darker token - #ff9999 on white
     // is invisible.
-    const glow = hardcoreFailed
-        ? "border-destructive shadow-[0_0_30px_-2px_rgba(160,0,0,0.45)] dark:shadow-[0_0_34px_-2px_rgba(255,153,153,0.6)]"
-        : hardcoreRun && status !== "completed"
-          ? "border-destructive/40 shadow-[0_0_20px_-4px_rgba(160,0,0,0.3)] dark:shadow-[0_0_24px_-4px_rgba(255,153,153,0.45)]"
-          : undefined;
+    const glow = hardcoreFailed ? "border-destructive shadow-[0_0_30px_-2px_rgba(160,0,0,0.45)] dark:shadow-[0_0_34px_-2px_rgba(255,153,153,0.6)]" : hardcoreRun && status !== "completed" ? "border-destructive/40 shadow-[0_0_20px_-4px_rgba(160,0,0,0.3)] dark:shadow-[0_0_24px_-4px_rgba(255,153,153,0.45)]" : undefined;
 
     return (
         <Card className={cn("flex min-h-0 w-full flex-1 flex-col", glow)}>

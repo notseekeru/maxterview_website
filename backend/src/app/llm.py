@@ -213,10 +213,7 @@ OPENING_PHASE = (
 # bubble ("share your resume/background") is a canned message this prompt never sees, so without this
 # the opener reads as the APPLICANT introducing themselves - which is what one candidate answered
 # ("i thought u were my interviewer"), and the crosstalk that followed was graded as answers.
-INTRO_TURN = (
-    "This is your FIRST turn: open with one short line saying you will be running their mock interview today."
-    " You are the interviewer and they are the candidate - never introduce yourself as the applicant or describe the job as your own day-to-day."
-)
+INTRO_TURN = "This is your FIRST turn: open with one short line saying you will be running their mock interview today. You are the interviewer and they are the candidate - never introduce yourself as the applicant or describe the job as your own day-to-day."
 # The mix dials are QUESTION BUDGETS, not weights: the phase is a pure function of the transcript
 # length and the interview's dials, so the arc is reproducible and testable. The wrap-up is what
 # stops an interview with every budget on 0 (or 4 straight technical questions) from asking
