@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
 import { apiDetail, completeInterview, type Feedback, getFeedback, getInterview, getMessages, httpStatus, MAX_TURN_CHARS, type Message, regenerateFeedback, startInterview, streamChat } from "@/lib/api";
+import { cn } from "@/lib/utils";
 import { OPENING_ASKS_RESUME, OPENING_HAS_RESUME } from "@/lib/config";
 import { FeedbackView } from "./FeedbackView";
 import { MoveBadge } from "./MoveBadge";
@@ -24,6 +25,7 @@ export function InterviewChat({ interviewId, onExit }: Props) {
     const [feedback, setFeedback] = useState<Feedback | null>(null);
     const [quotaLocked, setQuotaLocked] = useState(false);
     const [interviewOver, setInterviewOver] = useState(false);
+    const [hardcoreRun, setHardcoreRun] = useState(false);
     const [hardcoreFailed, setHardcoreFailed] = useState<{ turn: number; class: string } | null>(null);
     const [completing, setCompleting] = useState(false);
     const [scoringTip, setScoringTip] = useState(false);
@@ -48,6 +50,7 @@ export function InterviewChat({ interviewId, onExit }: Props) {
         async (id: string) => {
             const [iv] = await Promise.all([getInterview(id), loadMessages()]);
             setHasResume(Boolean(iv.resume_id));
+            setHardcoreRun(iv.hardcore);
             if (iv.status !== "completed") return "ready" as const;
             try {
                 setFeedback(await getFeedback(id));
@@ -66,6 +69,7 @@ export function InterviewChat({ interviewId, onExit }: Props) {
                 const started = await startInterview(interviewId);
                 if (cancelled) return;
                 setHasResume(Boolean(started.resume_id));
+                setHardcoreRun(Boolean(started.hardcore));
                 await loadMessages();
                 setStatus("ready");
             } catch (e: unknown) {
@@ -222,8 +226,17 @@ export function InterviewChat({ interviewId, onExit }: Props) {
         }
     }
 
+    // Hardcore is the only dial with a body count, so it gets the only glow: ambient while the run
+    // is live, full strength once it fails. Light-mode red is the darker token - #ff9999 on white
+    // is invisible.
+    const glow = hardcoreFailed
+        ? "border-destructive shadow-[0_0_30px_-2px_rgba(160,0,0,0.45)] dark:shadow-[0_0_34px_-2px_rgba(255,153,153,0.6)]"
+        : hardcoreRun && status !== "completed"
+          ? "border-destructive/40 shadow-[0_0_20px_-4px_rgba(160,0,0,0.3)] dark:shadow-[0_0_24px_-4px_rgba(255,153,153,0.45)]"
+          : undefined;
+
     return (
-        <Card className="flex min-h-0 w-full flex-1 flex-col">
+        <Card className={cn("flex min-h-0 w-full flex-1 flex-col", glow)}>
             <CardHeader className="flex-row items-center justify-between space-y-0">
                 <div>
                     <CardTitle>Interview</CardTitle>
