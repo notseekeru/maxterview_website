@@ -315,6 +315,9 @@ def test_evidence_cap_clamps_model_certainty():
     # ...and never inflates a modest one.
     quiet = FeedbackSummary(scores={d: 5 for d in llm.FEEDBACK_DIMS}, verdict="v", tips=["a"], decision="lean_reject", certainty=20)
     assert llm._apply_evidence_cap(quiet, [ChatMessage(role="user", content="x")] * 20).certainty == 20
+    # `failed` opts out: a hardcore failure's certainty is set by the failure, not by turn count.
+    certain = FeedbackSummary(scores={d: 5 for d in llm.FEEDBACK_DIMS}, verdict="v", tips=["a"], decision="reject", certainty=100)
+    assert llm._apply_evidence_cap(certain, [ChatMessage(role="user", content="one answer")], failed=True).certainty == 100
 
 
 async def test_generate_feedback_real_grader_and_formatter_path(monkeypatch):
@@ -558,6 +561,9 @@ async def test_hardcore_failure_prompts_for_caps_and_forces_reject(monkeypatch):
     assert out is not None and out.verdict == "YOU BLEW IT."
     # Whatever the notes talked the model into: a run that died on a wrong answer is a reject.
     assert out.decision == "reject"
+    # And a certain one, whatever certainty the model emitted and however short the transcript was:
+    # the cap would have read this single-turn run as 48%.
+    assert out.certainty == 100
     assert out.moves == {}  # annotate=False: a hardcore run was already judged turn by turn
 
 

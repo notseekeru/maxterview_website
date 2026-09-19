@@ -698,9 +698,13 @@ def _evidence_cap(history: list[ChatMessage]) -> int:
     return min(100, EVIDENCE_CAP_BASE + EVIDENCE_CAP_STEP * answers)
 
 
-def _apply_evidence_cap(summary: FeedbackSummary, history: list[ChatMessage]) -> FeedbackSummary:
-    """Clamp the model's certainty to what the transcript can actually support."""
-    if summary.certainty is not None:
+def _apply_evidence_cap(summary: FeedbackSummary, history: list[ChatMessage], *, failed: bool = False) -> FeedbackSummary:
+    """Clamp the model's certainty to what the transcript can actually support.
+
+    `failed` is a hardcore failure, whose certainty is already set by `_request_format`: turn count
+    measures how much was said, and a run ENDED by a wrong answer does not become less certain for
+    having died early - the class that killed it is the evidence."""
+    if summary.certainty is not None and not failed:
         summary.certainty = min(summary.certainty, _evidence_cap(history))
     return summary
 
@@ -961,8 +965,10 @@ async def _request_format(notes: str, config: LLMConfig, failure: tuple[int, str
             # A hardcore failure is a reject by definition, whatever the notes talked the model into.
             decision="reject" if failure else decision,
             # Certainty without a decision has nothing to qualify: drop it rather than let an
-            # orphan number into the certainty average.
-            certainty=_coerce_certainty(obj.get("certainty")) if decision else None,
+            # orphan number into the certainty average. A hardcore failure is 100 by construction -
+            # the class that ended the run is the evidence - so no model number, and no turn-count
+            # hedge, can talk it into a 48% reject.
+            certainty=100 if failure else (_coerce_certainty(obj.get("certainty")) if decision else None),
         )
     log.error("llm.feedback.formatter_unavailable")
     return None
@@ -1068,7 +1074,7 @@ async def generate_feedback(history: list[ChatMessage], dials: Dials | None, con
             stub.verdict = f"RUN OVER. TURN {failure[0]} WAS A {failure[1].upper()} AND IN HARDCORE MODE THAT IS THE WHOLE RUN. NO SECOND CHANCES."
             stub.decision = "reject"
             stub.certainty = 100
-        return _apply_evidence_cap(stub, history)
+        return _apply_evidence_cap(stub, history, failed=failure is not None)
     notes = await _request_grader_notes(history, dials, config, resume)
     if notes is None:
         return None
@@ -1079,7 +1085,7 @@ async def generate_feedback(history: list[ChatMessage], dials: Dials | None, con
     # Skipped on a hardcore run, which was already judged answer by answer.
     if annotate:
         summary.moves = await classify_turns(history, config)
-    return _apply_evidence_cap(summary, history)
+    return _apply_evidence_cap(summary, history, failed=failure is not None)
 
 
 async def test_provider(config: LLMConfig) -> tuple[bool, str]:
