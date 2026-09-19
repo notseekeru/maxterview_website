@@ -981,6 +981,11 @@ async def classify_turns(history: list[ChatMessage], config: LLMConfig) -> dict[
     transcript = _format_transcript(history)
     if not turns or not transcript:
         return {}
+    # STUB_MODE walks the same deterministic cycle judge_answer uses (its docstring already promises this).
+    # Without it a model-free run - dev, seed, tests, or the hardcore backfill in main - spends a
+    # transport error per attempt and silently classifies nothing.
+    if config.stub:
+        return _stub_moves(history)
     for _ in range(2):
         content = await _completion(
             MOVES_PROMPT_V1,
