@@ -26,6 +26,8 @@ seed-wipe: ## Same, replacing this owner's existing rows.
 
 test-llm: ## End-to-end LLM smoke test (needs live model + running stack). See scripts/llm-smoke.sh.
 	@scripts/llm-smoke.sh
+probe-llm: ## Measure the LLM_* target: rate-limit cliff, prompt caching, stage latency. See scripts/llm-probe.py.
+	@set -a; . ./backend/.env; set +a; nix shell nixpkgs#python3 --command python3 -u scripts/llm-probe.py
 # DEV
 check-ports:
 	@scripts/port-claimer.sh --self $(DEV_PROJECT) $(PORTS)
