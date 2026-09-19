@@ -59,22 +59,21 @@ The server is `playwright-mcp` from **nixpkgs** (not npx), provided by the repo 
 pi must run inside `nix develop`/direnv for the command to resolve. `.mcp.json`:
 
 ```json
-{ "mcpServers": { "playwright": { "command": "playwright-mcp",
-  "args": ["--headless", "--isolated", "--browser", "chromium"], "lifecycle": "lazy" } } }
+{
+  "mcpServers": {
+    "playwright": {
+      "command": "playwright-mcp",
+      "args": ["--headless", "--isolated", "--browser", "chromium"],
+      "lifecycle": "lazy"
+    }
+  }
+}
 ```
 
 Typical drive. **Tool names are namespaced `playwright_*`** — bare `browser_navigate` fails with
 "Tool not found" (the adapter prefixes by server name; `toolPrefix: "none"` in adapter settings would
 remove it). `target` accepts **either** a snapshot ref (`e8`) **or** a unique CSS selector, so the
 journey selectors in the runners section work unchanged:
-
-```
-mcp({ tool: "playwright_browser_navigate", args: { url: "http://localhost:5173/" } })
-mcp({ tool: "playwright_browser_snapshot", args: {} })   # read the a11y tree + refs
-mcp({ tool: "playwright_browser_click", args: { target: "e8", element: "Start practicing free link" } })
-mcp({ tool: "playwright_browser_type", args: { target: "#role", text: "Backend Engineer" } })
-mcp({ tool: "playwright_browser_wait_for", args: { text: "is annotated in the transcript below" } })
-```
 
 **Don't snapshot-spam.** `browser_snapshot` is the token sink; each call dumps a full YAML tree.
 Snapshot once to get refs, then act, then prefer `browser_wait_for` (`{text}` / `{textGone}` /
@@ -88,22 +87,6 @@ no request interception) — `browser_run_code_unsafe` exists and is RCE-equival
 it deliberately; and nixpkgs pins `playwright-mcp` 0.0.76 (`skipBulkUpdate = true`, no auto-update), so
 it lags upstream. Server writes throwaway artifacts under `.playwright-mcp/` (already gitignored).
 
-## Host-direct runner primitive (fallback / assertions)
-
-```js
-// bespoke.cjs — CJS (playwright-core is CommonJS). Require the shared launcher:
-const { openBrowser, BASE } = require("../scripts/store.cjs");
-
-(async () => {
-  const browser = await openBrowser();        // headless chromium from the nix store, no-sandbox
-  const page = await browser.newPage();
-  await page.goto(BASE + "/");
-  console.log(await page.locator("body").innerText());   // see what actually rendered
-  // ... any page.* work (including page.route / waitForResponse — note MCP cannot do this) ...
-  await browser.close();
-})();
-```
-
 `openBrowser()` resolves playwright-core + chromium from `/nix/store` at runtime and returns a
 headless chromium Browser. Drive `page.goto / locator / fill / click / waitFor` etc. Because it is
 just node + playwright-core, anything `page.*` can do you can do here — including network
@@ -113,15 +96,6 @@ AI HERE: MCP and the runners are deliberately both kept. MCP wins on interactivi
 runners win on determinism (assert semantics) and raw `page.*` reach. Unify only if the nixpkgs
 `playwright-mcp` pin becomes a maintenance problem, or if MCP grows assert semantics — at which point
 `store.cjs` + the canned journeys can retire.
-
-`scripts/store.cjs` exports `{ NIX, BASE, pcore, CHROME_BIN, sleep, openBrowser }`. `e2e.cjs` and
-`inspect.cjs` both `require()` it, so browser resolve/launch is defined once.
-
-Run any bespoke script with the repo flake shell so nodejs + nix-store are reachable:
-
-```bash
-nix develop . -c node .pi/skills/hermetic-e2e/scripts/inspect.cjs   # see resolve/launch in action
-```
 
 ## Preconditions
 
@@ -136,37 +110,6 @@ nix develop . -c node .pi/skills/hermetic-e2e/scripts/inspect.cjs   # see resolv
   ones). Flake pins `playwright` + `chromium` + `playwright-mcp`, so a fresh `nix develop` provides
   them. The MCP path needs the shell on PATH (`which playwright-mcp` must succeed) or the lazy server
   will fail to launch on first call.
-
-## Canned runners (presets for the routine path)
-
-Rule 2/3 above applies: run these as-is for their verdict. If one fails or has no leg for what you are
-checking, go to MCP instead of touching the file.
-
-```bash
-# onboarding + dashboard nav only (fast): 
-nix develop . -c node .pi/skills/hermetic-e2e/scripts/e2e.cjs
-# full assert: send answer -> Complete -> FeedbackView OR Retry-scoring notice:
-nix develop . -c node .pi/skills/hermetic-e2e/scripts/e2e.cjs --feedback
-# resume library: drop a generated PDF on the import dropdown -> attach -> resume-aware thread:
-nix develop . -c node .pi/skills/hermetic-e2e/scripts/e2e.cjs --resume
-# debug: same journey but dump live DOM per stage (--dom for raw innerHTML):
-nix develop . -c node .pi/skills/hermetic-e2e/scripts/inspect.cjs [--dom]
-# env overrides: E2E_BASE, E2E_ROLE, E2E_TOPIC, E2E_ANSWER
-```
-
-- `store.cjs` — shared resolve/launch (both runners + your bespoke scripts use it).
-- `e2e.cjs` — assert run. On a real model `/complete` runs inline and can block tens of seconds; it
-  uses a ~90s deadline. Assert the review card's copy "is annotated in the transcript below", or the
-  retry notice "your review wasn't ready" (clicks **Retry review**). `--resume` is a separate leg: it
-  builds its PDF in-process (the backend test's offsets-are-computed trick, so no binary fixture),
-  drops it on `/resume`'s import panel — the DROP path, which bypasses `accept` and is the only
-  place the non-PDF filter is exercised — attaches the saved row from the create form, and deletes
-  the row again. A created interview outlives the run: delete it as below.
-- `inspect.cjs` — the same journey but prints the rendered DOM/URL at each stage, so an ambiguous
-  assert becomes visible.
-
-Runners create a real DEV_USER interview and print its id — delete it when judging
-(**Interviews** page / `DELETE /interviews/<id>`). Keep local storage free of host `node_modules`/`install`.
 
 ## Journey selectors (for MCP or runner runs)
 
@@ -220,14 +163,6 @@ Wired via `.mcp.json` → nixpkgs `playwright-mcp`. Facts worth not re-deriving:
   `PLAYWRIGHT_MCP_ISOLATED=1` when no user-data-dir is given — so **do not** add `playwright install`
   or a browser-path env var. Pin stays deliberately frozen (`skipBulkUpdate`), so it lags upstream.
 
-Prefer MCP for interactive ref-based work; drop to the host-direct runners when you need an assertion,
-a raw DOM dump, or `page.route` network control MCP does not expose.
-
-## Why this is not a CI spec
-
-Depends on machine-local nix store + a live dev stack; deterministic CI would be the `@playwright/test`
-layer — a separate, heavier, explicit effort.
-
 ## After a run — verify then commit
 
 ```bash
@@ -235,9 +170,6 @@ make up      # ensure backend + frontend dev containers
 make lint    # biome write (frontend) + ruff fix (backend)
 make exec    # full gate: frontend typecheck+build+biome; backend ruff+pytest
 ```
-
-- Non-zero `make exec` is a blocker. Browser runs complement (not replace) these static gates.
-- Commit per AGENTS.md: atomic, `fix/feat/ref/docs(scope):`, amend-not-farm, ask before pushing.
 
 ## Guardrails
 
@@ -249,9 +181,3 @@ make exec    # full gate: frontend typecheck+build+biome; backend ruff+pytest
   other repos will litter those trees — the dir must be gitignored everywhere you use this.
 - `browser_run_code_unsafe` executes arbitrary JS in the server process (RCE-equivalent). Use only
   when the 23 typed tools genuinely cannot do the job.
-
-## Source of truth for launching (if you don't use store.cjs)
-
-playwright-core + chromium live at HASH-prefixed store dirs; resolve + CJS `require` at runtime,
-point `executablePath` at `…/chrome-linux64/chrome` (never the bare dir, never a hardcoded hash).
-`scripts/store.cjs` already does this correctly — prefer it over reimplementing.
