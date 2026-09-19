@@ -34,10 +34,18 @@ export function isQuotaError(e: unknown): boolean {
 }
 
 // FastAPI errors carry a human-readable `detail`; the backend writes those strings for this
-// UI (e.g. 409 "Nothing to score yet: …"), so prefer it over a generic message.
+// UI (e.g. 409 "Nothing to score yet: …"), so prefer it over a generic message. A 422 is the
+// exception: pydantic sends `detail` as a LIST of field errors, which a string-only read silently
+// drops into the fallback - so name the field and the rule instead of "something went wrong".
 export function apiDetail(e: unknown, fallback: string | null = null): string | null {
-    const d = (e as AxiosError<{ detail?: string }>)?.response?.data?.detail;
-    return typeof d === "string" && d ? d : fallback;
+    const d = (e as AxiosError<{ detail?: string | { loc?: (string | number)[]; msg?: string }[] }>)?.response?.data?.detail;
+    if (typeof d === "string" && d) return d;
+    const first = Array.isArray(d) ? d[0] : undefined;
+    if (typeof first?.msg === "string" && first.msg) {
+        const field = (first.loc ?? []).filter((p) => p !== "body").join(".");
+        return field ? `${field}: ${first.msg}` : first.msg;
+    }
+    return fallback;
 }
 
 // --- types (mirror backend app/models.py) ---

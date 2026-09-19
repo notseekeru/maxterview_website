@@ -153,6 +153,13 @@ export function CreateInterviewForm({ onCreated, variant = "compact", className 
 
     /** POST the form as a named preset; false = failed. */
     async function createPreset(name: string): Promise<boolean> {
+        // A preset IS a create body, so it is rejected on a field the form already knows is required:
+        // the browser's `required` only guards the real form submit, and "Start interview" is the
+        // only button that runs it. Say which field instead of letting the 422 read as "could not save".
+        if (!role.trim()) {
+            setTemplateError("Pick a role (or type one) first — a preset has to be replayable.");
+            return false;
+        }
         setTemplateError(null);
         try {
             const saved = await createTemplate({ name, ...fieldsFromForm() });
@@ -332,7 +339,7 @@ export function CreateInterviewForm({ onCreated, variant = "compact", className 
                                 </button>
                             )}
                         </div>
-                        <Input id="role" value={role} onChange={(e) => setRole(e.target.value)} placeholder="e.g. Software Engineer — or pick a preset above" required />
+                        <Input id="role" value={role} onChange={(e) => setRole(e.target.value)} maxLength={200} placeholder="e.g. Software Engineer — or pick a preset above" required />
                     </div>
 
                     <DialSlider id="level" label="Level" value={level} values={LEVELS.map((l) => l.value)} labels={LEVELS.map((l) => l.label)} onChange={setLevel} hint={level === "any" ? "AI adapts to you" : undefined} />
@@ -348,7 +355,7 @@ export function CreateInterviewForm({ onCreated, variant = "compact", className 
                     <DialSlider id="cynicism" label="Cynicism" value={CYNICISM[cynicism].value} values={CYNICISM.map((c) => c.value)} labels={CYNICISM.map((c) => c.label)} onChange={(v) => setCynicism(CYNICISM.findIndex((c) => c.value === v))} hint={CYNICISM[cynicism].hint} />
                     <div className="space-y-1.5">
                         <Label htmlFor="topic">Topic (optional)</Label>
-                        <Input id="topic" value={topic} onChange={(e) => setTopic(e.target.value)} placeholder="e.g. system design" />
+                        <Input id="topic" value={topic} onChange={(e) => setTopic(e.target.value)} maxLength={500} placeholder="e.g. system design" />
                     </div>
 
                     {/* Question budgets, folded away: they matter when you want them and are noise
