@@ -6,6 +6,7 @@ import { Modal } from "@/components/ui/modal";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { Decision, Interview } from "@/lib/api";
 import { levelLabel } from "@/lib/interviewOptions";
+import { cn } from "@/lib/utils";
 import { DecisionChip } from "./DecisionVerdict";
 import { RowMenu } from "./RowMenu";
 import { RunInfo } from "./RunInfo";
@@ -28,8 +29,8 @@ function formatDate(iso: string) {
 
 export function InterviewList({ interviews, loading, error, onRefresh, onOpen, onDelete, onArchive, onRescore }: Props) {
     // Archive hides a row here and NOWHERE else (the stats still count it - that is the difference
-    // from delete), so the reveal lives next to the list it hides from, not in the query.
-    const [showArchived, setShowArchived] = useState(false);
+    // from delete), and the two sets never mix: the list shows one or the other, never both.
+    const [view, setView] = useState<"active" | "archived">("active");
     const [infoRow, setInfoRow] = useState<Interview | null>(null);
     const [pendingDelete, setPendingDelete] = useState<Interview | null>(null);
     const [deleting, setDeleting] = useState(false);
@@ -38,8 +39,10 @@ export function InterviewList({ interviews, loading, error, onRefresh, onOpen, o
     const [archivingId, setArchivingId] = useState<string | null>(null);
     const [scoreError, setScoreError] = useState<string | null>(null);
 
-    const archivedCount = interviews.filter((i) => i.archived_at).length;
-    const visible = showArchived ? interviews : interviews.filter((i) => !i.archived_at);
+    const archived = interviews.filter((i) => i.archived_at);
+    // The last restore empties the fold and takes its toggle with it, so fall back instead of
+    // stranding the user on an unreachable empty list.
+    const visible = view === "archived" && archived.length > 0 ? archived : interviews.filter((i) => !i.archived_at);
 
     async function handleRescore(id: string) {
         setScoringId(id);
@@ -79,12 +82,17 @@ export function InterviewList({ interviews, loading, error, onRefresh, onOpen, o
             <CardHeader className="flex-row items-center justify-between space-y-0">
                 <CardTitle>History</CardTitle>
                 <div className="flex items-center gap-1">
-                    {/* Only offered when there is something to reveal: an always-on toggle for an empty
-                        set is one more control to read for no information. */}
-                    {archivedCount > 0 && (
-                        <Button variant="ghost" size="sm" onClick={() => setShowArchived((v) => !v)} aria-pressed={showArchived}>
-                            {showArchived ? "Hide archived" : `Show archived (${archivedCount})`}
-                        </Button>
+                    {/* A filter, not a reveal: the archived runs get their own folder, never a place
+                        beside the active ones. */}
+                    {archived.length > 0 && (
+                        <>
+                            <Button variant="ghost" size="sm" aria-pressed={view === "active"} className={cn(view === "active" && "bg-accent text-accent-foreground")} onClick={() => setView("active")}>
+                                Active
+                            </Button>
+                            <Button variant="ghost" size="sm" aria-pressed={view === "archived"} className={cn(view === "archived" && "bg-accent text-accent-foreground")} onClick={() => setView("archived")}>
+                                Archived ({archived.length})
+                            </Button>
+                        </>
                     )}
                     <Button variant="ghost" size="sm" onClick={onRefresh} disabled={loading || deleting}>
                         Refresh
@@ -95,7 +103,7 @@ export function InterviewList({ interviews, loading, error, onRefresh, onOpen, o
                 {error && <p className="text-sm text-destructive">{error}</p>}
                 {scoreError && <p className="text-sm text-destructive">{scoreError}</p>}
                 {loading && <Skeleton className="h-16" />}
-                {!loading && visible.length === 0 && !error && <p className="text-sm text-muted-foreground">{interviews.length > 0 ? "Everything here is archived — use Show archived to get it back." : "No interviews yet. Create one to begin."}</p>}
+                {!loading && visible.length === 0 && !error && <p className="text-sm text-muted-foreground">{archived.length > 0 ? "No active runs — everything is in Archived." : "No interviews yet. Create one to begin."}</p>}
                 {visible.map((i) => (
                     <div key={i.id} className="flex items-center justify-between gap-3 rounded-md border p-3">
                         <div className="min-w-0">
@@ -104,11 +112,6 @@ export function InterviewList({ interviews, loading, error, onRefresh, onOpen, o
                                 {i.level && i.level !== "any" && (
                                     <Badge variant="secondary" className="ml-2 align-middle text-[10px] font-medium">
                                         {levelLabel(i.level)}
-                                    </Badge>
-                                )}
-                                {i.archived_at && (
-                                    <Badge variant="outline" className="ml-2 align-middle text-[10px] font-medium text-muted-foreground">
-                                        Archived
                                     </Badge>
                                 )}
                             </p>
