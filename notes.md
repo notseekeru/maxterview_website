@@ -1,21 +1,29 @@
 > To AI reading this, do not implement. This is just notes of the user, strictly ignore this unless prompted to.
 
+# MILESTONE
+
+- add some evals for ai quality
+- the voice feature and tts with video input from user
+- backup as a milestone record it in readme, and use r2 new bucket
+
 # FEATURES
 
-- have resume feature with import resume with pdf with deps for maintanibility no hand rolling
-- and then after the resume feature we can add direct integration to interviews to just pull the resume in the imported by the user (have a button in the interview chat not at dials to have resume included in the new interview)
+- ai resume editor latex to display and edit kind alike overleaf?
 - lazy loading cuz everything just render and causes fps drops (not latency or unoptimized roundtrips)
-- the voice feature and tts with video input from user
-- ai resume fixer with pdf to latex? if theres no resume then create new maybe with max 5 resume file upload/saving for different roles
 
 # FIX
 
-- fix the database promotion thing in cicd
-- grill the plan and architecture and code
+- fix: the the manual button has no cooldown, if 1 click in 1 second = 1 but when 10 clicks in 1 second = 10 request. we have rate limit but is this a issue today?
+- fix: global comment removal, if the code looks obvious/trivial and does not need comment -> delete. if related to infra, or could potentially be devastating if not stated -> keep. audit first, rate by removal and recommended deletion. then update agent.md for guardrailing against this. ask question before proceeding
+- the hardcore path is broken sometimes, it just ends abruptly even just sending a resume is terminated. maybe because of its architecture. bring an audit. ask question before proceeding and propose fix
+- fix: dont say premium to users like explicitly just upgrade to premium something to get ---, ask question if uncertain like we use like physicological and marketing tactics
+- grill the plan and architecture and code maintainability/readability. it matters to me when i skim code
 - the personalData in portfolio is bloated
 - after wiring the observability pipeline, we can proceed to writing the blog, and then we finish resume and analytics page and then record with recordly for project portfolio asset and maxterview landing page video opener asset
 
 # REFACTOR
+
+- refactor: how about we make development vars put into development env of infisical? but that would be creating a dependency to use internet just to fill the vars? but what if we boot strap and injected to .env so it works offline?
 
 # INFRA
 
@@ -31,3 +39,4 @@
 - just finished my staging env, i have done alot of stuff that i supervised with my AI, alot of it just monitor what it does and guiding what it is struggling with. for example i needed him to reference the infisical vars, someone who probably vibecode would trust ai that it is not possible with infisical cli but i persisted and guided it(cuz i know why and what tool im using) and not guide me there to what its believe without proper research surface
 - quite alot was added in my infrastructure but i try to maintain its isolation, clarity and cohesion at the same time while understanding my whole system no big deal just another mental model
 - yeah this is a little bit of overengineer and i would probably turn this staging stuff of in the near future cuz i dont need it im a 1 man team and just doing this for fun and i have tradeoffs to manage and also this is not a real production product yet cuz i dont have users and stakes to hold
+- the staging aspect is now removed and verified no more dev/staging/prod just dev/prod
