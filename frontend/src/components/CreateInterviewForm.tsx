@@ -313,7 +313,7 @@ export function CreateInterviewForm({ onCreated, variant = "compact", className 
                     <div className={cn("space-y-1.5", featured && "sm:col-span-2")}>
                         <Label htmlFor="role">Role</Label>
                         <div className="flex flex-wrap gap-1.5">
-                            {(showAllRoles ? ROLE_PRESETS : ROLE_PRESETS.slice(0, 9)).map((preset) => (
+                            {(showAllRoles ? ROLE_PRESETS : ROLE_PRESETS.slice(0, 8)).map((preset) => (
                                 <button
                                     key={preset}
                                     type="button"

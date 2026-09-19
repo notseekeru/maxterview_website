@@ -1,5 +1,4 @@
 import type { ReactNode } from "react";
-import { Separator } from "@/components/ui/separator";
 import { useDocumentTitle } from "@/hooks/useDocumentTitle";
 import { cn } from "@/lib/utils";
 
@@ -22,8 +21,4 @@ export function Page({ title, description, children, actions, wide }: { title: s
             {children}
         </div>
     );
-}
-
-export function SectionDivider() {
-    return <Separator />;
 }

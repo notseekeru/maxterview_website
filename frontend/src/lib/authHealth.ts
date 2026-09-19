@@ -10,8 +10,6 @@ export const clerkKey = (import.meta.env.VITE_CLERK_PUBLISHABLE_KEY as string | 
 
 export const clerkKeyShapeValid = /^pk_/.test(clerkKey);
 
-export const DOMAIN_PLACEHOLDER = "your-clerk-domain.clerk.accounts";
-
 export const clerkEnabled = clerkKeyShapeValid && clerkKey.length > 0;
 
 export const clerkPublishableKey = clerkKey;
