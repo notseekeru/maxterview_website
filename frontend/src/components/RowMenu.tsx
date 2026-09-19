@@ -47,7 +47,9 @@ export function RowMenu({ label, items }: { label: string; items: RowMenuItem[] 
                     ⋮
                 </span>
             </summary>
-            <div className="absolute right-0 z-20 mt-1 w-36 rounded-md border bg-popover p-1 shadow-md">
+            {/* z-40 is above the fixed nav rail (z-30): a left-opening panel from a chip at the card's
+                left edge crosses the rail, and at z-20 the rail painted over it. */}
+            <div className="absolute right-0 z-40 mt-1 w-36 rounded-md border bg-popover p-1 shadow-md">
                 {items.map((item) => (
                     <button
                         key={item.label}
