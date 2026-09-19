@@ -224,7 +224,10 @@ export function CreateInterviewForm({ onCreated, variant = "compact", className 
                             <span className="text-sm font-medium leading-none">Presets</span>
                             <div className="flex flex-wrap items-center gap-1.5">
                                 {templates.map((t) => {
-                                    const applied = isApplied(t);
+                                    // Anchored to the preset you clicked, not to a value match: a fork saved
+                                    // unchanged has identical dials, and value-only comparison lights BOTH up
+                                    // (which reads as the two being linked).
+                                    const applied = t.id === lastUsedId && isApplied(t);
                                     return (
                                         <div key={t.id} className={cn("flex items-center rounded-full border text-xs transition-colors", applied ? "border-primary bg-primary/10 text-primary" : "border-input text-muted-foreground hover:bg-accent", !applied && t.id === lastUsedId && "border-dashed")}>
                                             <button type="button" onClick={() => applyTemplate(t)} className={cn("py-1 pl-2.5 pr-0.5", applied && "font-medium")}>
