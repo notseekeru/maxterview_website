@@ -1069,7 +1069,19 @@ async def _generate_and_persist_feedback(interview_id: str, config: llm.LLMConfi
     summary = await llm.generate_feedback(history, dials, config, failure=failure, annotate=not hardcore, resume=(row["resume_text"] or "") if row else "")
     if summary is None:
         return None
-    classes = [r["move_class"] for r in history_rows if r["role"] == "user"] if hardcore else await _persist_move_classes(interview_id, [r["id"] for r in history_rows if r["role"] == "user"], summary.moves)
+    candidate_ids = [r["id"] for r in history_rows if r["role"] == "user"]
+    if hardcore:
+        classes = [r["move_class"] for r in history_rows if r["role"] == "user"]
+        # The live judge can return None on a turn (verdict unavailable -> stored NULL) and a hardcore run
+        # skips the moves pass, so without this the review scores a run it never finished judging and the
+        # failure net below has nothing to see. Backfill ONLY the missed turns - the verdicts the candidate
+        # was already told about are never re-litigated, they just travel back through the write.
+        if None in classes:
+            backfill = await llm.classify_turns(history, config)
+            merged = {n: cls or backfill.get(n) for n, cls in enumerate(classes, 1) if cls or backfill.get(n)}
+            classes = await _persist_move_classes(interview_id, candidate_ids, merged) or classes
+    else:
+        classes = await _persist_move_classes(interview_id, candidate_ids, summary.moves)
     accuracy = rating.accuracy(classes)
     # Safety net: hardcore, no failure recorded (the live judge came back empty on some turn), and this
     # transcript does contain one. Record it, or the review would show F with nothing to shout about.
