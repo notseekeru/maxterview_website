@@ -15,6 +15,19 @@ REAL = llm.LLMConfig(base_url="http://llm.test", model="qwen")
 MOVES_JSON = '{"moves": [{"turn": 1, "class": "great"}, {"turn": 2, "class": "inaccuracy"}]}'
 
 
+def test_first_turn_says_who_is_asking():
+    """The opener is the only place the candidate learns who is on the other side.
+
+    The frontend's intro bubble is never persisted, so the model cannot know it just asked for a
+    resume - without the intro line the opener read as the APPLICANT introducing themselves, and the
+    role crosstalk that followed got graded as interview answers.
+    """
+    first = llm.system_prompt("DevOps Engineer", "any", asked=0, resume="CV")
+    assert "running their mock interview today" in first
+    assert "never introduce yourself as the applicant" in first
+    assert "FIRST turn" not in llm.system_prompt("DevOps Engineer", "any", asked=1, resume="CV")  # not a standing rule
+
+
 def test_system_prompt_any_level_and_topic():
     p = llm.system_prompt("Software Engineer", "any", "System Design")
     assert "Software Engineer" in p

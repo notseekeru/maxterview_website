@@ -209,6 +209,14 @@ OPENING_PHASE = (
     " (a disagreement, a mistake, taking ownership, a deadline)."
     " If not, ask once, briefly, for their background - nothing else yet."
 )
+# The first turn is the only place a candidate learns who is on the other side: the frontend's intro
+# bubble ("share your resume/background") is a canned message this prompt never sees, so without this
+# the opener reads as the APPLICANT introducing themselves - which is what one candidate answered
+# ("i thought u were my interviewer"), and the crosstalk that followed was graded as answers.
+INTRO_TURN = (
+    "This is your FIRST turn: open with one short line saying you will be running their mock interview today."
+    " You are the interviewer and they are the candidate - never introduce yourself as the applicant or describe the job as your own day-to-day."
+)
 # The mix dials are QUESTION BUDGETS, not weights: the phase is a pure function of the transcript
 # length and the interview's dials, so the arc is reproducible and testable. The wrap-up is what
 # stops an interview with every budget on 0 (or 4 straight technical questions) from asking
@@ -378,6 +386,8 @@ def system_prompt(role: str, level: str, topic: str = "", asked: int = 0, dials:
     if d.brutally_honest:
         parts.append(BLUNT_PROMPT)
     parts.append(coverage_directive(level))
+    if asked == 0:
+        parts.append(INTRO_TURN)
     parts.append(f"Current phase: {interview_phase(asked, d, level)} Ask exactly one question per turn and wait for the answer. If they ask you something, answer in one short line, then continue with your current phase - you drive the arc, not the candidate.")
     return " ".join(parts)
 
