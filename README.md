@@ -152,7 +152,7 @@ backend uv/pep621, Docker base images (digest-pinned) and GitHub Actions refs.
 
 Production is a **k3s cluster managed by GitOps** in the separate
 [`gitops` repo](https://github.com/notseekeru/gitops). This repo is the app source; the gitops repo
-holds the manifests (`apps/maxterview/{base,overlays/{prod,staging}}`) and Argo reconciles them.
+holds the manifests (`apps/maxterview/{base,overlays/prod}`) and Argo reconciles them.
 
 Operator notes:
 

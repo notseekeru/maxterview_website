@@ -20,13 +20,10 @@ CMD ["npm", "run", "dev", "--", "--host"]
 
 FROM base AS builder
 
-# Two builds from one Dockerfile, chosen by mode (D14): the default reads the committed
-# frontend/.env.production, while the staging image is built with --build-arg VITE_MODE=staging and
-# reads frontend/.env.staging (the Development instance's pk_test_). Vite inlines VITE_* at build
-# time, so the choice has to happen here — runtime injection via nginx config.js is the
-# documented-but-unneeded alternative (9 files across 3 repos).
-ARG VITE_MODE=production
-RUN npm run build -- --mode "$VITE_MODE"
+# Reads the committed frontend/.env.production. Vite inlines VITE_* at build time, so the Clerk
+# publishable key is baked into dist/ here and can never come from a cluster Secret — that is why
+# this image is environment-specific and why a second env needs its own build (ADR 0003, terraform).
+RUN npm run build
 
 FROM nginxinc/nginx-unprivileged:1.31.6@sha256:e44b470e571b20d935336bfb9f8277c1468d15e1e4d105a12ab5609d0b4682cb AS prod
 
