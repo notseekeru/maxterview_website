@@ -5,22 +5,23 @@
 - add some evals for ai quality
 - the voice feature and tts with video input from user
 - backup as a milestone record it in readme, and use r2 new bucket
+- add caching in redis
 
 # FEATURES
 
+- feat: comment per interview messages, so it gives tips on every messages might be complicated cuz you need to make a comment for every messages can create N problems but seems doable considering small N number of messages. ask me question if needed and uncertain
+- offer letter simulation for soft skill communication assesment and add average offer and benefits analytics
 - ai resume editor latex to display and edit kind alike overleaf?
-- lazy loading cuz everything just render and causes fps drops (not latency or unoptimized roundtrips)
+- lazy loading cuz everything just render on analytics and causes fps drops (not latency or unoptimized roundtrips)
 
 # FIX
 
-- fix: make hardcore glow light red on chat interview
-- fix: the preset is not saving at 2 templates is that normal and also can we add more templates, like, The killer, The griller, the chiller
+- fix: make hardcore path at the end llm generated cuz currently its determistic and auto complete on the callout and also make all the message caps automatic and seemed angry and then we audit also that we dont have to recompute at something here right cuz we recalculate the moves bluneder to brilliant all over again when hit complete. it seems architecture is mangled. ask question if uncertain of understanding and scope
 - fix: the the manual button has no cooldown, if 1 click in 1 second = 1 but when 10 clicks in 1 second = 10 request. we have rate limit but is this a issue today?
 - fix: global comment removal, if the code looks obvious/trivial and does not need comment -> delete. if related to infra, or could potentially be devastating if not stated -> keep. audit first, rate by removal and recommended deletion. then update agent.md for guardrailing against this. ask question before proceeding
 - fix: dont say premium to users like explicitly just upgrade to premium something to get ---, ask question if uncertain like we use like physicological and marketing tactics
 - grill the plan and architecture and code maintainability/readability. it matters to me when i skim code
-- the personalData in portfolio is bloated
-- after wiring the observability pipeline, we can proceed to writing the blog, and then we finish resume and analytics page and then record with recordly for project portfolio asset and maxterview landing page video opener asset
+- observability shipped (tier 1 app-side, tier 2 Loki + alerts) → next: blog post, then resume + analytics page, then recordly assets (portfolio + landing opener)
 
 # REFACTOR
 
@@ -28,7 +29,32 @@
 
 # INFRA
 
-# INFRA
+## Observability pipeline (shipped, see OBSERVABILITY.md)
+
+Logs are the only signal; every number is derived from them. No app-side metric/trace SDK, and the app
+never holds a telemetry credential.
+
+- **Emission** — structlog + a `ProcessorFormatter` bridge, so our events _and_ stdlib records (uvicorn
+  tracebacks, httpx) become one JSON line to stdout in prod. `request_id` is bound per request and echoed
+  as `X-Request-ID`; identity comes from `scope["state"]` because the rate limiter's `BaseHTTPMiddleware`
+  blocks contextvars from travelling back up. `/health` is skipped at the source — that IS the log shaping.
+- **Shipping** — Alloy, a 1-replica Deployment (not a DaemonSet), tails pod logs through the Kubernetes
+  API: no hostPath, no privileged container, and the namespaced Role _is_ the scope
+  (`namespaces { own_namespace = true }` — discovery lists cluster-wide by default and 403s otherwise).
+  `drop` on Succeeded/Failed phases, or a finished Job pod gets re-tailed in a hot loop.
+- **Store** — Grafana Cloud Loki, 14-day retention. Lines stay unparsed JSON; parsing happens at query
+  time (`| json`), so labels stay low-cardinality (namespace/pod/container/app + cluster).
+- **Derived metrics** — every number is a LogQL aggregate (`count_over_time`, `quantile_over_time` over
+  `duration_ms`). True histograms and history past 14 days are exactly the OTel trigger, not a now-need.
+- **Alerts** — 3 Grafana-managed rules in folder `maxterview`, default policy → Slack (webhook at Infisical
+  `/sources/webhooks`). Always `noDataState: OK`: a quiet stack stays quiet.
+- **Credential homes** — Loki write token: Infisical → TF secret `maxterview-logs` (scope `logs:write`,
+  verified write-only); Grafana service-account token: root `.env`, read by `.mcp.json` via `!sed`;
+  browser error path holds no third-party credential.
+- **Gotcha** — Alloy reads its config at startup and Argo restarts nothing on a ConfigMap change, so the
+  `maxterview/config-hash` annotation must be bumped with any config edit.
+- **Parked, with triggers** — OTel/OTLP (a number needing true percentiles or >14d history), Tempo
+  (latency crossing more than one hop), Faro (only after Tempo).
 
 ## LLM upgrade path (from the architecture audit)
 
@@ -73,14 +99,19 @@ on the free-tier key, ~13-15 requests and ~19s for a 10-question run + Complete.
 - Fine-tuning or distilling into a local 4B (it cannot serve the load, and it would wreck the rubric -
   the value is the pipeline, not the model), vector DBs, agent/multi-model orchestration.
 
-# PERSONAL ACCOMPLISHMENTS/STRUGGLES THAT GOT ME EXCITED AND THINKING
+# MAXTERVIEW JOURNAL
 
-- because of my existing infra (k3s, terraform, gitops, auto commit pipeline and stuff) is the reason why i can ship fast and automate deployments in my work, reducing friction and im happy i did what i did before and so proud of my architecture
-- mcp wiring to playwright, rassled with it non stop, made tradeoffs and decisions and research until agent can independantly see the dom
-- clerk, stripe and paymongo and alot of wiring on the 3rd party side but worth it so it can be automated and review by AI and setup by AI removing friction from using browser just for configuration
-- dev, stage, prod separation haves another mental model that im very excited to show off, staging is the one that needs to be injected into my brain so i can practice how production deployment works
-- currently setting staging rn, i was suprised i needed a separate and extra environment for it. i made another separate module for it in isolation. i shouldve seen this coming this like staging should be isolated not shared, which makes sense but i seemed like i forgot for a moment lol.
-- just finished my staging env, i have done alot of stuff that i supervised with my AI, alot of it just monitor what it does and guiding what it is struggling with. for example i needed him to reference the infisical vars, someone who probably vibecode would trust ai that it is not possible with infisical cli but i persisted and guided it(cuz i know why and what tool im using) and not guide me there to what its believe without proper research surface
-- quite alot was added in my infrastructure but i try to maintain its isolation, clarity and cohesion at the same time while understanding my whole system no big deal just another mental model
-- yeah this is a little bit of overengineer and i would probably turn this staging stuff of in the near future cuz i dont need it im a 1 man team and just doing this for fun and i have tradeoffs to manage and also this is not a real production product yet cuz i dont have users and stakes to hold
-- the staging aspect is now removed and verified no more dev/staging/prod just dev/prod
+- my existing infra (k3s, terraform, gitops, auto-commit pipeline) is why I can ship fast and automate deployments now. I built it before I needed it and I'm proud of that architecture
+- wiring the Playwright MCP: I wrestled with it non-stop, making tradeoffs and doing research until the agent could see the DOM on its own
+- Clerk, Stripe and PayMongo took a lot of third-party wiring, but it was worth it: setup and review happen by an agent now instead of me clicking through dashboards
+- dev/stage/prod separation is another mental model I'm excited to show off. Staging is the one that needs injecting into my brain so I can practise how production deployment works
+- setting up staging right now — I was surprised it needed a separate, extra environment, so I made another module for it in isolation. It should've been isolated, not shared; I should've seen that coming lol
+- just finished staging: a lot of it I supervised with my AI, mostly watching it work and guiding what it struggled with. When it needed the Infisical vars it decided the CLI couldn't do it, and I pushed instead of accepting the model's word — I know the tool and why I'm using it. Someone who vibecodes would have trusted the model and moved on
+- a lot got added to my infrastructure, and I try to keep it isolated, clear and cohesive while holding the whole system in my head. No big deal, just another mental model
+- this is a little overengineered, and I'll probably turn staging off in the near future: I don't need it, I'm a 1-man team doing this for fun, and I have tradeoffs to manage. This isn't a real production product yet — no users, no stakes
+- the staging aspect is now removed and verified: no more dev/staging/prod, just dev/prod
+- next step was observability. I knew I needed it when my dev and prod weren't behaving exactly the same — at least then I could justify needing it
+- been contemplating whether I needed Sentry, iterating on the same question a couple of times: is it really needed at this scale? The extra complexity for frontend error observability didn't feel worth it
+- wired Sentry, verified delivery from a production bundle, then deleted it the same session. Its own gap list killed it: without sourcemaps the stacks were decoration, so 146 kB gz on every signed-in load bought grouping, an issue lifecycle and an email channel for traffic I don't have
+- the one leg it held alone is the beacon's now: a render crash swallowed by ErrorBoundary never reaches window.onerror, so the boundary reports by hand — message + component stack. Backend tracebacks were always in Loki, and nothing on either side needs a third party
+- Sentry comes back only with real users AND a decision to publish sourcemaps: symbolication is the one thing it's actually for
