@@ -157,6 +157,15 @@ stack and the contact point. Tuning a template then rerunning is the only suppor
 provisioned rule. **Dashboards are not provenance-locked** (only rules are), so a UI edit to
 `<project>-logs` is silently overwritten by the next run — edit the template instead.
 
+Dashboard variables are pinned, never discovered: `DS_LOKI` and `app` are `refresh: 0` with a literal
+`current` value substituted at install time. A `query`-type variable over `label_values(app)` resolves
+to **no options** here — the Loki plugin parses the classic expr as LogQL and answers
+`parse error at line 1, col 1: syntax error: unexpected IDENTIFIER` — which wipes `current` and leaves
+every panel querying `{app=""}`: all six panels red/empty at once, root cause one variable away. The
+label values themselves are fine (`/loki/api/v1/label/app/values` lists five apps). After changing
+`--datasource` or the app label, rerun `bootstrap.py`; the dashboard reloads values, it does not find
+them.
+
 ## Guardrails
 
 - Do not touch the `maxterview` folder, its rules, the `GrafanaCloud` folder, the contact point, or

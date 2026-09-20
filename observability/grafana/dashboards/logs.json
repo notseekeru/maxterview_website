@@ -376,7 +376,7 @@
         "label": "Loki",
         "name": "DS_LOKI",
         "query": "loki",
-        "refresh": 2,
+        "refresh": 0,
         "type": "datasource"
       },
       {
@@ -385,22 +385,13 @@
           "text": "{{APP}}",
           "value": "{{APP}}"
         },
-        "datasource": {
-          "type": "loki",
-          "uid": "${DS_LOKI}"
-        },
-        "definition": "label_values(app)",
+        "definition": "{{APP}}",
         "hide": 0,
-        "includeAll": false,
         "label": "app",
         "name": "app",
-        "query": {
-          "query": "label_values(app)",
-          "refId": "StandardVariableQuery"
-        },
-        "refresh": 2,
-        "sort": 1,
-        "type": "query"
+        "query": "{{APP}}",
+        "refresh": 0,
+        "type": "custom"
       }
     ]
   },
