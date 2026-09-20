@@ -19,7 +19,7 @@ tier, and the app never holds a Grafana write credential.
 
 1. Stack + access policy scoped `logs:write`; the token reaches the cluster as a Terraform-created Secret from Infisical, same pattern as `maxterview-secrets`.
 2. Alloy as a **1-replica Deployment**, not a DaemonSet: `discovery.kubernetes` + `loki.source.kubernetes` tail through the Kubernetes API, so there is no hostPath, no node filesystem, no privileged container — just a Role with pods list/watch and pods/log get. Caveat: API tailing sees only what Alloy is running to witness.
-3. Labels `app/pod/env`; three **Grafana-managed** alert rules (500 rate, feedback-generation failure, pod restart) — Loki-ruler alerts are deprecated in new stacks.
+3. Labels `namespace/pod/container/app` plus the external `cluster`/`app` pair; three **Grafana-managed** alert rules (500 rate, feedback-generation failure, pod restart) — Loki-ruler alerts are deprecated in new stacks.
 4. Ceilings that then bound history: 14-day retention, 5 MB/s ingest, 5k streams, 50 GB/mo.
 
 Independent of all of the above: k3s ships `metrics-server`, and `kubectl top` fails on a kubelet
