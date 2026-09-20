@@ -15,7 +15,7 @@
     },
     "grafana": {
       "command": "docker",
-      "args": ["run", "--rm", "-i", "-e", "GRAFANA_URL", "-e", "GRAFANA_SERVICE_ACCOUNT_TOKEN", "grafana/mcp-grafana:latest", "--enabled-tools", "alerting,dashboard,loki,prometheus,datasource,search,navigation"],
+      "args": ["run", "--rm", "-i", "-e", "GRAFANA_URL", "-e", "GRAFANA_SERVICE_ACCOUNT_TOKEN", "grafana/mcp-grafana:latest", "--transport", "stdio", "--enabled-tools", "alerting,dashboard,loki,prometheus,datasource,search,navigation"],
       "env": {
         "GRAFANA_URL": "https://sturdypoplar3317.grafana.net",
         "GRAFANA_SERVICE_ACCOUNT_TOKEN": "!sed -n \"s/^GRAFANA_SERVICE_ACCOUNT_TOKEN=//p\" .env | head -1"
