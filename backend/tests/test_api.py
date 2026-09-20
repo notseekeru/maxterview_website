@@ -134,6 +134,30 @@ def test_chat_rolls_back_the_turn_when_the_model_fails(client, monkeypatch):
     c.delete(f"/api/interviews/{iid}")
 
 
+def test_chat_keeps_the_turn_when_complete_lands_mid_stream(client, monkeypatch):
+    # /complete and a live stream race: by the time the rollback runs the run is already complete,
+    # so deleting the turn would leave it holding no answers - GET /feedback 404s and
+    # /feedback/generate 409s, which no retry can clear.
+    from app import llm
+    from app.db import fetchrow
+
+    c = client
+    iid = c.post("/api/interviews", json={"role": "Rollback After Complete"}).json()["id"]
+    c.post(f"/api/interviews/{iid}/start")
+
+    async def _boom_after_complete(*_a, **_kw):
+        await fetchrow("UPDATE interviews SET status = 'completed' WHERE id = $1", iid)
+        raise RuntimeError("provider exploded")
+        yield  # pragma: no cover - makes this an async generator
+
+    monkeypatch.setattr(llm, "stream_chat", _boom_after_complete)
+    assert "event: error" in c.post(f"/api/interviews/{iid}/chat/stream", json={"interview_id": iid, "content": "my answer"}).text
+    assert [m["content"] for m in c.get(f"/api/interviews/{iid}/messages").json()] == ["my answer"]
+    # The reason for keeping it: the completed run is still scorable.
+    assert c.post(f"/api/interviews/{iid}/feedback/generate").status_code == 200
+    c.delete(f"/api/interviews/{iid}")
+
+
 def test_chat_repairs_a_dangling_user_turn(client):
     # A trailing user turn can only come from a worker that died mid-turn (a clean failure rolls
     # back). The next send is that turn's retry, so it replaces it instead of appending a twin.

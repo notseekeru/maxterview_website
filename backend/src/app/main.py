@@ -978,12 +978,22 @@ async def chat_stream(
     async def _discard_turn() -> None:
         """Delete the in-flight user turn; never raises.
 
+        Only while the run is still going: /complete can land while this turn is in flight, and a
+        turn deleted after that leaves a completed run holding no answers - /feedback 404s and
+        /feedback/generate 409s forever, so the retry the UI offers can never clear it.
+
         Runs on the failure path, including cancellation, where a raising rollback would mask the
         original error. Shielded because a cancelled task can be cancelled again mid-delete."""
         if not user_msg_id:
             return
         try:
-            await asyncio.shield(fetchrow("DELETE FROM messages WHERE id = $1 AND interview_id = $2", user_msg_id, interview_id))
+            await asyncio.shield(
+                fetchrow(
+                    "DELETE FROM messages WHERE id = $1 AND interview_id = $2 AND (SELECT status FROM interviews WHERE id = $2) = 'in_progress'",
+                    user_msg_id,
+                    interview_id,
+                )
+            )
         except BaseException:
             log.warning("chat.turn_rollback_failed", interview_id=interview_id)
 
