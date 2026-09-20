@@ -90,7 +90,7 @@ you only need the vars for the features you actually use. Check which are set (n
 | PayMongo ₱499 → premium row (30 days)    | `PAYMONGO_SECRET_KEY` (`sk_test_…`), `PAYMONGO_WEBHOOK_SECRET` | —                                                      | upgrade in the UI → Maya page; dev instead: POST `/api/billing/webhook/simulate` (no tunnel, no keys)                |
 | Real AI interviewer chat + auto-feedback | `LLM_BASE_URL`, `LLM_MODEL`, `LLM_API_KEY`                     | —                                                      | empty → deterministic STUB (model-free tests/dev)                                                                    |
 | BYOK (own provider key)                  | `BYOK_ENCRYPTION_KEY`                                          | —                                                      | `BYOK.md`                                                                                                            |
-| Observability (JSON logs, error capture) | _(nothing)_ — dev logs to the console                          | prod: Loki + Sentry + alerts, wired in gitops          | `make logs`, or `OBSERVABILITY.md`                                                                                   |
+| Observability (JSON logs, error capture) | _(nothing)_ — dev logs to the console                          | prod: Loki + alerts, wired in gitops                   | `make logs`, or `OBSERVABILITY.md`                                                                                   |
 
 Feature env values come from your Clerk app's **Development instance** (`.clerk.accounts.dev` /
 `pk_test_` / `sk_test_`) and PayMongo **test mode** — both safe on `localhost`. Live keys are locked
@@ -154,8 +154,7 @@ Operator notes:
   path against the container.
 - **Operator MCPs** (`.mcp.json`, agent-side only — no runtime dependency): `grafana` reads
   `GRAFANA_SERVICE_ACCOUNT_TOKEN` from root `.env` at connect time, so the token never lands in a
-  tracked file; `sentry` is OAuth on first use (`/mcp-auth sentry`, then paste the callback URL back).
-  Verify with `mcp({ server: "grafana" })` / `mcp({ server: "sentry" })`.
+  tracked file. Verify with `mcp({ server: "grafana" })`.
 
 ---
 

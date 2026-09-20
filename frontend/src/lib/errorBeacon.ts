@@ -1,23 +1,26 @@
-// Last-resort browser error capture for the ANONYMOUS pages (M13 tier 1). The authenticated app gets
-// the full Sentry SDK; this is the ~1 kB that has to exist before sign-in, where a blank landing page
-// is a lost visitor nobody would otherwise hear about.
+// Last-resort browser error capture, on EVERY page. It has to exist before sign-in, where a blank
+// landing page is a lost visitor nobody would otherwise hear about, and it stays for the app so one
+// sink covers both halves.
 //
-// Reports the message and the path, nothing else: no stack (nothing here is symbolicated), no query
-// string (ids and tokens live there), no page content. An identical message is sent once and the page
-// stops after MAX_REPORTS, so a render loop cannot become a log flood.
+// Reports the message and the path, plus the component stack React hands the ErrorBoundary — names,
+// not minified frames, so it survives without sourcemaps. Nothing else: no JS stack (nothing here
+// could symbolicate it), no query string (ids and tokens live there), no page content. An identical
+// message is sent once and the page stops after MAX_REPORTS, so a render loop cannot become a log flood.
 
 const ENDPOINT = `${import.meta.env.VITE_API_BASE ?? "/api"}/client-errors`;
 const MAX_REPORTS = 5;
+// Matches the backend field cap: a longer stack would be a 422 and the report would be lost.
+const MAX_STACK = 1000;
 
 const seen = new Set<string>();
 let sent = 0;
 
-function report(message: string): void {
+function report(message: string, componentStack = ""): void {
     const text = message.slice(0, 300);
     if (!text || sent >= MAX_REPORTS || seen.has(text)) return;
     seen.add(text);
     sent += 1;
-    const body = JSON.stringify({ message: text, route: window.location.pathname.slice(0, 200) });
+    const body = JSON.stringify({ message: text, route: window.location.pathname.slice(0, 200), component_stack: componentStack.slice(0, MAX_STACK) });
     // sendBeacon survives the page going away — the error may be terminal. fetch is the fallback.
     if (!navigator.sendBeacon?.(ENDPOINT, new Blob([body], { type: "application/json" }))) {
         void fetch(ENDPOINT, { method: "POST", headers: { "Content-Type": "application/json" }, body, keepalive: true }).catch(() => undefined);
@@ -34,4 +37,10 @@ export function initErrorBeacon(): void {
         const reason: unknown = event.reason;
         report(reason instanceof Error ? reason.message : typeof reason === "string" ? reason : "unhandled rejection");
     });
+}
+
+/** A render crash React caught before `window.onerror` could see it — the ErrorBoundary is the only
+ * witness, which is why it has to report by hand. */
+export function reportRenderCrash(error: Error, componentStack?: string | null): void {
+    report(error.message, componentStack ?? "");
 }

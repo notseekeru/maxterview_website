@@ -1,7 +1,6 @@
 import axios, { type AxiosError } from "axios";
 
 import { markAuthGate401 } from "./authHealth";
-import { captureError } from "./sentry";
 
 // The Vite dev proxy (and prod nginx) forward /api/... to the backend unchanged: the app serves
 // its own routes under that prefix (backend `API_PREFIX`), so nothing is stripped on the way.
@@ -19,11 +18,6 @@ api.interceptors.response.use(
     (err) => {
         const d = err.response?.data as { detail?: string } | undefined;
         if (err.response?.status === 401 && d?.detail === "Missing credentials") markAuthGate401();
-        // A 5xx is the backend failing, not an answer — report it with the id that ties it to the
-        // backend's access line. 4xx stays out: a 402 quota or a 409 is a designed response.
-        if (typeof err.response?.status === "number" && err.response.status >= 500) {
-            void captureError(err, { requestId: err.response.headers?.["x-request-id"] });
-        }
         return Promise.reject(err);
     },
 );
@@ -509,7 +503,6 @@ export async function streamChat(interviewId: string, content: string, onEvent: 
     if (!res.ok || !res.body) {
         const err = new Error(`chat stream failed: HTTP ${res.status}`);
         (err as Error & { status?: number }).status = res.status;
-        if (res.status >= 500) void captureError(err, { requestId: res.headers.get("x-request-id") });
         throw err;
     }
 

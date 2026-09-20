@@ -347,11 +347,13 @@ class SystemLLM(BaseModel):
 
 
 class ClientError(BaseModel):
-    """Browser-error beacon from the anonymous pages (the authenticated app reports to Sentry
-    instead). Capped because this is unauthenticated input heading straight for the log pipeline."""
+    """Browser-error beacon, sent from every page. Capped because this is unauthenticated input
+    heading straight for the log pipeline."""
 
     message: str = Field(min_length=1, max_length=300)
     route: str = Field(default="", max_length=200)
+    # React's component names from an ErrorBoundary crash: the only stack that survives minification.
+    component_stack: str = Field(default="", max_length=1000)
 
 
 class LLMProvider(BaseModel):

@@ -94,8 +94,9 @@ async def health() -> dict:
 
 @api.post("/client-errors", status_code=status.HTTP_204_NO_CONTENT)
 async def client_errors(request: Request) -> Response:
-    """Browser errors from the ANONYMOUS pages, where no Sentry SDK is loaded. Message and path only:
-    no stack (nothing here could symbolicate it), no query string (ids and tokens live there).
+    """Browser errors from EVERY page, signed in or not. Message, path, and the component stack of a
+    render crash: no JS stack (nothing here could symbolicate it), no query string (ids and tokens
+    live there).
 
     The body is bounded before it is parsed and the route stays inside the per-client rate limit, so
     the pair is the abuse ceiling. AI HERE: a chunked request with no Content-Length still reaches the
@@ -108,7 +109,7 @@ async def client_errors(request: Request) -> Response:
         body = ClientError.model_validate_json(await request.body())
     except ValidationError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Not a browser error report") from exc
-    log.info("browser.error", message=body.message, route=body.route)
+    log.info("browser.error", message=body.message, route=body.route, component_stack=body.component_stack)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 

@@ -1,7 +1,7 @@
 import { Component, type ErrorInfo, type ReactNode } from "react";
 
 import { Button } from "@/components/ui/button";
-import { captureError } from "@/lib/sentry";
+import { reportRenderCrash } from "@/lib/errorBeacon";
 
 interface Props {
     children: ReactNode;
@@ -26,9 +26,10 @@ export class ErrorBoundary extends Component<Props, State> {
 
     componentDidCatch(error: Error, info: ErrorInfo): void {
         // The card below only shows `error.message`, so whoever is looking at the screen cannot
-        // report what actually broke: the stack goes to Sentry, the console stays for local runs.
+        // report what actually broke: the message and the component stack go to Loki via the beacon,
+        // the full error stays on the console for local runs.
         console.error("unhandled render error", error, info.componentStack);
-        void captureError(error, { componentStack: info.componentStack });
+        reportRenderCrash(error, info.componentStack);
     }
 
     render() {
