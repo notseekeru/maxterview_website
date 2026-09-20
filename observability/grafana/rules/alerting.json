@@ -1,0 +1,331 @@
+{
+  "title": "{{PROJECT}}-logs",
+  "folderUid": "{{PROJECT}}",
+  "interval": 60,
+  "rules": [
+    {
+      "title": "{{PROJECT}}: backend 5xx",
+      "condition": "C",
+      "data": [
+        {
+          "refId": "A",
+          "queryType": "range",
+          "relativeTimeRange": {
+            "from": 600,
+            "to": 0
+          },
+          "datasourceUid": "{{DATASOURCE}}",
+          "model": {
+            "editorMode": "code",
+            "expr": "sum(count_over_time({app=\"{{APP}}\"} | json | status >= 500 [5m]))",
+            "intervalMs": 1000,
+            "maxDataPoints": 43200,
+            "queryType": "range",
+            "refId": "A"
+          }
+        },
+        {
+          "refId": "B",
+          "queryType": "",
+          "relativeTimeRange": {
+            "from": 600,
+            "to": 0
+          },
+          "datasourceUid": "__expr__",
+          "model": {
+            "expression": "A",
+            "intervalMs": 1000,
+            "maxDataPoints": 43200,
+            "reducer": "last",
+            "refId": "B",
+            "type": "reduce"
+          }
+        },
+        {
+          "refId": "C",
+          "queryType": "",
+          "relativeTimeRange": {
+            "from": 600,
+            "to": 0
+          },
+          "datasourceUid": "__expr__",
+          "model": {
+            "conditions": [
+              {
+                "evaluator": {
+                  "params": [
+                    5
+                  ],
+                  "type": "gt"
+                }
+              }
+            ],
+            "expression": "B",
+            "intervalMs": 1000,
+            "maxDataPoints": 43200,
+            "refId": "C",
+            "type": "threshold"
+          }
+        }
+      ],
+      "noDataState": "OK",
+      "execErrState": "Error",
+      "for": "1m",
+      "keep_firing_for": "0s",
+      "annotations": {
+        "description": "sum(count_over_time({app=\"{{APP}}\"} | json | status >= 500 [5m])) \u2014 fires above 5",
+        "summary": "{{PROJECT}}: backend 5xx"
+      },
+      "labels": {
+        "severity": "critical"
+      },
+      "isPaused": false,
+      "notification_settings": {
+        "receiver": "{{RECEIVER}}"
+      }
+    },
+    {
+      "title": "{{PROJECT}}: llm failures",
+      "condition": "C",
+      "data": [
+        {
+          "refId": "A",
+          "queryType": "range",
+          "relativeTimeRange": {
+            "from": 900,
+            "to": 0
+          },
+          "datasourceUid": "{{DATASOURCE}}",
+          "model": {
+            "editorMode": "code",
+            "expr": "sum(count_over_time({app=\"{{APP}}\"} | json | event=~\"llm.*(unavailable|failed|transport_error)\" [10m]))",
+            "intervalMs": 1000,
+            "maxDataPoints": 43200,
+            "queryType": "range",
+            "refId": "A"
+          }
+        },
+        {
+          "refId": "B",
+          "queryType": "",
+          "relativeTimeRange": {
+            "from": 900,
+            "to": 0
+          },
+          "datasourceUid": "__expr__",
+          "model": {
+            "expression": "A",
+            "intervalMs": 1000,
+            "maxDataPoints": 43200,
+            "reducer": "last",
+            "refId": "B",
+            "type": "reduce"
+          }
+        },
+        {
+          "refId": "C",
+          "queryType": "",
+          "relativeTimeRange": {
+            "from": 900,
+            "to": 0
+          },
+          "datasourceUid": "__expr__",
+          "model": {
+            "conditions": [
+              {
+                "evaluator": {
+                  "params": [
+                    2
+                  ],
+                  "type": "gt"
+                }
+              }
+            ],
+            "expression": "B",
+            "intervalMs": 1000,
+            "maxDataPoints": 43200,
+            "refId": "C",
+            "type": "threshold"
+          }
+        }
+      ],
+      "noDataState": "OK",
+      "execErrState": "Error",
+      "for": "1m",
+      "keep_firing_for": "0s",
+      "annotations": {
+        "description": "sum(count_over_time({app=\"{{APP}}\"} | json | event=~\"llm.*(unavailable|failed|transport_error)\" [10m])) \u2014 fires above 2",
+        "summary": "{{PROJECT}}: llm failures"
+      },
+      "labels": {
+        "severity": "warning"
+      },
+      "isPaused": false,
+      "notification_settings": {
+        "receiver": "{{RECEIVER}}"
+      }
+    },
+    {
+      "title": "{{PROJECT}}: backend tracebacks",
+      "condition": "C",
+      "data": [
+        {
+          "refId": "A",
+          "queryType": "range",
+          "relativeTimeRange": {
+            "from": 900,
+            "to": 0
+          },
+          "datasourceUid": "{{DATASOURCE}}",
+          "model": {
+            "editorMode": "code",
+            "expr": "sum(count_over_time({app=\"{{APP}}\"} | json | level=\"error\" [10m]))",
+            "intervalMs": 1000,
+            "maxDataPoints": 43200,
+            "queryType": "range",
+            "refId": "A"
+          }
+        },
+        {
+          "refId": "B",
+          "queryType": "",
+          "relativeTimeRange": {
+            "from": 900,
+            "to": 0
+          },
+          "datasourceUid": "__expr__",
+          "model": {
+            "expression": "A",
+            "intervalMs": 1000,
+            "maxDataPoints": 43200,
+            "reducer": "last",
+            "refId": "B",
+            "type": "reduce"
+          }
+        },
+        {
+          "refId": "C",
+          "queryType": "",
+          "relativeTimeRange": {
+            "from": 900,
+            "to": 0
+          },
+          "datasourceUid": "__expr__",
+          "model": {
+            "conditions": [
+              {
+                "evaluator": {
+                  "params": [
+                    3
+                  ],
+                  "type": "gt"
+                }
+              }
+            ],
+            "expression": "B",
+            "intervalMs": 1000,
+            "maxDataPoints": 43200,
+            "refId": "C",
+            "type": "threshold"
+          }
+        }
+      ],
+      "noDataState": "OK",
+      "execErrState": "Error",
+      "for": "2m",
+      "keep_firing_for": "0s",
+      "annotations": {
+        "description": "sum(count_over_time({app=\"{{APP}}\"} | json | level=\"error\" [10m])) \u2014 fires above 3",
+        "summary": "{{PROJECT}}: backend tracebacks"
+      },
+      "labels": {
+        "severity": "warning"
+      },
+      "isPaused": false,
+      "notification_settings": {
+        "receiver": "{{RECEIVER}}"
+      }
+    },
+    {
+      "title": "{{PROJECT}}: browser errors",
+      "condition": "C",
+      "data": [
+        {
+          "refId": "A",
+          "queryType": "range",
+          "relativeTimeRange": {
+            "from": 900,
+            "to": 0
+          },
+          "datasourceUid": "{{DATASOURCE}}",
+          "model": {
+            "editorMode": "code",
+            "expr": "sum(count_over_time({app=\"{{APP}}\"} | json | event=\"browser.error\" [10m]))",
+            "intervalMs": 1000,
+            "maxDataPoints": 43200,
+            "queryType": "range",
+            "refId": "A"
+          }
+        },
+        {
+          "refId": "B",
+          "queryType": "",
+          "relativeTimeRange": {
+            "from": 900,
+            "to": 0
+          },
+          "datasourceUid": "__expr__",
+          "model": {
+            "expression": "A",
+            "intervalMs": 1000,
+            "maxDataPoints": 43200,
+            "reducer": "last",
+            "refId": "B",
+            "type": "reduce"
+          }
+        },
+        {
+          "refId": "C",
+          "queryType": "",
+          "relativeTimeRange": {
+            "from": 900,
+            "to": 0
+          },
+          "datasourceUid": "__expr__",
+          "model": {
+            "conditions": [
+              {
+                "evaluator": {
+                  "params": [
+                    2
+                  ],
+                  "type": "gt"
+                }
+              }
+            ],
+            "expression": "B",
+            "intervalMs": 1000,
+            "maxDataPoints": 43200,
+            "refId": "C",
+            "type": "threshold"
+          }
+        }
+      ],
+      "noDataState": "OK",
+      "execErrState": "Error",
+      "for": "1m",
+      "keep_firing_for": "0s",
+      "annotations": {
+        "description": "sum(count_over_time({app=\"{{APP}}\"} | json | event=\"browser.error\" [10m])) \u2014 fires above 2 (a screen broke for a real user)",
+        "summary": "{{PROJECT}}: browser errors"
+      },
+      "labels": {
+        "severity": "warning"
+      },
+      "isPaused": false,
+      "notification_settings": {
+        "receiver": "{{RECEIVER}}"
+      }
+    }
+  ]
+}

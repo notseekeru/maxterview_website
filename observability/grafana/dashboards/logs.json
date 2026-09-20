@@ -1,0 +1,260 @@
+{
+  "editable": true,
+  "graphTooltip": 1,
+  "panels": [
+    {
+      "datasource": {
+        "type": "loki",
+        "uid": "${DS_LOKI}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "fillOpacity": 25,
+            "lineWidth": 1,
+            "stacking": {
+              "mode": "normal"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 0
+      },
+      "id": 1,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "${DS_LOKI}"
+          },
+          "expr": "sum by (level) (count_over_time({app=\"$app\"} | json [$__auto]))",
+          "queryType": "range",
+          "refId": "A"
+        }
+      ],
+      "title": "Log volume by level",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "loki",
+        "uid": "${DS_LOKI}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "fillOpacity": 10,
+            "lineWidth": 1
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "5xx"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "red",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 0
+      },
+      "id": 2,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "${DS_LOKI}"
+          },
+          "expr": "sum(count_over_time({app=\"$app\"} | json | event=\"http.request\" [$__auto]))",
+          "legendFormat": "requests",
+          "queryType": "range",
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "${DS_LOKI}"
+          },
+          "expr": "sum(count_over_time({app=\"$app\"} | json | status >= 500 [$__auto]))",
+          "legendFormat": "5xx",
+          "queryType": "range",
+          "refId": "B"
+        }
+      ],
+      "title": "Requests (5xx overlay)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "loki",
+        "uid": "${DS_LOKI}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "fillOpacity": 10,
+            "lineWidth": 1
+          },
+          "unit": "ms"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 10,
+        "x": 0,
+        "y": 8
+      },
+      "id": 3,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "${DS_LOKI}"
+          },
+          "expr": "quantile_over_time(0.95, {app=\"$app\"} | json | event=\"http.request\" | unwrap duration_ms [$__auto])",
+          "legendFormat": "p95",
+          "queryType": "range",
+          "refId": "A"
+        }
+      ],
+      "title": "p95 request duration",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "loki",
+        "uid": "${DS_LOKI}"
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 14,
+        "x": 10,
+        "y": 8
+      },
+      "id": 4,
+      "options": {
+        "dedupStrategy": "none",
+        "enableLogDetails": true,
+        "showTime": true,
+        "sortOrder": "Descending",
+        "wrapLogMessage": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "${DS_LOKI}"
+          },
+          "expr": "{app=\"$app\"} | json | level=\"error\"",
+          "queryType": "range",
+          "refId": "A"
+        }
+      ],
+      "title": "Errors",
+      "type": "logs"
+    }
+  ],
+  "refresh": "1m",
+  "tags": [
+    "observability-kit"
+  ],
+  "templating": {
+    "list": [
+      {
+        "current": {
+          "selected": true,
+          "text": "{{DATASOURCE}}",
+          "value": "{{DATASOURCE}}"
+        },
+        "hide": 0,
+        "label": "Loki",
+        "name": "DS_LOKI",
+        "query": "loki",
+        "refresh": 2,
+        "type": "datasource"
+      },
+      {
+        "current": {
+          "selected": true,
+          "text": "{{APP}}",
+          "value": "{{APP}}"
+        },
+        "datasource": {
+          "type": "loki",
+          "uid": "${DS_LOKI}"
+        },
+        "definition": "label_values(app)",
+        "hide": 0,
+        "includeAll": false,
+        "label": "app",
+        "name": "app",
+        "query": {
+          "query": "label_values(app)",
+          "refId": "StandardVariableQuery"
+        },
+        "refresh": 2,
+        "sort": 1,
+        "type": "query"
+      }
+    ]
+  },
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "timezone": "browser",
+  "title": "{{PROJECT}}: logs & errors",
+  "uid": "{{PROJECT}}-logs"
+}
