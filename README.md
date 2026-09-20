@@ -152,6 +152,10 @@ Operator notes:
   **snapshot before each prod migration**.
 - **Migrations on deployed envs** run from the in-cluster Job, not a laptop; `make migrate` is the dev
   path against the container.
+- **Operator MCPs** (`.mcp.json`, agent-side only — no runtime dependency): `grafana` reads
+  `GRAFANA_SERVICE_ACCOUNT_TOKEN` from root `.env` at connect time, so the token never lands in a
+  tracked file; `sentry` is OAuth on first use (`/mcp-auth sentry`, then paste the callback URL back).
+  Verify with `mcp({ server: "grafana" })` / `mcp({ server: "sentry" })`.
 
 ---
 
