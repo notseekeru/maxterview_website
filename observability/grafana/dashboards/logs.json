@@ -164,7 +164,7 @@
             "uid": "${DS_LOKI}"
           },
           "expr": "quantile_over_time(0.95, {app=\"$app\"} | json | event=\"http.request\" | keep status, duration_ms | unwrap duration_ms [$__auto])",
-          "legendFormat": "p95 · {{status}}",
+          "legendFormat": "p95 \u00b7 {{status}}",
           "queryType": "range",
           "refId": "A"
         },
@@ -214,6 +214,150 @@
       ],
       "title": "Errors",
       "type": "logs"
+    },
+    {
+      "datasource": {
+        "type": "loki",
+        "uid": "${DS_LOKI}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "fixedColor": "red",
+            "mode": "fixed"
+          },
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 40,
+            "lineWidth": 1
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 17
+      },
+      "id": 5,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "${DS_LOKI}"
+          },
+          "expr": "sum(count_over_time({app=\"$app\"} | json | event=\"browser.error\" [$__auto]))",
+          "legendFormat": "browser errors",
+          "queryType": "range",
+          "refId": "A"
+        }
+      ],
+      "title": "Browser errors",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "loki",
+        "uid": "${DS_LOKI}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "fillOpacity": 10,
+            "lineWidth": 1
+          },
+          "unit": "ms"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "failures"
+            },
+            "properties": [
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              },
+              {
+                "id": "unit",
+                "value": "short"
+              },
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "red",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 17
+      },
+      "id": 6,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "${DS_LOKI}"
+          },
+          "expr": "quantile_over_time(0.95, {app=\"$app\"} | json | event=\"llm.chat.completed\" | keep model, latency_ms | unwrap latency_ms [$__auto])",
+          "legendFormat": "p95 \u00b7 {{model}}",
+          "queryType": "range",
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "${DS_LOKI}"
+          },
+          "expr": "sum(sum_over_time({app=\"$app\"} | json | event=\"llm.chat.completed\" | unwrap latency_ms [$__auto])) / sum(count_over_time({app=\"$app\"} | json | event=\"llm.chat.completed\" [$__auto]))",
+          "legendFormat": "mean",
+          "queryType": "range",
+          "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "${DS_LOKI}"
+          },
+          "expr": "sum(count_over_time({app=\"$app\"} | json | event=~\"llm[a-z._]*(unavailable|failed|transport_error)\" [$__auto]))",
+          "legendFormat": "failures",
+          "queryType": "range",
+          "refId": "C"
+        }
+      ],
+      "title": "LLM latency and failures",
+      "type": "timeseries"
     }
   ],
   "refresh": "1m",
