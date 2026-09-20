@@ -4,7 +4,6 @@
 
 - add some evals for ai quality
 - the voice feature and tts with video input from user
-- backup as a milestone record it in readme, and use r2 new bucket
 - add caching in redis
 
 # FEATURES
@@ -115,3 +114,4 @@ on the free-tier key, ~13-15 requests and ~19s for a 10-question run + Complete.
 - wired Sentry, verified delivery from a production bundle, then deleted it the same session. Its own gap list killed it: without sourcemaps the stacks were decoration, so 146 kB gz on every signed-in load bought grouping, an issue lifecycle and an email channel for traffic I don't have
 - the one leg it held alone is the beacon's now: a render crash swallowed by ErrorBoundary never reaches window.onerror, so the boundary reports by hand — message + component stack. Backend tracebacks were always in Loki, and nothing on either side needs a third party
 - Sentry comes back only with real users AND a decision to publish sourcemaps: symbolication is the one thing it's actually for
+- I added a portable script for bootstrapping my grafana cloud stack so it replicates logs, alerts and dashboard which contains 3 of the 4 golden signals only missing is saturation(which I can't for now for pods. Database on the otherhand is captured at cloud at Neon database)
