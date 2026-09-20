@@ -163,13 +163,23 @@
             "type": "loki",
             "uid": "${DS_LOKI}"
           },
-          "expr": "quantile_over_time(0.95, {app=\"$app\"} | json | event=\"http.request\" | unwrap duration_ms [$__auto])",
-          "legendFormat": "p95",
+          "expr": "quantile_over_time(0.95, {app=\"$app\"} | json | event=\"http.request\" | keep status, duration_ms | unwrap duration_ms [$__auto])",
+          "legendFormat": "p95 · {{status}}",
           "queryType": "range",
           "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "${DS_LOKI}"
+          },
+          "expr": "sum(sum_over_time({app=\"$app\"} | json | event=\"http.request\" | unwrap duration_ms [$__auto])) / sum(count_over_time({app=\"$app\"} | json | event=\"http.request\" [$__auto]))",
+          "legendFormat": "mean",
+          "queryType": "range",
+          "refId": "B"
         }
       ],
-      "title": "p95 request duration",
+      "title": "Request duration",
       "type": "timeseries"
     },
     {
