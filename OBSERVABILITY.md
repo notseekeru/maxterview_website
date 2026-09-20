@@ -26,7 +26,7 @@ Logs leave the cluster: Alloy tails pod stdout through the Kubernetes API into G
 | Target filter | same | `drop` on `__meta_kubernetes_pod_phase =~ "Succeeded|Failed"` — a finished Job pod has no live stream and API tailing re-opens it in a hot loop. Drop, not keep-on-Running, so a missing label can never silently drop every target. |
 | Config changes | same | The `maxterview/config-hash` pod annotation. Argo updating a ConfigMap restarts nothing and Alloy reads its config at startup, so the hash must be bumped together with the config to roll the pod. |
 | Credential | Terraform `maxterview-logs` Secret, values from Infisical | `LOKI_URL`/`LOKI_USER`/`LOKI_TOKEN`, scope `logs:write` and nothing else. The app never holds it. |
-| Alerts | Grafana, `maxterview` folder | Three **Grafana-managed** rules — backend 5xx, LLM failures, backend tracebacks — routed to a Slack contact point (webhook lives in Infisical at `/sources/webhooks`). Loki-ruler alerts are deprecated in new stacks. |
+| Alerts | Grafana, `maxterview` folder | Four **Grafana-managed** rules — backend 5xx, LLM failures, backend tracebacks, browser errors (`event="browser.error"` above 2 in 10m, so a one-off blocked script stays quiet while a screen that keeps breaking does not) — routed to a Slack contact point (webhook lives in Infisical at `/sources/webhooks`). Loki-ruler alerts are deprecated in new stacks. |
 | Ceilings | — | 14-day retention, 5 MB/s ingest, 5k streams, 50 GB/mo. Metric history inherits the log window, since metrics are LogQL queries over these lines. |
 
 Independent of all of the above: k3s ships `metrics-server`, and `kubectl top` fails on a kubelet
