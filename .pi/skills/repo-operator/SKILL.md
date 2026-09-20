@@ -6,10 +6,10 @@ description: >-
   surface to bring up and down the dev stack, read frontend/backend logs, reconcile the backend/.env
   Clerk/PayMongo config (flagging exactly which secret is missing with the single paste step), query
   the database, drive the real test-mode Clerk and PayMongo accounts, run a browser walkthrough, and
-  see the repo at a glance. Binds to (does not duplicate) ./.pi/skills/paymongo-operator AND
-  ./.pi/skills/hermetic-e2e. Use when the user asks anything like "why is X failing", "start the
-  app", "show logs", "set up a test user", "show webhooks", "what tier is this user", or "run the
-  onboarding".
+  see the repo at a glance. Binds to (does not duplicate) ./.pi/skills/paymongo-operator,
+  ./.pi/skills/hermetic-e2e AND ./.pi/skills/grafana-operator. Use when the user asks anything like
+  "why is X failing", "start the app", "show logs", "set up a test user", "show webhooks", "what
+  tier is this user", or "run the onboarding".
 ---
 
 # maxterview repo operator (infra-hands)
@@ -58,6 +58,12 @@ narrate. Everything here is real infra you can actually reach from this repo.
   `scripts/store.cjs`. Use MCP for interactivity, runners for deterministic assertions. Hermetic
   DEV_USER needs backend at CLERK_ENABLED=false; real-Clerk stacks sign in headlessly first
   (paymongo-operator). (Not a deterministic CI spec.)
+- **grafana-operator** → the Grafana Cloud stack behind the alerts: folder / rule / contact-point
+  uids, the measured API verb semantics that keep one project's write from moving another's rules,
+  the `provenance` switch that decides UI-editability, Loki through the datasource proxy, and
+  `observability/grafana/bootstrap.py` to give a new project its own folder + rules + dashboard.
+  Use for "why didn't the alert fire", "change a threshold", "show the dashboards", "onboard a
+  project into Grafana".
 
 ## Quick console (run from repo root)
 
