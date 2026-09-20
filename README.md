@@ -13,10 +13,10 @@ Docker Compose. Frontend: Tailwind 4 + shadcn/ui + react-router.
 
 Docs:
 
-- `PLAN.md` — binding decisions and open milestones (M13–M18)
+- `PLAN.md` — binding decisions and open milestones (M14–M18)
 - `MONETIZATION.md` — billing spec (quotas + PayMongo period top-up, shipped)
 - `BYOK.md` — per-owner LLM provider keys (settings panel → `/settings/system`)
-- `OBSERVABILITY.md` — logging/metrics plan (doc-first M13)
+- `OBSERVABILITY.md` — what telemetry ships, and what is deliberately parked
 
 ---
 
@@ -90,7 +90,7 @@ you only need the vars for the features you actually use. Check which are set (n
 | PayMongo ₱499 → premium row (30 days)    | `PAYMONGO_SECRET_KEY` (`sk_test_…`), `PAYMONGO_WEBHOOK_SECRET` | —                                                      | upgrade in the UI → Maya page; dev instead: POST `/api/billing/webhook/simulate` (no tunnel, no keys)                |
 | Real AI interviewer chat + auto-feedback | `LLM_BASE_URL`, `LLM_MODEL`, `LLM_API_KEY`                     | —                                                      | empty → deterministic STUB (model-free tests/dev)                                                                    |
 | BYOK (own provider key)                  | `BYOK_ENCRYPTION_KEY`                                          | —                                                      | `BYOK.md`                                                                                                            |
-| Observability                            | _(nothing yet)_                                                | —                                                      | `OBSERVABILITY.md` (docs-first, not wired)                                                                           |
+| Observability (JSON logs, error capture) | _(nothing)_ — dev logs to the console                          | prod: Loki + Sentry + alerts, wired in gitops          | `make logs`, or `OBSERVABILITY.md`                                                                                   |
 
 Feature env values come from your Clerk app's **Development instance** (`.clerk.accounts.dev` /
 `pk_test_` / `sk_test_`) and PayMongo **test mode** — both safe on `localhost`. Live keys are locked
