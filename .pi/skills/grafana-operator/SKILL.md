@@ -92,6 +92,12 @@ curl -s -H "Authorization: Bearer $TOKEN" "$URL/api/datasources/proxy/uid/grafan
 
 - `status` is a number: `| json | status >= 400` matches (34 rows/24h), so the comparison in the rules
   and panels is live, not lexically dead.
+- `.*` immediately before a `|`-alternation in a **label** regex silently matches nothing here:
+  `event=~"llm.*(unavailable|failed|transport_error)"` → 0 rows where
+  `event=~"llm[a-z._]*(unavailable|failed|transport_error)"` → all 6, and `level=~".*(error|warning)"`
+  works fine — so the trap is narrow, looks healthy (`health: ok`, `state: inactive`), and is invisible
+  under `noDataState: OK`. The live `maxterview: llm failures` rule carried it and could never fire.
+  Test any new alternation regex against a real row before trusting it.
 - `event="browser.error"` (the frontend beacon) is logged at **`level: info`**, so a `level="error"`
   panel or filter misses every browser error while looking healthy. Filter on `event`, not `level`.
 - `path` carries interview UUIDs, so `by (path)` or per-path quantiles are **unbounded** — one series

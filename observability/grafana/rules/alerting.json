@@ -98,7 +98,7 @@
           "datasourceUid": "{{DATASOURCE}}",
           "model": {
             "editorMode": "code",
-            "expr": "sum(count_over_time({app=\"{{APP}}\"} | json | event=~\"llm.*(unavailable|failed|transport_error)\" [10m]))",
+            "expr": "sum(count_over_time({app=\"{{APP}}\"} | json | event=~\"llm[a-z._]*(unavailable|failed|transport_error)\" [10m]))",
             "intervalMs": 1000,
             "maxDataPoints": 43200,
             "queryType": "range",
@@ -154,7 +154,7 @@
       "for": "1m",
       "keep_firing_for": "0s",
       "annotations": {
-        "description": "sum(count_over_time({app=\"{{APP}}\"} | json | event=~\"llm.*(unavailable|failed|transport_error)\" [10m])) \u2014 fires above 2",
+        "description": "sum(count_over_time({app=\"{{APP}}\"} | json | event=~\"llm[a-z._]*(unavailable|failed|transport_error)\" [10m])) \u2014 fires above 2",
         "summary": "{{PROJECT}}: llm failures"
       },
       "labels": {
