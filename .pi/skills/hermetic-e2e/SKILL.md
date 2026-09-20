@@ -2,18 +2,6 @@
 name: hermetic-e2e
 description: >-
   Drive a REAL headless browser against maxterview's running frontend. Primary path is the wired
-  playwright MCP server (nixpkgs playwright-mcp via .mcp.json; headless+isolated chromium, lazy) —
-  call browser_navigate/browser_snapshot/browser_click by element ref, or batch multi-step work with
-  mcpScript. Secondary path is the host-direct nix-store runners (playwright-core + chromium resolved
-  at runtime by scripts/store.cjs — no @playwright/test, no host npm install): e2e.cjs asserts the
-  journey PASS/FAIL (--feedback adds chat+Complete, --resume the PDF drop/attach leg), inspect.cjs
-  dumps the live DOM per stage. DEFAULT TO MCP: run a canned runner only as-is, and when one fails or
-  lacks a leg, go back to MCP — do NOT refactor the .cjs mid-task (needs an explicit user ask). Covers
-  onboarding -> /dashboard -> create interview -> chat -> Complete-scoring, plus the resume library (drop a
-  PDF -> attach -> resume-aware thread). Hermetic when the backend runs
-  CLERK_ENABLED=false (no-Clerk DEV_USER); if real Clerk, sign in headlessly first via
-  paymongo-operator. Use to reproduce/eyeball onboarding / new-interview / complete-scoring in a
-  browser, or after frontend/backend changes.
 ---
 
 # Hermetic E2E — drive a live headless browser
