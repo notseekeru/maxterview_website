@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { useDocumentTitle } from "@/hooks/useDocumentTitle";
+import { MOVE_CLASSES } from "@/lib/moveClasses";
 import { PLANS } from "@/lib/plans";
 
 // / — public marketing landing. It is the only crawlable route (everything under /dashboard is behind
@@ -10,6 +11,11 @@ import { PLANS } from "@/lib/plans";
 // Clerk SDK and recharts are in lazy chunks this route never fetches.
 // Navigation here must stay <Link>/<a href>: an onClick handler is a <button>, which is not a
 // link and passes nothing to a crawler.
+// The five backdrop photos live in public/assets/landing (pre-cropped grayscale JPEGs, provenance
+// in CREDITS.txt). Brightness and gradient live in CSS, not in the files, so the same asset can be
+// re-graded without a re-render pass. Every one of them is decorative: alt="" + aria-hidden.
+// Subject rule for these photos: one person at a screen, or an empty desk. Never a candidate facing
+// an interviewer — that reads as a human-led interview, which is the one thing this product is not.
 export function Landing() {
     useDocumentTitle();
 
@@ -20,9 +26,9 @@ export function Landing() {
     ];
 
     const steps = [
-        { title: "Set the interview", body: "Pick the role, level and company size. Add a topic, or dial how cynical and brutally honest the interviewer should be." },
-        { title: "Answer in the chat", body: "One question at a time — chitchat, then behavioural, then technical, until the arc is spent." },
-        { title: "Get reviewed", body: "Each answer is annotated on its own, plus whether this run would convert and how much evidence backs that." },
+        { title: "Set the interview", body: "Pick the role, level and company size. Add a topic, or dial how cynical and brutally honest the interviewer should be.", img: "/assets/landing/step-1-setup.jpg" },
+        { title: "Answer in the chat", body: "One question at a time — chitchat, then behavioural, then technical, until the arc is spent.", img: "/assets/landing/step-2-answer.jpg" },
+        { title: "Get reviewed", body: "Each answer is annotated on its own, plus whether this run would convert and how much evidence backs that.", img: "/assets/landing/step-3-review.jpg" },
     ];
 
     const faq = [
@@ -47,18 +53,50 @@ export function Landing() {
             </header>
 
             <main className="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-16 px-6 py-12">
-                <section className="flex flex-col items-center gap-8 text-center">
-                    <h1 className="max-w-2xl text-4xl font-semibold leading-tight tracking-tight sm:text-5xl">Practice interviews with an AI coach that gives real feedback.</h1>
-                    <p className="max-w-xl text-lg text-muted-foreground">Answer questions one at a time, get every answer annotated like a chess engine annotates moves, and track your accuracy across every practice run.</p>
-                    <div className="flex flex-wrap items-center justify-center gap-3">
-                        <Button size="lg" asChild>
-                            <Link to="/dashboard">Start practicing free</Link>
-                        </Button>
-                        <Button size="lg" variant="outline" asChild>
-                            <Link to="/dashboard">Sign in</Link>
-                        </Button>
+                <section className="relative isolate overflow-hidden rounded-xl border">
+                    <img
+                        src="/assets/landing/hero-solo-practice.jpg"
+                        srcSet="/assets/landing/hero-solo-practice-800.jpg 800w, /assets/landing/hero-solo-practice.jpg 1600w"
+                        sizes="100vw"
+                        width={1600}
+                        height={600}
+                        fetchPriority="high"
+                        decoding="async"
+                        alt=""
+                        aria-hidden
+                        className="absolute inset-0 -z-10 h-full w-full object-cover object-center brightness-[.75] contrast-[1.05]"
+                    />
+                    {/* Two washes, not one, and the split is at lg because that is where the panel gets
+                        wider than the copy column (max-w-2xl = 672px): below lg the copy spans the whole
+                        panel, so the wash has to be flat-dark; at lg the right third is text-free and can
+                        keep photo detail (the via-70% stop is what holds the left of it dark). */}
+                    <div aria-hidden className="absolute inset-0 -z-10 bg-gradient-to-b from-black/80 via-black/85 to-black/70 lg:hidden" />
+                    <div aria-hidden className="absolute inset-0 -z-10 hidden bg-gradient-to-r from-black/95 from-0% via-black/85 via-70% to-black/25 lg:block" />
+                    <div className="flex max-w-2xl flex-col gap-6 px-6 py-14 text-white sm:px-10 sm:py-20">
+                        <h1 className="text-4xl font-semibold leading-tight tracking-tight sm:text-5xl">Practice interviews with an AI coach that gives real feedback.</h1>
+                        <p className="text-lg text-white/80">Answer questions one at a time, get every answer annotated like a chess engine annotates moves, and track your accuracy across every practice run.</p>
+                        <div className="flex flex-wrap items-center gap-3">
+                            <Button size="lg" className="bg-white text-black hover:bg-white/90" asChild>
+                                <Link to="/dashboard">Start practicing free</Link>
+                            </Button>
+                            <Button size="lg" variant="outline" className="border-white/30 bg-white/10 text-white hover:bg-white/20 hover:text-white" asChild>
+                                <Link to="/dashboard">Sign in</Link>
+                            </Button>
+                        </div>
+                        {/* The scale the reviewer actually grades on. It is the product's own vocabulary
+                            (lib/moveClasses), rendered read-only: the hint is the tooltip. */}
+                        <ul aria-label="How answers are graded" className="flex flex-wrap items-center gap-2 text-xs text-white/70">
+                            {MOVE_CLASSES.map((m) => (
+                                <li key={m.value} title={m.hint} className="inline-flex items-center gap-1.5 rounded-full border border-white/15 bg-white/5 px-2.5 py-1">
+                                    <span aria-hidden className="font-semibold text-white/90">
+                                        {m.glyph}
+                                    </span>
+                                    {m.label}
+                                </li>
+                            ))}
+                        </ul>
+                        <p className="text-sm text-white/70">No credit card · {PLANS.free.turns} free turns a day · Cancel anytime</p>
                     </div>
-                    <p className="text-sm text-muted-foreground">No credit card · {PLANS.free.turns} free turns a day · Cancel anytime</p>
                 </section>
 
                 <section aria-label="What you get" className="grid grid-cols-1 gap-4 sm:grid-cols-3">
@@ -74,10 +112,13 @@ export function Landing() {
                     <h2 className="text-2xl font-semibold tracking-tight">How it works</h2>
                     <ol className="grid grid-cols-1 gap-4 sm:grid-cols-3">
                         {steps.map((s, i) => (
-                            <li key={s.title} className="rounded-lg border p-5">
-                                <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Step {i + 1}</span>
-                                <h3 className="mt-1 font-medium">{s.title}</h3>
-                                <p className="mt-1 text-sm text-muted-foreground">{s.body}</p>
+                            <li key={s.title} className="overflow-hidden rounded-lg border">
+                                <img src={s.img} width={240} height={240} loading="lazy" decoding="async" alt="" aria-hidden className="h-24 w-full object-cover grayscale opacity-60" />
+                                <div className="p-5">
+                                    <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Step {i + 1}</span>
+                                    <h3 className="mt-1 font-medium">{s.title}</h3>
+                                    <p className="mt-1 text-sm text-muted-foreground">{s.body}</p>
+                                </div>
                             </li>
                         ))}
                     </ol>
@@ -125,11 +166,29 @@ export function Landing() {
                     </dl>
                 </section>
 
-                <section className="flex flex-col items-center gap-3 rounded-lg border p-8 text-center">
-                    <h2 className="text-xl font-semibold tracking-tight">Your next interview is practice, not the real one.</h2>
-                    <Button size="lg" asChild>
-                        <Link to="/dashboard">Start practicing free</Link>
-                    </Button>
+                <section className="relative isolate overflow-hidden rounded-xl border">
+                    <img
+                        src="/assets/landing/cta-desk-night.jpg"
+                        srcSet="/assets/landing/cta-desk-night-800.jpg 800w, /assets/landing/cta-desk-night.jpg 1600w"
+                        sizes="100vw"
+                        width={1600}
+                        height={500}
+                        loading="lazy"
+                        decoding="async"
+                        alt=""
+                        aria-hidden
+                        className="absolute inset-0 -z-10 h-full w-full object-cover object-center brightness-[.75] contrast-[1.05]"
+                    />
+                    {/* Vignette rather than a flat wash: the source has its bright spot (laptop glow) in the
+                        middle, which is where the centred headline sits, so the middle band has to be the
+                        darkest part of the band, not the edges. */}
+                    <div aria-hidden className="absolute inset-0 -z-10 bg-gradient-to-b from-black/30 via-black/65 to-black/30" />
+                    <div className="flex flex-col items-center gap-4 px-6 py-14 text-center text-white sm:py-20">
+                        <h2 className="max-w-xl text-xl font-semibold tracking-tight sm:text-2xl">Your next interview is practice, not the real one.</h2>
+                        <Button size="lg" className="bg-white text-black hover:bg-white/90" asChild>
+                            <Link to="/dashboard">Start practicing free</Link>
+                        </Button>
+                    </div>
                 </section>
             </main>
 
