@@ -15,12 +15,19 @@ tier, and the app never holds a Grafana write credential.
 | Browser errors — signed-in app | `frontend/src/lib/sentry.ts`, started from `AppShell` | full Sentry SDK, errors only, after first paint. 146 kB gz because `@sentry/browser` hard-depends on replay/rrweb; an authenticated page pays it once, the landing page never does. |
 | Probe depth | `/api/health` stays shallow | deliberate: the pool is lazy (`db.py`, `min_size=0`) and Neon scales to zero, so a DB-gated readiness would flap the only replica into a full outage. |
 
-## Next — tier 2, needs a Grafana Cloud stack
+## Shipped — tier 2, log pipeline
 
-1. Stack + access policy scoped `logs:write`; the token reaches the cluster as a Terraform-created Secret from Infisical, same pattern as `maxterview-secrets`.
-2. Alloy as a **1-replica Deployment**, not a DaemonSet: `discovery.kubernetes` + `loki.source.kubernetes` tail through the Kubernetes API, so there is no hostPath, no node filesystem, no privileged container — just a Role with pods list/watch and pods/log get. Caveat: API tailing sees only what Alloy is running to witness.
-3. Labels `namespace/pod/container/app` plus the external `cluster`/`app` pair; three **Grafana-managed** alert rules (500 rate, feedback-generation failure, pod restart) — Loki-ruler alerts are deprecated in new stacks.
-4. Ceilings that then bound history: 14-day retention, 5 MB/s ingest, 5k streams, 50 GB/mo.
+Logs leave the cluster: Alloy tails pod stdout through the Kubernetes API into Grafana Cloud Loki, and a rule set turns those lines into alerts. Labels are `namespace/pod/container/app` plus the external `cluster`/`app`.
+
+| Area | Where | What |
+| --- | --- | --- |
+| Collector | `gitops/apps/maxterview/base/alloy.yaml` | One **Deployment**, not a DaemonSet: `discovery.kubernetes` → `loki.source.kubernetes` goes through the Kubernetes API, so no hostPath, no node filesystem, no privileged container — just a namespaced Role for pods list/watch and pods/log get. |
+| Discovery scope | same | `namespaces { own_namespace = true }`. Discovery lists cluster-wide by default and the namespaced Role forbids that: the first deploy produced a 403 and zero targets. Here the Role *is* the scope. |
+| Target filter | same | `drop` on `__meta_kubernetes_pod_phase =~ "Succeeded|Failed"` — a finished Job pod has no live stream and API tailing re-opens it in a hot loop. Drop, not keep-on-Running, so a missing label can never silently drop every target. |
+| Config changes | same | The `maxterview/config-hash` pod annotation. Argo updating a ConfigMap restarts nothing and Alloy reads its config at startup, so the hash must be bumped together with the config to roll the pod. |
+| Credential | Terraform `maxterview-logs` Secret, values from Infisical | `LOKI_URL`/`LOKI_USER`/`LOKI_TOKEN`, scope `logs:write` and nothing else. The app never holds it. |
+| Alerts | Grafana, `maxterview` folder | Three **Grafana-managed** rules — backend 5xx, LLM failures, backend tracebacks — routed to a Slack contact point (webhook lives in Infisical at `/sources/webhooks`). Loki-ruler alerts are deprecated in new stacks. |
+| Ceilings | — | 14-day retention, 5 MB/s ingest, 5k streams, 50 GB/mo. Metric history inherits the log window, since metrics are LogQL queries over these lines. |
 
 Independent of all of the above: k3s ships `metrics-server`, and `kubectl top` fails on a kubelet
 certificate SAN. Fixing that (`--tls-san`, brief apiserver restart) unblocks M18's load test with no
