@@ -92,6 +92,8 @@ curl -s -H "Authorization: Bearer $TOKEN" "$URL/api/datasources/proxy/uid/grafan
 
 - `status` is a number: `| json | status >= 400` matches (34 rows/24h), so the comparison in the rules
   and panels is live, not lexically dead.
+- `event="browser.error"` (the frontend beacon) is logged at **`level: info`**, so a `level="error"`
+  panel or filter misses every browser error while looking healthy. Filter on `event`, not `level`.
 - `path` carries interview UUIDs, so `by (path)` or per-path quantiles are **unbounded** — one series
   per interview. Group by `method` / `status` / `level`; those are bounded.
 - Metric queries hit a series cap (observed: exactly 300 returned, then truncated). Aggregate, always.
