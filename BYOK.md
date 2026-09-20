@@ -1,7 +1,7 @@
 # BYOK — per-owner LLM provider keys
 
 **Shipped 2026-09-13.** An owner can point their interviews at their own OpenAI-compatible provider
-(OpenAI, DeepSeek, OpenRouter, Ollama, a self-hosted llama.cpp…) instead of the deployment's `LLM_*`.
+(OpenAI, DeepSeek, OpenRouter, a self-hosted vLLM…) instead of the deployment's `LLM_*`.
 UI: **`/settings/system`** → "Interview engine (BYOK)". Code: `backend/src/app/byok.py`
 (policy/storage), `llm.LLMConfig` (transport), `frontend/src/components/LLMProviderCard.tsx`.
 
@@ -28,7 +28,7 @@ settings card renders read-only. Malformed key → same, logged once as `byok.en
 | Storage        | one row per owner in `llm_credentials` (migration `0009`). `api_key` is Fernet ciphertext; `key_hint` is its **last 4 characters**, so the UI can say which key is saved.                                                                                                                                                   |
 | Resolution     | per request, in the `LLMConfigDep` dependency: a usable BYOK row REPLACES `LLM_*` entirely (base URL, model, key — grader included). No row / BYOK off / undecryptable row → `llm.SYSTEM_CONFIG`.                                                                                                                           |
 | Never returned | no endpoint echoes the key. `PUT` answers the same shape as `GET` (hint only). `POST /settings/llm/test` returns a short status reason, never a provider body (which can echo the request, and the request carries the key).                                                                                                |
-| Reuse          | `api_key: ""` on `PUT` keeps the stored key, so base URL and model stay editable without re-pasting. **A key is optional**: on first save an empty key saves a keyless row — correct for self-hosted endpoints (Ollama, llama.cpp, vLLM) that authenticate nothing. No key = no `Authorization` header.                     |
+| Reuse          | `api_key: ""` on `PUT` keeps the stored key, so base URL and model stay editable without re-pasting. **A key is optional**: on first save an empty key saves a keyless row — correct for self-hosted endpoints (vLLM and any other keyless OpenAI-compatible server) that authenticate nothing. No key = no `Authorization` header.                     |
 | Quota          | BYOK swaps the TIER cap for a flat, higher ceiling (`BYOK_CHAT_TURNS`, default 1000/day) and the turns stay metered (`/usage` → `byok: true`, `MONETIZATION.md` §2). The cap is never waived: `byok` is self-asserted, so a waiver would be a free ride on whoever's GPU the `base_url` names. The tier label is unchanged. |
 | Destinations   | two refusals at save (`_base_url`): this deployment's own `LLM_*` origin **while it needs no key**, and anything off the public internet (`is_global`, IP literal or resolved name). Every public provider is allowed, including the one this deployment uses — bring your own key and nothing is abused.                   |
 | Availability   | every tier, including free. Not a premium perk.                                                                                                                                                                                                                                                                             |

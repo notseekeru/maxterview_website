@@ -462,7 +462,7 @@ export interface LLMProviderStatus {
 export interface LLMProviderInput {
     base_url: string;
     model: string;
-    /** Omit/empty to keep the stored key. An endpoint that needs no auth (Ollama, llama.cpp) can be
+    /** Omit/empty to keep the stored key. An endpoint that needs no auth can be
      *  saved keyless — an empty key just means no Authorization header. */
     api_key?: string;
 }

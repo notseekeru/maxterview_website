@@ -225,7 +225,7 @@ async function main() {
 
     // Outcome A: FeedbackView (its card body reads "Every answer you gave is annotated ...").
     // Outcome B: retry notice ("your review wasn't ready") -> click Retry review and re-poll.
-    // 90s deadline: on qwen/llama, /complete runs inline and blocks across the calls.
+    // 90s deadline: on a slow self-hosted model, /complete runs inline and blocks across the calls.
     const deadline = Date.now() + 90_000;
     let state = null;
     while (Date.now() < deadline) {
