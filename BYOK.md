@@ -43,7 +43,7 @@ All paths carry the app's `/api` prefix.
 | `GET`    | `/api/settings/llm`      | `{enabled, byok, base_url, model, key_hint, system:{configured, base_url, model}}` (`key_hint: null` = keyless row) |
 | `PUT`    | `/api/settings/llm`      | `{base_url, model, api_key?}` → same shape as `GET`                                                                 |
 | `DELETE` | `/api/settings/llm`      | `204`                                                                                                               |
-| `POST`   | `/api/settings/llm/test` | probes the **saved** config with a 1-token completion → `{ok, detail}`                                              |
+| `POST`   | `/api/settings/llm/test` | probes the **saved** config with a 1-token completion → `{ok, detail}`; the panel calls it on load, so a provider that stopped answering is visible before a turn dies on it |
 
 Validation on write (all `422`): base URL must be `http(s)` with a host and no embedded
 credentials/query/fragment; model non-empty; a key, **when supplied**, is 8–500 chars with **no

@@ -15,6 +15,9 @@ interface Props {
 }
 
 const STREAM_FAILED = "The interviewer couldn't answer just now — the model was unreachable. Your turn wasn't saved, so send it again in a moment.";
+// The connection died before any frame arrived, so the server never got to name the provider (it does
+// that in llm.unreachable_detail). Same advice either way: the panel that fixes it is the same one.
+const CONNECTION_LOST = "Connection lost while streaming — the model never answered. If this repeats, test your provider in Settings > Interview engine (BYOK).";
 
 export function InterviewChat({ interviewId, onExit }: Props) {
     const [status, setStatus] = useState<"loading" | "ready" | "streaming" | "completed">("loading");
@@ -159,7 +162,9 @@ export function InterviewChat({ interviewId, onExit }: Props) {
                         settled = true;
                         rollback();
                         setDraft(content);
-                        setError(STREAM_FAILED);
+                        // The server's message names the endpoint and what to do about it; the constant
+                        // is only for a frame with no data.
+                        setError(ev.message || STREAM_FAILED);
                         setStatus("ready");
                     }
                 },
@@ -180,7 +185,7 @@ export function InterviewChat({ interviewId, onExit }: Props) {
                 const st = httpStatus(e);
                 if (st === 402) setQuotaLocked(true);
                 else if (st === 409) setInterviewOver(true);
-                else setError("Connection lost while streaming.");
+                else setError(CONNECTION_LOST);
                 rollback();
                 if (st !== 409) setDraft(content);
             }

@@ -25,6 +25,10 @@ export function LLMProviderCard() {
     const [busy, setBusy] = useState<"save" | "test" | "clear" | null>(null);
     const [note, setNote] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
+    // A saved provider that stopped answering is invisible until a turn dies on it, and the turn then
+    // reads as "the model was unreachable" - which is true but not actionable. Probe once per load and
+    // after every save; a failed probe (no row, network blip) is not a verdict, so it clears instead.
+    const [health, setHealth] = useState<{ ok: boolean; detail: string } | null>(null);
 
     const apply = useCallback((s: LLMProviderStatus) => {
         setStatus(s);
@@ -45,6 +49,24 @@ export function LLMProviderCard() {
     useEffect(() => {
         void load();
     }, [load]);
+
+    useEffect(() => {
+        if (!status?.byok) {
+            setHealth(null);
+            return;
+        }
+        let cancelled = false;
+        void testLLMProvider()
+            .then((r) => {
+                if (!cancelled) setHealth(r);
+            })
+            .catch(() => {
+                if (!cancelled) setHealth(null);
+            });
+        return () => {
+            cancelled = true;
+        };
+    }, [status]);
 
     async function run(kind: "save" | "test" | "clear", action: () => Promise<string>) {
         setBusy(kind);
@@ -69,8 +91,9 @@ export function LLMProviderCard() {
 
     const test = () =>
         run("test", async () => {
-            const { ok, detail } = await testLLMProvider();
-            return `${ok ? "✓" : "✗"} ${detail}`;
+            const r = await testLLMProvider();
+            setHealth(r);
+            return `${r.ok ? "✓" : "✗"} ${r.detail}`;
         });
 
     const clear = () =>
@@ -110,6 +133,11 @@ export function LLMProviderCard() {
                         <p className="text-sm text-muted-foreground">
                             Using <span className="font-medium text-foreground">{status.model}</span> at {status.base_url}
                             {status.key_hint ? ` · key ending ${status.key_hint}` : " · no API key (self-hosted)"}
+                        </p>
+                    )}
+                    {health && !health.ok && (
+                        <p role="status" className="rounded-lg border border-destructive bg-destructive/10 p-3 text-sm">
+                            <span className="font-medium">Your provider is not reachable.</span> {health.detail} Interviews fail until this endpoint answers.
                         </p>
                     )}
                     {!status?.byok && status?.system.configured && (

@@ -1,7 +1,7 @@
 import json
 
 import respx
-from httpx import Response
+from httpx import ConnectError, Response
 
 from app import llm
 from app.models import ChatMessage, FeedbackSummary
@@ -13,6 +13,13 @@ REAL = llm.LLMConfig(base_url="http://llm.test", model="qwen")
 # The review hop is a THIRD JSON call, with its own prompt: doubles must dispatch on the prompt
 # rather than on `json_output`, or they answer the classification with a feedback payload.
 MOVES_JSON = '{"moves": [{"turn": 1, "class": "great"}, {"turn": 2, "class": "inaccuracy"}]}'
+
+
+def test_unreachable_detail_names_the_endpoint_a_byok_owner_can_fix():
+    cfg = llm.LLMConfig(base_url="https://old-llama.example.ts.net/v1", model="qwen", byok=True)
+    assert llm.unreachable_detail(ConnectError("boom"), cfg) == "Could not reach your provider (old-llama.example.ts.net) - ConnectError. Test it in Settings > Interview engine (BYOK)."
+    # Not a transport failure: a parse bug is not a dead host, so the original message stands.
+    assert llm.unreachable_detail(ValueError("no reply"), cfg) is None
 
 
 def test_first_turn_says_who_is_asking():

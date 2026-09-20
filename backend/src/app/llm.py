@@ -85,6 +85,33 @@ def _chat_extras() -> dict:
     return {}
 
 
+# One timeout for every provider call. Connect is capped in SECONDS on purpose: a blackholed host (a
+# stale BYOK endpoint, a dead tailnet name) otherwise burns the kernel's ~130s SYN budget per attempt,
+# and the candidate watches a two-minute "Thinking…" that no log line explains. Read stays wide
+# because it resets on every chunk of a long generation.
+LLM_TIMEOUT = httpx.Timeout(connect=10.0, read=120.0, write=30.0, pool=10.0)
+
+
+def provider_host(config: LLMConfig) -> str:
+    """The endpoint a call went to, for logs. A URL is not a secret, and "which host" is the first
+    question a provider outage asks - BYOK rows make the answer per-owner."""
+    if not config.base_url:
+        return "unset base URL"
+    return httpx.URL(config.base_url).host or config.base_url
+
+
+def unreachable_detail(exc: Exception, config: LLMConfig) -> str | None:
+    """The sentence a candidate can act on when the provider never answered, else None.
+
+    `ConnectError` names nothing a human can fix, and when the provider is the owner's own (BYOK)
+    the endpoint is the one thing they can change."""
+    if not isinstance(exc, httpx.TransportError):
+        return None
+    who = "your provider" if config.byok else "the deployment's provider"
+    fix = "Test it in Settings > Interview engine (BYOK)." if config.byok else "Try again in a moment."
+    return f"Could not reach {who} ({provider_host(config)}) - {type(exc).__name__}. {fix}"
+
+
 # The reviewer scores three axes (see GRADER_PROMPT_V1 / DIMENSION_AXES below). The arc is its only
 # evidence, so the interviewer is told the coverage target outright - and that an unprobed dim reads as
 # ABSENT rather than neutral, which is what makes "spend every question on one axis" a real cost to the
@@ -602,7 +629,7 @@ async def stream_chat(messages: list[ChatMessage], config: LLMConfig) -> AsyncIt
         "max_tokens": LLM_MAX_TOKENS,
         **_chat_extras(),
     }
-    async with httpx.AsyncClient(base_url=config.base_url, timeout=httpx.Timeout(300.0, read=120.0)) as client:
+    async with httpx.AsyncClient(base_url=config.base_url, timeout=LLM_TIMEOUT) as client:
         async with client.stream("POST", "/chat/completions", json=payload, headers=_headers(config)) as resp:
             resp.raise_for_status()
             async for line in resp.aiter_lines():
@@ -852,7 +879,7 @@ async def _completion(
     bodies = [payload, {**payload, "response_format": _json_format(None)}] if json_schema else [payload]
     for i, body in enumerate(bodies):
         try:
-            async with httpx.AsyncClient(base_url=config.base_url, timeout=httpx.Timeout(300.0)) as client:
+            async with httpx.AsyncClient(base_url=config.base_url, timeout=LLM_TIMEOUT) as client:
                 resp = await client.post("/chat/completions", json=body, headers=_headers(config))
                 resp.raise_for_status()
                 content = resp.json()["choices"][0]["message"]["content"]
@@ -861,10 +888,10 @@ async def _completion(
             if i == 0 and len(bodies) == 2 and exc.response.status_code in (400, 404, 422):
                 log.info("llm.feedback.json_schema_unsupported", status=exc.response.status_code)
                 continue
-            log.warning("llm.feedback.transport_error", reason=type(exc).__name__, status=exc.response.status_code)
+            log.warning("llm.feedback.transport_error", reason=type(exc).__name__, status=exc.response.status_code, provider=provider_host(config))
             return None
         except Exception as exc:  # httpx.HTTPError + malformed/truncated response bodies
-            log.warning("llm.feedback.transport_error", reason=type(exc).__name__)
+            log.warning("llm.feedback.transport_error", reason=type(exc).__name__, provider=provider_host(config))
             return None
     if not isinstance(content, str) or not content.strip():
         log.warning("llm.feedback.empty_output")

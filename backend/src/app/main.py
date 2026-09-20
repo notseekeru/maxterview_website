@@ -1058,9 +1058,11 @@ async def chat_stream(
         except Exception as exc:
             # Model or DB failure while the turn is in flight: the user's row must not outlive it, or
             # the next send duplicates the answer (see the repair above).
-            log.warning("llm.chat.failed", interview_id=interview_id, model=config.model, asked=asked, reason=type(exc).__name__, latency_ms=round((time.perf_counter() - turn_started) * 1000, 1))
+            log.warning("llm.chat.failed", interview_id=interview_id, model=config.model, byok=config.byok, provider=llm.provider_host(config), asked=asked, reason=type(exc).__name__, latency_ms=round((time.perf_counter() - turn_started) * 1000, 1))
             await _discard_turn()
-            yield f"event: error\ndata: {str(exc)}\n\n"
+            # The client shows this verbatim: an unreachable provider is the one failure its owner can
+            # fix themselves, and "ConnectError" is not that sentence.
+            yield f"event: error\ndata: {llm.unreachable_detail(exc, config) or str(exc)}\n\n"
             return
         except BaseException:
             # Client went away (CancelledError/GeneratorExit): same rollback, nobody left to notify.

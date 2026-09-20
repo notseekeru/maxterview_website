@@ -158,6 +158,25 @@ def test_chat_keeps_the_turn_when_complete_lands_mid_stream(client, monkeypatch)
     c.delete(f"/api/interviews/{iid}")
 
 
+def test_chat_stream_names_the_provider_it_could_not_reach(client, monkeypatch):
+    # The frame the browser prints verbatim: "ConnectError" is not an instruction, the endpoint is.
+    import httpx
+
+    from app import llm
+
+    async def _unreachable(*_a, **_kw):
+        raise httpx.ConnectError("All connection attempts failed")
+        yield  # pragma: no cover - makes this an async generator
+
+    monkeypatch.setattr(llm, "stream_chat", _unreachable)
+    c = client
+    iid = c.post("/api/interviews", json={"role": "Unreachable Provider"}).json()["id"]
+    c.post(f"/api/interviews/{iid}/start")
+    body = c.post(f"/api/interviews/{iid}/chat/stream", json={"interview_id": iid, "content": "hi"}).text
+    assert "Could not reach the deployment's provider" in body and "ConnectError" in body
+    c.delete(f"/api/interviews/{iid}")
+
+
 def test_chat_repairs_a_dangling_user_turn(client):
     # A trailing user turn can only come from a worker that died mid-turn (a clean failure rolls
     # back). The next send is that turn's retry, so it replaces it instead of appending a twin.
