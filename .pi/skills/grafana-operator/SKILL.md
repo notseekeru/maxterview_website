@@ -38,9 +38,10 @@ URL=https://sturdypoplar3317.grafana.net
 
 | Object | uid / name |
 | --- | --- |
-| Folder, project | `maxterview` (dashboard-less; rules only) |
+| Folder, project | `maxterview` — rule group + dashboard |
 | Folder, Grafana's own | `afys5ycv6iv40b` — holds the 11 built-in Cloud dashboards, never touch |
 | Rule group | `maxterview-logs`, interval 60s, 4 rules |
+| Dashboard | `maxterview-logs` (uid = same slug), 6 Loki panels |
 | Rule uids | `cfys2cemal24ga`, `efys2cf010ykgc`, `afys2cfcxi2v4e`, `afystat9eb1tsb` |
 | Contact point | `slack-maxterview` (uid `dfys2agrrsr9ce`, type slack; webhook is a secret in Infisical) |
 | Root notification policy | receiver `slack-maxterview`, `group_by = [grafana_folder, alertname]`, `provenance: api` |
@@ -153,7 +154,8 @@ cd observability/grafana && ./bootstrap.py <project> [app-label] [--dry-run] [--
 `cp -r observability/grafana <new-repo>/observability/grafana` is the whole install step; `cp -r` and
 one command per project. Dashboards and rules land in folder `<project>`, nothing is shared but the
 stack and the contact point. Tuning a template then rerunning is the only supported way to change a
-provisioned rule.
+provisioned rule. **Dashboards are not provenance-locked** (only rules are), so a UI edit to
+`<project>-logs` is silently overwritten by the next run — edit the template instead.
 
 ## Guardrails
 

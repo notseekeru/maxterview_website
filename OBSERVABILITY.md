@@ -27,6 +27,7 @@ Logs leave the cluster: Alloy tails pod stdout through the Kubernetes API into G
 | Config changes | same | The `maxterview/config-hash` pod annotation. Argo updating a ConfigMap restarts nothing and Alloy reads its config at startup, so the hash must be bumped together with the config to roll the pod. |
 | Credential | Terraform `maxterview-logs` Secret, values from Infisical | `LOKI_URL`/`LOKI_USER`/`LOKI_TOKEN`, scope `logs:write` and nothing else. The app never holds it. |
 | Alerts | Grafana, `maxterview` folder | Four **Grafana-managed** rules — backend 5xx, LLM failures, backend tracebacks, browser errors (`event="browser.error"` above 2 in 10m, so a one-off blocked script stays quiet while a screen that keeps breaking does not) — routed to a Slack contact point (webhook lives in Infisical at `/sources/webhooks`). Loki-ruler alerts are deprecated in new stacks. |
+| Dashboard | Grafana, `maxterview` folder; kit in `observability/grafana` | `maxterview-logs`, six Loki panels: log volume by `level`, requests with a 5xx overlay, request duration (p95 per status code plus a true mean — per-request quantiles are not available), error-level logs, browser-error beacons, and LLM latency (p95 per model) with failures on a second axis. `bootstrap.py <project> [app-label]` reproduces folder + rules + dashboard for any project; `cp -r` is the install. |
 | Ceilings | — | 14-day retention, 5 MB/s ingest, 5k streams, 50 GB/mo. Metric history inherits the log window, since metrics are LogQL queries over these lines. |
 
 Independent of all of the above: k3s ships `metrics-server`, and `kubectl top` fails on a kubelet
@@ -38,5 +39,5 @@ new pipeline at all.
 - **OTel SDK → OTLP**, pointed at the in-cluster Alloy receiver (never at Grafana directly, so the app still holds no credential): when a number needs a real histogram, or history deeper than 14 days.
 - **Tempo traces**: when a latency problem spans more than one hop.
 - **Faro/RUM**: only after OTel exists, for frontend-to-backend trace correlation.
-- **Dashboards-as-code, uptime probes, ingress observability**: the first incident that needs one.
+- **Uptime probes, ingress observability**: the first incident that needs one.
 - **Readiness deepening**: more than one replica, or a DB outage indistinguishable from an app outage.
