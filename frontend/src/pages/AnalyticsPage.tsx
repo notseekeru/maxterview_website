@@ -5,7 +5,7 @@ import { Bar, BarChart, CartesianGrid, Cell, Line, LineChart, XAxis, YAxis } fro
 import { AccuracyTrendChart } from "@/components/AccuracyTrendChart";
 import { Page } from "@/components/PagePrimitives";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { type ChartConfig, ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
+import { type ChartConfig, ChartContainer, ChartTooltip, ChartTooltipContent, DRAW_MS } from "@/components/ui/chart";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAnalytics } from "@/hooks/useInterviewData";
 import type { Analytics, AnalyticsActivityWeek, AnalyticsDial, AnalyticsRun } from "@/lib/api";
@@ -228,8 +228,8 @@ function ActivityWeekly({ weeks }: { weeks: AnalyticsActivityWeek[] }) {
                         <XAxis dataKey="label" tickLine={false} axisLine={false} tickMargin={8} interval="preserveStartEnd" />
                         <YAxis allowDecimals={false} tickLine={false} axisLine={false} width={28} />
                         <ChartTooltip cursor={false} content={<ChartTooltipContent indicator="line" />} />
-                        <Bar dataKey="started" radius={4} fill="var(--color-started)" />
-                        <Bar dataKey="completed" radius={4} fill="var(--color-completed)" />
+                        <Bar dataKey="started" animationDuration={DRAW_MS} radius={4} fill="var(--color-started)" />
+                        <Bar dataKey="completed" animationDuration={DRAW_MS} radius={4} fill="var(--color-completed)" />
                     </BarChart>
                 </ChartContainer>
             )}
@@ -258,7 +258,7 @@ function MoveBreakdown({ counts }: { counts: Analytics["move_classes"] }) {
                         <XAxis dataKey="cls" tickLine={false} axisLine={false} tickMargin={8} tickFormatter={(v: string) => moveClassMeta(v)?.label ?? v} />
                         <YAxis allowDecimals={false} tickLine={false} axisLine={false} width={28} />
                         <ChartTooltip cursor={false} content={<ChartTooltipContent indicator="line" labelFormatter={(v) => moveClassMeta(String(v))?.hint ?? String(v)} />} />
-                        <Bar dataKey="count" radius={4}>
+                        <Bar dataKey="count" animationDuration={DRAW_MS} radius={4}>
                             {rows.map((r) => (
                                 <Cell key={r.cls} fill={MOVE_SCALE[r.cls].chart} fillOpacity={MOVE_SCALE[r.cls].opacity} />
                             ))}
@@ -308,7 +308,7 @@ function DimensionHistory({ runs }: { runs: AnalyticsRun[] }) {
                         <YAxis domain={[0, 10]} tickLine={false} axisLine={false} width={28} allowDecimals={false} />
                         <ChartTooltip content={<ChartTooltipContent indicator="line" labelFormatter={dayLabel} />} />
                         {axes.map((a) => (
-                            <Line key={a.axis} dataKey={a.axis} name={a.label} type="monotone" stroke={`var(--color-${a.axis})`} strokeWidth={2} dot={{ r: 3 }} connectNulls />
+                            <Line key={a.axis} dataKey={a.axis} name={a.label} type="monotone" animationDuration={DRAW_MS} stroke={`var(--color-${a.axis})`} strokeWidth={2} dot={{ r: 3 }} connectNulls />
                         ))}
                     </LineChart>
                 </ChartContainer>
@@ -371,8 +371,8 @@ function DecisionHistory({ runs }: { runs: AnalyticsRun[] }) {
                             <XAxis dataKey="label" tickLine={false} axisLine={false} tickMargin={8} interval="preserveStartEnd" />
                             <YAxis domain={[-100, 100]} ticks={[-100, -50, 0, 50, 100]} tickLine={false} axisLine={false} width={36} tickFormatter={(v: number) => (v === 0 ? "0" : v > 0 ? `+${v / 100}` : `${v / 100}`)} />
                             <ChartTooltip content={<ChartTooltipContent indicator="line" labelFormatter={dayLabel} />} />
-                            <Line dataKey="lean" name="Lean" type="monotone" stroke="var(--color-lean)" strokeWidth={2} dot={{ r: 3 }} />
-                            <Line dataKey="certainty" name="Certainty %" type="monotone" stroke="var(--color-certainty)" strokeWidth={2} strokeDasharray="4 3" dot={{ r: 3 }} connectNulls />
+                            <Line dataKey="lean" name="Lean" type="monotone" animationDuration={DRAW_MS} stroke="var(--color-lean)" strokeWidth={2} dot={{ r: 3 }} />
+                            <Line dataKey="certainty" name="Certainty %" type="monotone" animationDuration={DRAW_MS} stroke="var(--color-certainty)" strokeWidth={2} strokeDasharray="4 3" dot={{ r: 3 }} connectNulls />
                         </LineChart>
                     </ChartContainer>
                     <DecisionSplit runs={decided} />

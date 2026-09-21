@@ -1,6 +1,6 @@
 import { Area, AreaChart, CartesianGrid, XAxis, YAxis } from "recharts";
 
-import { type ChartConfig, ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
+import { type ChartConfig, ChartContainer, ChartTooltip, ChartTooltipContent, DRAW_MS } from "@/components/ui/chart";
 
 const config: ChartConfig = {
     accuracy: { label: "Accuracy", color: "var(--chart-1)" },
@@ -19,7 +19,7 @@ export function AccuracyTrendChart({ data, defer }: { data: { label: string; acc
                 <YAxis dataKey="accuracy" domain={[(min: number) => Math.max(0, Math.floor((min - 10) / 10) * 10), (max: number) => Math.min(100, Math.ceil((max + 10) / 10) * 10)]} tickCount={5} tickLine={false} axisLine={false} width={32} allowDecimals={false} />
                 <ChartTooltip cursor={false} content={<ChartTooltipContent indicator="line" />} />
                 {/* Visible anchors keep a short series from reading as a smudge. */}
-                <Area dataKey="accuracy" type="monotone" fill="var(--color-accuracy)" fillOpacity={0.25} stroke="var(--color-accuracy)" strokeWidth={2} dot={{ r: 3, fillOpacity: 1 }} activeDot={{ r: 4 }} />
+                <Area dataKey="accuracy" type="monotone" animationDuration={DRAW_MS} fill="var(--color-accuracy)" fillOpacity={0.25} stroke="var(--color-accuracy)" strokeWidth={2} dot={{ r: 3, fillOpacity: 1 }} activeDot={{ r: 4 }} />
             </AreaChart>
         </ChartContainer>
     );

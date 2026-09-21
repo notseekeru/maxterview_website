@@ -4,6 +4,7 @@ import * as React from "react";
 import type { TooltipValueType } from "recharts";
 import * as RechartsPrimitive from "recharts";
 
+import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 
 // AI HERE: stock shadcn v4 chart, monochrome-light only (M12). A dark theme
@@ -12,6 +13,62 @@ const THEMES = { light: "", dark: ".dark" } as const;
 
 const INITIAL_DIMENSION = { width: 320, height: 200 } as const;
 type TooltipNameType = number | string;
+
+// Recharts' 1500ms default draw-in is most of what a mount costs in frames; 350ms still reads as a
+// draw. Per series, not on the chart root: the root does not reliably forward it.
+export const DRAW_MS = 350;
+
+// AI HERE: /analytics mounts five recharts trees, and several landing in one commit measured as a
+// ~0.5s main-thread block (notes.md § PERF). Deferred charts queue at mount and are released in DOM
+// order, 250ms apart, one slot open at a time. Ceiling: this spreads the mounts, it does not make any
+// of them cheaper, and the gap is a constant rather than a frame-budget measurement.
+const GAP_MS = 250;
+
+type Claim = (handBack: () => void) => void;
+
+const queued: Claim[] = [];
+let scheduled = false;
+let mounting = false;
+let lastReleased = 0;
+
+function schedule() {
+    if (scheduled) return;
+    scheduled = true;
+    const wait = lastReleased ? Math.max(0, GAP_MS - (performance.now() - lastReleased)) : 0;
+    const fire = () => {
+        scheduled = false;
+        release();
+    };
+    if (wait > 0) setTimeout(fire, wait);
+    // Safari has no requestIdleCallback; a timeout is the same delay without the slack check.
+    else if (typeof requestIdleCallback === "function") requestIdleCallback(fire, { timeout: 400 });
+    else setTimeout(fire, 120);
+}
+
+function release() {
+    if (mounting) return; // the chart holding the slot schedules the next release when it commits
+    const next = queued.shift();
+    if (!next) return;
+    mounting = true;
+    lastReleased = performance.now();
+    let handed = false;
+    next(() => {
+        if (import.meta.env.DEV && handed) throw new Error("ChartContainer handed one slot back twice: two charts would mount in the same frame.");
+        handed = true;
+        mounting = false;
+        if (queued.length) schedule();
+    });
+}
+
+function enqueue(claim: Claim) {
+    queued.push(claim);
+    schedule();
+}
+
+function forget(claim: Claim) {
+    const i = queued.indexOf(claim);
+    if (i >= 0) queued.splice(i, 1);
+}
 
 export type ChartConfig = Record<
     string,
@@ -52,31 +109,32 @@ function ChartContainer({
     const uniqueId = React.useId();
     const chartId = `chart-${id ?? uniqueId.replace(/:/g, "")}`;
     const ref = React.useRef<HTMLDivElement>(null);
-    const [near, setNear] = React.useState(!defer);
-    // Derived, not just the state: flipping `defer` off has to reveal the chart right away, not at
-    // the next intersection.
-    const show = !defer || near;
+    const [ready, setReady] = React.useState(!defer);
+    const held = React.useRef<(() => void) | null>(null);
+    // Derived, not just the state: flipping `defer` off has to reveal the chart right away.
+    const show = !defer || ready;
 
-    // Mounting a chart is the expensive part of a page like /analytics (five recharts trees, every
-    // series animating at once, ~1.2s of main thread measured; see notes.md § PERF). A caller that
-    // sets `defer` reserves the box with its own height class and gets the tree only once it is
-    // within a screen of the viewport.
     React.useEffect(() => {
-        if (near) return;
+        if (!defer || ready) return;
         const el = ref.current;
-        if (!el) return;
-        if (import.meta.env.DEV && el.getBoundingClientRect().height === 0) {
+        if (el && import.meta.env.DEV && el.getBoundingClientRect().height === 0) {
             throw new Error("ChartContainer `defer` needs a sized box: give it a height class (h-60), or the page shifts when the chart mounts.");
         }
-        const io = new IntersectionObserver(
-            ([entry]) => {
-                if (entry.isIntersecting) setNear(true);
-            },
-            { rootMargin: "200px" },
-        );
-        io.observe(el);
-        return () => io.disconnect();
-    }, [near]);
+        const claim: Claim = (handBack) => {
+            held.current = handBack;
+            setReady(true);
+        };
+        enqueue(claim);
+        return () => {
+            forget(claim);
+            // Released in the cleanup, not the effect body: this runs after the commit that mounted
+            // the chart, and it also covers an unmount that beat the commit, which would stall the
+            // queue for every chart behind it.
+            const handBack = held.current;
+            held.current = null;
+            handBack?.();
+        };
+    }, [defer, ready]);
 
     return (
         <ChartContext.Provider value={{ config }}>
@@ -95,7 +153,7 @@ function ChartContainer({
                 {...props}
             >
                 <ChartStyle id={chartId} config={config} />
-                {show && <RechartsPrimitive.ResponsiveContainer initialDimension={initialDimension}>{children}</RechartsPrimitive.ResponsiveContainer>}
+                {show ? <RechartsPrimitive.ResponsiveContainer initialDimension={initialDimension}>{children}</RechartsPrimitive.ResponsiveContainer> : <Skeleton className="absolute inset-0" />}
             </div>
         </ChartContext.Provider>
     );

@@ -98,11 +98,11 @@ on the free-tier key, ~13-15 requests and ~19s for a 10-question run + Complete.
 
 # PERF
 
-Measured with a real browser, not guessed (headless Chromium, 1280x720, 102 interviews / 82 scored runs).
+Measured with a real browser, not guessed (headless Chromium, 1280x720, 102 interviews / 82 scored runs; Vite dev build, so StrictMode double-renders inflate both sides of any comparison).
 
-- /analytics fps is mount work, not bundle weight. Warm reload is identical to cold (787ms vs 781ms main-thread task, same dip), so the 353KB recharts chunk and its parse have nothing to do with the frames, and AnalyticsPage was already lazy. Recharts animating 29 series over 241 layers for its default 1500ms is the whole dip: one 250ms bucket at 2fps, then 31/47/50/31/48/53, then 60 and stable. Idle is 60fps with 0 mutations inside the chart subtrees, scroll 60fps, hover 59.5fps, so nothing leaks past mount.
-- Shipped: charts mount on approach (`defer` on ChartContainer, 200px root margin). First paint mounts 3 of 5 charts, 148 layers instead of 241, and the main-thread block drops from ~1.2s to ~0.5s (168+341ms). Card tops and document height are unchanged before and after the deferred charts arrive, and each one costs 50-170ms of long task when you scroll into it.
-- Left on the table: `isAnimationActive={false}` on the six series deletes the dip (measured 65,60,3,61,60,60 and a single long task), and `dot={false}` on the two line charts drops most of the 241 layers. Either is the answer if the draw-in stops being worth it.
+- /analytics fps is mount work, not bundle weight. Warm reload is identical to cold (787ms vs 781ms main-thread task, same dip), so the 353KB recharts chunk and its parse have nothing to do with the frames, and AnalyticsPage was already lazy. Idle is 60fps with 0 mutations inside the chart subtrees, scroll 60fps, hover 59.5fps, so nothing leaks past mount. What did cost: three charts mounting in one commit, one 250ms bucket at 2fps, then 31/47/50/31/48/53, then 60 and stable.
+- Shipped: `defer` charts queue at mount and are released in DOM order, 250ms apart, one slot open at a time (`GAP_MS`), with a Skeleton in the reserved box; every series draws in over `DRAW_MS` (350ms) instead of recharts' 1500ms default. Warm load, no scrolling: first paint mounts 0 charts and 5 skeletons, then the five land at 723/935/1231/1462/1723ms (gaps 212/296/231/261), the last draw-in settles at ~2.1s, and no skeleton survives the run. Long tasks 157/135/85/104/71/71ms, five blocks instead of one 341ms. The five boxes sit at 349/693/1005/1429px in an 8710px document with skeletons and with charts alike.
+- Not taken: `isAnimationActive={false}` (measured 65,60,3,61,60,60 and a single long task back when three charts shared a commit) and `dot={false}`, which drops most of the 246 layers the nine series draw. Each mount still costs 70-135ms of long task and the draw-in only owns the tail, so neither lever buys the thing that hurts.
 
 # MAXTERVIEW JOURNAL
 
