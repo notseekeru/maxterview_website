@@ -9,14 +9,12 @@
 # FEATURES
 
 - feat: comment per interview messages, so it gives tips on every messages might be complicated cuz you need to make a comment for every messages can create N problems but seems doable considering small N number of messages. ask me question if needed and uncertain
-- offer letter simulation for soft skill communication assesment and add average offer and benefits analytics
-- ai resume editor latex to display and edit kind alike overleaf?
-- lazy loading cuz everything just render on analytics and causes fps drops (not latency or unoptimized roundtrips)
+- feat: offer letter simulation for soft skill communication assesment and add average offer and benefits analytics
+- feat: ai resume editor latex to display and edit kind alike overleaf?
 
 # FIX
 
 - fix: make hardcore path at the end llm generated cuz currently its determistic and auto complete on the callout and also make all the message caps automatic and seemed angry and then we audit also that we dont have to recompute at something here right cuz we recalculate the moves bluneder to brilliant all over again when hit complete. it seems architecture is mangled. ask question if uncertain of understanding and scope
-- fix: the the manual button has no cooldown, if 1 click in 1 second = 1 but when 10 clicks in 1 second = 10 request. we have rate limit but is this a issue today?
 - fix: global comment removal, if the code looks obvious/trivial and does not need comment -> delete. if related to infra, or could potentially be devastating if not stated -> keep. audit first, rate by removal and recommended deletion. then update agent.md for guardrailing against this. ask question before proceeding
 - fix: dont say premium to users like explicitly just upgrade to premium something to get ---, ask question if uncertain like we use like physicological and marketing tactics
 - grill the plan and architecture and code maintainability/readability. it matters to me when i skim code
@@ -97,6 +95,14 @@ on the free-tier key, ~13-15 requests and ~19s for a 10-question run + Complete.
 
 - Fine-tuning or distilling into a local 4B (it cannot serve the load, and it would wreck the rubric -
   the value is the pipeline, not the model), vector DBs, agent/multi-model orchestration.
+
+# PERF
+
+Measured with a real browser, not guessed (headless Chromium, 1280x720, 102 interviews / 82 scored runs).
+
+- /analytics fps is mount work, not bundle weight. Warm reload is identical to cold (787ms vs 781ms main-thread task, same dip), so the 353KB recharts chunk and its parse have nothing to do with the frames, and AnalyticsPage was already lazy. Recharts animating 29 series over 241 layers for its default 1500ms is the whole dip: one 250ms bucket at 2fps, then 31/47/50/31/48/53, then 60 and stable. Idle is 60fps with 0 mutations inside the chart subtrees, scroll 60fps, hover 59.5fps, so nothing leaks past mount.
+- Shipped: charts mount on approach (`defer` on ChartContainer, 200px root margin). First paint mounts 3 of 5 charts, 148 layers instead of 241, and the main-thread block drops from ~1.2s to ~0.5s (168+341ms). Card tops and document height are unchanged before and after the deferred charts arrive, and each one costs 50-170ms of long task when you scroll into it.
+- Left on the table: `isAnimationActive={false}` on the six series deletes the dip (measured 65,60,3,61,60,60 and a single long task), and `dot={false}` on the two line charts drops most of the 241 layers. Either is the answer if the draw-in stops being worth it.
 
 # MAXTERVIEW JOURNAL
 
