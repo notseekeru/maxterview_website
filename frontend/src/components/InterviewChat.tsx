@@ -260,7 +260,8 @@ export function InterviewChat({ interviewId, onExit }: Props) {
     }
 
     /** Re-run the review for a run that finished without one (or without its per-answer notes). */
-    async function retryReview() {        setFinishing({ title: "Rebuilding your review", dismissed: false, done: false });
+    async function retryReview() {
+        setFinishing({ title: "Rebuilding your review", dismissed: false, done: false });
         await openReview(() => regenerateFeedback(interviewId));
     }
 

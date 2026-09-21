@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useState } from "react";
-import { Icon } from "@/components/AppIcons";
 import { Page } from "@/components/PagePrimitives";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -91,13 +90,12 @@ export function ResumePage() {
         try {
             // Extract is stateless: the PDF is parsed and discarded, and only the TEXT is kept. Nothing to clean.
             const got = await extractResume(file);
-            const saved = await createResume({ name: file.name, text: got.text });
-            setRows((list) => [saved, ...list]);
-            setDraft({ id: saved.id, name: saved.name, text: saved.text });
-            setPasting(false);
+            // Lands as an UNSAVED draft (id null): the candidate reads the extraction and presses Save.
+            setDraft({ id: null, name: file.name.replace(/\.pdf$/i, "").slice(0, 80), text: got.text });
+            setPasting(true);
             setImporting(false);
             setRestore(null);
-            setNotice(got.truncated ? `Imported the first ${got.pages} pages — check the text below and edit anything missing.` : "Saved.");
+            setNotice(got.truncated ? `Read the first ${got.pages} pages — check the text and edit anything missing. Not saved yet.` : "Read the PDF — check the text, then Save. Not saved yet.");
         } catch (e) {
             fail(e, "Could not import that PDF.");
         } finally {
@@ -165,6 +163,20 @@ export function ResumePage() {
         setError(null);
     }
 
+    // The draft card's Cancel/Discard. Unsaved text (an extraction, or a hand edit) is work the
+    // candidate cannot get back, so it asks first; a clean card just closes.
+    function discardDraft() {
+        if (dirty && !confirm("Discard these unsaved changes?")) return;
+        if (!restore && draft.id === null) {
+            // Nothing was open before this draft, so there is no card to fall back to.
+            setPasting(false);
+            setDraft(EMPTY_DRAFT);
+            setNotice(null);
+            return;
+        }
+        cancelNew();
+    }
+
     async function remove() {
         if (!draft.id || !confirm(`Delete "${draft.name}"? Interviews already created keep their transcript.`)) return;
         setBusy(true);
@@ -186,7 +198,9 @@ export function ResumePage() {
 
     const atCap = limit !== null && rows.length >= limit;
     const active = rows.find((r) => r.id === draft.id);
-    const dirty = !!active && (active.name !== draft.name || active.chars !== draft.text.length);
+    // An unsaved draft (a fresh PDF extraction, or a manual paste) counts as dirty: there is nothing
+    // in the list yet, so Save is the only thing that can persist it.
+    const dirty = draft.id === null ? !!draft.name.trim() || !!draft.text.trim() : !!active && (active.name !== draft.name || active.chars !== draft.text.length);
 
     return (
         <Page title="Resume" wide>
@@ -228,7 +242,7 @@ export function ResumePage() {
                                 pick(file);
                             }}
                         />
-                        <button type="button" onClick={() => cancelNew(true)} className="text-xs underline underline-offset-2 hover:text-foreground">
+                        <button type="button" onClick={() => (restore ? discardDraft() : cancelNew(true))} className="text-xs underline underline-offset-2 hover:text-foreground">
                             {rows.length ? "Cancel" : "Paste resume instead"}
                         </button>
                     </label>
@@ -279,7 +293,7 @@ export function ResumePage() {
                     <Card>
                         <CardHeader className="flex-row items-baseline justify-between space-y-0">
                             <CardTitle>{draft.id ? "Resume" : "New resume"}</CardTitle>
-                            {dirty && <span className="text-xs text-muted-foreground">Unsaved changes</span>}
+                            {dirty && <span className="text-xs text-muted-foreground">{draft.id ? "Unsaved changes" : "Not saved"}</span>}
                         </CardHeader>
                         <CardContent className="space-y-3">
                             <div className="space-y-1.5">
@@ -298,15 +312,15 @@ export function ResumePage() {
                         </CardContent>
                         <div className="flex items-center gap-2 px-6 pb-6">
                             <Button disabled={busy || !dirty} onClick={() => void save()}>
-                                {busy ? "Saving…" : "Save"}
+                                {busy ? "Saving…" : draft.id ? "Save" : "Save resume"}
                             </Button>
                             {draft.id ? (
                                 <Button variant="ghost" disabled={busy} onClick={() => void remove()}>
                                     Delete
                                 </Button>
                             ) : (
-                                <Button variant="ghost" disabled={busy} onClick={() => cancelNew()}>
-                                    Cancel
+                                <Button variant="ghost" disabled={busy} onClick={discardDraft}>
+                                    {dirty ? "Discard" : "Cancel"}
                                 </Button>
                             )}
                         </div>
