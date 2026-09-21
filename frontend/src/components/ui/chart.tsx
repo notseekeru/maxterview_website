@@ -40,19 +40,48 @@ function ChartContainer({
     className,
     children,
     config,
+    defer,
     initialDimension = INITIAL_DIMENSION,
     ...props
 }: React.ComponentProps<"div"> & {
     config: ChartConfig;
     children: React.ComponentProps<typeof RechartsPrimitive.ResponsiveContainer>["children"];
     initialDimension?: { width: number; height: number };
+    defer?: boolean;
 }) {
     const uniqueId = React.useId();
     const chartId = `chart-${id ?? uniqueId.replace(/:/g, "")}`;
+    const ref = React.useRef<HTMLDivElement>(null);
+    const [near, setNear] = React.useState(!defer);
+    // Derived, not just the state: flipping `defer` off has to reveal the chart right away, not at
+    // the next intersection.
+    const show = !defer || near;
+
+    // Mounting a chart is the expensive part of a page like /analytics (five recharts trees, every
+    // series animating at once, ~1.2s of main thread measured; see notes.md § PERF). A caller that
+    // sets `defer` reserves the box with its own height class and gets the tree only once it is
+    // within a screen of the viewport.
+    React.useEffect(() => {
+        if (near) return;
+        const el = ref.current;
+        if (!el) return;
+        if (import.meta.env.DEV && el.getBoundingClientRect().height === 0) {
+            throw new Error("ChartContainer `defer` needs a sized box: give it a height class (h-60), or the page shifts when the chart mounts.");
+        }
+        const io = new IntersectionObserver(
+            ([entry]) => {
+                if (entry.isIntersecting) setNear(true);
+            },
+            { rootMargin: "200px" },
+        );
+        io.observe(el);
+        return () => io.disconnect();
+    }, [near]);
 
     return (
         <ChartContext.Provider value={{ config }}>
             <div
+                ref={ref}
                 data-slot="chart"
                 data-chart={chartId}
                 className={cn(
@@ -66,7 +95,7 @@ function ChartContainer({
                 {...props}
             >
                 <ChartStyle id={chartId} config={config} />
-                <RechartsPrimitive.ResponsiveContainer initialDimension={initialDimension}>{children}</RechartsPrimitive.ResponsiveContainer>
+                {show && <RechartsPrimitive.ResponsiveContainer initialDimension={initialDimension}>{children}</RechartsPrimitive.ResponsiveContainer>}
             </div>
         </ChartContext.Provider>
     );

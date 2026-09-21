@@ -198,7 +198,7 @@ function AccuracyHistory({ runs }: { runs: AnalyticsRun[] }) {
 
     return (
         <Panel title="Accuracy over time" hint={describeDays(data, "scored run")} className="h-80">
-            {data.length === 0 ? <Empty>Nothing has been scored yet.</Empty> : <div className="h-60">{<AccuracyTrendChart data={data} />}</div>}
+            {data.length === 0 ? <Empty>Nothing has been scored yet.</Empty> : <div className="h-60">{<AccuracyTrendChart defer data={data} />}</div>}
         </Panel>
     );
 }
@@ -220,7 +220,7 @@ function ActivityWeekly({ weeks }: { weeks: AnalyticsActivityWeek[] }) {
             {runs === 0 ? (
                 <Empty>No interviews in the last 12 weeks.</Empty>
             ) : (
-                <ChartContainer config={ACTIVITY_CONFIG} className="h-52 w-full">
+                <ChartContainer defer config={ACTIVITY_CONFIG} className="h-52 w-full">
                     {/* Two bars, not a stack: the gap between started and finished is the thing worth
                         seeing, and a stack would hide it inside one column. */}
                     <BarChart data={data} margin={{ left: 4, right: 8, top: 8, bottom: 0 }}>
@@ -252,7 +252,7 @@ function MoveBreakdown({ counts }: { counts: Analytics["move_classes"] }) {
             {total === 0 ? (
                 <Empty>Finish an interview to see how your answers were classed.</Empty>
             ) : (
-                <ChartContainer config={MOVE_CONFIG} className="h-60 w-full">
+                <ChartContainer defer config={MOVE_CONFIG} className="h-60 w-full">
                     <BarChart data={rows} margin={{ left: 4, right: 8, top: 8, bottom: 0 }}>
                         <CartesianGrid vertical={false} strokeDasharray="3 3" />
                         <XAxis dataKey="cls" tickLine={false} axisLine={false} tickMargin={8} tickFormatter={(v: string) => moveClassMeta(v)?.label ?? v} />
@@ -300,7 +300,7 @@ function DimensionHistory({ runs }: { runs: AnalyticsRun[] }) {
     return (
         <Panel title="Dimension scores over time" hint={`Daily mean of each axis · ${describeDays(data, "scored run")}`}>
             <div className="grid gap-4 lg:grid-cols-[2fr_1fr]">
-                <ChartContainer config={DIM_CONFIG} className="h-64 w-full">
+                <ChartContainer defer config={DIM_CONFIG} className="h-64 w-full">
                     <LineChart data={data} margin={{ left: 4, right: 8, top: 8, bottom: 0 }}>
                         <CartesianGrid vertical={false} strokeDasharray="3 3" />
                         <XAxis dataKey="label" tickLine={false} axisLine={false} tickMargin={8} interval="preserveStartEnd" />
@@ -363,7 +363,7 @@ function DecisionHistory({ runs }: { runs: AnalyticsRun[] }) {
                 <Empty>Once runs come back with a hire/reject call, the lean and its certainty plot here.</Empty>
             ) : (
                 <div className="grid gap-4 lg:grid-cols-[2fr_1fr]">
-                    <ChartContainer config={DECISION_CONFIG} className="h-64 w-full">
+                    <ChartContainer defer config={DECISION_CONFIG} className="h-64 w-full">
                         {/* -100..100 is the reject -> hire spectrum centred on zero, so the sign is
                             the decision and the magnitude is only the lean. */}
                         <LineChart data={data} margin={{ left: 4, right: 8, top: 8, bottom: 0 }}>

@@ -6,9 +6,9 @@ const config: ChartConfig = {
     accuracy: { label: "Accuracy", color: "var(--chart-1)" },
 };
 
-export function AccuracyTrendChart({ data }: { data: { label: string; accuracy: number }[] }) {
+export function AccuracyTrendChart({ data, defer }: { data: { label: string; accuracy: number }[]; defer?: boolean }) {
     return (
-        <ChartContainer config={config} className="h-full min-h-40 w-full grow">
+        <ChartContainer defer={defer} config={config} className="h-full min-h-40 w-full grow">
             <AreaChart data={data} accessibilityLayer margin={{ left: 4, right: 8, top: 8, bottom: 0 }}>
                 <CartesianGrid vertical={false} strokeDasharray="3 3" />
                 {/* Labels are pre-formatted in useInterviewData (MM/DD, or MM/DD HH:MM when two
