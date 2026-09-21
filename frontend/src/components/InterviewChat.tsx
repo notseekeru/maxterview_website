@@ -49,6 +49,10 @@ export function InterviewChat({ interviewId, onExit }: Props) {
     // cannot land.
     const answered = messages.some((m) => m.role === "user");
     const [reviewFailed, setReviewFailed] = useState(false);
+    // Mid-run Finish needs a second look: the arc still has questions left, so ending here trades
+    // them for the review. At the cap there is nothing left to trade, so the click goes straight
+    // through. Reset by anything that leaves the footer.
+    const [confirmFinish, setConfirmFinish] = useState(false);
     const [hasResume, setHasResume] = useState(false);
     const sendingRef = useRef(false);
     const abortRef = useRef<AbortController | null>(null);
@@ -243,6 +247,7 @@ export function InterviewChat({ interviewId, onExit }: Props) {
     /** Finish the run on the server, then show the review. Closing the progress screen does not
      *  cancel this: the call keeps running and the review still lands when it returns. */
     async function finishRun() {
+        setConfirmFinish(false);
         setFinishing({ title: "Finishing your interview", dismissed: false, done: false });
         try {
             await finishInterview(interviewId);
@@ -255,8 +260,7 @@ export function InterviewChat({ interviewId, onExit }: Props) {
     }
 
     /** Re-run the review for a run that finished without one (or without its per-answer notes). */
-    async function retryReview() {
-        setFinishing({ title: "Rebuilding your review", dismissed: false, done: false });
+    async function retryReview() {        setFinishing({ title: "Rebuilding your review", dismissed: false, done: false });
         await openReview(() => regenerateFeedback(interviewId));
     }
 
@@ -342,7 +346,7 @@ export function InterviewChat({ interviewId, onExit }: Props) {
                         maxLength={MAX_TURN_CHARS}
                         aria-label="Your answer"
                         onChange={(e) => setDraft(e.target.value)}
-                        placeholder={status === "completed" ? "Review above" : interviewOver ? "Interview finished — press Finish" : status === "ready" ? "Type your answer to the interviewer..." : status === "streaming" ? "Waiting for the interviewer..." : "Starting…"}
+                        placeholder={status === "completed" ? "Review above" : interviewOver ? "Interview finished — press Finish" : confirmFinish ? "Ending here skips the rest" : status === "ready" ? "Type your answer to the interviewer..." : status === "streaming" ? "Waiting for the interviewer..." : "Starting…"}
                         onKeyDown={(e) => {
                             if (e.key === "Enter" && !e.shiftKey && status === "ready") {
                                 e.preventDefault();
@@ -352,13 +356,25 @@ export function InterviewChat({ interviewId, onExit }: Props) {
                         disabled={status === "completed" || interviewOver}
                     />
                     <div className="flex flex-col gap-2">
+                        {confirmFinish && <p className="max-w-48 text-xs text-muted-foreground">End early? This run still has questions left.</p>}
                         <Button onClick={() => void send()} disabled={status !== "ready" || !draft.trim() || interviewOver}>
                             Send
                         </Button>
-                        <Button variant="destructive" size="sm" onClick={() => void finishRun()} disabled={isFinishing || status === "streaming" || status === "completed" || !answered}>
-                            {isFinishing && <Spinner />}
-                            {isFinishing ? "Finishing…" : "Finish"}
-                        </Button>
+                        {confirmFinish ? (
+                            <div className="flex items-center gap-1.5">
+                                <Button variant="destructive" size="sm" onClick={() => void finishRun()} disabled={isFinishing}>
+                                    End it
+                                </Button>
+                                <Button variant="ghost" size="sm" onClick={() => setConfirmFinish(false)}>
+                                    Keep going
+                                </Button>
+                            </div>
+                        ) : (
+                            <Button variant="destructive" size="sm" onClick={() => (interviewOver ? void finishRun() : setConfirmFinish(true))} disabled={isFinishing || status === "streaming" || status === "completed" || !answered}>
+                                {isFinishing && <Spinner />}
+                                {isFinishing ? "Finishing…" : "Finish"}
+                            </Button>
+                        )}
                     </div>
                 </CardFooter>
             </Card>
