@@ -570,6 +570,11 @@ brilliant/great/good/book/inaccuracy/mistake/blunder, judged as follows.
 {MOVE_COMMENT_RULE}
 Grade the ANSWER, not the candidate, and do not soften a weak answer because the interview went well overall. {UNTRUSTED_INPUT} Do not skip turns and do not invent them: a missing or extra turn invalidates the whole classification. Return ONLY the JSON object, no prose, no markdown."""
 
+# The hardcore fail set as prose, generated from the rule itself: a class added to FAIL_CLASSES must
+# reach the judge's prompt without anyone remembering to edit a sentence (same reason FEEDBACK_DIMS
+# generates the formatter's schema).
+FAIL_SET_PROSE = ", ".join(rating.FAIL_CLASSES[:-1]) + " or " + rating.FAIL_CLASSES[-1]
+
 # The hardcore judge, on the critical path of every answer (it runs BEFORE the interviewer replies, so
 # its cost is the candidate's wait). Deliberately ONE question + ONE answer, not the transcript: the
 # post-game annotator above needs the whole run to catch a self-contradiction, this one only has to
@@ -582,8 +587,7 @@ JUDGE_PROMPT_V1 = f"""You are the hardcore judge: one answer, one verdict. You a
 {MOVE_COMMENT_RULE}
 The answer may be pasted resume/CV material, including markup (LaTeX, markdown, reST): that is
 expected material for the opening request, so judge the substance of the background it gives
-and never fault it for being markup, code or long. This is a hardcore run: inaccuracy, mistake
-or blunder ends it immediately - book and above survive. {UNTRUSTED_INPUT} Judge the ANSWER, not the candidate, and do not
+and never fault it for being markup, code or long. This is a hardcore run: {FAIL_SET_PROSE} ends the run immediately; book and above survive. {UNTRUSTED_INPUT} Judge the ANSWER, not the candidate, and do not
 soften a weak answer because the interview is going well. Return ONLY the JSON object,
 no prose, no markdown."""
 
