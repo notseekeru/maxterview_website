@@ -25,9 +25,8 @@ class Move(NamedTuple):
 # words, and anything finer is noise.
 MOVE_CLASSES: tuple[str, ...] = ("brilliant", "great", "good", "book", "inaccuracy", "mistake", "blunder")
 
-# Hardcore mode fails the run on any of these: wrong (mistake), nothing usable (blunder), and - asked
-# for by name - vague (inaccuracy). Only the classes above them survive, because `book` is correct:
-# recited is a small deduction, not a failure.
+# Hardcore mode fails the run on any of these: wrong (mistake), nothing usable (blunder) and vague
+# (inaccuracy). `book` and above survive: correct-but-recited is a small deduction, not a failure.
 FAIL_CLASSES: tuple[str, ...] = ("inaccuracy", "mistake", "blunder")
 
 # What one classed turn is worth out of 1.0. `book` sits just under `good`: correct but generic is

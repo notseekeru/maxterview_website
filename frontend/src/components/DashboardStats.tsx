@@ -132,10 +132,10 @@ const round1 = (n: number) => Math.round(n * 10) / 10;
 // of the run - a collapsed substance axis is one glance, not ten numbers to compare. The exact
 // values it cannot give are the per-axis rollup underneath (and the full list in the review page).
 function DimensionScores({ stats, error }: { stats: InterviewDimensions | null; error?: string | null }) {
-    // The server owns both the averaging (over the runs that scored a dimension, all-time and over
-    // the newest window) and the rounding; this component only re-keys them for the radar.
+    // The server owns the averaging and the rounding; this component only re-keys them for the radar.
     const averages = stats?.averages ?? {};
     const recent = stats?.recent ?? {};
+    const recent_n = stats?.recent_n ?? 0;
     const scored = orderDims(Object.keys(averages));
     const data = scored.map((d) => ({ dim: dimShort(d), recent: typeof recent[d] === "number" ? recent[d] : null, average: averages[d] }));
 
@@ -179,7 +179,7 @@ function DimensionScores({ stats, error }: { stats: InterviewDimensions | null; 
                         </span>
                     ))}
                     <span className="ml-auto inline-flex items-center gap-1">
-                        <span className="h-2 w-2 rounded-full bg-[var(--chart-1)]" /> last {stats?.recent_n ?? 0}
+                        <span className="h-2 w-2 rounded-full bg-[var(--chart-1)]" /> last {recent_n}
                         <span className="ml-1.5 h-2 w-2 rounded-full bg-[var(--chart-2)]" /> avg of {stats?.count ?? 0}
                     </span>
                 </div>

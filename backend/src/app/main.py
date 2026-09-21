@@ -663,8 +663,7 @@ async def get_interview_dimensions(user: CurrentUser) -> dict:
     # sibling would be matched as an id and 500 on UUID parsing.
     # AI HERE: the RESPONSE is flat whatever the history, but the query still aggregates this owner's
     # feedback rows per request. Upgrade path if it ever gets hot: a rollup table or a short-TTL cache
-    # keyed by owner. `averages` is untrimmed on purpose - and `recent`, the only windowed number, is
-    # the newest RECENT_WINDOW runs rather than the newest run, which is the window the radar plots.
+    # keyed by owner. `averages` is untrimmed on purpose; `recent` is the only windowed number.
     row = await fetchrow(DIMENSIONS_SQL, user.sub)
     assert row is not None  # scalar subqueries and no FROM: always exactly one row
     return dict(row)

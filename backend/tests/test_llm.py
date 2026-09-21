@@ -101,11 +101,8 @@ def test_interviewer_never_invents_candidate_material():
         assert llm.GROUNDING_PROMPT in llm.system_prompt("Software Engineer", "mid", "", asked=asked)
     assert "Current phase: OPENING" in llm.system_prompt("Software Engineer", "mid", "", asked=0)
     assert llm.BACKGROUND_PROMPT in llm.system_prompt("Software Engineer", "mid", "", asked=0)
-    # With a background in hand the ask is replaced, not repeated: no resume request and no retry line.
-    attached = llm.system_prompt("Software Engineer", "mid", "", asked=0, resume="CV")
-    assert "never ask them to share a resume" in attached and llm.BACKGROUND_PROMPT not in attached
-    # The retry fires once, on the turn after the opener, and only without a resume attached. Chitchat
-    # sits in front of the opener, so the offset is the chitchat budget.
+    # The retry fires once, on the turn after the opener (chitchat sits in front of it, hence the
+    # offset), and only without a resume attached.
     d = Dials(mix_chitchat=2)
     assert llm.BACKGROUND_RETRY not in llm.system_prompt("Software Engineer", "mid", "", asked=2, dials=d)
     assert llm.BACKGROUND_RETRY in llm.system_prompt("Software Engineer", "mid", "", asked=3, dials=d)
@@ -208,11 +205,11 @@ def test_attached_resume_reaches_both_prompts_as_data():
     # message - a resume is long free text from the same author as the turns.
     assert llm.INJECTION_GUARD in p and "role, topic, and their attached resume" in p
     assert f"<resume>\n{attack}\n</resume>" in p
-    # No resume, no block: the prompt is byte-identical to what it was before this feature.
+    # No resume, no block.
     assert "<resume>" not in llm.system_prompt("Backend Engineer", "mid")
-    # With one attached, the opener hedge is replaced rather than left contradicting the block above it.
-    assert "may or may not have been invited" not in p
+    # With one attached, the no-resume ask is replaced rather than left contradicting the block above it.
     assert "never ask them to share a resume" in p
+    assert llm.BACKGROUND_PROMPT not in p
     assert llm.BACKGROUND_PROMPT in llm.system_prompt("Backend Engineer", "mid")
 
     # The grader gets the SAME text (both prompts call injectable_resume), plus the rule that an

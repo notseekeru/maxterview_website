@@ -8,7 +8,7 @@ import pytest
 from fastapi.testclient import TestClient
 from test_resumes import encrypted, mini_pdf
 
-from app import resumes
+from app import rating, resumes
 from app.main import app
 
 # Integration tests hit a real Postgres. `DATABASE_URL` is provided by CI (Postgres
@@ -1167,12 +1167,16 @@ def test_byok_write_is_refused_without_the_deployment_encryption_key(client, mon
         byok._fernet.cache_clear()
 
 
-def test_hardcore_ends_the_run_on_the_first_wrong_answer(client, monkeypatch):
-    from app import llm, rating
+@pytest.mark.parametrize("cls", rating.FAIL_CLASSES)
+def test_hardcore_ends_the_run_on_the_first_failing_answer(client, monkeypatch, cls):
+    # Driven off FAIL_CLASSES, so the fail set is the coverage and the two cannot drift: vague fails a
+    # hardcore run exactly like wrong does. Everything else about the run is the real code path.
+    from app import llm
 
-    # The live judge: answer 1 is called wrong. Everything else about the run is the real code path.
+    note = "Named no trade-off: state what you gave up."
+
     async def _judge(_question, _answer, _config, _turn=1):
-        return rating.Move("mistake", "Named no trade-off: state what you gave up.")
+        return rating.Move(cls, note)
 
     monkeypatch.setattr(llm, "judge_answer", _judge)
     c = client
@@ -1182,46 +1186,22 @@ def test_hardcore_ends_the_run_on_the_first_wrong_answer(client, monkeypatch):
     c.post(f"/api/interviews/{iid}/start")
 
     body = c.post(f"/api/interviews/{iid}/chat/stream", json={"interview_id": iid, "content": "uh, I think we just retried it"}).text
-    assert llm.FAIL_MESSAGE.format(cls="MISTAKE") in body  # shouted, in caps, in the transcript
-    assert '"failed": {"turn": 1, "class": "mistake"}' in body  # ... and the client is told why it ended
+    assert llm.FAIL_MESSAGE.format(cls=cls.upper()) in body  # shouted, in caps, in the transcript
+    assert f'"failed": {{"turn": 1, "class": "{cls}"}}' in body  # ... and the client is told why it ended
     # The run is over for the API too, not just for the composer.
     assert c.post(f"/api/interviews/{iid}/chat/stream", json={"interview_id": iid, "content": "one more"}).status_code == 409
-    # The wrong answer keeps its class, which is what the review points at - and the note it was
-    # judged with, written by that same live call rather than a second pass after the fact.
+    # The failing answer keeps its class, which is what the review points at, and the note it was
+    # judged with: written by that same live call rather than a second pass after the fact.
     msgs = c.get(f"/api/interviews/{iid}/messages").json()
-    assert [(m["move_class"], m["comment"]) for m in msgs] == [("mistake", "Named no trade-off: state what you gave up.")]
+    assert [(m["move_class"], m["comment"]) for m in msgs] == [(cls, note)]
 
     assert c.post(f"/api/interviews/{iid}/finish").status_code == 200
     fb = c.get(f"/api/interviews/{iid}/feedback").json()
-    assert (fb["failed_turn"], fb["failed_class"]) == (1, "mistake")
-    assert (fb["grade"], fb["decision"]) == ("F", "reject")  # one wrong move overrides the average
+    assert (fb["failed_turn"], fb["failed_class"]) == (1, cls)
+    assert (fb["grade"], fb["decision"]) == ("F", "reject")  # a failure overrides the average
     assert fb["verdict"].isupper()  # the stub's shout; the real path prompts the model for caps
     row = next(i for i in c.get("/api/interviews").json() if i["id"] == iid)
-    assert (row["failed_turn"], row["failed_class"], row["grade"]) == (1, "mistake", "F")
-    c.delete(f"/api/interviews/{iid}")
-
-
-def test_hardcore_fails_on_a_vague_answer_too(client, monkeypatch):
-    # inaccuracy is in FAIL_CLASSES: vague is one failing answer in hardcore, exactly like wrong. `book`
-    # and above still survive, because correct-but-recited is not a failure.
-    from app import llm, rating
-
-    async def _judge(_question, _answer, _config, _turn=1):
-        return rating.Move("inaccuracy", "No evidence behind it: name the situation you were in.")
-
-    monkeypatch.setattr(llm, "judge_answer", _judge)
-    c = client
-    iid = c.post("/api/interviews", json={"role": "Hardcore Vague", "hardcore": True}).json()["id"]
-    c.post(f"/api/interviews/{iid}/start")
-
-    body = c.post(f"/api/interviews/{iid}/chat/stream", json={"interview_id": iid, "content": "we just kind of iterated on it"}).text
-    assert llm.FAIL_MESSAGE.format(cls="INACCURACY") in body
-    assert '"failed": {"turn": 1, "class": "inaccuracy"}' in body
-    assert c.post(f"/api/interviews/{iid}/chat/stream", json={"interview_id": iid, "content": "let me be specific"}).status_code == 409
-
-    assert c.post(f"/api/interviews/{iid}/finish").status_code == 200
-    fb = c.get(f"/api/interviews/{iid}/feedback").json()
-    assert (fb["failed_turn"], fb["failed_class"], fb["grade"]) == (1, "inaccuracy", "F")
+    assert (row["failed_turn"], row["failed_class"], row["grade"]) == (1, cls, "F")
     c.delete(f"/api/interviews/{iid}")
 
 
