@@ -25,9 +25,13 @@ export function ResumePage() {
     const [notice, setNotice] = useState<string | null>(null);
     const [capped, setCapped] = useState(false);
     const [dropping, setDropping] = useState(false);
-    // The drop zone owns the page until a resume is loaded, or the user picks the manual path.
+    // Two mutually exclusive views once anything is saved: the drop zone (`dropping`/`importing`) and
+    // the text editor (`pasting`). Fresh account: neither, so the drop zone IS the page.
     const [pasting, setPasting] = useState(false);
+    const [importing, setImporting] = useState(false);
+    const [restore, setRestore] = useState<Draft | null>(null);
     const editing = draft.id !== null || pasting;
+    const showDrop = !editing && importing;
 
     // Paste mode mounts the textarea one render later, so the focus has to wait for it.
     useEffect(() => {
@@ -42,7 +46,13 @@ export function ResumePage() {
 
     const load = useCallback(async () => {
         try {
-            setRows(await listResumes());
+            const list = await listResumes();
+            setRows(list);
+            // Saved resumes open straight into the editor: the drop zone is for the first one only.
+            if (list.length) {
+                const full = await getResume(list[0].id);
+                setDraft({ id: full.id, name: full.name, text: full.text });
+            }
         } catch {
             setError("Could not load your resumes.");
         }
@@ -84,7 +94,10 @@ export function ResumePage() {
             const saved = await createResume({ name: file.name, text: got.text });
             setRows((list) => [saved, ...list]);
             setDraft({ id: saved.id, name: saved.name, text: saved.text });
-            setNotice(got.truncated ? `Imported the first ${got.pages} pages — check the text below and edit anything missing.` : null);
+            setPasting(false);
+            setImporting(false);
+            setRestore(null);
+            setNotice(got.truncated ? `Imported the first ${got.pages} pages — check the text below and edit anything missing.` : "Saved.");
         } catch (e) {
             fail(e, "Could not import that PDF.");
         } finally {
@@ -105,7 +118,10 @@ export function ResumePage() {
             const saved = draft.id ? await updateResume(draft.id, { name, text: draft.text }) : await createResume({ name, text: draft.text });
             setRows((list) => (draft.id ? list.map((r) => (r.id === saved.id ? saved : r)) : [saved, ...list]));
             setDraft({ id: saved.id, name: saved.name, text: saved.text });
-            setNotice(null);
+            setPasting(false);
+            setImporting(false);
+            setRestore(null);
+            setNotice("Saved.");
         } catch (e) {
             fail(e, "Could not save this resume.");
         } finally {
@@ -117,13 +133,36 @@ export function ResumePage() {
         setError(null);
         setNotice(null);
         setCapped(false);
+        setImporting(false);
+        setPasting(false);
         if (draft.id === id) return;
         try {
             const full: ResumeRecord = await getResume(id);
             setDraft({ id: full.id, name: full.name, text: full.text });
+            setRestore(null);
         } catch (e) {
             fail(e, "Could not open that resume.");
         }
+    }
+
+    // Clears the editor so the drop zone (the "New resume" path) can take the page.
+    function startNew() {
+        setRestore(draft);
+        setDraft(EMPTY_DRAFT);
+        setPasting(false);
+        setImporting(true);
+        setDropping(false);
+        setError(null);
+        setNotice(null);
+    }
+
+    // Back to the editor: the restore draft, or a blank one to paste into.
+    function cancelNew(blank = false) {
+        setImporting(false);
+        setDraft(blank ? EMPTY_DRAFT : (restore ?? EMPTY_DRAFT));
+        setPasting(blank);
+        setRestore(null);
+        setError(null);
     }
 
     async function remove() {
@@ -135,6 +174,8 @@ export function ResumePage() {
             setRows((list) => list.filter((r) => r.id !== draft.id));
             setDraft(EMPTY_DRAFT);
             setPasting(false);
+            setImporting(false);
+            setRestore(null);
             setNotice(null);
         } catch (e) {
             fail(e, "Could not delete that resume.");
@@ -144,13 +185,16 @@ export function ResumePage() {
     }
 
     const atCap = limit !== null && rows.length >= limit;
+    const active = rows.find((r) => r.id === draft.id);
+    const dirty = !!active && (active.name !== draft.name || active.chars !== draft.text.length);
 
     return (
         <Page title="Resume" wide>
             <div className="space-y-4">
-                {/* Nothing loaded: the drop zone IS the page. The paste button is nested, not a sibling:
-                    a click on interactive content does not activate the label, so browsing still works. */}
-                {!editing && (
+                {/* The drop zone owns the page on a fresh account, and is opt-in ("+ New") once
+                    anything is saved. The paste button is nested, not a sibling: a click on interactive
+                    content does not activate the label, so browsing still works. */}
+                {(!editing || showDrop) && (
                     <label
                         onDragOver={(e) => {
                             e.preventDefault();
@@ -165,12 +209,12 @@ export function ResumePage() {
                             pick(e.dataTransfer.files?.[0]);
                         }}
                         className={cn(
-                            "flex min-h-[calc(100dvh-10.5rem)] flex-col items-center justify-center gap-3 rounded-lg border border-dashed px-6 text-center transition-colors lg:min-h-[calc(100dvh-6.5rem)]",
+                            "flex flex-col items-center justify-center gap-3 rounded-lg border border-dashed px-6 text-center transition-colors",
+                            editing || importing ? "min-h-[12rem]" : "min-h-[calc(100dvh-10.5rem)] lg:min-h-[calc(100dvh-6.5rem)]",
                             busy ? "cursor-default opacity-60" : "cursor-pointer",
                             dropping ? "border-primary bg-primary/10 text-primary" : "text-muted-foreground hover:bg-accent",
                         )}
                     >
-                        <Icon name="file" className="h-10 w-10" />
                         <span className="text-base">{dropping ? "Drop it" : busy ? "Reading the PDF…" : "Drop a PDF here, or click to browse"}</span>
                         <input
                             type="file"
@@ -184,8 +228,8 @@ export function ResumePage() {
                                 pick(file);
                             }}
                         />
-                        <button type="button" onClick={() => setPasting(true)} className="text-xs underline underline-offset-2 hover:text-foreground">
-                            Paste resume instead
+                        <button type="button" onClick={() => cancelNew(true)} className="text-xs underline underline-offset-2 hover:text-foreground">
+                            {rows.length ? "Cancel" : "Paste resume instead"}
                         </button>
                     </label>
                 )}
@@ -193,7 +237,7 @@ export function ResumePage() {
                 {(error || notice || (capped && atCap)) && (
                     <div className="space-y-1 text-sm">
                         {error && <p className="text-destructive">{error}</p>}
-                        {notice && !error && <p className="text-muted-foreground">{notice}</p>}
+                        {notice && !error && <p className="text-xs text-muted-foreground">{notice}</p>}
                         {capped && (
                             <a href="/settings/billing" className="text-xs text-muted-foreground underline underline-offset-2">
                                 See plans
@@ -222,14 +266,20 @@ export function ResumePage() {
                                     <span className="ml-1.5 text-[10px] text-muted-foreground">{r.chars.toLocaleString()} chars</span>
                                 </button>
                             ))}
+                            {draft.id && !atCap && (
+                                <button type="button" onClick={startNew} className="rounded-full border border-dashed border-input px-3 py-1 text-xs text-muted-foreground transition-colors hover:bg-accent">
+                                    + New
+                                </button>
+                            )}
                         </div>
                     </div>
                 )}
 
                 {editing && (
                     <Card>
-                        <CardHeader>
-                            <CardTitle>{draft.id ? "Edit resume" : "New resume"}</CardTitle>
+                        <CardHeader className="flex-row items-baseline justify-between space-y-0">
+                            <CardTitle>{draft.id ? "Resume" : "New resume"}</CardTitle>
+                            {dirty && <span className="text-xs text-muted-foreground">Unsaved changes</span>}
                         </CardHeader>
                         <CardContent className="space-y-3">
                             <div className="space-y-1.5">
@@ -242,21 +292,21 @@ export function ResumePage() {
                                 <label htmlFor="resume-text" className="text-sm font-medium leading-none">
                                     Resume text
                                 </label>
-                                <Textarea id="resume-text" value={draft.text} onChange={(e) => setDraft((d) => ({ ...d, text: e.target.value }))} placeholder="Paste your resume here…" className="min-h-[24rem] font-mono text-xs leading-5" />
+                                <Textarea id="resume-text" value={draft.text} onChange={(e) => setDraft((d) => ({ ...d, text: e.target.value }))} placeholder="Paste your resume here…" className="min-h-[28rem] font-mono text-xs leading-5" />
                                 <p className="text-xs text-muted-foreground">{draft.text.length.toLocaleString()} characters — the first 8,000 are used per interview.</p>
                             </div>
                         </CardContent>
                         <div className="flex items-center gap-2 px-6 pb-6">
-                            <Button disabled={busy || !draft.name.trim() || !draft.text.trim()} onClick={() => void save()}>
-                                {busy ? "Saving…" : draft.id ? "Save changes" : "Save resume"}
+                            <Button disabled={busy || !dirty} onClick={() => void save()}>
+                                {busy ? "Saving…" : "Save"}
                             </Button>
                             {draft.id ? (
                                 <Button variant="ghost" disabled={busy} onClick={() => void remove()}>
                                     Delete
                                 </Button>
                             ) : (
-                                <Button variant="ghost" disabled={busy} onClick={() => setPasting(false)}>
-                                    Drop a PDF instead
+                                <Button variant="ghost" disabled={busy} onClick={() => cancelNew()}>
+                                    Cancel
                                 </Button>
                             )}
                         </div>

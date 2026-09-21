@@ -394,7 +394,7 @@ def system_prompt(role: str, level: str, topic: str = "", asked: int = 0, dials:
     """Build the versioned system prompt for an interview.
 
     `role` is the target title; `level` is the target seniority slug from app.levels
-    (e.g. 'mid', 'senior'); `any` means "Not sure": calibrate dynamically off the
+    (e.g. 'mid', 'senior'); `any`: calibrate dynamically off the
     candidate's demonstrated answers. `topic` is an optional focus area. `asked` is the
     number of interviewer turns already in the transcript (0 = opener still pending) and
     selects the phase directive. `dials` carries the interview's dressing (company size,

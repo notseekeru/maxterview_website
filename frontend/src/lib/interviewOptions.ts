@@ -29,7 +29,7 @@ export const ROLE_PRESETS = [
 export type InterviewLevel = "any" | "intern" | "junior" | "mid" | "senior" | "staff" | "principal";
 
 export const LEVELS: { value: InterviewLevel; label: string }[] = [
-    { value: "any", label: "Any / Not sure" },
+    { value: "any", label: "Any" },
     { value: "intern", label: "Intern" },
     { value: "junior", label: "Junior" },
     { value: "mid", label: "Mid-level" },
@@ -58,7 +58,7 @@ export function isHiring(decision?: string | null): boolean {
 }
 
 export const COMPANY_SIZES: { value: CompanySize; label: string }[] = [
-    { value: "any", label: "Any / Not sure" },
+    { value: "any", label: "Any" },
     { value: "1-10", label: "1-10" },
     { value: "11-50", label: "11-50" },
     { value: "51-200", label: "51-200" },
@@ -68,7 +68,7 @@ export const COMPANY_SIZES: { value: CompanySize; label: string }[] = [
 ];
 
 export function companySizeLabel(size: string): string {
-    if (size === "any") return "Any / Not sure";
+    if (size === "any") return "Any";
     return `${size} people`;
 }
 

@@ -2,14 +2,14 @@
 
 Single source of truth for the level slugs persisted on `interviews.level`:
 the API validation, the LLM system prompt, and the frontend picker all derive
-from these. `any` ("None / Not sure") means the mock interviewer calibrates
+from these. `any` means the mock interviewer calibrates
 dynamically off the candidate's demonstrated answers instead of a fixed target.
 """
 
 LEVELS: tuple[str, ...] = ("any", "intern", "junior", "mid", "senior", "staff", "principal")
 
 LABELS: dict[str, str] = {
-    "any": "Any / Not sure",
+    "any": "Any",
     "intern": "Intern",
     "junior": "Junior",
     "mid": "Mid-level",
