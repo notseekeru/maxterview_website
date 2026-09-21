@@ -17,6 +17,7 @@ Docs:
 - `MONETIZATION.md` — billing spec (quotas + PayMongo period top-up, shipped)
 - `BYOK.md` — per-owner LLM provider keys (settings panel → `/settings/system`)
 - `OBSERVABILITY.md` — what telemetry ships, and what is deliberately parked
+- `VOICE.md` — M16 voice: Cloudflare free tier, browser fallback, no cost (not started)
 
 ---
 
