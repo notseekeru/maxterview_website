@@ -9,7 +9,6 @@ import { UpgradePendingNotice } from "@/components/UpgradePendingNotice";
 import { Button } from "@/components/ui/button";
 import { useDashboardStats, useInterviews } from "@/hooks/useInterviewData";
 import { archiveInterview, deleteInterview, regenerateFeedback, unarchiveInterview } from "@/lib/api";
-import { clerkEnabled } from "@/lib/config";
 
 // /dashboard — the shell index. Full width on purpose (Page wide): the stats/chart grid
 // needs the horizontal room a 4xl reading column cannot give it.
@@ -57,8 +56,6 @@ export function AppHome() {
                 </Button>
             }
         >
-            {!clerkEnabled && <p className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">Dev mode (no Clerk key) — requests run against the backend&apos;s DEV_USER. Set VITE_CLERK_PUBLISHABLE_KEY to enable real Clerk auth.</p>}
-
             {/* The Maya return_url lands here (?upgrade=pending); it renders nothing otherwise. */}
             <UpgradePendingNotice />
 
