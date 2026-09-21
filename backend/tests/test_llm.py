@@ -617,12 +617,13 @@ async def test_hardcore_failure_prompts_for_caps_and_forces_reject(monkeypatch):
     async def _completion(system, user_text, *, json_output=False, **kw):
         if json_output:
             seen["system"] = system
-            return '{"scores": {"clarity": 9, "relevance": 9, "structure": 9, "confidence": 9}, "decision": "hire", "certainty": 90, "verdict": "YOU BLEW IT.", "tips": ["A", "B"]}'
+            return '{"scores": {"clarity": 9, "relevance": 9, "structure": 9, "confidence": 9}, "decision": "hire", "certainty": 90, "verdict": "you blew it.", "tips": ["A", "B"]}'
         return "prose notes"
 
     monkeypatch.setattr(llm, "_completion", _completion)
     out = await llm.generate_feedback([ChatMessage(role="user", content="hi")], None, REAL, failure=(2, "blunder"), annotate=False)
     assert "HARDCORE MODE - THE RUN FAILED" in seen["system"]
+    # Caps are the server's floor on a hardcore verdict, not something a small model is trusted to hold.
     assert out is not None and out.verdict == "YOU BLEW IT."
     # Whatever the notes talked the model into: a run that died on a wrong answer is a reject.
     assert out.decision == "reject"
@@ -630,6 +631,42 @@ async def test_hardcore_failure_prompts_for_caps_and_forces_reject(monkeypatch):
     # the cap would have read this single-turn run as 48%.
     assert out.certainty == 100
     assert out.moves == {}  # annotate=False: a hardcore run was already judged turn by turn
+
+
+async def test_fail_shout_is_model_written_and_uppercased(monkeypatch):
+    seen = {}
+
+    async def _completion(system, user_text, **kw):
+        seen["system"], seen["user"], seen["temperature"] = system, user_text, kw.get("temperature")
+        return '"you just hand-waved the one thing that mattered."'
+
+    monkeypatch.setattr(llm, "_completion", _completion)
+    shout = await llm.fail_shout("How did you handle the tradeoff?", "uh, we retried it", "inaccuracy", REAL)
+    assert shout == "YOU JUST HAND-WAVED THE ONE THING THAT MATTERED."  # quotes stripped, caps applied
+    assert seen["system"] is llm.FAIL_SHOUT_PROMPT
+    assert seen["user"] == "Question: How did you handle the tradeoff?\nAnswer: uh, we retried it\nClass: inaccuracy"
+    assert seen["temperature"] == 0.7  # writing, not extraction: see _completion's greedy default
+
+
+async def test_fail_shout_falls_back_to_the_canned_line(monkeypatch):
+    # Empty output, transport death and stub mode all end the transcript the same way: on a shout, with
+    # the class in it.
+    async def _none(*_a, **_kw):
+        return None
+
+    monkeypatch.setattr(llm, "_completion", _none)
+    canned = llm.FAIL_MESSAGE.format(cls="BLUNDER")
+    assert await llm.fail_shout("q", "a", "blunder", REAL) == canned
+    assert await llm.fail_shout("q", "a", "blunder", llm.LLMConfig(base_url="", model="")) == canned
+
+
+def test_clip_shout_keeps_a_finished_sentence():
+    # A rambling model must not turn the death line into a paragraph: the cut lands on a sentence end
+    # when there is one inside the ceiling, and hard-cuts when there is not.
+    clipped = llm._clip_shout("Sit down. " * 60)
+    assert len(clipped) <= llm.FAIL_SHOUT_MAX and clipped.endswith(".")
+    assert llm._clip_shout("That was vague.") == "That was vague."
+    assert len(llm._clip_shout("x" * 400)) == llm.FAIL_SHOUT_MAX
 
 
 async def test_judge_answer_reads_one_exchange_and_tolerates_drift(monkeypatch):

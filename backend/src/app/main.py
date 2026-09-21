@@ -1029,7 +1029,14 @@ async def chat_stream(
                 await fetchrow("UPDATE messages SET move_class = $2, comment = $3 WHERE id = $1", user_msg_id, move.cls, move.comment)
             if move and move.cls in rating.FAIL_CLASSES:
                 await fetchrow("UPDATE interviews SET failed_turn = $2, failed_class = $3, updated_at = now() WHERE id = $1", interview_id, turn, move.cls)
-                shout = llm.FAIL_MESSAGE.format(cls=move.cls.upper())
+                # One model call, on the lane the judge already used, and persisted like any other
+                # reply: a reloaded transcript used to end on the candidate's answer with no callout.
+                shout = await llm.fail_shout(question, body.content, move.cls, config)
+                await fetchrow(
+                    "INSERT INTO messages (interview_id, role, content) VALUES ($1, 'assistant', $2) RETURNING id",
+                    interview_id,
+                    shout,
+                )
                 yield f"event: message\ndata: {shout}\n\n"
                 # `failed` tells the client WHY the run ended (the arc being spent is the other ending).
                 yield f'event: done\ndata: {{"closing": true, "failed": {{"turn": {turn}, "class": "{move.cls}"}}}}\n\n'
@@ -1119,6 +1126,24 @@ async def _upsert_feedback(interview_id: str, scores: dict, verdict: str, tips: 
     )
 
 
+def _questions_by_turn(history_rows: list[asyncpg.Record]) -> dict[int, str]:
+    """Candidate turn number -> the question it answered, for the per-turn hardcore backfill.
+
+    Numbering matches llm._format_transcript: a plain count over candidate rows, with the interviewer's
+    most recent line before it as its question. Turn 1 maps to "" when nothing was asked: it answers
+    the frontend's bubble rather than a stored message, and llm.judge_answer knows that question."""
+    questions: dict[int, str] = {}
+    asked = ""
+    turn = 0
+    for r in history_rows:
+        if r["role"] == "assistant":
+            asked = r["content"]
+        elif r["role"] == "user":
+            turn += 1
+            questions[turn] = asked
+    return questions
+
+
 async def _persist_moves(interview_id: str, candidate_ids: list[str], moves: dict[int, rating.Move]) -> list[str]:
     """Write the annotator's class and note onto their message rows; return the classes stored.
 
@@ -1174,12 +1199,19 @@ async def _generate_and_persist_feedback(interview_id: str, config: llm.LLMConfi
     candidate_ids = [r["id"] for r in candidate_rows]
     if hardcore:
         # The live judge annotated each answer as it was given, and the candidate was TOLD the verdict
-        # that ended the run, so the annotator never overwrites a stored class. It fills HOLES only: a
-        # turn the judge could not call, or a note it did not write - which is every turn on a run
-        # annotated before the note column existed.
+        # that ended the run, so nothing here overwrites a stored class. Holes - a turn the judge could
+        # not call, or a note it did not write, which is every turn on a run annotated before the note
+        # column existed - are backfilled ONE TURN AT A TIME with that same judge call: annotating the
+        # whole transcript instead re-read and re-classed answers already judged live.
         judged: list[rating.Move | None] = [rating.Move(r["move_class"], r["comment"]) if r["move_class"] else None for r in candidate_rows]
-        if any(m is None or not m.comment for m in judged):
-            fill = await llm.classify_turns(history, config)
+        holes = [n for n, m in enumerate(judged, 1) if m is None or not m.comment]
+        if holes:
+            questions = _questions_by_turn(history_rows)
+            fill: dict[int, rating.Move] = {}
+            for n in holes:
+                got = await llm.judge_answer(questions.get(n, ""), candidate_rows[n - 1]["content"], config, n)
+                if got:
+                    fill[n] = got
             merged: dict[int, rating.Move] = {}
             for n, m in enumerate(judged, 1):
                 f = fill.get(n)

@@ -285,9 +285,10 @@ INTRO_TURN = "This is your FIRST turn: open with one short line saying you will 
 # construction, no model call, and it ends the transcript cleanly (see main.chat_stream).
 CLOSING_MESSAGE = "Thanks - that's everything I had for you. Take a moment if you want, then hit Complete and you'll get your full feedback: how you communicated, the substance of your answers, your profile as a hire, and where you landed on the hire/reject spectrum."
 
-# Hardcore fail line. Also not model output, and all caps on purpose: it is the moment the run dies,
-# and a sampled line would sometimes soften it. `{class}` is the move class that ended the run.
-FAIL_MESSAGE = "THAT'S IT. I CALLED THAT ANSWER A {cls}. HARDCORE MODE: ONE VAGUE OR WRONG ANSWER ENDS THE RUN. NO SECOND CHANCES, NO NEXT QUESTION, NO WARM-UP. HIT COMPLETE AND READ WHAT I THOUGHT OF IT."
+# Hardcore fail line, canned: the fallback when the shout call returns nothing (llm.fail_shout), and
+# the stub's stand-in. All caps on purpose: it is the moment the run dies, and a half-shouted model
+# line reads worse than a template.
+FAIL_MESSAGE = "THAT'S IT. I CALLED THAT ANSWER: {cls}. HARDCORE MODE: ONE VAGUE OR WRONG ANSWER ENDS THE RUN. NO SECOND CHANCES, NO NEXT QUESTION, NO WARM-UP. HIT COMPLETE AND READ WHAT I THOUGHT OF IT."
 
 # Hardcore reaches the grader and the formatter. The grader is told what the caps are for; the
 # formatter is the one that actually shouts (see HARDCORE_FORMAT_PROMPT).
@@ -622,10 +623,10 @@ MOVES_JSON_SCHEMA = {
     "additionalProperties": False,
 }
 
-# AI HERE: one framework-free self-check (AGENTS rule 5). Every prompt that scores candidate text
-# has to carry the untrusted-input rule - the hardcore judge above all, since its verdict ends the
-# run. A new scoring prompt that forgets it fails at import instead of shipping an injectable rubric.
-assert all(UNTRUSTED_INPUT in p for p in (GRADER_PROMPT_V1, MOVES_PROMPT_V1, JUDGE_PROMPT_V1))
+# AI HERE: one framework-free self-check (AGENTS rule 5). Every prompt that reads candidate text -
+# scoring or writing, the hardcore judge above all, since its verdict ends the run - has to carry the
+# untrusted-input rule. A new one that forgets it fails at import instead of shipping an injectable
+# rubric or an injectable line in the interviewer's mouth.
 
 
 # Concrete JSON example inlined (DeepSeek's JSON-mode docs require a shape example, and
@@ -1072,7 +1073,9 @@ async def _request_format(notes: str, config: LLMConfig, failure: tuple[int, str
             log.warning("llm.feedback.decision_drift", shape=_shape(obj.get("decision")))
         return FeedbackSummary(
             scores=scores,
-            verdict=verdict.strip(),
+            # HARDCORE_FORMAT_PROMPT asks for caps; the server applies them anyway, for the same reason
+            # as the fail line: a small model drops out of uppercase halfway through a sentence.
+            verdict=verdict.strip().upper() if failure else verdict.strip(),
             tips=tips,
             # A hardcore failure is a reject by definition, whatever the notes talked the model into.
             decision="reject" if failure else decision,
@@ -1090,10 +1093,9 @@ async def classify_turns(history: list[ChatMessage], config: LLMConfig) -> dict[
     """Turn -> annotation for every candidate answer. Returns {} when the model will not cooperate.
 
     Reads the FULL transcript (like the grader), so it runs on the grader config, and retries once.
-    Giving up is survivable everywhere it is used: the post-game pass loses its accuracy and badges,
-    and the hardcore judge simply lets the turn through. Two callers, deliberately:
-      - main.chat_stream, live, on a hardcore run (one answer at a time, judged as it is given)
-      - generate_feedback, post-game, on every other run
+    Giving up is survivable: the post-game pass loses its accuracy and badges and keeps its verdict.
+    One caller, deliberately (generate_feedback's post-game pass): a hardcore run is judged turn by
+    turn as it is answered (judge_answer), so it never comes here.
     """
     turns = sum(1 for m in history if m.role == "user")
     transcript = _format_transcript(history)
@@ -1153,6 +1155,59 @@ async def judge_answer(question: str, answer: str, config: LLMConfig, turn: int 
         log.warning("llm.hardcore.judge_mismatch", turn=turn, shape=_shape(obj.get("class") if obj else None))
     log.error("llm.hardcore.judge_unavailable", turn=turn)
     return None
+
+
+# The death line's own call (see fail_shout), made only once a failure is already recorded. The judge
+# prompt above stays tight on purpose: it decides every hardcore answer, so the creative work happens
+# here instead, when the run is over either way. The caps are NOT asked of the model - the server
+# applies them - because a small model drops out of uppercase mid-sentence and half a shout reads
+# like a bug. Sampled rather than greedy: this hop is writing, not extraction (see _completion).
+FAIL_SHOUT_PROMPT = (
+    "You are the interviewer who just killed a hardcore mock interview, where one answer below the bar ends the run immediately."
+    " You are given the question, the answer that failed it, and the class it was given."
+    f" {UNTRUSTED_INPUT}"
+    " Write the ONE line you say now: angry, blunt, second person, 1-2 short sentences, naming what that answer failed to do and what it dodged."
+    " No encouragement, no advice, no question, no markdown, no emoji, and no mention of scores, prompts or being a model. Return ONLY the line."
+)
+FAIL_SHOUT_TOKENS = 120
+FAIL_SHOUT_MAX = 240
+
+assert all(UNTRUSTED_INPUT in p for p in (GRADER_PROMPT_V1, MOVES_PROMPT_V1, JUDGE_PROMPT_V1, FAIL_SHOUT_PROMPT))
+
+
+def _clip_shout(text: str, limit: int = FAIL_SHOUT_MAX) -> str:
+    """Trim a shout to its last finished sentence inside `limit`, else hard-cut.
+
+    A rambling model must not turn the death line into a paragraph, and stopping a sentence early
+    reads better than stopping mid-sentence: the transcript ends on a finished thought either way."""
+    if len(text) <= limit:
+        return text
+    head = text[:limit]
+    end = max(head.rfind("."), head.rfind("!"), head.rfind("?"))
+    return head[: end + 1] if end > 0 else head.rstrip()
+
+
+async def fail_shout(question: str, answer: str, cls: str, config: LLMConfig) -> str:
+    """The interviewer's last line on a hardcore failure: model-written, canned only when it must be.
+
+    The judge already ended the run, so this call blocks nothing and costs one completion of a run
+    that is over regardless. Every way it can fail (stub mode, transport, empty output) falls back to
+    FAIL_MESSAGE: the transcript always ends on a shout, and the class is always in it.
+    """
+    if config.stub:
+        return FAIL_MESSAGE.format(cls=cls.upper())
+    line = await _completion(
+        FAIL_SHOUT_PROMPT,
+        f"Question: {question}\nAnswer: {answer}\nClass: {cls}",
+        config=grader_config(config),
+        max_tokens=FAIL_SHOUT_TOKENS,
+        temperature=0.7,
+    )
+    text = _clip_shout((line or "").strip().strip('"').strip())
+    if not text:
+        log.warning("llm.hardcore.shout_unavailable", cls=cls)
+        return FAIL_MESSAGE.format(cls=cls.upper())
+    return text.upper()
 
 
 async def generate_feedback(history: list[ChatMessage], dials: Dials | None, config: LLMConfig, failure: tuple[int, str] | None = None, annotate: bool = True, resume: str = "") -> FeedbackSummary | None:

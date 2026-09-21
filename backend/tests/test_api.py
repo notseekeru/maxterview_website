@@ -1193,7 +1193,10 @@ def test_hardcore_ends_the_run_on_the_first_failing_answer(client, monkeypatch, 
     # The failing answer keeps its class, which is what the review points at, and the note it was
     # judged with: written by that same live call rather than a second pass after the fact.
     msgs = c.get(f"/api/interviews/{iid}/messages").json()
-    assert [(m["move_class"], m["comment"]) for m in msgs] == [(cls, note)]
+    assert [(m["move_class"], m["comment"]) for m in msgs if m["role"] == "user"] == [(cls, note)]
+    # The shout is a stored turn now, so a reloaded transcript still ends on it (stub mode writes the
+    # canned line; the real path asks the model).
+    assert msgs[-1]["role"] == "assistant" and msgs[-1]["content"] == llm.FAIL_MESSAGE.format(cls=cls.upper())
 
     assert c.post(f"/api/interviews/{iid}/finish").status_code == 200
     fb = c.get(f"/api/interviews/{iid}/feedback").json()

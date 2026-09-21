@@ -5,8 +5,9 @@ so that turn stores `move_class` NULL; a hardcore run skips the moves pass (`ann
 and the review then banded the run off those NULLs - no failure recorded, no F, nothing to explain.
 A hardcore run that was never fully judged read as an ordinary pass.
 
-The same hole-filling pass covers the note column: a run annotated before migration 0016 holds classes
-and no notes, and a review of bare badges is the other silent pass this guards.
+The same hole-filling covers the note column: a run annotated before migration 0016 holds classes and
+no notes, and a review of bare badges is the other silent pass this guards. Both are backfilled ONE
+TURN AT A TIME with the live judge's own call, so nothing already judged is re-read or re-classed.
 
 No DB and no model: the two hops that need either are the ones under test's control.
 """
@@ -33,7 +34,7 @@ def _rows(classes: list[str | None], comments: list[str | None] | None = None) -
 async def _run(monkeypatch, classes, backfill=None, comments=None):
     """Drive the real `_generate_and_persist_feedback` with the DB and the model faked out."""
     rows = _rows(classes, comments)
-    seen: dict = {"classify": 0, "moves": None, "failed": None, "accuracy": None, "failure_arg": "unset"}
+    seen: dict = {"judge": [], "moves": None, "failed": None, "accuracy": None, "failure_arg": "unset"}
 
     async def fake_fetch(sql, *args):
         return rows
@@ -48,9 +49,10 @@ async def _run(monkeypatch, classes, backfill=None, comments=None):
         seen["moves"] = moves
         return [moves[n].cls for n in range(1, len(candidate_ids) + 1) if n in moves]
 
-    async def fake_classify(history, config):
-        seen["classify"] += 1
-        return {n: rating.Move(cls, f"note {n}") for n, cls in (backfill or {}).items()}
+    async def fake_judge(question, answer, config, turn=1):
+        seen["judge"].append((turn, question, answer))
+        cls = (backfill or {}).get(turn)
+        return rating.Move(cls, f"note {turn}") if cls else None
 
     async def fake_generate_feedback(history, dials, config, failure=None, annotate=True, resume=""):
         seen["failure_arg"] = failure
@@ -68,18 +70,21 @@ async def _run(monkeypatch, classes, backfill=None, comments=None):
     monkeypatch.setattr(main, "_upsert_feedback", fake_upsert)
     monkeypatch.setattr(main, "_feedback_row", fake_row)
     monkeypatch.setattr(llm, "generate_feedback", fake_generate_feedback)
-    monkeypatch.setattr(llm, "classify_turns", fake_classify)
+    monkeypatch.setattr(llm, "judge_answer", fake_judge)
 
     await main._generate_and_persist_feedback("iid", llm.LLMConfig(base_url="", model=""))
     return seen
 
 
-async def test_hardcore_backfills_the_turn_the_live_judge_missed(monkeypatch):
-    # Turn 1 was judged live ('great'), turns 2 and 3 came back None. The classifier disagrees with the
-    # stored verdict on turn 1 on purpose: the verdict the candidate was already shown must win.
+async def test_hardcore_backfills_only_the_turn_the_live_judge_missed(monkeypatch):
+    # Turn 1 was judged live ('great'), turns 2 and 3 came back None. The backfill map disagrees with
+    # the stored verdict on turn 1 on purpose: the verdict the candidate was already shown must win,
+    # and turn 1 must not be re-judged at all.
     seen = await _run(monkeypatch, ["great", None, None], backfill={1: "book", 2: "good", 3: "blunder"})
 
-    assert seen["classify"] == 1, "a hardcore run with a NULL class must re-read the transcript"
+    # One call per HOLE, carrying that turn's own question: turn 1 answers the opening bubble, so it
+    # has no stored question (the judge prompt supplies the canned one).
+    assert seen["judge"] == [(2, "question 1", "answer 2"), (3, "question 2", "answer 3")], seen["judge"]
     assert seen["moves"] == {1: ("great", "note 1"), 2: ("good", "note 2"), 3: ("blunder", "note 3")}, seen["moves"]
     assert seen["failed"] == (3, "blunder"), "the backfilled failure must be recorded, or the review shows an F with nothing"
     assert seen["accuracy"] == 62  # great 1.0 + good 0.85 + blunder 0.0, mean 61.67 -> half-up 62
@@ -88,18 +93,18 @@ async def test_hardcore_backfills_the_turn_the_live_judge_missed(monkeypatch):
 
 async def test_hardcore_backfills_notes_for_a_run_graded_before_notes_existed(monkeypatch):
     # A hardcore run completed before migration 0016 holds classes and no notes. Nothing needs
-    # re-judging, so the annotator is asked for notes only and its CLASSES are dropped: the verdict the
+    # re-judging, so the judge is asked for a note per turn and its CLASSES are dropped: the verdict the
     # candidate was shown wins, and a bare badge run does not stay bare.
     seen = await _run(monkeypatch, ["great", "good"], comments=[None, None], backfill={1: "book", 2: "mistake"})
 
-    assert seen["classify"] == 1
+    assert [t for t, _, _ in seen["judge"]] == [1, 2]
     assert seen["moves"] == {1: ("great", "note 1"), 2: ("good", "note 2")}, seen["moves"]
-    assert seen["failed"] is None, "the annotator's 'mistake' is a note source, not a verdict to record"
+    assert seen["failed"] is None, "the judge's 'mistake' is a note source here, not a verdict to record"
     assert seen["accuracy"] == 93
 
 
 async def test_hardcore_judged_cleanly_costs_no_extra_call(monkeypatch):
     seen = await _run(monkeypatch, ["great", "good"])
-    assert seen["classify"] == 0, "a fully judged hardcore run must not spend a call on backfill"
+    assert seen["judge"] == [], "a fully judged hardcore run must not spend a call on backfill"
     assert seen["failed"] is None
     assert seen["accuracy"] == 93  # great 1.0 + good 0.85 -> 92.5, half-up 93
