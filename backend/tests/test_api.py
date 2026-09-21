@@ -1208,6 +1208,35 @@ def test_hardcore_ends_the_run_on_the_first_failing_answer(client, monkeypatch, 
     c.delete(f"/api/interviews/{iid}")
 
 
+def test_hardcore_shout_reaches_the_client_even_if_the_store_fails(client, monkeypatch):
+    # Storing the callout is best-effort: the mode's promise is that the candidate is told, so a DB
+    # hiccup at that instant must cost the stored line, not the stream.
+    from app import llm, main, rating
+
+    async def _judge(_question, _answer, _config, _turn=1):
+        return rating.Move("mistake", "Named no trade-off: state what you gave up.")
+
+    real = main.fetchrow
+
+    async def _flaky(sql, *args):
+        if "'assistant'" in sql:
+            raise RuntimeError("db down")
+        return await real(sql, *args)
+
+    monkeypatch.setattr(llm, "judge_answer", _judge)
+    monkeypatch.setattr(main, "fetchrow", _flaky)
+    c = client
+    iid = c.post("/api/interviews", json={"role": "Hardcore Store", "hardcore": True}).json()["id"]
+    c.post(f"/api/interviews/{iid}/start")
+
+    body = c.post(f"/api/interviews/{iid}/chat/stream", json={"interview_id": iid, "content": "uh, we retried it"}).text
+    assert llm.FAIL_MESSAGE.format(cls="MISTAKE") in body  # still delivered
+    assert '"class": "mistake"' in body  # ... and the client is still told why the run ended
+    # The answer landed, the shout did not: that is the trade, and the review banner still reports it.
+    assert [m["role"] for m in c.get(f"/api/interviews/{iid}/messages").json()] == ["user"]
+    c.delete(f"/api/interviews/{iid}")
+
+
 def test_hardcore_survives_a_judge_that_comes_back_empty(client, monkeypatch):
     # A judge outage must not fail a candidate by default: no verdict, no failure, run continues.
     from app import llm

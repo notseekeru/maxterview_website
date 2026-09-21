@@ -1029,14 +1029,18 @@ async def chat_stream(
                 await fetchrow("UPDATE messages SET move_class = $2, comment = $3 WHERE id = $1", user_msg_id, move.cls, move.comment)
             if move and move.cls in rating.FAIL_CLASSES:
                 await fetchrow("UPDATE interviews SET failed_turn = $2, failed_class = $3, updated_at = now() WHERE id = $1", interview_id, turn, move.cls)
-                # One model call, on the lane the judge already used, and persisted like any other
-                # reply: a reloaded transcript used to end on the candidate's answer with no callout.
                 shout = await llm.fail_shout(question, body.content, move.cls, config)
-                await fetchrow(
-                    "INSERT INTO messages (interview_id, role, content) VALUES ($1, 'assistant', $2) RETURNING id",
-                    interview_id,
-                    shout,
-                )
+                # Persisted like any other reply, or a reloaded transcript ends on the candidate's own
+                # answer with no callout. Best-effort: a DB hiccup here must cost the stored line, not
+                # the shout the candidate is owed for choosing this mode.
+                try:
+                    await fetchrow(
+                        "INSERT INTO messages (interview_id, role, content) VALUES ($1, 'assistant', $2) RETURNING id",
+                        interview_id,
+                        shout,
+                    )
+                except Exception as exc:
+                    log.warning("chat.shout_persist_failed", interview_id=interview_id, reason=type(exc).__name__)
                 yield f"event: message\ndata: {shout}\n\n"
                 # `failed` tells the client WHY the run ended (the arc being spent is the other ending).
                 yield f'event: done\ndata: {{"closing": true, "failed": {{"turn": {turn}, "class": "{move.cls}"}}}}\n\n'
