@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -14,15 +14,25 @@ import { getUsage, type Tier } from "@/lib/api";
 // all agree without an event bus. The navigation also strips the query param.
 const POLL_MS = 5000;
 const POLL_ATTEMPTS = 12; // ~1 minute, then stop and let the user drive
+const COOLDOWN_MS = 1000; // floor between checks, poll or click
 
 export function UpgradePendingNotice() {
     const [params] = useSearchParams();
     const pending = params.get("upgrade") === "pending";
     const [tier, setTier] = useState<Tier | null>(null);
     const [attempts, setAttempts] = useState(0);
+    const [cooling, setCooling] = useState(false);
+    const last = useRef(0);
 
     const check = useCallback(async () => {
-        setAttempts((n) => n + 1);
+        // RATE_LIMIT is one bucket per client for the whole API, not per route: unchecked clicking
+        // spends the same 120/min the chat and dashboard spend, so 10 clicks in a second is a
+        // self-inflicted 429 on the user's own session. A ref, not `cooling`: two clicks inside one
+        // tick would both read the same render.
+        if (Date.now() - last.current < COOLDOWN_MS) return;
+        last.current = Date.now();
+        setCooling(true);
+        setTimeout(() => setCooling(false), COOLDOWN_MS);
         try {
             setTier((await getUsage()).tier);
         } catch {
@@ -34,7 +44,12 @@ export function UpgradePendingNotice() {
     useEffect(() => {
         if (!pending || tier === "premium") return;
         void check();
-        const tick = setInterval(() => void check(), POLL_MS);
+        // Only the poll advances `attempts`: the give-up copy is a claim about elapsed time, and a
+        // customer who clicked the button 13 times has waited zero seconds.
+        const tick = setInterval(() => {
+            setAttempts((n) => n + 1);
+            void check();
+        }, POLL_MS);
         const stop = setTimeout(() => clearInterval(tick), POLL_MS * POLL_ATTEMPTS);
         return () => {
             clearInterval(tick);
@@ -59,7 +74,7 @@ export function UpgradePendingNotice() {
         );
     }
 
-    const givenUp = attempts > POLL_ATTEMPTS;
+    const givenUp = attempts >= POLL_ATTEMPTS;
 
     return (
         <div className="flex flex-col items-start gap-2 rounded-md border border-dashed p-3 text-sm">
@@ -70,7 +85,7 @@ export function UpgradePendingNotice() {
             <p className="max-w-xl text-muted-foreground">
                 {givenUp ? "This is taking longer than usual. If Maya showed a successful payment, it will still land here — no need to pay again. If you cancelled or it failed, you have not been charged." : "This usually takes a few seconds. You will not be charged twice by waiting — do not start another payment."}
             </p>
-            <Button size="sm" variant="outline" onClick={() => void check()}>
+            <Button size="sm" variant="outline" onClick={() => void check()} disabled={cooling}>
                 Check again
             </Button>
         </div>
