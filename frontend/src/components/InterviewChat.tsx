@@ -44,6 +44,10 @@ export function InterviewChat({ interviewId, onExit }: Props) {
     // request behind it.
     const [finishing, setFinishing] = useState<{ title: string; dismissed: boolean; done: boolean } | null>(null);
     const isFinishing = finishing !== null;
+    // /finish refuses a transcript with no gradable turn, so the button stays dead until the
+    // candidate has said something. Without this the progress screen flashes for a request that
+    // cannot land.
+    const answered = messages.some((m) => m.role === "user");
     const [reviewFailed, setReviewFailed] = useState(false);
     const [hasResume, setHasResume] = useState(false);
     const sendingRef = useRef(false);
@@ -295,11 +299,7 @@ export function InterviewChat({ interviewId, onExit }: Props) {
                         <div role="status" className={hardcoreFailed ? "rounded-lg border border-destructive bg-destructive/10 p-3 text-sm" : "rounded-lg border p-3 text-sm"}>
                             {hardcoreFailed ? (
                                 <>
-                                    <p className="font-semibold uppercase tracking-wide text-destructive">Run failed — hardcore</p>
-                                    <p className="mt-1 uppercase leading-relaxed text-foreground">
-                                        One wrong move. Your answer to question {hardcoreFailed.turn} was a {hardcoreFailed.class}, so the interview stops here.
-                                    </p>
-                                    <p className="mt-1 text-muted-foreground">Press Finish for the feedback you earned.</p>
+                                    <p className="font-semibold uppercase tracking-wide text-destructive"> Your Run failed — go and tell your mommy and cry about it</p>
                                 </>
                             ) : (
                                 <>
@@ -350,7 +350,7 @@ export function InterviewChat({ interviewId, onExit }: Props) {
                         <Button onClick={() => void send()} disabled={status !== "ready" || !draft.trim() || interviewOver}>
                             Send
                         </Button>
-                        <Button variant="destructive" size="sm" onClick={() => void finishRun()} disabled={isFinishing || status === "streaming" || status === "completed"}>
+                        <Button variant="destructive" size="sm" onClick={() => void finishRun()} disabled={isFinishing || status === "streaming" || status === "completed" || !answered}>
                             {isFinishing && <Spinner />}
                             {isFinishing ? "Finishing…" : "Finish"}
                         </Button>
