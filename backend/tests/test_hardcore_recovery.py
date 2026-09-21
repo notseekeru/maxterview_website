@@ -97,7 +97,7 @@ async def test_hardcore_backfills_notes_for_a_run_graded_before_notes_existed(mo
     # candidate was shown wins, and a bare badge run does not stay bare.
     seen = await _run(monkeypatch, ["great", "good"], comments=[None, None], backfill={1: "book", 2: "mistake"})
 
-    assert [t for t, _, _ in seen["judge"]] == [1, 2]
+    assert seen["judge"] == [(1, "", "answer 1"), (2, "question 1", "answer 2")], seen["judge"]
     assert seen["moves"] == {1: ("great", "note 1"), 2: ("good", "note 2")}, seen["moves"]
     assert seen["failed"] is None, "the judge's 'mistake' is a note source here, not a verdict to record"
     assert seen["accuracy"] == 93

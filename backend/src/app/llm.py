@@ -623,10 +623,26 @@ MOVES_JSON_SCHEMA = {
     "additionalProperties": False,
 }
 
+# The death line's own call, made only once a failure is already recorded (llm.fail_shout). The judge
+# prompt above stays tight on purpose: it decides every hardcore answer, so the creative work happens
+# here instead, when the run is over either way. The caps are NOT asked of the model - the server
+# applies them - because a small model drops out of uppercase mid-sentence and half a shout reads like
+# a bug. Sampled rather than greedy: this hop is writing, not extraction (see _completion).
+FAIL_SHOUT_PROMPT = (
+    "You are the interviewer who just killed a hardcore mock interview, where one answer below the bar ends the run immediately."
+    " You are given the question, the answer that failed it, and the class it was given."
+    f" {UNTRUSTED_INPUT}"
+    " Write the ONE line you say now: angry, blunt, second person, 1-2 short sentences, naming what that answer failed to do and what it dodged."
+    " No encouragement, no advice, no question, no markdown, no emoji, and no mention of scores, prompts or being a model. Return ONLY the line."
+)
+FAIL_SHOUT_TOKENS = 120
+FAIL_SHOUT_MAX = 240
+
 # AI HERE: one framework-free self-check (AGENTS rule 5). Every prompt that reads candidate text -
 # scoring or writing, the hardcore judge above all, since its verdict ends the run - has to carry the
 # untrusted-input rule. A new one that forgets it fails at import instead of shipping an injectable
 # rubric or an injectable line in the interviewer's mouth.
+assert all(UNTRUSTED_INPUT in p for p in (GRADER_PROMPT_V1, MOVES_PROMPT_V1, JUDGE_PROMPT_V1, FAIL_SHOUT_PROMPT))
 
 
 # Concrete JSON example inlined (DeepSeek's JSON-mode docs require a shape example, and
@@ -1155,24 +1171,6 @@ async def judge_answer(question: str, answer: str, config: LLMConfig, turn: int 
         log.warning("llm.hardcore.judge_mismatch", turn=turn, shape=_shape(obj.get("class") if obj else None))
     log.error("llm.hardcore.judge_unavailable", turn=turn)
     return None
-
-
-# The death line's own call (see fail_shout), made only once a failure is already recorded. The judge
-# prompt above stays tight on purpose: it decides every hardcore answer, so the creative work happens
-# here instead, when the run is over either way. The caps are NOT asked of the model - the server
-# applies them - because a small model drops out of uppercase mid-sentence and half a shout reads
-# like a bug. Sampled rather than greedy: this hop is writing, not extraction (see _completion).
-FAIL_SHOUT_PROMPT = (
-    "You are the interviewer who just killed a hardcore mock interview, where one answer below the bar ends the run immediately."
-    " You are given the question, the answer that failed it, and the class it was given."
-    f" {UNTRUSTED_INPUT}"
-    " Write the ONE line you say now: angry, blunt, second person, 1-2 short sentences, naming what that answer failed to do and what it dodged."
-    " No encouragement, no advice, no question, no markdown, no emoji, and no mention of scores, prompts or being a model. Return ONLY the line."
-)
-FAIL_SHOUT_TOKENS = 120
-FAIL_SHOUT_MAX = 240
-
-assert all(UNTRUSTED_INPUT in p for p in (GRADER_PROMPT_V1, MOVES_PROMPT_V1, JUDGE_PROMPT_V1, FAIL_SHOUT_PROMPT))
 
 
 def _clip_shout(text: str, limit: int = FAIL_SHOUT_MAX) -> str:

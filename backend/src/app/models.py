@@ -54,8 +54,8 @@ class Dials(BaseModel):
     cynicism: Cynicism = "neutral"
     brutally_honest: bool = False
     human_mode: bool = True
-    # Hardcore: every answer is judged as it is given, and one `mistake`/`blunder` ends the run on
-    # the spot (llm.FAIL_MESSAGE) with the feedback shouting in caps. See main.chat_stream.
+    # Hardcore: every answer is judged as it is given, and a failing class (rating.FAIL_CLASSES) ends
+    # the run on the spot with a shout, then the feedback in caps. See main.chat_stream.
     hardcore: bool = False
     mix_chitchat: int = Field(default=0, ge=0, le=dials.MIX_MAX)
     mix_behavioural: int = Field(default=2, ge=0, le=dials.MIX_MAX)

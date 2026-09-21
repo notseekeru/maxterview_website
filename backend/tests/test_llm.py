@@ -608,7 +608,7 @@ def test_hardcore_prompts_and_the_fail_line():
     assert "HARDCORE MODE" not in llm.grader_prompt(Dials(hardcore=False))
     assert "Turn 2 was a blunder" in llm.HARDCORE_FORMAT_PROMPT.format(turn=2, cls="blunder")
     assert "ALL CAPS" in llm.HARDCORE_FORMAT_PROMPT
-    assert llm.FAIL_MESSAGE.format(cls="BLUNDER").isupper()  # the shout never depends on the model
+    assert llm.FAIL_MESSAGE.format(cls="BLUNDER").isupper()  # the canned fallback is always a shout
 
 
 async def test_hardcore_failure_prompts_for_caps_and_forces_reject(monkeypatch):
@@ -649,8 +649,8 @@ async def test_fail_shout_is_model_written_and_uppercased(monkeypatch):
 
 
 async def test_fail_shout_falls_back_to_the_canned_line(monkeypatch):
-    # Empty output, transport death and stub mode all end the transcript the same way: on a shout, with
-    # the class in it.
+    # No model, no output and stub mode all end the transcript the same way: on a shout with the class
+    # in it.
     async def _none(*_a, **_kw):
         return None
 
@@ -661,8 +661,6 @@ async def test_fail_shout_falls_back_to_the_canned_line(monkeypatch):
 
 
 def test_clip_shout_keeps_a_finished_sentence():
-    # A rambling model must not turn the death line into a paragraph: the cut lands on a sentence end
-    # when there is one inside the ceiling, and hard-cuts when there is not.
     clipped = llm._clip_shout("Sit down. " * 60)
     assert len(clipped) <= llm.FAIL_SHOUT_MAX and clipped.endswith(".")
     assert llm._clip_shout("That was vague.") == "That was vague."

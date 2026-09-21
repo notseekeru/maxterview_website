@@ -1169,6 +1169,32 @@ async def _persist_moves(interview_id: str, candidate_ids: list[str], moves: dic
     return [m.cls for m in graded.values()]
 
 
+async def _reconcile_hardcore_moves(interview_id: str, history_rows: list[asyncpg.Record], candidate_rows: list[asyncpg.Record], config: llm.LLMConfig) -> list[str]:
+    """The stored hardcore classes, with any hole backfilled ONE TURN AT A TIME by the live judge call.
+
+    Nothing here overwrites a class the candidate was already shown: the live judge wrote classes (and
+    usually notes) as the answers came in, so this fills only what it could not call, or a note it did
+    not write - which is every turn on a run annotated before the note column existed. Annotating the
+    whole transcript instead would re-read and re-class answers already judged live."""
+    judged: list[rating.Move | None] = [rating.Move(r["move_class"], r["comment"]) if r["move_class"] else None for r in candidate_rows]
+    holes = [n for n, m in enumerate(judged, 1) if m is None or not m.comment]
+    if not holes:
+        return [m.cls for m in judged if m]
+    questions = _questions_by_turn(history_rows)
+    fill: dict[int, rating.Move] = {}
+    for n in holes:
+        got = await llm.judge_answer(questions.get(n, ""), candidate_rows[n - 1]["content"], config, n)
+        if got:
+            fill[n] = got
+    merged: dict[int, rating.Move] = {}
+    for n, m in enumerate(judged, 1):
+        f = fill.get(n)
+        cls = (m.cls if m else None) or (f.cls if f else None)
+        if cls:
+            merged[n] = rating.Move(cls, (m.comment if m else None) or (f.comment if f else None))
+    return await _persist_moves(interview_id, [r["id"] for r in candidate_rows], merged) or [m.cls for m in judged if m]
+
+
 async def _auto_generate_and_persist_feedback(interview_id: str, config: llm.LLMConfig) -> dict | None:
     for attempt in range(COMPLETE_MAX_FEEDBACK_ATTEMPTS):
         row = await _generate_and_persist_feedback(interview_id, config)
@@ -1202,29 +1228,7 @@ async def _generate_and_persist_feedback(interview_id: str, config: llm.LLMConfi
     candidate_rows = [r for r in history_rows if r["role"] == "user"]
     candidate_ids = [r["id"] for r in candidate_rows]
     if hardcore:
-        # The live judge annotated each answer as it was given, and the candidate was TOLD the verdict
-        # that ended the run, so nothing here overwrites a stored class. Holes - a turn the judge could
-        # not call, or a note it did not write, which is every turn on a run annotated before the note
-        # column existed - are backfilled ONE TURN AT A TIME with that same judge call: annotating the
-        # whole transcript instead re-read and re-classed answers already judged live.
-        judged: list[rating.Move | None] = [rating.Move(r["move_class"], r["comment"]) if r["move_class"] else None for r in candidate_rows]
-        holes = [n for n, m in enumerate(judged, 1) if m is None or not m.comment]
-        if holes:
-            questions = _questions_by_turn(history_rows)
-            fill: dict[int, rating.Move] = {}
-            for n in holes:
-                got = await llm.judge_answer(questions.get(n, ""), candidate_rows[n - 1]["content"], config, n)
-                if got:
-                    fill[n] = got
-            merged: dict[int, rating.Move] = {}
-            for n, m in enumerate(judged, 1):
-                f = fill.get(n)
-                cls = (m.cls if m else None) or (f.cls if f else None)
-                if cls:
-                    merged[n] = rating.Move(cls, (m.comment if m else None) or (f.comment if f else None))
-            classes = await _persist_moves(interview_id, candidate_ids, merged) or [m.cls for m in judged if m]
-        else:
-            classes = [m.cls for m in judged if m]
+        classes = await _reconcile_hardcore_moves(interview_id, history_rows, candidate_rows, config)
     else:
         classes = await _persist_moves(interview_id, candidate_ids, summary.moves)
     accuracy = rating.accuracy(classes)
