@@ -1,5 +1,5 @@
 import { lazy, Suspense } from "react";
-import { BrowserRouter, Outlet, Route, Routes } from "react-router-dom";
+import { BrowserRouter, Navigate, Outlet, Route, Routes } from "react-router-dom";
 
 import { AppThemeSync } from "@/components/AppThemeSync";
 import { AuthMisconfigBanner } from "@/components/AuthMisconfigBanner";
@@ -22,6 +22,8 @@ const InterviewRoute = lazy(() => import("@/pages/InterviewRoute").then((m) => (
 // AccountSettingsPage here would pull the SDK back into the entry chunk that the public landing
 // page pays for — the lazy boundary is the split, not the `clerkEnabled` check.
 const ClerkGate = lazy(() => import("@/components/ClerkGate").then((m) => ({ default: m.ClerkGate })));
+// Same module, so the same chunk: /sign-in loads what /dashboard needs and nothing extra.
+const ClerkAuthPage = lazy(() => import("@/components/ClerkGate").then((m) => ({ default: m.ClerkAuthPage })));
 const AppShell = lazy(() => import("@/components/AppShell").then((m) => ({ default: m.AppShell })));
 const AccountSettingsPage = lazy(() => import("@/pages/AccountSettingsPage").then((m) => ({ default: m.AccountSettingsPage })));
 
@@ -36,6 +38,8 @@ function App() {
             <ErrorBoundary>
                 <Routes>
                     <Route path="/" element={<Landing />} />
+                    <Route path="/sign-in" element={<AuthPage mode="sign-in" />} />
+                    <Route path="/sign-up" element={<AuthPage mode="sign-up" />} />
 
                     {/* Gated subtree: these pathless routes render the shell/lightbox around an
                         <Outlet/> — the recursion is intentional, do not flatten it. Every app
@@ -88,6 +92,17 @@ function App() {
 
 function GateLoading() {
     return <div className="flex min-h-screen items-center justify-center bg-background text-sm text-muted-foreground">Loading…</div>;
+}
+
+// AuthPage: Clerk's own sign-in/sign-up form. Without a Clerk key there is nobody to sign in
+// as, so dev mode goes straight to the dashboard, matching the gate below.
+function AuthPage({ mode }: { mode: "sign-in" | "sign-up" }) {
+    if (!clerkEnabled) return <Navigate to="/dashboard" replace />;
+    return (
+        <Suspense fallback={<GateLoading />}>
+            <ClerkAuthPage mode={mode} />
+        </Suspense>
+    );
 }
 
 // Gate: no-Clerk dev passes children straight through (the Clerk chunk is never fetched). With

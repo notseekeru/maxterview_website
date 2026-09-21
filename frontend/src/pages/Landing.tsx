@@ -10,7 +10,8 @@ import { PLANS } from "@/lib/plans";
 // auth), which is why the copy is plain HTML with no auth or chart code anywhere near it: the
 // Clerk SDK and recharts are in lazy chunks this route never fetches.
 // Navigation here must stay <Link>/<a href>: an onClick handler is a <button>, which is not a
-// link and passes nothing to a crawler.
+// link and passes nothing to a crawler. Auth-intent CTAs point at /sign-in and /sign-up, which
+// render Clerk's own form in a lazy chunk; nothing on this route imports the auth SDK.
 // The five backdrop photos live in public/assets/landing (pre-cropped grayscale JPEGs, provenance
 // in CREDITS.txt). Brightness and gradient live in CSS, not in the files, so the same asset can be
 // re-graded without a re-render pass. Every one of them is decorative: alt="" + aria-hidden.
@@ -44,10 +45,10 @@ export function Landing() {
                 <span className="text-xl font-semibold tracking-tight">maxterview</span>
                 <nav className="flex items-center gap-2">
                     <Button variant="ghost" asChild>
-                        <Link to="/dashboard">Sign in</Link>
+                        <Link to="/sign-in">Sign in</Link>
                     </Button>
                     <Button asChild>
-                        <Link to="/dashboard">Start free</Link>
+                        <Link to="/sign-up">Start free</Link>
                     </Button>
                 </nav>
             </header>
@@ -77,10 +78,10 @@ export function Landing() {
                         <p className="text-lg text-white/80">Answer questions one at a time, get every answer annotated like a chess engine annotates moves, and track your accuracy across every practice run.</p>
                         <div className="flex flex-wrap items-center gap-3">
                             <Button size="lg" className="bg-white text-black hover:bg-white/90" asChild>
-                                <Link to="/dashboard">Start practicing free</Link>
+                                <Link to="/sign-up">Start practicing free</Link>
                             </Button>
                             <Button size="lg" variant="outline" className="border-white/30 bg-white/10 text-white hover:bg-white/20 hover:text-white" asChild>
-                                <Link to="/dashboard">Sign in</Link>
+                                <Link to="/sign-in">Sign in</Link>
                             </Button>
                         </div>
                         {/* The scale the reviewer actually grades on. It is the product's own vocabulary
@@ -144,7 +145,7 @@ export function Landing() {
                                         <li>Bring your own model key if you prefer</li>
                                     </ul>
                                     <Button asChild variant={id === "premium" ? "default" : "outline"} className="mt-auto">
-                                        <Link to="/dashboard">{id === "premium" ? `Upgrade · ${plan.monthly}` : "Start free"}</Link>
+                                        <Link to={id === "premium" ? "/settings/billing" : "/sign-up"}>{id === "premium" ? `Upgrade · ${plan.monthly}` : "Start free"}</Link>
                                     </Button>
                                 </div>
                             );
@@ -186,7 +187,7 @@ export function Landing() {
                     <div className="flex flex-col items-center gap-4 px-6 py-14 text-center text-white sm:py-20">
                         <h2 className="max-w-xl text-xl font-semibold tracking-tight sm:text-2xl">Your next interview is practice, not the real one.</h2>
                         <Button size="lg" className="bg-white text-black hover:bg-white/90" asChild>
-                            <Link to="/dashboard">Start practicing free</Link>
+                            <Link to="/sign-up">Start practicing free</Link>
                         </Button>
                     </div>
                 </section>
@@ -197,7 +198,7 @@ export function Landing() {
                 <div className="flex flex-wrap items-center justify-between gap-3">
                     <span>maxterview — AI mock-interview coach.</span>
                     <div className="flex items-center gap-4">
-                        <Link to="/dashboard" className="underline underline-offset-2 hover:text-foreground">
+                        <Link to="/sign-in" className="underline underline-offset-2 hover:text-foreground">
                             Sign in
                         </Link>
                         <Link to="/dashboard" className="underline underline-offset-2 hover:text-foreground">
