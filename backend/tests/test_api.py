@@ -270,6 +270,9 @@ def test_interview_lifecycle_owner_scoped(client):
     msgs = r.json()
     assert [m["move_class"] for m in msgs if m["role"] == "user"] == ["good"]  # one candidate turn
     assert all(m["move_class"] is None for m in msgs if m["role"] != "user")
+    # Every classed turn carries the note it was graded with (stub mode: canned per class).
+    assert all(m["comment"] for m in msgs if m["move_class"])
+    assert all(m["comment"] is None for m in msgs if m["role"] != "user")
 
     # The history list carries the same two fields (drives the row chip).
     r = c.get("/api/interviews")
@@ -794,6 +797,8 @@ def test_move_review_annotates_every_candidate_turn(client):
 
     msgs = c.get(f"/api/interviews/{iid}/messages").json()
     assert [m["move_class"] for m in msgs if m["role"] == "user"] == ["good", "inaccuracy"]
+    notes = [m["comment"] for m in msgs if m["role"] == "user"]
+    assert all(notes) and notes[0] != notes[1]  # one note per turn, and not the same note twice
     fb = c.get(f"/api/interviews/{iid}/feedback").json()
     assert (fb["accuracy"], fb["grade"]) == (73, "B")  # mean(0.85, 0.6) = 72.5 -> half-up
     c.delete(f"/api/interviews/{iid}")
@@ -1153,11 +1158,11 @@ def test_byok_write_is_refused_without_the_deployment_encryption_key(client, mon
 
 
 def test_hardcore_ends_the_run_on_the_first_wrong_answer(client, monkeypatch):
-    from app import llm
+    from app import llm, rating
 
     # The live judge: answer 1 is called wrong. Everything else about the run is the real code path.
     async def _judge(_question, _answer, _config, _turn=1):
-        return "mistake"
+        return rating.Move("mistake", "Named no trade-off: state what you gave up.")
 
     monkeypatch.setattr(llm, "judge_answer", _judge)
     c = client
@@ -1171,8 +1176,10 @@ def test_hardcore_ends_the_run_on_the_first_wrong_answer(client, monkeypatch):
     assert '"failed": {"turn": 1, "class": "mistake"}' in body  # ... and the client is told why it ended
     # The run is over for the API too, not just for the composer.
     assert c.post(f"/api/interviews/{iid}/chat/stream", json={"interview_id": iid, "content": "one more"}).status_code == 409
-    # The wrong answer keeps its class, which is what the review points at.
-    assert [m["move_class"] for m in c.get(f"/api/interviews/{iid}/messages").json()] == ["mistake"]
+    # The wrong answer keeps its class, which is what the review points at - and the note it was
+    # judged with, written by that same live call rather than a second pass after the fact.
+    msgs = c.get(f"/api/interviews/{iid}/messages").json()
+    assert [(m["move_class"], m["comment"]) for m in msgs] == [("mistake", "Named no trade-off: state what you gave up.")]
 
     assert c.post(f"/api/interviews/{iid}/complete").status_code == 200
     fb = c.get(f"/api/interviews/{iid}/feedback").json()
@@ -1187,10 +1194,10 @@ def test_hardcore_ends_the_run_on_the_first_wrong_answer(client, monkeypatch):
 def test_hardcore_lets_a_clean_answer_through(client, monkeypatch):
     # The judge only ends the run on mistake/blunder: `inaccuracy` is survivable, and so is a judge
     # that comes back empty (a model outage must not fail a candidate by default).
-    from app import llm
+    from app import llm, rating
 
     async def _judge(_question, _answer, _config, _turn=1):
-        return "inaccuracy"
+        return rating.Move("inaccuracy", "Vague, but it survived.")
 
     monkeypatch.setattr(llm, "judge_answer", _judge)
     c = client

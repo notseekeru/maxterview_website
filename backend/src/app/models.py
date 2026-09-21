@@ -175,6 +175,9 @@ class Message(BaseModel):
     content: str
     # This turn's annotation (chess-style). None on interviewer/system turns and on ungraded runs.
     move_class: MoveClass | None = None
+    # The annotator's note on that turn: why it got that class and what to fix. None wherever
+    # move_class is None, and on turns the annotator classed without writing a usable note.
+    comment: str | None = None
     created_at: datetime
 
 
@@ -315,8 +318,8 @@ class FeedbackSummary(BaseModel):
     tips: list = Field(default_factory=list)
     decision: Decision | None = None
     certainty: int | None = Field(default=None, ge=0, le=100)
-    # 1-based candidate turn -> move class; empty when the model would not classify.
-    moves: dict[int, str] = Field(default_factory=dict)
+    # 1-based candidate turn -> its annotation; empty when the model would not classify.
+    moves: dict[int, rating.Move] = Field(default_factory=dict)
 
 
 class ChatTurn(BaseModel):

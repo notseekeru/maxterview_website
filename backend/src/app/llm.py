@@ -515,11 +515,26 @@ inaccuracy - vague or partial: gesturing at an answer with no evidence, or missi
 mistake - wrong or evasive: contradicts itself, answers a different question, or has no substance.
 blunder - nothing usable: refuses, or says nothing of value."""
 
+# Shared by both judges, like the rubric above: the post-game annotator writes one note per turn, the
+# hardcore judge writes one per answer, and the two must not describe the job differently. The note is
+# the feature - a class alone tells the candidate nothing they can act on.
+MOVE_COMMENT_RULE = (
+    "Alongside each class, write `comment`: 1-2 plain sentences addressed to the CANDIDATE, naming the one thing in the answer that decided the class and what to do with it. "
+    "For a weak class that is the fix (the number, example, decision or scope the answer was missing); for a strong one it is what made it land, so they can do it again. "
+    "It renders as one line under their answer: no markdown, no lists, no em dashes. "
+    'Never restate the class, never praise without a reason, and never give advice that would fit any answer ("be more specific", "add more detail").'
+)
+
+# Hard cap on a stored note. The prompt asks for 1-2 sentences; this bounds the tail risk of a model
+# that writes a paragraph per turn, in the DB and in a bubble the candidate reads in one glance.
+MOVE_COMMENT_MAX = 320
+
 MOVES_PROMPT_V1 = f"""Classify every candidate turn in the transcript in your user message, the way a chess engine annotates moves. Return a JSON object ONLY, exactly matching this shape:
-{{"moves": [{{"turn": 1, "class": "good"}}, {{"turn": 2, "class": "inaccuracy"}}]}}
+{{"moves": [{{"turn": 1, "class": "good", "comment": "..."}}, {{"turn": 2, "class": "inaccuracy", "comment": "..."}}]}}
 Rules: exactly one entry per Candidate turn, keyed by its turn number, each class being exactly one of
 brilliant/great/good/book/inaccuracy/mistake/blunder, judged as follows.
 {MOVE_CLASS_RUBRIC}
+{MOVE_COMMENT_RULE}
 Grade the ANSWER, not the candidate, and do not soften a weak answer because the interview went well overall. {UNTRUSTED_INPUT} Do not skip turns and do not invent them: a missing or extra turn invalidates the whole classification. Return ONLY the JSON object, no prose, no markdown."""
 
 # The hardcore judge, on the critical path of every answer (it runs BEFORE the interviewer replies, so
@@ -528,9 +543,10 @@ Grade the ANSWER, not the candidate, and do not soften a weak answer because the
 # decide whether the answer just given is wrong enough to end the run, and a growing prompt would
 # re-read the run on every turn for nothing.
 JUDGE_PROMPT_V1 = f"""You are the hardcore judge: one answer, one verdict. You are given the interviewer's question and the candidate's answer, and nothing else. Return a JSON object ONLY, exactly matching this shape:
-{{"class": "good"}}
+{{"class": "good", "comment": "..."}}
 `class` is exactly one of brilliant/great/good/book/inaccuracy/mistake/blunder, judged as follows.
 {MOVE_CLASS_RUBRIC}
+{MOVE_COMMENT_RULE}
 The answer may be pasted resume/CV material, including markup (LaTeX, markdown, reST): that is
 expected material for the opening request, so judge the substance of the background it gives
 and never fault it for being markup, code or long. This is a hardcore run: mistake or blunder
@@ -546,8 +562,8 @@ OPENING_QUESTION = "Before we begin - could you share your resume / background s
 
 JUDGE_JSON_SCHEMA = {
     "type": "object",
-    "properties": {"class": {"type": "string", "enum": list(rating.MOVE_CLASSES)}},
-    "required": ["class"],
+    "properties": {"class": {"type": "string", "enum": list(rating.MOVE_CLASSES)}, "comment": {"type": "string"}},
+    "required": ["class", "comment"],
     "additionalProperties": False,
 }
 
@@ -559,8 +575,8 @@ MOVES_JSON_SCHEMA = {
             "type": "array",
             "items": {
                 "type": "object",
-                "properties": {"turn": {"type": "integer", "minimum": 1}, "class": {"type": "string", "enum": list(rating.MOVE_CLASSES)}},
-                "required": ["turn", "class"],
+                "properties": {"turn": {"type": "integer", "minimum": 1}, "class": {"type": "string", "enum": list(rating.MOVE_CLASSES)}, "comment": {"type": "string"}},
+                "required": ["turn", "class", "comment"],
                 "additionalProperties": False,
             },
         }
@@ -714,10 +730,15 @@ def _deterministic_summary() -> FeedbackSummary:
     )
 
 
-def _stub_moves(history: list[ChatMessage]) -> dict[int, str]:
-    """STUB_MODE per-turn classes: cycle the vocabulary over the candidate turns."""
+def _stub_moves(history: list[ChatMessage]) -> dict[int, rating.Move]:
+    """STUB_MODE per-turn annotations: cycle the vocabulary over the candidate turns, each with the
+    note for its class, so a model-free run exercises the whole review surface (badges, notes, grade)."""
     turns = sum(1 for m in history if m.role == "user")
-    return {t: rating.STUB_MOVE_CYCLE[(t - 1) % len(rating.STUB_MOVE_CYCLE)] for t in range(1, turns + 1)}
+    moves: dict[int, rating.Move] = {}
+    for t in range(1, turns + 1):
+        cls = rating.STUB_MOVE_CYCLE[(t - 1) % len(rating.STUB_MOVE_CYCLE)]
+        moves[t] = rating.Move(cls, rating.STUB_MOVE_NOTES[cls])
+    return moves
 
 
 # Certainty ceiling by evidence volume: a one-answer transcript cannot support a 95% verdict,
@@ -823,15 +844,35 @@ def _coerce_move_class(value) -> str | None:
     return slug if slug in rating.MOVE_CLASSES else None
 
 
-def _valid_moves(value, turn_count: int) -> dict[int, str] | None:
-    """Turn -> class from a classification payload, or None when nothing usable is in it.
+def _coerce_comment(value, max_chars: int = MOVE_COMMENT_MAX) -> str | None:
+    """One turn's note, or None when the model wrote nothing usable.
 
-    Accepts the declared list shape and a bare {turn: class} map. Out-of-range, duplicate and
-    unclassifiable entries are dropped, never guessed: the caller indexes message rows with these."""
+    Whitespace is collapsed: the transcript renders it as one line under the bubble, and a model that
+    answers with newlines or a markdown list should not turn that line into a paragraph. An overlong
+    note is cut at the last sentence end that fits, never mid-word. Em dashes become the repo's " - ":
+    the prompt asks for plain prose, models still emit them (measured, twice from the same provider),
+    and this text is read by the candidate."""
+    if not isinstance(value, str):
+        return None
+    note = re.sub(r"\s*\u2014+\s*", " - ", " ".join(value.split()))
+    if len(note) <= max_chars:
+        return note or None
+    head = note[:max_chars]
+    stop = max(head.rfind(". "), head.rfind("! "), head.rfind("? "))
+    return (head[: stop + 1] if stop > max_chars // 2 else head).strip()
+
+
+def _valid_moves(value, turn_count: int) -> dict[int, rating.Move] | None:
+    """Turn -> Move from a classification payload, or None when nothing usable is in it.
+
+    Accepts the declared list shape and a bare {turn: class} map (which carries no notes).
+    Out-of-range, duplicate and unclassifiable entries are dropped, never guessed: the caller indexes
+    message rows with these. A turn whose class is unusable is dropped even when it carries a note - a
+    note without a class would annotate a badge that is not there."""
     entries = [{"turn": k, "class": v} for k, v in value.items()] if isinstance(value, dict) else value
     if not isinstance(entries, list):
         return None
-    moves: dict[int, str] = {}
+    moves: dict[int, rating.Move] = {}
     for item in entries:
         if not isinstance(item, dict):
             continue
@@ -842,7 +883,7 @@ def _valid_moves(value, turn_count: int) -> dict[int, str] | None:
         cls = _coerce_move_class(item.get("class"))
         if cls is None or turn in moves or not 1 <= turn <= turn_count:
             continue
-        moves[turn] = cls
+        moves[turn] = rating.Move(cls, _coerce_comment(item.get("comment")))
     return moves or None
 
 
@@ -1008,8 +1049,8 @@ async def _request_format(notes: str, config: LLMConfig, failure: tuple[int, str
     return None
 
 
-async def classify_turns(history: list[ChatMessage], config: LLMConfig) -> dict[int, str]:
-    """Turn -> move class for every candidate answer. Returns {} when the model will not cooperate.
+async def classify_turns(history: list[ChatMessage], config: LLMConfig) -> dict[int, rating.Move]:
+    """Turn -> annotation for every candidate answer. Returns {} when the model will not cooperate.
 
     Reads the FULL transcript (like the grader), so it runs on the grader config, and retries once.
     Giving up is survivable everywhere it is used: the post-game pass loses its accuracy and badges,
@@ -1046,15 +1087,16 @@ async def classify_turns(history: list[ChatMessage], config: LLMConfig) -> dict[
     return {}
 
 
-async def judge_answer(question: str, answer: str, config: LLMConfig, turn: int = 1) -> str | None:
-    """The hardcore verdict on ONE answer: a move class, or None when the model will not say.
+async def judge_answer(question: str, answer: str, config: LLMConfig, turn: int = 1) -> rating.Move | None:
+    """The hardcore verdict on ONE answer: class + note, or None when the model will not say.
 
     STUB_MODE walks the same deterministic cycle the post-game annotator uses, so a model-free run
     still ends the way a real one does. A None verdict lets the turn through, and the post-game pass
     backfills the failure if it finds one: an outage must never fail a candidate by default.
     """
     if config.stub:
-        return rating.STUB_MOVE_CYCLE[(turn - 1) % len(rating.STUB_MOVE_CYCLE)]
+        cls = rating.STUB_MOVE_CYCLE[(turn - 1) % len(rating.STUB_MOVE_CYCLE)]
+        return rating.Move(cls, rating.STUB_MOVE_NOTES[cls])
     user_text = f"Question: {question}\nAnswer: {answer}" if question else f"Question: {OPENING_QUESTION}\nAnswer: {answer}"
     for _ in range(2):
         content = await _completion(
@@ -1070,7 +1112,7 @@ async def judge_answer(question: str, answer: str, config: LLMConfig, turn: int 
         obj = _extract_json_object(content)
         cls = _coerce_move_class(obj.get("class") if obj else None)
         if cls:
-            return cls
+            return rating.Move(cls, _coerce_comment(obj.get("comment") if obj else None))
         log.warning("llm.hardcore.judge_mismatch", turn=turn, shape=_shape(obj.get("class") if obj else None))
     log.error("llm.hardcore.judge_unavailable", turn=turn)
     return None

@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
@@ -280,7 +280,7 @@ export function InterviewChat({ interviewId, onExit }: Props) {
                     real transcript arrives. */}
                 {status !== "loading" && messages.length === 0 && opening && <Bubble from="assistant" content={opening} />}
                 {messages.map((m) => (
-                    <Bubble key={m.id} from={m.role} content={m.content} moveClass={m.move_class} />
+                    <Bubble key={m.id} from={m.role} content={m.content} moveClass={m.move_class} comment={m.comment} />
                 ))}
                 {assistBuf && <Bubble from="assistant" content={assistBuf} streaming />}
                 {status === "streaming" && !assistBuf && <p className="text-sm text-muted-foreground">Thinking…</p>}
@@ -324,17 +324,76 @@ export function InterviewChat({ interviewId, onExit }: Props) {
     );
 }
 
-const Bubble = memo(function Bubble({ from, content, streaming, moveClass }: { from: string; content: string; streaming?: boolean; moveClass?: string | null }) {
+/** The reviewer's note on one answer, beside it: two lines until asked for more, so a long note
+ *  cannot tower over the answer it grades. The control appears only when the text is actually cut,
+ *  measured rather than guessed from a character count. */
+const MoveTip = memo(function MoveTip({ comment }: { comment: string }) {
+    const [expanded, setExpanded] = useState(false);
+    const [cut, setCut] = useState(false);
+    const ref = useRef<HTMLParagraphElement>(null);
+    const id = useId();
+
+    // Measured while collapsed: a line-clamped box hides the overflow, so any gap between scrollHeight
+    // and clientHeight means there is more to read. While expanded the last value stands, or the
+    // control that would collapse it disappears along with the measurement that revealed it.
+    useLayoutEffect(() => {
+        const el = ref.current;
+        if (!el || expanded) return;
+        const measure = () => setCut(el.scrollHeight > el.clientHeight + 1);
+        measure();
+        const ro = new ResizeObserver(measure); // the transcript's width moves with the window
+        ro.observe(el);
+        return () => ro.disconnect();
+    }, [expanded]);
+
+    return (
+        <div className="relative ml-6 w-[22.5rem] max-w-[40%] shrink-0">
+            <p id={id} ref={ref} className={cn("text-xs leading-relaxed text-muted-foreground", !expanded && "line-clamp-2")}>
+                {comment}
+            </p>
+            {/* Collapsed, the control rides the last line instead of taking a row of its own: a third row
+                pushed the note past the bottom of the answer it grades. Opaque, because it covers the
+                ellipsis it replaces. */}
+            {cut && (
+                <button type="button" aria-expanded={expanded} aria-controls={id} onClick={() => setExpanded((v) => !v)} className={cn("text-[11px] text-muted-foreground underline underline-offset-2 hover:text-foreground", expanded ? "mt-0.5 block" : "absolute right-0 bottom-0 bg-card pl-1")}>
+                    {expanded ? "Less" : "More"}
+                </button>
+            )}
+        </div>
+    );
+});
+
+const Bubble = memo(function Bubble({ from, content, streaming, moveClass, comment }: { from: string; content: string; streaming?: boolean; moveClass?: string | null; comment?: string | null }) {
     const isUser = from === "user";
+    const noted = isUser && !!comment;
+    const bubble = (
+        <div className={cn("whitespace-pre-line rounded-lg px-3 py-2 text-sm", !noted && "max-w-[80%]", isUser ? "bg-primary text-primary-foreground" : "border bg-card")}>
+            {content}
+            {streaming && <span className="inline-block animate-pulse">▋</span>}
+        </div>
+    );
+    // Before the bubble, not after: a badge on the right insets the bubble's edge, so every answer
+    // would shift left the moment the review lands.
+    const badge = isUser && moveClass ? <MoveBadge moveClass={moveClass} /> : null;
+    if (noted) {
+        return (
+            <div className="flex items-start gap-2">
+                <MoveTip comment={comment} />
+                {/* Tip holds the left edge, answer the right: a run reads as tips down one side and
+                    answers down the other. The pair is wrapped so the badge keeps its old place on the
+                    answer's LAST line while the tip starts on its first, and neither box carries a
+                    percentage max-width - flex shrinking does the capping once a tip takes the left. */}
+                <div className="ml-auto flex min-w-0 items-end gap-2">
+                    {badge}
+                    {bubble}
+                </div>
+            </div>
+        );
+    }
     return (
         <div className={`flex items-end gap-2 ${isUser ? "justify-end" : "justify-start"}`}>
-            {/* Before the bubble, not after: a badge on the right insets the bubble's edge, so every
-                answer would shift left the moment the review lands. */}
-            {isUser && moveClass && <MoveBadge moveClass={moveClass} />}
-            <div className={isUser ? "max-w-[80%] whitespace-pre-line rounded-lg bg-primary px-3 py-2 text-sm text-primary-foreground" : "max-w-[80%] whitespace-pre-line rounded-lg border bg-card px-3 py-2 text-sm"}>
-                {content}
-                {streaming && <span className="inline-block animate-pulse">▋</span>}
-            </div>
+            {badge}
+            {bubble}
         </div>
     );
 });

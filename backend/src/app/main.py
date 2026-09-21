@@ -280,7 +280,7 @@ async def list_messages(
 ) -> list[dict]:
     await _require_interview_owned(interview_id, user.sub)
     rows = await fetch(
-        "SELECT id::text, interview_id::text, role, content, move_class, created_at FROM messages WHERE interview_id = $1 ORDER BY created_at, id",
+        "SELECT id::text, interview_id::text, role, content, move_class, comment, created_at FROM messages WHERE interview_id = $1 ORDER BY created_at, id",
         interview_id,
     )
     return [dict(r) for r in rows]
@@ -1011,15 +1011,15 @@ async def chat_stream(
         if dials.hardcore:
             turn = sum(1 for m in history if m.role == "user")
             question = next((m["content"] for m in reversed(prior_rows) if m["role"] == "assistant"), "")
-            cls = await llm.judge_answer(question, body.content, config, turn)
-            if cls:
-                await fetchrow("UPDATE messages SET move_class = $2 WHERE id = $1", user_msg_id, cls)
-            if cls in rating.FAIL_CLASSES:
-                await fetchrow("UPDATE interviews SET failed_turn = $2, failed_class = $3, updated_at = now() WHERE id = $1", interview_id, turn, cls)
-                shout = llm.FAIL_MESSAGE.format(cls=cls.upper())
+            move = await llm.judge_answer(question, body.content, config, turn)
+            if move:
+                await fetchrow("UPDATE messages SET move_class = $2, comment = $3 WHERE id = $1", user_msg_id, move.cls, move.comment)
+            if move and move.cls in rating.FAIL_CLASSES:
+                await fetchrow("UPDATE interviews SET failed_turn = $2, failed_class = $3, updated_at = now() WHERE id = $1", interview_id, turn, move.cls)
+                shout = llm.FAIL_MESSAGE.format(cls=move.cls.upper())
                 yield f"event: message\ndata: {shout}\n\n"
                 # `failed` tells the client WHY the run ended (the arc being spent is the other ending).
-                yield f'event: done\ndata: {{"closing": true, "failed": {{"turn": {turn}, "class": "{cls}"}}}}\n\n'
+                yield f'event: done\ndata: {{"closing": true, "failed": {{"turn": {turn}, "class": "{move.cls}"}}}}\n\n'
                 return
 
         # Closing turn: the interviewer's sign-off is canned, not sampled (see llm.CLOSING_MESSAGE).
@@ -1106,23 +1106,25 @@ async def _upsert_feedback(interview_id: str, scores: dict, verdict: str, tips: 
     )
 
 
-async def _persist_move_classes(interview_id: str, candidate_ids: list[str], moves: dict[int, str]) -> list[str]:
-    """Write the classifier's classes onto their message rows; return the classes stored.
+async def _persist_moves(interview_id: str, candidate_ids: list[str], moves: dict[int, rating.Move]) -> list[str]:
+    """Write the annotator's class and note onto their message rows; return the classes stored.
 
     `moves` keys are 1-based candidate turn numbers indexing `candidate_ids` (llm._format_transcript
     numbers the same turns off the same query). One statement writes every candidate row, NULLing the
-    turns this pass did not class, so a re-grade cannot leave a stale badge behind. An empty `moves`
-    (classifier failed) is a no-op: the previous annotations and accuracy stay put."""
-    graded = {turn: cls for turn, cls in moves.items() if isinstance(turn, int) and 1 <= turn <= len(candidate_ids)}
+    turns this pass did not annotate, so a re-grade cannot leave a stale badge or note behind. An empty
+    `moves` (classifier failed) is a no-op: the previous annotations and accuracy stay put."""
+    graded = {turn: m for turn, m in moves.items() if isinstance(turn, int) and 1 <= turn <= len(candidate_ids)}
     if not graded:
         return []
+    turn_numbers = range(1, len(candidate_ids) + 1)
     await fetch(
-        "UPDATE messages SET move_class = u.move_class FROM unnest($2::text[], $3::text[]) AS u(id, move_class) WHERE messages.id = u.id::uuid AND messages.interview_id = $1 RETURNING messages.id",
+        "UPDATE messages SET move_class = u.move_class, comment = u.comment FROM unnest($2::text[], $3::text[], $4::text[]) AS u(id, move_class, comment) WHERE messages.id = u.id::uuid AND messages.interview_id = $1 RETURNING messages.id",
         interview_id,
         candidate_ids,
-        [graded.get(turn) for turn in range(1, len(candidate_ids) + 1)],
+        [graded[t].cls if t in graded else None for t in turn_numbers],
+        [graded[t].comment if t in graded else None for t in turn_numbers],
     )
-    return list(graded.values())
+    return [m.cls for m in graded.values()]
 
 
 async def _auto_generate_and_persist_feedback(interview_id: str, config: llm.LLMConfig) -> dict | None:
@@ -1136,10 +1138,11 @@ async def _auto_generate_and_persist_feedback(interview_id: str, config: llm.LLM
 
 
 async def _generate_and_persist_feedback(interview_id: str, config: llm.LLMConfig) -> dict | None:
-    # `id` is selected for the move-review mapping and `move_class` for the hardcore path; the
-    # `, id` tiebreak keeps the order stable, since llm numbers candidate turns off this exact list.
+    # `id` is selected for the move-review mapping, and `move_class`/`comment` for the hardcore path
+    # (which already annotated live); the `, id` tiebreak keeps the order stable, since llm numbers
+    # candidate turns off this exact list.
     history_rows = await fetch(
-        "SELECT id::text, role, content, move_class FROM messages WHERE interview_id = $1 ORDER BY created_at, id",
+        "SELECT id::text, role, content, move_class, comment FROM messages WHERE interview_id = $1 ORDER BY created_at, id",
         interview_id,
     )
     history = [ChatMessage(role=r["role"], content=r["content"]) for r in history_rows]
@@ -1154,19 +1157,27 @@ async def _generate_and_persist_feedback(interview_id: str, config: llm.LLMConfi
     summary = await llm.generate_feedback(history, dials, config, failure=failure, annotate=not hardcore, resume=(row["resume_text"] or "") if row else "")
     if summary is None:
         return None
-    candidate_ids = [r["id"] for r in history_rows if r["role"] == "user"]
+    candidate_rows = [r for r in history_rows if r["role"] == "user"]
+    candidate_ids = [r["id"] for r in candidate_rows]
     if hardcore:
-        classes = [r["move_class"] for r in history_rows if r["role"] == "user"]
-        # The live judge can return None on a turn (verdict unavailable -> stored NULL) and a hardcore run
-        # skips the moves pass, so without this the review scores a run it never finished judging and the
-        # failure net below has nothing to see. Backfill ONLY the missed turns - the verdicts the candidate
-        # was already told about are never re-litigated, they just travel back through the write.
-        if None in classes:
-            backfill = await llm.classify_turns(history, config)
-            merged = {n: cls or backfill.get(n) for n, cls in enumerate(classes, 1) if cls or backfill.get(n)}
-            classes = await _persist_move_classes(interview_id, candidate_ids, merged) or classes
+        # The live judge annotated each answer as it was given, and the candidate was TOLD the verdict
+        # that ended the run, so the annotator never overwrites a stored class. It fills HOLES only: a
+        # turn the judge could not call, or a note it did not write - which is every turn on a run
+        # annotated before the note column existed.
+        judged: list[rating.Move | None] = [rating.Move(r["move_class"], r["comment"]) if r["move_class"] else None for r in candidate_rows]
+        if any(m is None or not m.comment for m in judged):
+            fill = await llm.classify_turns(history, config)
+            merged: dict[int, rating.Move] = {}
+            for n, m in enumerate(judged, 1):
+                f = fill.get(n)
+                cls = (m.cls if m else None) or (f.cls if f else None)
+                if cls:
+                    merged[n] = rating.Move(cls, (m.comment if m else None) or (f.comment if f else None))
+            classes = await _persist_moves(interview_id, candidate_ids, merged) or [m.cls for m in judged if m]
+        else:
+            classes = [m.cls for m in judged if m]
     else:
-        classes = await _persist_move_classes(interview_id, candidate_ids, summary.moves)
+        classes = await _persist_moves(interview_id, candidate_ids, summary.moves)
     accuracy = rating.accuracy(classes)
     # Safety net: hardcore, no failure recorded (the live judge came back empty on some turn), and this
     # transcript does contain one. Record it, or the review would show F with nothing to shout about.

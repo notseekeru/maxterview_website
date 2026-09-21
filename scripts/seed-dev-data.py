@@ -331,15 +331,19 @@ def build_sql(specs: list[dict], owner: str) -> str:
 def _messages_sql(spec: dict, turns: int, classes: list[str], iv_id: str) -> str:
     rows: list[str] = []
     t = spec["when"]
+    # Seeded runs carry the same note a real annotator writes (the stub vocabulary in rating.py), or
+    # the dashboard, history and e2e would show the pre-comment review on every seeded run.
+    notes = app_modules()[1].STUB_MOVE_NOTES
     for n in range(turns):
         at = t + timedelta(minutes=n * 3)
-        rows.append(f"({q_(iv_id)}, 'user', {q_(spec['answers'][n % len(spec['answers'])])}, {q_(classes[n]) if n < len(classes) else 'NULL'}, {q_(at.isoformat())})")
+        cls = classes[n] if n < len(classes) else None
+        rows.append(f"({q_(iv_id)}, 'user', {q_(spec['answers'][n % len(spec['answers'])])}, {q_(cls) if cls else 'NULL'}, {q_(notes[cls]) if cls else 'NULL'}, {q_(at.isoformat())})")
         if n < turns - 1:
-            rows.append(f"({q_(iv_id)}, 'assistant', {q_(question(spec, n))}, NULL, {q_((at + timedelta(seconds=45)).isoformat())})")
+            rows.append(f"({q_(iv_id)}, 'assistant', {q_(question(spec, n))}, NULL, NULL, {q_((at + timedelta(seconds=45)).isoformat())})")
     llm = app_modules()[0]
     closing = llm.FAIL_MESSAGE.format(cls=classes[-1].upper()) if spec.get("fail_at") is not None else llm.CLOSING_MESSAGE
-    rows.append(f"({q_(iv_id)}, 'assistant', {q_(closing)}, NULL, {q_((t + timedelta(minutes=turns * 3)).isoformat())})")
-    return "INSERT INTO messages (interview_id, role, content, move_class, created_at) VALUES\n  " + ",\n  ".join(rows) + ";\n"
+    rows.append(f"({q_(iv_id)}, 'assistant', {q_(closing)}, NULL, NULL, {q_((t + timedelta(minutes=turns * 3)).isoformat())})")
+    return "INSERT INTO messages (interview_id, role, content, move_class, comment, created_at) VALUES\n  " + ",\n  ".join(rows) + ";\n"
 
 
 def question(spec: dict, n: int) -> str:

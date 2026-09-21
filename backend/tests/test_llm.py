@@ -3,7 +3,7 @@ import json
 import respx
 from httpx import ConnectError, Response
 
-from app import llm
+from app import llm, rating
 from app.models import ChatMessage, FeedbackSummary
 
 # Non-stub target for the feedback-pipeline tests: a base URL is what turns stub mode off
@@ -12,7 +12,7 @@ REAL = llm.LLMConfig(base_url="http://llm.test", model="qwen")
 
 # The review hop is a THIRD JSON call, with its own prompt: doubles must dispatch on the prompt
 # rather than on `json_output`, or they answer the classification with a feedback payload.
-MOVES_JSON = '{"moves": [{"turn": 1, "class": "great"}, {"turn": 2, "class": "inaccuracy"}]}'
+MOVES_JSON = '{"moves": [{"turn": 1, "class": "great", "comment": "Your own decisions were visible in it."}, {"turn": 2, "class": "inaccuracy", "comment": "No evidence behind the claim: name the situation."}]}'
 
 
 def test_unreachable_detail_names_the_endpoint_a_byok_owner_can_fix():
@@ -364,7 +364,8 @@ async def test_generate_feedback_real_grader_and_formatter_path(monkeypatch):
     assert (out.decision, out.certainty) == ("lean_hire", 70)
     assert caller["json"] is True  # formatter hop requested JSON mode
     assert caller["schema"] is llm.FEEDBACK_JSON_SCHEMA  # ... under the grammar schema when supported
-    assert out.moves == {1: "great", 2: "inaccuracy"}
+    assert {t: m.cls for t, m in out.moves.items()} == {1: "great", 2: "inaccuracy"}
+    assert out.moves[2].comment == "No evidence behind the claim: name the situation."
     assert moves_calls["n"] == 1
     # The classifier is shown the same NUMBERED transcript as the grader (main.py maps those turn
     # numbers back onto message rows, so the numbering is a contract, not a nicety).
@@ -525,13 +526,27 @@ def test_coerce_move_class_tolerates_label_drift_but_never_guesses():
 
 
 def test_valid_moves_drops_out_of_range_duplicate_and_unknown_turns():
-    assert llm._valid_moves([{"turn": 1, "class": "good"}], 1) == {1: "good"}
-    assert llm._valid_moves([{"turn": 4, "class": "good"}], 2) is None  # hallucinated turn
+    assert llm._valid_moves([{"turn": 1, "class": "good", "comment": "Add the number."}], 1) == {1: ("good", "Add the number.")}
+    assert llm._valid_moves([{"turn": 1, "class": "good"}], 1) == {1: ("good", None)}  # a class without a note still grades
+    assert llm._valid_moves([{"turn": 4, "class": "good", "comment": "x"}], 2) is None  # hallucinated turn
     assert llm._valid_moves([{"turn": 0, "class": "good"}], 2) is None  # turn numbers are 1-based
-    assert llm._valid_moves([{"turn": 1, "class": "good"}, {"turn": 1, "class": "blunder"}], 2) == {1: "good"}
-    assert llm._valid_moves([{"turn": 1, "class": "best"}], 2) is None
-    assert llm._valid_moves({"2": "mistake"}, 2) == {2: "mistake"}  # bare {turn: class} map
+    assert llm._valid_moves([{"turn": 1, "class": "good"}, {"turn": 1, "class": "blunder"}], 2) == {1: ("good", None)}
+    assert llm._valid_moves([{"turn": 1, "class": "best", "comment": "a great answer, truly"}], 2) is None  # class dropped, note with it
+    assert llm._valid_moves({"2": "mistake"}, 2) == {2: ("mistake", None)}  # bare {turn: class} map: no notes
     assert llm._valid_moves("nope", 2) is None and llm._valid_moves([], 2) is None
+
+
+def test_coerce_comment_collapses_whitespace_and_caps_length():
+    assert llm._coerce_comment("  Name\n the  fix. ") == "Name the fix."
+    assert llm._coerce_comment("   ") is None and llm._coerce_comment(None) is None and llm._coerce_comment(["x"]) is None
+    # The em dash is banned in project copy and the model keeps emitting it (measured): normalize it
+    # rather than re-prompt, and keep hyphenated words (p99-based) intact.
+    assert llm._coerce_comment("cutover\u2014exactly what was asked") == "cutover - exactly what was asked"
+    assert llm._coerce_comment("a \u2014 b\u2014\u2014c") == "a - b - c"
+    assert llm._coerce_comment("p99-based and dual-write") == "p99-based and dual-write"
+    long = "Sentence one is here. " * 40
+    cut = llm._coerce_comment(long)
+    assert len(cut) <= llm.MOVE_COMMENT_MAX and cut in long and cut.endswith(".")
 
 
 async def test_generate_feedback_keeps_verdict_when_annotation_fails(monkeypatch):
@@ -551,8 +566,11 @@ async def test_generate_feedback_keeps_verdict_when_annotation_fails(monkeypatch
 
 def test_stub_moves_cover_every_candidate_turn_deterministically():
     history = [ChatMessage(role="user", content="a"), ChatMessage(role="assistant", content="q"), ChatMessage(role="user", content="b")]
-    assert set(llm._stub_moves(history)) == {1, 2}
-    assert llm._stub_moves(history) == llm._stub_moves(history)  # same transcript, same grades
+    moves = llm._stub_moves(history)
+    assert set(moves) == {1, 2}
+    assert {t: m.cls for t, m in moves.items()} == {1: "good", 2: "inaccuracy"}
+    assert all(m.comment for m in moves.values())  # a note-less stub run would render badges with no tips
+    assert llm._stub_moves(history) == moves  # same transcript, same annotations
     assert llm._stub_moves([ChatMessage(role="assistant", content="q")]) == {}
 
 
@@ -595,17 +613,17 @@ async def test_judge_answer_reads_one_exchange_and_tolerates_drift(monkeypatch):
         return '{"class": "In accuracy"}'  # sampler drift, not a class name
 
     monkeypatch.setattr(llm, "_completion", _completion)
-    assert await llm.judge_answer("How did you handle the tradeoff?", "uh, we just retried it", REAL, turn=3) == "inaccuracy"
+    assert await llm.judge_answer("How did you handle the tradeoff?", "uh, we just retried it", REAL, turn=3) == rating.Move("inaccuracy", None)
     assert seen["system"] is llm.JUDGE_PROMPT_V1 and seen["schema"] is llm.JUDGE_JSON_SCHEMA
     # ONE exchange, not the transcript: this call is on the critical path of every answer.
     assert seen["user"] == "Question: How did you handle the tradeoff?\nAnswer: uh, we just retried it"
 
 
 async def test_judge_answer_stub_walks_the_annotator_cycle():
-    from app import rating
-
     stub = llm.LLMConfig(base_url="", model="")
-    assert [await llm.judge_answer("", "x", stub, turn=t) for t in range(1, len(rating.STUB_MOVE_CYCLE) + 1)] == list(rating.STUB_MOVE_CYCLE)
+    judged = [await llm.judge_answer("", "x", stub, turn=t) for t in range(1, len(rating.STUB_MOVE_CYCLE) + 1)]
+    assert [m.cls for m in judged] == list(rating.STUB_MOVE_CYCLE)
+    assert all(m.comment for m in judged)  # the stub writes the note too, or a dev run renders none
 
 
 async def test_judge_answer_gives_up_after_one_retry(monkeypatch):
@@ -631,7 +649,7 @@ async def test_judge_answer_labels_the_opening_turn(monkeypatch):
         return '{"class": "book"}'
 
     monkeypatch.setattr(llm, "_completion", _completion)
-    assert await llm.judge_answer("", "\\documentclass[10pt,letterpaper]{article}...", REAL, turn=1) == "book"
+    assert await llm.judge_answer("", "\\documentclass[10pt,letterpaper]{article}...", REAL, turn=1) == rating.Move("book", None)
     assert seen["user"].startswith(f"Question: {llm.OPENING_QUESTION}")
     # ... and the judge is told what pasted material is, so markup is not itself a fault.
     assert "LaTeX" in seen["system"] and "resume" in seen["system"]

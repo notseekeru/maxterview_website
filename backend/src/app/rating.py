@@ -6,6 +6,20 @@ and reads `accuracy`/`grade` off the API rather than banding anything itself.
 """
 
 from collections.abc import Iterable
+from typing import NamedTuple
+
+
+class Move(NamedTuple):
+    """One candidate turn's annotation: the class the rubric gives it, and the annotator's note.
+
+    The note (the fix the answer needed, or what made it land) rides with the class because both are
+    written by the same pass and read by the same bubble. It stays None when the model classed a turn
+    without saying anything usable, and on runs annotated before the note column existed: the class
+    alone still grades the run."""
+
+    cls: str
+    comment: str | None = None
+
 
 # Best -> worst. Seven is the useful resolution: a vague answer and an evasive one want different
 # words, and anything finer is noise.
@@ -36,6 +50,19 @@ GRADE_BANDS: tuple[tuple[int, str], ...] = ((90, "S"), (80, "A"), (70, "B"), (60
 # still exercises the review UI. Opens on `good` so a one-answer smoke run does not read S or F.
 STUB_MOVE_CYCLE: tuple[str, ...] = ("good", "inaccuracy", "great", "book", "mistake")
 
+# The canned note per class, same reason as the cycle: a model-free run has to render the note under
+# the bubble too, and it must not spend a model call to do it. Canned, so it never claims to have read
+# the answer.
+STUB_MOVE_NOTES: dict[str, str] = {
+    "brilliant": "No notes: this one went past what was asked. Repeat it by naming the trade-off and the number that backed it.",
+    "great": "A real example with your own decisions in it, which is the bar. Add what you would do differently now.",
+    "good": "Correct and complete, which is the job. One number or one outcome would make it stick.",
+    "book": "Correct but recited: no sign you have done it. Next time, answer with the time you actually shipped it.",
+    "inaccuracy": "Right direction, no evidence: name the situation you were in and the call you made.",
+    "mistake": "This answered something other than the question. Restate the question in your first line, then answer it.",
+    "blunder": 'Nothing usable landed. Even "I have not done that; here is how I would find out" scores above this.',
+}
+
 
 def accuracy(classes: Iterable[str]) -> int | None:
     """Mean move points as a 0-100 integer (half-up), or None when no turn was classed.
@@ -64,9 +91,11 @@ def grade(acc: int | None, *, failed: bool = False) -> str | None:
 # AI HERE: one framework-free self-check (AGENTS rule 5). A class without a point value, or bands
 # that stop matching GRADES, fails here instead of silently dropping turns out of the average.
 assert set(MOVE_CLASSES) == set(MOVE_POINTS) and set(STUB_MOVE_CYCLE) <= set(MOVE_CLASSES)
+assert set(STUB_MOVE_NOTES) == set(MOVE_CLASSES)  # a stub class with no note would render an empty tip
 assert set(FAIL_CLASSES) <= set(MOVE_CLASSES)
 assert [g for _, g in GRADE_BANDS] == list(GRADES[: len(GRADE_BANDS)])
 assert GRADE_BANDS == tuple(sorted(GRADE_BANDS, reverse=True))
 assert (accuracy([]), accuracy(["brilliant"]), accuracy(["blunder"])) == (None, 100, 0)
 assert (grade(None), grade(100), grade(89), grade(49), grade(0)) == (None, "S", "A", "F", "F")
 assert grade(0, failed=True) == "F" and grade(100, failed=True) == "F"
+assert Move("good") == ("good", None)  # a class-only annotation still unpacks as (cls, comment)

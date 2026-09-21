@@ -289,6 +289,8 @@ export interface Message {
     content: string;
     /** The reviewer's annotation on this candidate turn (null on interviewer turns, ungraded runs). */
     move_class?: MoveClass | null;
+    /** Why that turn earned its class, and the fix. Null wherever `move_class` is. */
+    comment?: string | null;
     created_at: string;
 }
 
