@@ -92,6 +92,36 @@ def test_plan_end_is_the_closing_turn_and_then_the_interview_is_finished():
     assert llm.is_interview_finished(7, Dials()) is False  # 7 is the close itself, not past it
 
 
+def test_interviewer_never_invents_candidate_material():
+    # Grounding (the interviewer's half of the anti-fabrication rule) travels on every turn, and the
+    # background ask is the arc's opener rather than a model choice.
+    from app.models import Dials
+
+    for asked in (0, 1, 5):
+        assert llm.GROUNDING_PROMPT in llm.system_prompt("Software Engineer", "mid", "", asked=asked)
+    assert "Current phase: OPENING" in llm.system_prompt("Software Engineer", "mid", "", asked=0)
+    assert llm.BACKGROUND_PROMPT in llm.system_prompt("Software Engineer", "mid", "", asked=0)
+    # With a background in hand the ask is replaced, not repeated: no resume request and no retry line.
+    attached = llm.system_prompt("Software Engineer", "mid", "", asked=0, resume="CV")
+    assert "never ask them to share a resume" in attached and llm.BACKGROUND_PROMPT not in attached
+    # The retry fires once, on the turn after the opener, and only without a resume attached. Chitchat
+    # sits in front of the opener, so the offset is the chitchat budget.
+    d = Dials(mix_chitchat=2)
+    assert llm.BACKGROUND_RETRY not in llm.system_prompt("Software Engineer", "mid", "", asked=2, dials=d)
+    assert llm.BACKGROUND_RETRY in llm.system_prompt("Software Engineer", "mid", "", asked=3, dials=d)
+    assert llm.BACKGROUND_RETRY not in llm.system_prompt("Software Engineer", "mid", "", asked=4, dials=d)
+    assert llm.BACKGROUND_RETRY not in llm.system_prompt("Software Engineer", "mid", "", asked=1, resume="CV")
+
+
+def test_every_turn_binds_one_question_the_phase_and_the_scope():
+    # PATH_PROMPT and the role/topic scope ride with each phase directive: the tail is the part a small
+    # model obeys, and it is what stops one question becoming two and a tangent becoming the agenda.
+    p = llm.system_prompt("Backend Engineer", "mid", "System Design", asked=2)
+    assert llm.PATH_PROMPT in p
+    assert 'Stay on the target role "Backend Engineer" and the focus area "System Design"' in p
+    assert llm.PATH_PROMPT in llm.system_prompt("Backend Engineer", "mid", "", asked=2)  # no topic, same rules
+
+
 def test_behavioural_budget_walks_the_profile_themes_and_ops_is_level_aware():
     from app.models import Dials
 
@@ -183,7 +213,7 @@ def test_attached_resume_reaches_both_prompts_as_data():
     # With one attached, the opener hedge is replaced rather than left contradicting the block above it.
     assert "may or may not have been invited" not in p
     assert "never ask them to share a resume" in p
-    assert "may or may not have been invited" in llm.system_prompt("Backend Engineer", "mid")
+    assert llm.BACKGROUND_PROMPT in llm.system_prompt("Backend Engineer", "mid")
 
     # The grader gets the SAME text (both prompts call injectable_resume), plus the rule that an
     # attached resume means a terse opener is not an omission.
