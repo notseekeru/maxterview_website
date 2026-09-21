@@ -71,6 +71,13 @@ export function InterviewChat({ interviewId, onExit }: Props) {
             const [iv] = await Promise.all([getInterview(id), loadMessages()]);
             setHasResume(Boolean(iv.resume_id));
             setHardcoreRun(iv.hardcore);
+            // A failed hardcore run is dead in the DB before it is finished, so reopening one has to
+            // show the ending and close the composer: the stream event only covers the session that
+            // watched it happen. Finish stays the candidate's click either way.
+            if (iv.failed_turn) {
+                setHardcoreFailed({ turn: iv.failed_turn, class: iv.failed_class ?? "fault" });
+                setInterviewOver(true);
+            }
             if (iv.status !== "completed") return "ready" as const;
             try {
                 setFeedback(await getFeedback(id));
