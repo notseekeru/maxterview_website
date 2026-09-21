@@ -695,10 +695,12 @@ def test_resume_reaches_both_prompts_from_the_database(client, monkeypatch):
     c.delete(f"/api/interviews/{iid}")
 
 
-def test_dimensions_aggregate_matches_the_per_run_reads(client):
+def test_dimensions_aggregate_averages_rated_runs_and_the_newest_window(client):
     # One aggregate replaces the dashboard's per-rated-run GET /feedback fan-out, so it must produce
     # byte-identical numbers to the client math it replaces: average over the runs that SCORED a
-    # dimension (absent = skipped, never 0), rounded to 1 decimal, latest = the newest finished run.
+    # dimension (absent = skipped, never 0), rounded to 1 decimal. Two series, both means: `averages`
+    # over every rated run, `recent` over the newest RECENT_WINDOW of them, so the oldest run below is
+    # half of the all-time numbers and none of the recent ones.
     import asyncio
 
     import asyncpg
@@ -730,13 +732,18 @@ def test_dimensions_aggregate_matches_the_per_run_reads(client):
         finally:
             await conn.close()
 
-    # Ages, not insert order: "latest" means the newest FINISHED run, which is what the client took
-    # from the list's created_at DESC order. The unrated and unfinished rows must not count at all.
+    # Ages, not insert order: "newest" means the newest FINISHED run, which is what the client took
+    # from the list's created_at DESC order. The unrated and unfinished rows must not count at all,
+    # even though they are newer than every rated one.
     ids = asyncio.run(
         seed(
             [
-                (10, "Dim older", "completed", 60, {"clarity": 1, "structure": 2}),
-                (5, "Dim newer", "completed", 80, {"clarity": 3}),
+                (60, "Dim oldest", "completed", 60, {"clarity": 1, "structure": 10}),
+                (50, "Dim old", "completed", 60, {"clarity": 2}),
+                (40, "Dim mid", "completed", 60, {"clarity": 3}),
+                (30, "Dim newer", "completed", 60, {"clarity": 4}),
+                (20, "Dim recent", "completed", 60, {"clarity": 5}),
+                (10, "Dim newest", "completed", 60, {"clarity": 6, "structure": 4}),
                 (1, "Dim unrated", "completed", None, {"clarity": 9, "structure": 9}),
                 (0, "Dim unfinished", "in_progress", 90, {"clarity": 10}),
             ]
@@ -746,16 +753,19 @@ def test_dimensions_aggregate_matches_the_per_run_reads(client):
     r = c.get("/api/stats/dimensions")
     assert r.status_code == 200
     d = r.json()
-    assert d["count"] == 2
-    assert d["averages"] == {"clarity": 2.0, "structure": 2.0}  # (1+3)/2, and structure only from run 1
-    assert d["latest"] == {"clarity": 3}
+    assert d["count"] == 6
+    # clarity: (1+2+3+4+5+6)/6 all-time, (2+3+4+5+6)/5 over the window. structure: (10+4)/2 and 4,
+    # because the age-60 run that scored a 10 fell out of the window and no other run scored it.
+    assert d["averages"] == {"clarity": 3.5, "structure": 7.0}
+    assert d["recent_n"] == 5
+    assert d["recent"] == {"clarity": 4.0, "structure": 4.0}
 
     for iid in ids:
         assert c.delete(f"/api/interviews/{iid}").status_code == 204
 
     # Nothing scored yet is an empty radar, not a 404 or a NULL-crash.
     empty = c.get("/api/stats/dimensions").json()
-    assert empty == {"count": 0, "averages": {}, "latest": {}}
+    assert empty == {"count": 0, "recent_n": 0, "averages": {}, "recent": {}}
 
 
 def test_dimensions_are_owner_scoped(client):
@@ -773,7 +783,7 @@ def test_dimensions_are_owner_scoped(client):
             await conn.close()
 
     foreign = asyncio.run(seed_foreign())
-    assert client.get("/api/stats/dimensions").json() == {"count": 0, "averages": {}, "latest": {}}
+    assert client.get("/api/stats/dimensions").json() == {"count": 0, "recent_n": 0, "averages": {}, "recent": {}}
 
     async def cleanup():
         conn = await asyncpg.connect(DB_URL)

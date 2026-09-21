@@ -620,12 +620,18 @@ async def delete_resume(
 
 # --- dashboard stats (aggregates, not per-row reads) ---
 
+# The dashboard radar's second series spans this many of the newest rated runs, not just the newest
+# one: a single run's per-dim holes are noise, and a dimension the last run happened not to probe read
+# as "missing" from the radar even though earlier runs scored it.
+RECENT_WINDOW = 5
+
 # The dashboard radar, as ONE row. It used to be a GET /feedback per rated run (N HTTP requests, 2N SQL
-# round trips, a payload growing with history) to average `scores` client-side; the reader wants the
-# averages, the newest run, and the count, so the server answers with exactly that. `runs` is the same
-# population the client filtered for (finished AND scored: accuracy lives on feedback, not interviews),
-# jsonb_each_text skips a dimension a run never scored, and ROUND(...,1) matches the UI's rounding.
-DIMENSIONS_SQL = """
+# round trips, a payload growing with history) to average `scores` client-side; the reader wants two
+# averages (all rated runs, and the newest RECENT_WINDOW) plus their counts, so the server answers with
+# exactly that. `runs` is the same population the client filtered for (finished AND scored: accuracy
+# lives on feedback, not interviews), jsonb_each_text skips a dimension a run never scored, and
+# ROUND(...,1) matches the UI's rounding.
+DIMENSIONS_SQL = f"""
 WITH runs AS (
     SELECT i.created_at, f.scores
     FROM interviews i
@@ -633,14 +639,21 @@ WITH runs AS (
     WHERE i.owner_id = $1
       AND i.status = 'completed'
       AND f.accuracy IS NOT NULL
+),
+recent AS (
+    SELECT scores FROM runs ORDER BY created_at DESC LIMIT {RECENT_WINDOW}
 )
 SELECT
     (SELECT count(*) FROM runs) AS count,
-    (SELECT coalesce((SELECT scores FROM runs ORDER BY created_at DESC LIMIT 1), '{}'::jsonb)) AS latest,
-    (SELECT coalesce(jsonb_object_agg(d, avg_val), '{}'::jsonb)
+    (SELECT least((SELECT count(*) FROM runs), {RECENT_WINDOW})) AS recent_n,
+    (SELECT coalesce(jsonb_object_agg(d, avg_val), '{{}}'::jsonb)
        FROM (SELECT s.dim AS d, ROUND(avg(s.value::numeric), 1) AS avg_val
                FROM runs, jsonb_each_text(runs.scores) AS s(dim, value)
-              GROUP BY s.dim) per_dim) AS averages
+              GROUP BY s.dim) per_dim) AS averages,
+    (SELECT coalesce(jsonb_object_agg(d, avg_val), '{{}}'::jsonb)
+       FROM (SELECT s.dim AS d, ROUND(avg(s.value::numeric), 1) AS avg_val
+               FROM recent, jsonb_each_text(recent.scores) AS s(dim, value)
+              GROUP BY s.dim) per_dim_recent) AS recent
 """
 
 
@@ -650,9 +663,10 @@ async def get_interview_dimensions(user: CurrentUser) -> dict:
     # sibling would be matched as an id and 500 on UUID parsing.
     # AI HERE: the RESPONSE is flat whatever the history, but the query still aggregates this owner's
     # feedback rows per request. Upgrade path if it ever gets hot: a rollup table or a short-TTL cache
-    # keyed by owner. The window is all-time on purpose - trimming it is a product call, not a perf one.
+    # keyed by owner. `averages` is untrimmed on purpose - and `recent`, the only windowed number, is
+    # the newest RECENT_WINDOW runs rather than the newest run, which is the window the radar plots.
     row = await fetchrow(DIMENSIONS_SQL, user.sub)
-    assert row is not None  # three scalar subqueries and no FROM: always exactly one row
+    assert row is not None  # scalar subqueries and no FROM: always exactly one row
     return dict(row)
 
 

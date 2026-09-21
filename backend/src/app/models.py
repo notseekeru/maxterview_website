@@ -218,13 +218,16 @@ class Feedback(BaseModel):
 
 class InterviewDimensions(BaseModel):
     """The dashboard radar in one aggregate (main.get_interview_dimensions): per-dimension averages
-    over the rated runs, the newest run's scores, and how many runs those averages cover.
+    over the rated runs, the same averages over just the newest few, and the run counts behind each.
 
-    Flat in size on purpose - the reader wanted 17 numbers, not one Feedback per run."""
+    Flat in size on purpose - the radar wanted a couple dozen numbers, not one Feedback per run."""
 
     count: int
+    # Runs behind `recent`; never more than main.RECENT_WINDOW. Sent so the radar can label the series
+    # with the real window instead of owning a second copy of the number.
+    recent_n: int
     averages: dict
-    latest: dict
+    recent: dict
 
 
 class AnalyticsRun(BaseModel):

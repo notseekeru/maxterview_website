@@ -207,13 +207,15 @@ export async function deleteResume(id: string): Promise<void> {
 }
 
 // The dashboard radar's aggregate (mirrors backend models.InterviewDimensions): per-dimension
-// averages over the rated runs, the newest run's scores, and how many runs those cover. One request
-// and a payload that does not grow with history, where per-run Feedback reads used to be fetched to
-// average client-side.
+// all-time averages over the rated runs, the same averages over just the newest few, and how many
+// runs sit behind each. One request and a payload that does not grow with history, where per-run
+// Feedback reads used to be fetched to average client-side.
 export interface InterviewDimensions {
     count: number;
+    /** Runs behind `recent`; never more than the backend's RECENT_WINDOW. */
+    recent_n: number;
     averages: Record<string, number>;
-    latest: Record<string, number>;
+    recent: Record<string, number>;
 }
 
 export async function getInterviewDimensions(): Promise<InterviewDimensions> {

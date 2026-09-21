@@ -114,10 +114,11 @@ function Stat({ label, value, hint }: { label: string; value: string; hint?: str
 
 // The 1-10 dimensions, now secondary (backend app/rating.py owns the primary reading). Averaged over
 // the runs that reported each dimension; a dimension nobody probed is simply absent (see the
-// "not assessed" reading in lib/dimensions.ts), never a zero.
+// "not assessed" reading in lib/dimensions.ts), never a zero. Both series are averages on purpose: a
+// single run's holes are noise, the newest handful reads as form.
 const RADAR_CONFIG: ChartConfig = {
-    latest: { label: "Latest run", color: "var(--chart-1)" },
-    average: { label: "Average", color: "var(--chart-2)" },
+    recent: { label: "Recent runs", color: "var(--chart-1)" },
+    average: { label: "All-time average", color: "var(--chart-2)" },
 };
 
 function avg(nums: number[]): number {
@@ -131,12 +132,12 @@ const round1 = (n: number) => Math.round(n * 10) / 10;
 // of the run - a collapsed substance axis is one glance, not ten numbers to compare. The exact
 // values it cannot give are the per-axis rollup underneath (and the full list in the review page).
 function DimensionScores({ stats, error }: { stats: InterviewDimensions | null; error?: string | null }) {
-    // The server owns both the averaging (over the runs that scored a dimension) and the rounding;
-    // this component only re-keys them for the radar.
+    // The server owns both the averaging (over the runs that scored a dimension, all-time and over
+    // the newest window) and the rounding; this component only re-keys them for the radar.
     const averages = stats?.averages ?? {};
-    const latest = stats?.latest ?? {};
+    const recent = stats?.recent ?? {};
     const scored = orderDims(Object.keys(averages));
-    const data = scored.map((d) => ({ dim: dimShort(d), latest: typeof latest[d] === "number" ? latest[d] : null, average: averages[d] }));
+    const data = scored.map((d) => ({ dim: dimShort(d), recent: typeof recent[d] === "number" ? recent[d] : null, average: averages[d] }));
 
     if (data.length === 0) {
         return (
@@ -165,9 +166,9 @@ function DimensionScores({ stats, error }: { stats: InterviewDimensions | null; 
                         {/* 0-10, not 1-10: the floor of the scale is the centre, or a 6 reads as a 5.5. */}
                         <PolarRadiusAxis domain={[0, 10]} tick={false} axisLine={false} />
                         <ChartTooltip content={<ChartTooltipContent indicator="line" />} />
-                        {/* Latest paints over the average. A dim the newest run was not assessed on is
+                        {/* Recent paints over the all-time average. A dim neither series scored is
                             null, which leaves a gap - plotting 0 would read as a bad score. */}
-                        <Radar name="latest" dataKey="latest" stroke="var(--color-latest)" fill="var(--color-latest)" fillOpacity={0.1} />
+                        <Radar name="recent" dataKey="recent" stroke="var(--color-recent)" fill="var(--color-recent)" fillOpacity={0.1} />
                         <Radar name="average" dataKey="average" stroke="var(--color-average)" fill="var(--color-average)" fillOpacity={0.25} />
                     </RadarChart>
                 </ChartContainer>
@@ -178,7 +179,7 @@ function DimensionScores({ stats, error }: { stats: InterviewDimensions | null; 
                         </span>
                     ))}
                     <span className="ml-auto inline-flex items-center gap-1">
-                        <span className="h-2 w-2 rounded-full bg-[var(--chart-1)]" /> latest
+                        <span className="h-2 w-2 rounded-full bg-[var(--chart-1)]" /> last {stats?.recent_n ?? 0}
                         <span className="ml-1.5 h-2 w-2 rounded-full bg-[var(--chart-2)]" /> avg of {stats?.count ?? 0}
                     </span>
                 </div>
