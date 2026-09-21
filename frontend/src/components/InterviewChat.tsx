@@ -298,9 +298,7 @@ export function InterviewChat({ interviewId, onExit }: Props) {
                     {interviewOver && (
                         <div role="status" className={hardcoreFailed ? "rounded-lg border border-destructive bg-destructive/10 p-3 text-sm" : "rounded-lg border p-3 text-sm"}>
                             {hardcoreFailed ? (
-                                <>
-                                    <p className="font-semibold uppercase tracking-wide text-destructive"> Your Run failed — go and tell your mommy and cry about it</p>
-                                </>
+                                <p className="font-semibold uppercase tracking-wide text-destructive"> Your Run failed — go and tell your mommy and cry about it</p>
                             ) : (
                                 <>
                                     <p className="font-medium">That was the whole interview.</p>

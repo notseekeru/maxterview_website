@@ -44,7 +44,7 @@ export function FinishOverlay({ open, title, done, onDismiss }: { open: boolean;
                 <p id={titleId} className="text-base font-semibold">
                     {title}
                 </p>
-                <p className="mt-1 text-sm text-muted-foreground">{done ? "All three passes are through. Your review is ready." : "Three passes over your answers: read, score, annotate. Usually under a minute."}</p>
+                <p className="mt-1 text-sm text-muted-foreground">{done ? "All three passes are through. Your review is ready." : "Three passes over your answers: read, score, annotate"}</p>
                 <ul className="mt-4 space-y-2.5">
                     {STAGES.map((stage, i) => (
                         <li key={stage.label} className={cn("flex items-center gap-2.5 text-sm", i > active && "text-muted-foreground")}>
