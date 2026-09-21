@@ -35,3 +35,6 @@ Thumbs.db
 # --- nix build output symlink ---
 result
 clerk-e2e/
+# --- Raw screen recordings, 25-55MB each. Encode a web size into
+# frontend/public/assets/landing/ first; never serve or commit the source. ---
+frontend/public/maxterview-demo-vid-*.mp4

@@ -1,3 +1,4 @@
+import { useEffect, useRef } from "react";
 import { Link } from "react-router-dom";
 
 import { Button } from "@/components/ui/button";
@@ -17,8 +18,39 @@ import { PLANS } from "@/lib/plans";
 // re-graded without a re-render pass. Every one of them is decorative: alt="" + aria-hidden.
 // Subject rule for these photos: one person at a screen, or an empty desk. Never a candidate facing
 // an interviewer — that reads as a human-led interview, which is the one thing this product is not.
+//
+// The hero still is demo-hero-poster.jpg — frame 25 (t=6.25s) of the demo recording, cut to the
+// band with the most detail. It is the LCP element and the only thing phones ever see: the video on
+// top of it is desktop-only (a UI recording is unreadable at phone width) and only fetched once the
+// panel is on screen. Because the poster is the frame the video starts on (VIDEO_START), playback
+// begins on the exact image already painted, so there is no cut from still to motion.
+const VIDEO_START = 6.25;
+
 export function Landing() {
     useDocumentTitle();
+
+    const videoRef = useRef<HTMLVideoElement>(null);
+
+    // Play only while the hero is on screen, and only on a wide, non-data-saver, motion-tolerant
+    // client. A 1.2MB autoplaying loop is not worth it on a phone, and swapping the file in on
+    // rotation is worse than never starting it, so the width check is one-shot.
+    useEffect(() => {
+        const video = videoRef.current;
+        if (!video) return;
+        if (!window.matchMedia("(min-width: 1024px)").matches || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+        if ((navigator as Navigator & { connection?: { saveData?: boolean } }).connection?.saveData) return;
+
+        video.currentTime = VIDEO_START;
+        const observer = new IntersectionObserver(
+            ([entry]) => {
+                if (entry.isIntersecting) void video.play().catch(() => {});
+                else video.pause();
+            },
+            { threshold: 0.25 },
+        );
+        observer.observe(video);
+        return () => observer.disconnect();
+    }, []);
 
     const features = [
         { title: "AI interviewer", body: "A simulated coach that asks real questions, one at a time, and reacts to your answers." },
@@ -56,8 +88,8 @@ export function Landing() {
             <main className="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-16 px-6 py-12">
                 <section className="relative isolate overflow-hidden rounded-xl border">
                     <img
-                        src="/assets/landing/hero-solo-practice.jpg"
-                        srcSet="/assets/landing/hero-solo-practice-800.jpg 800w, /assets/landing/hero-solo-practice.jpg 1600w"
+                        src="/assets/landing/demo-hero-poster.jpg"
+                        srcSet="/assets/landing/demo-hero-poster-800.jpg 800w, /assets/landing/demo-hero-poster.jpg 1600w"
                         sizes="100vw"
                         width={1600}
                         height={600}
@@ -67,6 +99,9 @@ export function Landing() {
                         aria-hidden
                         className="absolute inset-0 -z-10 h-full w-full object-cover object-center brightness-[.75] contrast-[1.05]"
                     />
+                    {/* Same grade as the still underneath, so the swap to motion is invisible. No
+                        poster attribute: the <img> above already is the poster, with a real srcset. */}
+                    <video ref={videoRef} src="/assets/landing/demo-hero.mp4" muted playsInline loop preload="none" aria-label="Screen recording of a practice interview: questions, answers and the review" className="absolute inset-0 -z-10 h-full w-full object-cover object-center brightness-[.75] contrast-[1.05]" />
                     {/* Two washes, not one, and the split is at lg because that is where the panel gets
                         wider than the copy column (max-w-2xl = 672px): below lg the copy spans the whole
                         panel, so the wash has to be flat-dark; at lg the right third is text-free and can
