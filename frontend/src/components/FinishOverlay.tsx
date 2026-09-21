@@ -5,7 +5,6 @@ import { cn } from "@/lib/utils";
 
 // The three model passes behind Finish, in the order the backend runs them (grader, formatter,
 // annotator). SCRIPTED, not measured: the endpoint answers once, at the end, so there is no progress
-// event to read. The stages advance on a timer and the last one holds until the review lands; the
 // upgrade path is stage events on the response stream.
 const STAGES = [
     { afterMs: 0, label: "Reading your transcript" },
@@ -17,7 +16,7 @@ const STAGES = [
  *  running and the review lands in the transcript when it returns. Mounted for the whole wait and
  *  hidden, not unmounted, when dismissed, so reopening it shows the real clock and stage. `title`
  *  differs between the two paths into it: finishing a run, and rebuilding a finished run's review. */
-export function FinishOverlay({ open, title, onDismiss }: { open: boolean; title: string; onDismiss: () => void }) {
+export function FinishOverlay({ open, title, done, onDismiss }: { open: boolean; title: string; done: boolean; onDismiss: () => void }) {
     const [elapsedMs, setElapsedMs] = useState(0);
     const titleId = useId();
 
@@ -36,19 +35,16 @@ export function FinishOverlay({ open, title, onDismiss }: { open: boolean; title
         return () => window.removeEventListener("keydown", onKey);
     }, [open, onDismiss]);
 
-    const active = STAGES.reduce((n, stage, i) => (elapsedMs >= stage.afterMs ? i : n), 0);
-    const seconds = Math.floor(elapsedMs / 1000);
+    const active = done ? STAGES.length : STAGES.reduce((n, stage, i) => (elapsedMs >= stage.afterMs ? i : n), 0);
 
     return (
         <div className={cn("fixed inset-0 z-50 items-center justify-center bg-background/70 p-4 backdrop-blur-sm", open ? "flex" : "hidden")} role="dialog" aria-modal="true" aria-labelledby={titleId}>
-            {/* The backdrop is the escape hatch: press outside the panel and the screen goes away while
-                the run keeps finishing. */}
             <button type="button" aria-label="Hide the progress screen" className="absolute inset-0 cursor-default" onClick={onDismiss} />
             <div className="relative w-full max-w-md rounded-xl border bg-card p-5 shadow-lg">
                 <p id={titleId} className="text-base font-semibold">
                     {title}
                 </p>
-                <p className="mt-1 text-sm text-muted-foreground">Three passes over your answers: read, score, annotate. Usually under a minute.</p>
+                <p className="mt-1 text-sm text-muted-foreground">{done ? "All three passes are through. Your review is ready." : "Three passes over your answers: read, score, annotate. Usually under a minute."}</p>
                 <ul className="mt-4 space-y-2.5">
                     {STAGES.map((stage, i) => (
                         <li key={stage.label} className={cn("flex items-center gap-2.5 text-sm", i > active && "text-muted-foreground")}>
@@ -68,12 +64,16 @@ export function FinishOverlay({ open, title, onDismiss }: { open: boolean; title
                     ))}
                 </ul>
                 <div className="mt-5 flex items-center justify-between">
-                    <span className="text-xs tabular-nums text-muted-foreground">
-                        {Math.floor(seconds / 60)}:{String(seconds % 60).padStart(2, "0")}
-                    </span>
-                    <Button variant="ghost" size="sm" onClick={onDismiss}>
-                        Read the transcript
-                    </Button>
+                    {done ? (
+                        <span role="status" className="flex items-center gap-1.5 text-sm font-medium text-primary">
+                            <span aria-hidden>✓</span>
+                            Done: your review is ready
+                        </span>
+                    ) : (
+                        <Button variant="ghost" size="sm" onClick={onDismiss}>
+                            Read the transcript
+                        </Button>
+                    )}
                 </div>
             </div>
         </div>

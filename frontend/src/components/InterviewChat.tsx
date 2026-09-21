@@ -24,6 +24,10 @@ const CONNECTION_LOST = "Connection lost while streaming — the model never ans
 // keep `completed`, which is the status the list, analytics and feedback endpoints filter on).
 const STATUS_LABELS = { loading: "Starting", ready: "In progress", streaming: "Interviewer is replying", completed: "Finished" } as const;
 
+/** How long the finished progress screen stays up with every stage checked before it closes onto the
+ *  review. Covers the scroll to top and the first paint of the feedback behind it. */
+const DONE_HOLD_MS = 1200;
+
 export function InterviewChat({ interviewId, onExit }: Props) {
     const [status, setStatus] = useState<"loading" | "ready" | "streaming" | "completed">("loading");
     const [messages, setMessages] = useState<Message[]>([]);
@@ -35,9 +39,10 @@ export function InterviewChat({ interviewId, onExit }: Props) {
     const [interviewOver, setInterviewOver] = useState(false);
     const [hardcoreRun, setHardcoreRun] = useState(false);
     const [hardcoreFailed, setHardcoreFailed] = useState<{ turn: number; class: string } | null>(null);
-    // Non-null while a finish or rebuild request is in flight: what the progress screen calls it, and
-    // whether the candidate closed it. Closing never cancels the request behind it.
-    const [finishing, setFinishing] = useState<{ title: string; dismissed: boolean } | null>(null);
+    // Non-null while a finish or rebuild request is in flight: what the progress screen calls it,
+    // whether the candidate closed it, and whether the review has landed. Closing never cancels the
+    // request behind it.
+    const [finishing, setFinishing] = useState<{ title: string; dismissed: boolean; done: boolean } | null>(null);
     const isFinishing = finishing !== null;
     const [reviewFailed, setReviewFailed] = useState(false);
     const [hasResume, setHasResume] = useState(false);
@@ -214,15 +219,20 @@ export function InterviewChat({ interviewId, onExit }: Props) {
         } catch (e: unknown) {
             setReviewFailed(true);
             if (httpStatus(e) === 409) setError(apiDetail(e));
-        } finally {
-            setFinishing(null);
+            setFinishing(null); // nothing landed, so there is no finished state to show
+            return;
         }
+        // Held on the all-checked state for a beat, then closed onto the review: the wait ending by
+        // vanishing reads as a failure, whatever landed underneath.
+        setFinishing((f) => (f ? { ...f, done: true } : f));
+        await new Promise((r) => setTimeout(r, DONE_HOLD_MS));
+        setFinishing(null);
     }
 
     /** Finish the run on the server, then show the review. Closing the progress screen does not
      *  cancel this: the call keeps running and the review still lands when it returns. */
     async function finishRun() {
-        setFinishing({ title: "Finishing your interview", dismissed: false });
+        setFinishing({ title: "Finishing your interview", dismissed: false, done: false });
         try {
             await finishInterview(interviewId);
             await openReview(() => getFeedback(interviewId));
@@ -235,12 +245,8 @@ export function InterviewChat({ interviewId, onExit }: Props) {
 
     /** Re-run the review for a run that finished without one (or without its per-answer notes). */
     async function retryReview() {
-        setFinishing({ title: "Rebuilding your review", dismissed: false });
-        try {
-            await openReview(() => regenerateFeedback(interviewId));
-        } finally {
-            setFinishing(null);
-        }
+        setFinishing({ title: "Rebuilding your review", dismissed: false, done: false });
+        await openReview(() => regenerateFeedback(interviewId));
     }
 
     // Hardcore is the only dial with a body count, so it gets the only glow: ambient while the run
@@ -270,7 +276,13 @@ export function InterviewChat({ interviewId, onExit }: Props) {
                         where the review will land, plus a way back to the stages. */}
                     {finishing?.dismissed && (
                         <div role="status" className="flex items-center gap-2 rounded-lg border p-3 text-sm text-muted-foreground">
-                            <Spinner />
+                            {finishing.done ? (
+                                <span aria-hidden className="text-primary">
+                                    ✓
+                                </span>
+                            ) : (
+                                <Spinner />
+                            )}
                             {finishing.title}. It will appear here.
                             <Button variant="ghost" size="sm" className="ml-auto" onClick={() => setFinishing((f) => (f ? { ...f, dismissed: false } : f))}>
                                 Show progress
@@ -345,7 +357,7 @@ export function InterviewChat({ interviewId, onExit }: Props) {
                     </div>
                 </CardFooter>
             </Card>
-            {finishing && <FinishOverlay open={!finishing.dismissed} title={finishing.title} onDismiss={() => setFinishing((f) => (f ? { ...f, dismissed: true } : f))} />}
+            {finishing && <FinishOverlay open={!finishing.dismissed} title={finishing.title} done={finishing.done} onDismiss={() => setFinishing((f) => (f ? { ...f, dismissed: true } : f))} />}
         </>
     );
 }
