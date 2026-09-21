@@ -43,7 +43,7 @@ create → start → chat/stream (SSE) → … → complete → feedback
 Every query is scoped to the owner (`ClerkUser.sub`, or dev `DEV_USER`). All paths carry the `/api`
 prefix, which the **app** owns (`API_PREFIX`) — no proxy or ingress rewrite strips it.
 
-- `POST /interviews` (role required → `pending`) · `GET|DELETE /interviews[/{id}]` · `POST /interviews/{id}/start|complete`
+- `POST /interviews` (role required → `pending`) · `GET|DELETE /interviews[/{id}]` · `POST /interviews/{id}/start|finish`
 - `POST /interviews/{id}/chat/stream` — **SSE** (`event: message` / `done` / `error`); persists both turns. Over quota → `402`
 - `GET /interviews/{id}/messages` · `GET /interviews/{id}/feedback` (accuracy + grade / verdict / tips + 1-10 dims)
 - `POST /interviews/{id}/feedback/generate` — (re)score a completed run. `409` when not completed or empty, `503` when the model is down (retryable)

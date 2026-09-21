@@ -8,7 +8,7 @@ set -euo pipefail
 
 BACKEND_URL="${1:-http://localhost:8000}"
 STREAM_TIMEOUT="${LLM_SMOKE_STREAM_TIMEOUT:-600}"
-COMPLETE_TIMEOUT="${LLM_SMOKE_COMPLETE_TIMEOUT:-600}"
+FINISH_TIMEOUT="${LLM_SMOKE_FINISH_TIMEOUT:-600}"
 
 log() { printf '\n[llm-smoke] %s\n' "$*"; }
 die() {
@@ -17,7 +17,7 @@ die() {
 }
 
 run_backend() {
-    docker exec -i -e LLM_SMOKE_STREAM_TIMEOUT -e LLM_SMOKE_COMPLETE_TIMEOUT -w /app maxterview_backend_dev uv run python -u - "$BACKEND_URL" <<'PY'
+    docker exec -i -e LLM_SMOKE_STREAM_TIMEOUT -e LLM_SMOKE_FINISH_TIMEOUT -w /app maxterview_backend_dev uv run python -u - "$BACKEND_URL" <<'PY'
 import json
 import os
 import sys
@@ -84,9 +84,9 @@ roles = [m["role"] for m in msgs]
 hcheck("user" in roles and "assistant" in roles, "user+assistant turns persisted")
 print("transcript persisted:", roles)
 
-complete_timeout = int(os.environ.get("LLM_SMOKE_COMPLETE_TIMEOUT", "600"))
-resp = http("POST", f"/api/interviews/{iid}/complete", timeout=complete_timeout)
-hcheck(resp.status == 200, "complete returns 200")
+finish_timeout = int(os.environ.get("LLM_SMOKE_FINISH_TIMEOUT", "600"))
+resp = http("POST", f"/api/interviews/{iid}/finish", timeout=finish_timeout)
+hcheck(resp.status == 200, "finish returns 200")
 print("completed")
 
 fb = json.loads(http("GET", f"/api/interviews/{iid}/feedback").read())
@@ -120,7 +120,7 @@ cleanup_test_data() {
 }
 trap cleanup_test_data EXIT
 
-log "running LLM smoke test against $BACKEND_URL (stream=${STREAM_TIMEOUT}s, complete=${COMPLETE_TIMEOUT}s)"
+log "running LLM smoke test against $BACKEND_URL (stream=${STREAM_TIMEOUT}s, complete=${FINISH_TIMEOUT}s)"
 if run_backend; then
     log "SMOKE TEST PASSED"
 else

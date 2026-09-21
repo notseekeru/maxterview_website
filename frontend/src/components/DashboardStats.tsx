@@ -55,9 +55,9 @@ export function DashboardStats({ loading, dims, stats, statsError }: Props) {
         <div className="space-y-4">
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
                 <Stat label="Interviews" value={String(dims.total)} />
-                <Stat label="Completed" value={String(dims.completed)} />
+                <Stat label="Finished" value={String(dims.completed)} />
                 {/* A run can be permanently unrated; say so, or the average silently covers fewer runs
-                    than "Completed" claims. */}
+                    than "Finished" claims. */}
                 <Stat label="Avg accuracy" value={dims.rated ? `${Math.round(dims.avgAccuracy)}%` : "—"} hint={dims.rated && dims.rated < dims.completed ? `from ${dims.rated} of ${dims.completed} rated` : undefined} />
                 {/* Hire rate is over DECIDED runs only (same denominator honesty as Avg accuracy),
                     with mean certainty because 3 of 3 at 45% is not 3 of 3 at 95%. */}
@@ -79,7 +79,7 @@ function AccuracyTrend({ data }: { data: { label: string; accuracy: number }[] }
                     <CardTitle className="text-sm">Accuracy trend</CardTitle>
                 </CardHeader>
                 <CardContent>
-                    <p className="text-sm text-muted-foreground">Complete an interview to unlock the accuracy chart.</p>
+                    <p className="text-sm text-muted-foreground">Finish an interview to unlock the accuracy chart.</p>
                 </CardContent>
             </Card>
         );
@@ -145,7 +145,7 @@ function DimensionScores({ stats, error }: { stats: InterviewDimensions | null; 
                     <CardTitle className="text-sm">Secondary scores (1-10)</CardTitle>
                 </CardHeader>
                 <CardContent>
-                    <p className="text-sm text-muted-foreground">{error ?? "Complete an interview with a review to unlock the secondary breakdown."}</p>
+                    <p className="text-sm text-muted-foreground">{error ?? "Finish an interview with a review to unlock the secondary breakdown."}</p>
                 </CardContent>
             </Card>
         );

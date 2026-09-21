@@ -73,13 +73,13 @@ def test_interview_dials_round_trip_and_default(client):
     for payload in (r.json(), c.get(f"/api/interviews/{iid}").json(), next(i for i in c.get("/api/interviews").json() if i["id"] == iid)):
         assert {k: payload[k] for k in expected} == expected
 
-    # start/complete echo the same row (their RETURNING used to drop columns, which the response
+    # start/finish echo the same row (their RETURNING used to drop columns, which the response
     # model then silently filled from defaults). One request each: a second /start 409s, so these
     # bodies must be captured before being indexed.
     started = c.post(f"/api/interviews/{iid}/start").json()
     assert {k: started[k] for k in expected} == expected
     c.post(f"/api/interviews/{iid}/chat/stream", json={"interview_id": iid, "content": "hello"})
-    completed = c.post(f"/api/interviews/{iid}/complete").json()
+    completed = c.post(f"/api/interviews/{iid}/finish").json()
     assert {k: completed[k] for k in expected} == expected
     c.delete(f"/api/interviews/{iid}")
 
@@ -101,7 +101,7 @@ def test_chat_refuses_turns_after_the_question_mix_is_spent(client):
     assert llm.CLOSING_MESSAGE in transcript_before[-1]["content"]
     r = c.post(f"/api/interviews/{iid}/chat/stream", json={"interview_id": iid, "content": "one more thing"})
     assert r.status_code == 409
-    assert "Press Complete" in r.json()["detail"]
+    assert "Press Finish" in r.json()["detail"]
     # Refused BEFORE the model call, the chat credit, and the write: an over-plan turn must not
     # cost a quota credit or leave an unanswered user turn in the transcript.
     assert c.get("/api/usage").json()["chat_turns_used_today"] == used_before
@@ -134,8 +134,8 @@ def test_chat_rolls_back_the_turn_when_the_model_fails(client, monkeypatch):
     c.delete(f"/api/interviews/{iid}")
 
 
-def test_chat_keeps_the_turn_when_complete_lands_mid_stream(client, monkeypatch):
-    # /complete and a live stream race: by the time the rollback runs the run is already complete,
+def test_chat_keeps_the_turn_when_finish_lands_mid_stream(client, monkeypatch):
+    # /finish and a live stream race: by the time the rollback runs the run is already complete,
     # so deleting the turn would leave it holding no answers - GET /feedback 404s and
     # /feedback/generate 409s, which no retry can clear.
     from app import llm
@@ -145,12 +145,12 @@ def test_chat_keeps_the_turn_when_complete_lands_mid_stream(client, monkeypatch)
     iid = c.post("/api/interviews", json={"role": "Rollback After Complete"}).json()["id"]
     c.post(f"/api/interviews/{iid}/start")
 
-    async def _boom_after_complete(*_a, **_kw):
+    async def _boom_after_finish(*_a, **_kw):
         await fetchrow("UPDATE interviews SET status = 'completed' WHERE id = $1", iid)
         raise RuntimeError("provider exploded")
         yield  # pragma: no cover - makes this an async generator
 
-    monkeypatch.setattr(llm, "stream_chat", _boom_after_complete)
+    monkeypatch.setattr(llm, "stream_chat", _boom_after_finish)
     assert "event: error" in c.post(f"/api/interviews/{iid}/chat/stream", json={"interview_id": iid, "content": "my answer"}).text
     assert [m["content"] for m in c.get(f"/api/interviews/{iid}/messages").json()] == ["my answer"]
     # The reason for keeping it: the completed run is still scorable.
@@ -253,7 +253,7 @@ def test_interview_lifecycle_owner_scoped(client):
     assert "user" in roles and "assistant" in roles
 
     # complete -> completed (M6 auto-generates feedback in stub mode)
-    r = c.post(f"/api/interviews/{iid}/complete")
+    r = c.post(f"/api/interviews/{iid}/finish")
     assert r.status_code == 200
     assert r.json()["status"] == "completed"
     # Auto-generated feedback exists (stub deterministic scores).
@@ -688,7 +688,7 @@ def test_resume_reaches_both_prompts_from_the_database(client, monkeypatch):
 
     monkeypatch.setattr(llm, "_completion", _prose)
     monkeypatch.setattr(app_main, "_backoff_sleep", _no_sleep)
-    c.post(f"/api/interviews/{iid}/complete")
+    c.post(f"/api/interviews/{iid}/finish")
     assert "40-node K3s cluster" in sent["grader"]
     assert "A resume IS attached" in sent["grader"]
     assert llm.UNTRUSTED_INPUT in sent["grader"]  # the rule, not its wording: the prompt may be reworded
@@ -793,7 +793,7 @@ def test_move_review_annotates_every_candidate_turn(client):
     c.post(f"/api/interviews/{iid}/start")
     for answer in ("I shipped a cache layer in front of the read path.", "It dropped p99 by 40%."):
         assert c.post(f"/api/interviews/{iid}/chat/stream", json={"interview_id": iid, "content": answer}).status_code == 200
-    assert c.post(f"/api/interviews/{iid}/complete").status_code == 200
+    assert c.post(f"/api/interviews/{iid}/finish").status_code == 200
 
     msgs = c.get(f"/api/interviews/{iid}/messages").json()
     assert [m["move_class"] for m in msgs if m["role"] == "user"] == ["good", "inaccuracy"]
@@ -860,23 +860,23 @@ def test_regenerate_feedback_rejects_incomplete_and_foreign(client):
     client.delete(f"/api/interviews/{pending_id}")
 
 
-def test_complete_requires_at_least_one_message(client):
+def test_finish_requires_at_least_one_message(client):
     # Regression: completing a never-chatted interview produced a "completed, scoring can
     # never succeed" row (empty transcript -> 503 on every retry, no way back in).
     iv = client.post("/api/interviews", json={"role": "Empty Complete"}).json()
     iid = iv["id"]
     assert client.post(f"/api/interviews/{iid}/start").status_code == 200
-    r = client.post(f"/api/interviews/{iid}/complete")
+    r = client.post(f"/api/interviews/{iid}/finish")
     assert r.status_code == 409
     assert client.get(f"/api/interviews/{iid}").json()["status"] == "in_progress"  # still resumable
 
     client.post(f"/api/interviews/{iid}/chat/stream", json={"interview_id": iid, "content": "hi"})
-    assert client.post(f"/api/interviews/{iid}/complete").status_code == 200
+    assert client.post(f"/api/interviews/{iid}/finish").status_code == 200
     client.delete(f"/api/interviews/{iid}")
 
 
 def test_regenerate_feedback_rejects_empty_transcript(client, monkeypatch):
-    # Legacy rows (completed before the /complete guard) must answer 409, not a 503 the retry
+    # Legacy rows (completed before the /finish guard) must answer 409, not a 503 the retry
     # button can never clear. The empty-but-completed state is unreachable via the API now,
     # so stub the predicate instead of deleting rows behind the app's pool.
     from app import main as main_mod
@@ -885,7 +885,7 @@ def test_regenerate_feedback_rejects_empty_transcript(client, monkeypatch):
     iid = iv["id"]
     client.post(f"/api/interviews/{iid}/start")
     client.post(f"/api/interviews/{iid}/chat/stream", json={"interview_id": iid, "content": "hi"})
-    assert client.post(f"/api/interviews/{iid}/complete").status_code == 200
+    assert client.post(f"/api/interviews/{iid}/finish").status_code == 200
 
     async def _empty(_interview_id):
         return False
@@ -908,10 +908,10 @@ def test_regenerate_feedback_writes_when_model_recovers(client, monkeypatch):
     client.post(f"/api/interviews/{iid}/chat/stream", json={"interview_id": iid, "content": "hello?"})
 
     # First complete: model "fails" (None, as in real mode) -> no feedback row written.
-    # /complete auto-retries, so neutralize its backoff timer to keep this test fast.
+    # /finish auto-retries, so neutralize its backoff timer to keep this test fast.
     monkeypatch.setattr(main_mod, "_backoff_sleep", _noop_sleep)
     monkeypatch.setattr(llm, "generate_feedback", _always_none)
-    r = client.post(f"/api/interviews/{iid}/complete")
+    r = client.post(f"/api/interviews/{iid}/finish")
     assert r.status_code == 200
     assert r.json()["status"] == "completed"
     assert client.get(f"/api/interviews/{iid}/feedback").status_code == 404  # genuinely absent
@@ -935,7 +935,7 @@ async def _always_none(history, dials=None, config=None, **_kw):
 
 
 async def _noop_sleep(ms):
-    return None  # neutralize the /complete auto-retry backoff so integration tests run instantly
+    return None  # neutralize the /finish auto-retry backoff so integration tests run instantly
 
 
 def test_complete_auto_retries_then_leaves_unscored_when_always_none(client, monkeypatch):
@@ -956,7 +956,7 @@ def test_complete_auto_retries_then_leaves_unscored_when_always_none(client, mon
     client.post(f"/api/interviews/{iid}/start")
     client.post(f"/api/interviews/{iid}/chat/stream", json={"interview_id": iid, "content": "hello?"})
 
-    r = client.post(f"/api/interviews/{iid}/complete")
+    r = client.post(f"/api/interviews/{iid}/finish")
     assert r.status_code == 200
     assert r.json()["status"] == "completed"
     assert attempts["n"] == main_mod.COMPLETE_MAX_FEEDBACK_ATTEMPTS  # bounded, not infinite
@@ -985,7 +985,7 @@ def test_complete_auto_retry_stops_on_first_success(client, monkeypatch):
     client.post(f"/api/interviews/{iid}/start")
     client.post(f"/api/interviews/{iid}/chat/stream", json={"interview_id": iid, "content": "hello?"})
 
-    r = client.post(f"/api/interviews/{iid}/complete")
+    r = client.post(f"/api/interviews/{iid}/finish")
     assert r.status_code == 200
     assert attempts["n"] == 2  # recovered on attempt 2; no 3rd attempt
     assert r.json()["status"] == "completed"
@@ -1181,7 +1181,7 @@ def test_hardcore_ends_the_run_on_the_first_wrong_answer(client, monkeypatch):
     msgs = c.get(f"/api/interviews/{iid}/messages").json()
     assert [(m["move_class"], m["comment"]) for m in msgs] == [("mistake", "Named no trade-off: state what you gave up.")]
 
-    assert c.post(f"/api/interviews/{iid}/complete").status_code == 200
+    assert c.post(f"/api/interviews/{iid}/finish").status_code == 200
     fb = c.get(f"/api/interviews/{iid}/feedback").json()
     assert (fb["failed_turn"], fb["failed_class"]) == (1, "mistake")
     assert (fb["grade"], fb["decision"]) == ("F", "reject")  # one wrong move overrides the average

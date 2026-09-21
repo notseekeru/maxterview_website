@@ -1,4 +1,4 @@
-// Hermetic host-direct browser journey runner — onboarding, chat + Complete scoring.
+// Hermetic host-direct browser journey runner — onboarding, chat + Finish scoring.
 //
 // No MCP server, no @playwright/test, no host npm install. Requires the nix-store chromium +
 // playwright resolved by ./store.cjs (do not hardcode store hashes). Backend must be
@@ -7,7 +7,7 @@
 //
 // Usage (from repo root):
 //   nix develop . -c node .pi/skills/hermetic-e2e/scripts/e2e.cjs            # onboarding nav only
-//   nix develop . -c node .pi/skills/hermetic-e2e/scripts/e2e.cjs --feedback # + send turn + Complete
+//   nix develop . -c node .pi/skills/hermetic-e2e/scripts/e2e.cjs --feedback # + send turn + Finish
 //   nix develop . -c node .pi/skills/hermetic-e2e/scripts/e2e.cjs --resume   # + PDF drop import/attach
 //   E2E_ANSWER=... nix develop . -c node .pi/skills/hermetic-e2e/scripts/e2e.cjs --feedback
 //
@@ -203,7 +203,7 @@ async function main() {
     console.log("  \u2713 created interview", page.url().replace(BASE, ""));
 
     if (!wantFeedback) {
-      console.log("  \u2013 navigation-only (pass --feedback to exercise Complete/scoring).");
+      console.log("  \u2013 navigation-only (pass --feedback to exercise Finish/scoring).");
       return;
     }
 
@@ -216,16 +216,16 @@ async function main() {
     );
     await page.getByRole("button", { name: /^Send$/ }).click();
 
-    // Wait until the interviewer finishes streaming and Complete is enabled again.
-    const completeBtn = page.getByRole("button", { name: /^Complete/ });
-    await completeBtn.waitFor({ state: "visible", timeout: 20000 });
-    for (let i = 0; i < 200 && (await completeBtn.isDisabled()); i++) await sleep(500);
-    await completeBtn.click();
-    console.log("  \u2713 clicked Complete");
+    // Wait until the interviewer finishes streaming and Finish is enabled again.
+    const finishBtn = page.getByRole("button", { name: /^Finish/ });
+    await finishBtn.waitFor({ state: "visible", timeout: 20000 });
+    for (let i = 0; i < 200 && (await finishBtn.isDisabled()); i++) await sleep(500);
+    await finishBtn.click();
+    console.log("  \u2713 clicked Finish");
 
     // Outcome A: FeedbackView (its card body reads "Every answer you gave is annotated ...").
     // Outcome B: retry notice ("your review wasn't ready") -> click Retry review and re-poll.
-    // 90s deadline: on a slow self-hosted model, /complete runs inline and blocks across the calls.
+    // 90s deadline: on a slow self-hosted model, /finish runs inline and blocks across the calls.
     const deadline = Date.now() + 90_000;
     let state = null;
     while (Date.now() < deadline) {
@@ -254,7 +254,7 @@ async function main() {
       const badges = await page.locator("div.justify-end span[title]").count();
       const rated = await page.getByText("accuracy", { exact: true }).count();
       if (rated && badges === 0) console.log("FAIL review reports an accuracy but shows no per-answer annotations");
-      else console.log(`PASS review rendered after Complete (${rated ? `${badges} annotation(s)` : "ungraded — annotator returned nothing"})`);
+      else console.log(`PASS review rendered after Finish (${rated ? `${badges} annotation(s)` : "ungraded — annotator returned nothing"})`);
     } else if (state === "timed-out") console.log("FAIL timed out waiting for review/retry state");
     else console.log("unknown state:", state);
     if (createdIds.length) console.log("created interviews (DELETE /interviews/<id> if unwanted): " + createdIds.join(","));

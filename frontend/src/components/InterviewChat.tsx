@@ -2,10 +2,11 @@ import { memo, useCallback, useEffect, useId, useLayoutEffect, useRef, useState 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
-import { apiDetail, completeInterview, type Feedback, getFeedback, getInterview, getMessages, httpStatus, MAX_TURN_CHARS, type Message, regenerateFeedback, startInterview, streamChat } from "@/lib/api";
+import { apiDetail, type Feedback, finishInterview, getFeedback, getInterview, getMessages, httpStatus, MAX_TURN_CHARS, type Message, regenerateFeedback, startInterview, streamChat } from "@/lib/api";
 import { OPENING_ASKS_RESUME, OPENING_HAS_RESUME } from "@/lib/config";
 import { cn } from "@/lib/utils";
 import { FeedbackView } from "./FeedbackView";
+import { FinishOverlay } from "./FinishOverlay";
 import { MoveBadge } from "./MoveBadge";
 import { UpgradeNotice } from "./UsageBadge";
 
@@ -19,6 +20,10 @@ const STREAM_FAILED = "The interviewer couldn't answer just now — the model wa
 // that in llm.unreachable_detail). Same advice either way: the panel that fixes it is the same one.
 const CONNECTION_LOST = "Connection lost while streaming — the model never answered. If this repeats, test your provider in Settings > Interview engine (BYOK).";
 
+// The header reads as a state of the interview, not as the wire value behind it (the API and the DB
+// keep `completed`, which is the status the list, analytics and feedback endpoints filter on).
+const STATUS_LABELS = { loading: "Starting", ready: "In progress", streaming: "Interviewer is replying", completed: "Finished" } as const;
+
 export function InterviewChat({ interviewId, onExit }: Props) {
     const [status, setStatus] = useState<"loading" | "ready" | "streaming" | "completed">("loading");
     const [messages, setMessages] = useState<Message[]>([]);
@@ -30,8 +35,11 @@ export function InterviewChat({ interviewId, onExit }: Props) {
     const [interviewOver, setInterviewOver] = useState(false);
     const [hardcoreRun, setHardcoreRun] = useState(false);
     const [hardcoreFailed, setHardcoreFailed] = useState<{ turn: number; class: string } | null>(null);
-    const [completing, setCompleting] = useState(false);
-    const [scoringTip, setScoringTip] = useState(false);
+    // Non-null while a finish or rebuild request is in flight: what the progress screen calls it, and
+    // whether the candidate closed it. Closing never cancels the request behind it.
+    const [finishing, setFinishing] = useState<{ title: string; dismissed: boolean } | null>(null);
+    const isFinishing = finishing !== null;
+    const [reviewFailed, setReviewFailed] = useState(false);
     const [hasResume, setHasResume] = useState(false);
     const sendingRef = useRef(false);
     const abortRef = useRef<AbortController | null>(null);
@@ -58,7 +66,7 @@ export function InterviewChat({ interviewId, onExit }: Props) {
             try {
                 setFeedback(await getFeedback(id));
             } catch (e: unknown) {
-                if (httpStatus(e) === 404) setScoringTip(true);
+                if (httpStatus(e) === 404) setReviewFailed(true);
             }
             return "completed" as const;
         },
@@ -195,39 +203,43 @@ export function InterviewChat({ interviewId, onExit }: Props) {
         }
     }
 
-    async function finish(loaded: () => Promise<Feedback>) {
+    /** Load the review and re-read the transcript it annotates. Every finish path lands here. */
+    async function openReview(load: () => Promise<Feedback>) {
         setStatus("completed");
-        setScoringTip(false);
+        setReviewFailed(false);
         setError(null);
         try {
-            const fb = await loaded();
-            setFeedback(fb);
+            setFeedback(await load());
             await loadMessages();
         } catch (e: unknown) {
-            setScoringTip(true);
+            setReviewFailed(true);
             if (httpStatus(e) === 409) setError(apiDetail(e));
+        } finally {
+            setFinishing(null);
         }
     }
 
-    async function complete() {
-        setCompleting(true);
+    /** Finish the run on the server, then show the review. Closing the progress screen does not
+     *  cancel this: the call keeps running and the review still lands when it returns. */
+    async function finishRun() {
+        setFinishing({ title: "Finishing your interview", dismissed: false });
         try {
-            await completeInterview(interviewId);
-            await finish(() => getFeedback(interviewId));
+            await finishInterview(interviewId);
+            await openReview(() => getFeedback(interviewId));
         } catch (e: unknown) {
-            setError(apiDetail(e, "Failed to complete the interview."));
+            setError(apiDetail(e, "Failed to finish the interview."));
             setStatus("ready");
-        } finally {
-            setCompleting(false);
+            setFinishing(null);
         }
     }
 
-    async function retryScoring() {
-        setCompleting(true);
+    /** Re-run the review for a run that finished without one (or without its per-answer notes). */
+    async function retryReview() {
+        setFinishing({ title: "Rebuilding your review", dismissed: false });
         try {
-            await finish(() => regenerateFeedback(interviewId));
+            await openReview(() => regenerateFeedback(interviewId));
         } finally {
-            setCompleting(false);
+            setFinishing(null);
         }
     }
 
@@ -237,90 +249,104 @@ export function InterviewChat({ interviewId, onExit }: Props) {
     const glow = hardcoreFailed ? "border-destructive shadow-[0_0_30px_-2px_rgba(160,0,0,0.45)] dark:shadow-[0_0_34px_-2px_rgba(255,153,153,0.6)]" : hardcoreRun && status !== "completed" ? "border-destructive/40 shadow-[0_0_20px_-4px_rgba(160,0,0,0.3)] dark:shadow-[0_0_24px_-4px_rgba(255,153,153,0.45)]" : undefined;
 
     return (
-        <Card className={cn("flex min-h-0 w-full flex-1 flex-col", glow)}>
-            <CardHeader className="flex-row items-center justify-between space-y-0">
-                <div>
-                    <CardTitle>Interview</CardTitle>
-                    <CardDescription>{status}</CardDescription>
-                </div>
-                <Button variant="outline" size="sm" onClick={onExit}>
-                    Exit
-                </Button>
-            </CardHeader>
-
-            {/* One scroller: the review, then the transcript it argues from. */}
-            <CardContent className="flex-1 overflow-y-auto space-y-3" ref={scrollRef} role="log" aria-live="polite" aria-busy={status === "streaming"} aria-label="Interview transcript">
-                {/* Safe to always offer: /complete refuses an empty transcript, so a review implies
-                    at least one answer to re-annotate. */}
-                {feedback && <FeedbackView feedback={feedback} messages={messages} onAnnotate={() => void retryScoring()} annotating={completing} />}
-                {error && <p className="text-sm text-destructive">{error}</p>}
-                {quotaLocked && <UpgradeNotice reason="your free chat turns ran out." />}
-                {interviewOver && (
-                    <div role="status" className={hardcoreFailed ? "rounded-lg border border-destructive bg-destructive/10 p-3 text-sm" : "rounded-lg border p-3 text-sm"}>
-                        {hardcoreFailed ? (
-                            <>
-                                <p className="font-semibold uppercase tracking-wide text-destructive">Run failed — hardcore</p>
-                                <p className="mt-1 uppercase leading-relaxed text-foreground">
-                                    One wrong move. Your answer to question {hardcoreFailed.turn} was a {hardcoreFailed.class}, so the interview stops here.
-                                </p>
-                                <p className="mt-1 text-muted-foreground">Press Complete for the feedback you earned.</p>
-                            </>
-                        ) : (
-                            <>
-                                <p className="font-medium">That was the whole interview.</p>
-                                <p className="mt-1 text-muted-foreground">
-                                    This run has asked every question in its mix, so there's nothing left to answer here. Press <span className="font-medium text-foreground">Complete</span> for your feedback, or start a new interview with a wider mix.
-                                </p>
-                            </>
-                        )}
+        <>
+            <Card className={cn("flex min-h-0 w-full flex-1 flex-col", glow)}>
+                <CardHeader className="flex-row items-center justify-between space-y-0">
+                    <div>
+                        <CardTitle>Interview</CardTitle>
+                        <CardDescription>{STATUS_LABELS[status]}</CardDescription>
                     </div>
-                )}
-                {status === "loading" && <p className="text-sm text-muted-foreground">Starting…</p>}
-                {/* Not while loading: a reopened run would flash the opening line before its
+                    <Button variant="outline" size="sm" onClick={onExit}>
+                        Exit
+                    </Button>
+                </CardHeader>
+
+                {/* One scroller: the review, then the transcript it argues from. */}
+                <CardContent className="flex-1 overflow-y-auto space-y-3" ref={scrollRef} role="log" aria-live="polite" aria-busy={status === "streaming"} aria-label="Interview transcript">
+                    {/* Safe to always offer: /finish refuses an empty transcript, so a review implies
+                        at least one answer to re-annotate. */}
+                    {feedback && <FeedbackView feedback={feedback} messages={messages} onAnnotate={() => void retryReview()} annotating={isFinishing} />}
+                    {/* The screen was closed while the run is still being finished: keep the wait visible
+                        where the review will land, plus a way back to the stages. */}
+                    {finishing?.dismissed && (
+                        <div role="status" className="flex items-center gap-2 rounded-lg border p-3 text-sm text-muted-foreground">
+                            <Spinner />
+                            {finishing.title}. It will appear here.
+                            <Button variant="ghost" size="sm" className="ml-auto" onClick={() => setFinishing((f) => (f ? { ...f, dismissed: false } : f))}>
+                                Show progress
+                            </Button>
+                        </div>
+                    )}
+                    {error && <p className="text-sm text-destructive">{error}</p>}
+                    {quotaLocked && <UpgradeNotice reason="your free chat turns ran out." />}
+                    {interviewOver && (
+                        <div role="status" className={hardcoreFailed ? "rounded-lg border border-destructive bg-destructive/10 p-3 text-sm" : "rounded-lg border p-3 text-sm"}>
+                            {hardcoreFailed ? (
+                                <>
+                                    <p className="font-semibold uppercase tracking-wide text-destructive">Run failed — hardcore</p>
+                                    <p className="mt-1 uppercase leading-relaxed text-foreground">
+                                        One wrong move. Your answer to question {hardcoreFailed.turn} was a {hardcoreFailed.class}, so the interview stops here.
+                                    </p>
+                                    <p className="mt-1 text-muted-foreground">Press Finish for the feedback you earned.</p>
+                                </>
+                            ) : (
+                                <>
+                                    <p className="font-medium">That was the whole interview.</p>
+                                    <p className="mt-1 text-muted-foreground">
+                                        This run has asked every question in its mix, so there's nothing left to answer here. Press <span className="font-medium text-foreground">Finish</span> for your feedback, or start a new interview with a wider mix.
+                                    </p>
+                                </>
+                            )}
+                        </div>
+                    )}
+                    {status === "loading" && <p className="text-sm text-muted-foreground">Starting…</p>}
+                    {/* Not while loading: a reopened run would flash the opening line before its
                     real transcript arrives. */}
-                {status !== "loading" && messages.length === 0 && opening && <Bubble from="assistant" content={opening} />}
-                {messages.map((m) => (
-                    <Bubble key={m.id} from={m.role} content={m.content} moveClass={m.move_class} comment={m.comment} />
-                ))}
-                {assistBuf && <Bubble from="assistant" content={assistBuf} streaming />}
-                {status === "streaming" && !assistBuf && <p className="text-sm text-muted-foreground">Thinking…</p>}
-                {scoringTip && status === "completed" && (
-                    <div role="status" className="rounded-lg border p-3 text-sm">
-                        <p className="font-medium">Interview complete — your review wasn't ready.</p>
-                        <p className="mt-1 text-muted-foreground">We couldn't generate your feedback this run. Try again, or exit and check your history.</p>
-                        <Button variant="outline" size="sm" className="mt-2" onClick={() => void retryScoring()} disabled={completing}>
-                            {completing && <Spinner />}
-                            {completing ? "Reviewing…" : "Retry review"}
+                    {status !== "loading" && messages.length === 0 && opening && <Bubble from="assistant" content={opening} />}
+                    {messages.map((m) => (
+                        <Bubble key={m.id} from={m.role} content={m.content} moveClass={m.move_class} comment={m.comment} />
+                    ))}
+                    {assistBuf && <Bubble from="assistant" content={assistBuf} streaming />}
+                    {status === "streaming" && !assistBuf && <p className="text-sm text-muted-foreground">Thinking…</p>}
+                    {reviewFailed && status === "completed" && (
+                        <div role="status" className="rounded-lg border p-3 text-sm">
+                            <p className="font-medium">Interview finished — your review wasn't ready.</p>
+                            <p className="mt-1 text-muted-foreground">We couldn't generate your feedback this run. Try again, or exit and check your history.</p>
+                            <Button variant="outline" size="sm" className="mt-2" onClick={() => void retryReview()} disabled={isFinishing}>
+                                {isFinishing && <Spinner />}
+                                {isFinishing ? "Reviewing…" : "Retry review"}
+                            </Button>
+                        </div>
+                    )}
+                </CardContent>
+                <CardFooter className="gap-2">
+                    <Textarea
+                        value={draft}
+                        maxLength={MAX_TURN_CHARS}
+                        aria-label="Your answer"
+                        onChange={(e) => setDraft(e.target.value)}
+                        placeholder={status === "completed" ? "Review above" : interviewOver ? "Interview finished — press Finish" : status === "ready" ? "Type your answer to the interviewer..." : status === "streaming" ? "Waiting for the interviewer..." : "Starting…"}
+                        onKeyDown={(e) => {
+                            if (e.key === "Enter" && !e.shiftKey && status === "ready") {
+                                e.preventDefault();
+                                void send();
+                            }
+                        }}
+                        disabled={status === "completed" || interviewOver}
+                    />
+                    <div className="flex flex-col gap-2">
+                        <Button onClick={() => void send()} disabled={status !== "ready" || !draft.trim() || interviewOver}>
+                            Send
+                        </Button>
+                        <Button variant="destructive" size="sm" onClick={() => void finishRun()} disabled={isFinishing || status === "streaming" || status === "completed"}>
+                            {isFinishing && <Spinner />}
+                            {isFinishing ? "Finishing…" : "Finish"}
                         </Button>
                     </div>
-                )}
-            </CardContent>
-            <CardFooter className="gap-2">
-                <Textarea
-                    value={draft}
-                    maxLength={MAX_TURN_CHARS}
-                    aria-label="Your answer"
-                    onChange={(e) => setDraft(e.target.value)}
-                    placeholder={status === "completed" ? "Review above" : interviewOver ? "Interview finished — press Complete" : status === "ready" ? "Type your answer to the interviewer..." : status === "streaming" ? "Waiting for the interviewer..." : "Starting…"}
-                    onKeyDown={(e) => {
-                        if (e.key === "Enter" && !e.shiftKey && status === "ready") {
-                            e.preventDefault();
-                            void send();
-                        }
-                    }}
-                    disabled={status === "completed" || interviewOver}
-                />
-                <div className="flex flex-col gap-2">
-                    <Button onClick={() => void send()} disabled={status !== "ready" || !draft.trim() || interviewOver}>
-                        Send
-                    </Button>
-                    <Button variant="destructive" size="sm" onClick={() => void complete()} disabled={completing || status === "streaming" || status === "completed"}>
-                        {completing && <Spinner />}
-                        {completing ? "Completing…" : "Complete"}
-                    </Button>
-                </div>
-            </CardFooter>
-        </Card>
+                </CardFooter>
+            </Card>
+            {finishing && <FinishOverlay open={!finishing.dismissed} title={finishing.title} onDismiss={() => setFinishing((f) => (f ? { ...f, dismissed: true } : f))} />}
+        </>
     );
 }
 

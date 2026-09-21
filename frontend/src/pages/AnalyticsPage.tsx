@@ -445,7 +445,7 @@ function DialBreakdown({ dials }: { dials: Analytics["dials"] }) {
     if (groups.length === 0) {
         return (
             <Panel title="How your settings track outcomes">
-                <Empty>Complete an interview to compare outcomes across the settings you dialled in.</Empty>
+                <Empty>Finish an interview to compare outcomes across the settings you dialled in.</Empty>
             </Panel>
         );
     }

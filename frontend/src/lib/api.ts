@@ -375,8 +375,8 @@ export async function startInterview(id: string): Promise<Interview> {
     return data;
 }
 
-export async function completeInterview(id: string): Promise<Interview> {
-    const { data } = await api.post<Interview>(`/interviews/${id}/complete`);
+export async function finishInterview(id: string): Promise<Interview> {
+    const { data } = await api.post<Interview>(`/interviews/${id}/finish`);
     return data;
 }
 
@@ -415,7 +415,7 @@ export async function getFeedback(id: string): Promise<Feedback> {
 }
 
 // POST /interviews/{id}/feedback/generate: (re)run the review for a COMPLETED
-// interview whose feedback is absent (real-mode scoring failed on /complete). 404 => not
+// interview whose feedback is absent (real-mode scoring failed on /finish). 404 => not
 // found; 409 => not completed; 503 => model unavailable right now (retry later).
 export async function regenerateFeedback(id: string): Promise<Feedback> {
     const { data } = await api.post<Feedback>(`/interviews/${id}/feedback/generate`);

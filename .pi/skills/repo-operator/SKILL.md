@@ -31,7 +31,7 @@ narrate. Everything here is real infra you can actually reach from this repo.
 - **No Clerk key enabled ⇒ the frontend falls into "no-Clerk dev mode"** (`clerkEnabled=false`),
   which lets you drive the whole auth-gated UI against the backend's `DEV_USER`. This is the fastest
   way to reproduce most UI/behaviour issues WITHOUT any Clerk/PayMongo credentials.
-- **Backend surfaces** (all under the app's `/api` prefix): `/api/health`, `/api/interviews`, `/api/interviews/{id}` (+`/start`,`/complete`,`/archive`,
+- **Backend surfaces** (all under the app's `/api` prefix): `/api/health`, `/api/interviews`, `/api/interviews/{id}` (+`/start`,`/finish`,`/archive`,
   `/messages`, `/feedback`, `/feedback/generate`), `/api/usage`, `/api/settings/llm` (+`/test`),
   `/api/billing/checkout`, `/api/billing/cancel`, `/api/billing/webhook`, `/api/billing/webhook/simulate`,
   `/api/interviews/{id}/chat/stream` (SSE).

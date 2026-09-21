@@ -251,8 +251,8 @@ async def start_interview(
     return dict(row)
 
 
-@api.post("/interviews/{interview_id}/complete", response_model=Interview)
-async def complete_interview(
+@api.post("/interviews/{interview_id}/finish", response_model=Interview)
+async def finish_interview(
     interview_id: str,
     user: CurrentUser,
     config: LLMConfigDep,
@@ -265,7 +265,7 @@ async def complete_interview(
         user.sub,
     )
     if row is None:
-        await _raise_complete_error(interview_id, user.sub)
+        await _raise_finish_error(interview_id, user.sub)
     interview = dict(row)
 
     await _auto_generate_and_persist_feedback(interview_id, config)
@@ -335,7 +335,7 @@ async def regenerate_feedback(
     )
     if row is None or row["status"] != "completed":
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Interview is not completed")
-    # Legacy dead end: completed before the /complete guard existed, so there is nothing the
+    # Legacy dead end: completed before the /finish guard existed, so there is nothing the
     # model could ever grade. 409 (structural) beats a 503 the retry button can never clear.
     if not await _has_transcript(interview_id):
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Nothing to score yet: this interview has no answers.")
@@ -926,7 +926,7 @@ async def chat_stream(
     # Hardcore runs end at the first wrong answer; the client stops the composer, and this is what
     # makes that final rather than a UI rule the next request could ignore.
     if interview["failed_turn"]:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="This hardcore run is over: one wrong answer ended it. Press Complete for the feedback.")
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="This hardcore run is over: one wrong answer ended it. Press Finish for the feedback.")
 
     prior_rows = await fetch(
         "SELECT role, content FROM messages WHERE interview_id = $1 ORDER BY created_at",
@@ -942,7 +942,7 @@ async def chat_stream(
     if llm.is_interview_finished(asked, dials):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="This interview has asked all of its questions. Press Complete to get your feedback, or start a new interview with a wider question mix.",
+            detail="This interview has asked all of its questions. Press Finish to get your feedback, or start a new interview with a wider question mix.",
         )
 
     # BYOK pays the provider, not us, so the TIER cap is not the gate - the flat billing.BYOK_CHAT_TURNS
@@ -979,7 +979,7 @@ async def chat_stream(
     async def _discard_turn() -> None:
         """Delete the in-flight user turn; never raises.
 
-        Only while the run is still going: /complete can land while this turn is in flight, and a
+        Only while the run is still going: /finish can land while this turn is in flight, and a
         turn deleted after that leaves a completed run holding no answers - /feedback 404s and
         /feedback/generate 409s forever, so the retry the UI offers can never clear it.
 
@@ -1199,7 +1199,7 @@ async def _raise_start_error(interview_id: str, owner_id: str) -> None:
     raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Interview is not pending")
 
 
-async def _raise_complete_error(interview_id: str, owner_id: str) -> None:
+async def _raise_finish_error(interview_id: str, owner_id: str) -> None:
     row = await fetchrow("SELECT status FROM interviews WHERE id = $1 AND owner_id = $2", interview_id, owner_id)
     if row is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Interview not found")

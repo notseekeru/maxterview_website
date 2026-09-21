@@ -15,7 +15,7 @@ strengths — pick per task:
   rendering bug, or when you want to adapt mid-run without writing a script. Batch multi-step or
   conditional work with `mcpScript` (see below).
 - **Host-direct runners (secondary, deterministic):** committed journeys driven by `playwright-core`
-  resolved from the nix store. `e2e.cjs` asserts onboarding + chat + Complete-scoring (PASS/FAIL).
+  resolved from the nix store. `e2e.cjs` asserts onboarding + chat + Finish-scoring (PASS/FAIL).
   `inspect.cjs` dumps the live DOM at each stage so you can SEE what rendered.
 
 **Choose by what you need:** MCP for interactivity, ref-based adaptation, and every ad-hoc verdict;
@@ -108,10 +108,11 @@ work for both paths — MCP `target` takes a CSS selector or a snapshot ref.
 2. `/dashboard`: wait for `#role` input (dev-mode banner: "Dev mode (no Clerk key)…").
 3. Fill `#role` + optional `#topic`, submit **"Start interview"** -> `/interviews/{uuid}`.
 4. Chat: wait for `textarea`. Send an answer (**Send**); await interviewer stream (**Send** flips
-   `disabled` when done); click **Complete**.
+   `disabled` when done); click **Finish** (a progress overlay covers the screen and closes itself
+   when the review lands; the backdrop and Escape dismiss it without cancelling the request).
 5. Outcome markers: **FeedbackView** card description = "is annotated in the transcript below";
    **absent** = notice "your review wasn't ready" + **Retry review** button. Gate on `browser_wait_for` / `waitFor`, not a
-   fixed sleep — `/complete` runs inline against a real model and took ~20s in practice (~90s ceiling).
+   fixed sleep — `/finish` runs inline against a real model and took ~20s in practice (~90s ceiling).
 
 Do not treat `pending → in_progress` auto-transition as a failure.
 
