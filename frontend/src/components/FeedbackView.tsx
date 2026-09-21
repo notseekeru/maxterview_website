@@ -35,7 +35,7 @@ export function FeedbackView({ feedback, messages = [], onAnnotate, annotating }
                     <div className="space-y-1 rounded-lg border border-destructive bg-destructive/10 p-3">
                         <p className="font-semibold uppercase tracking-wide text-destructive">Hardcore: run over</p>
                         <p className="text-sm uppercase leading-relaxed">
-                            One wrong move ended it — question {failed} was a {feedback.failed_class ?? "fault"}. Grade F, no second chance.
+                            One vague or wrong answer ended it: question {failed} was a {feedback.failed_class ?? "fault"}. Grade F, no second chance.
                         </p>
                     </div>
                 )}

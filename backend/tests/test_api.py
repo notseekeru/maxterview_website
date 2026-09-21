@@ -1201,21 +1201,45 @@ def test_hardcore_ends_the_run_on_the_first_wrong_answer(client, monkeypatch):
     c.delete(f"/api/interviews/{iid}")
 
 
-def test_hardcore_lets_a_clean_answer_through(client, monkeypatch):
-    # The judge only ends the run on mistake/blunder: `inaccuracy` is survivable, and so is a judge
-    # that comes back empty (a model outage must not fail a candidate by default).
+def test_hardcore_fails_on_a_vague_answer_too(client, monkeypatch):
+    # inaccuracy is in FAIL_CLASSES: vague is one failing answer in hardcore, exactly like wrong. `book`
+    # and above still survive, because correct-but-recited is not a failure.
     from app import llm, rating
 
     async def _judge(_question, _answer, _config, _turn=1):
-        return rating.Move("inaccuracy", "Vague, but it survived.")
+        return rating.Move("inaccuracy", "No evidence behind it: name the situation you were in.")
 
     monkeypatch.setattr(llm, "judge_answer", _judge)
     c = client
-    iid = c.post("/api/interviews", json={"role": "Hardcore Survivor", "hardcore": True}).json()["id"]
+    iid = c.post("/api/interviews", json={"role": "Hardcore Vague", "hardcore": True}).json()["id"]
     c.post(f"/api/interviews/{iid}/start")
-    assert c.post(f"/api/interviews/{iid}/chat/stream", json={"interview_id": iid, "content": "it was vague, I admit"}).status_code == 200
-    assert [m["move_class"] for m in c.get(f"/api/interviews/{iid}/messages").json() if m["role"] == "user"] == ["inaccuracy"]
-    assert c.post(f"/api/interviews/{iid}/chat/stream", json={"interview_id": iid, "content": "let me be specific"}).status_code == 200
+
+    body = c.post(f"/api/interviews/{iid}/chat/stream", json={"interview_id": iid, "content": "we just kind of iterated on it"}).text
+    assert llm.FAIL_MESSAGE.format(cls="INACCURACY") in body
+    assert '"failed": {"turn": 1, "class": "inaccuracy"}' in body
+    assert c.post(f"/api/interviews/{iid}/chat/stream", json={"interview_id": iid, "content": "let me be specific"}).status_code == 409
+
+    assert c.post(f"/api/interviews/{iid}/finish").status_code == 200
+    fb = c.get(f"/api/interviews/{iid}/feedback").json()
+    assert (fb["failed_turn"], fb["failed_class"], fb["grade"]) == (1, "inaccuracy", "F")
+    c.delete(f"/api/interviews/{iid}")
+
+
+def test_hardcore_survives_a_judge_that_comes_back_empty(client, monkeypatch):
+    # A judge outage must not fail a candidate by default: no verdict, no failure, run continues.
+    from app import llm
+
+    async def _judge(_question, _answer, _config, _turn=1):
+        return None
+
+    monkeypatch.setattr(llm, "judge_answer", _judge)
+    c = client
+    iid = c.post("/api/interviews", json={"role": "Hardcore Outage", "hardcore": True}).json()["id"]
+    c.post(f"/api/interviews/{iid}/start")
+    assert c.post(f"/api/interviews/{iid}/chat/stream", json={"interview_id": iid, "content": "something the judge could not read"}).status_code == 200
+    assert c.post(f"/api/interviews/{iid}/chat/stream", json={"interview_id": iid, "content": "the next turn still runs"}).status_code == 200
+    row = next(i for i in c.get("/api/interviews").json() if i["id"] == iid)
+    assert (row["failed_turn"], row["failed_class"]) == (None, None)
     c.delete(f"/api/interviews/{iid}")
 
 

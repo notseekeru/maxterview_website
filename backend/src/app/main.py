@@ -940,7 +940,7 @@ async def chat_stream(
     # Hardcore runs end at the first wrong answer; the client stops the composer, and this is what
     # makes that final rather than a UI rule the next request could ignore.
     if interview["failed_turn"]:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="This hardcore run is over: one wrong answer ended it. Press Finish for the feedback.")
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="This hardcore run is over: one vague or wrong answer ended it. Press Finish for the feedback.")
 
     prior_rows = await fetch(
         "SELECT role, content FROM messages WHERE interview_id = $1 ORDER BY created_at",
@@ -1019,7 +1019,7 @@ async def chat_stream(
     ]
 
     async def _stream_events():
-        # Hardcore judges THIS answer before the interviewer replies, because a wrong answer ends the
+        # Hardcore judges THIS answer before the interviewer replies, because one failing answer ends the
         # run: spending a question on someone who is already out is the one thing the mode promises
         # never to do. Runs before the closing branch too - the last answer still counts.
         if dials.hardcore:

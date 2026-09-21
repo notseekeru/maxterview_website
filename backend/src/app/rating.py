@@ -25,9 +25,10 @@ class Move(NamedTuple):
 # words, and anything finer is noise.
 MOVE_CLASSES: tuple[str, ...] = ("brilliant", "great", "good", "book", "inaccuracy", "mistake", "blunder")
 
-# Hardcore mode fails the run on any of these - the two classes that mean wrong (mistake) and nothing
-# usable (blunder). `inaccuracy` is spared on purpose: vague is survivable, wrong is not.
-FAIL_CLASSES: tuple[str, ...] = ("mistake", "blunder")
+# Hardcore mode fails the run on any of these: wrong (mistake), nothing usable (blunder), and - asked
+# for by name - vague (inaccuracy). Only the classes above them survive, because `book` is correct:
+# recited is a small deduction, not a failure.
+FAIL_CLASSES: tuple[str, ...] = ("inaccuracy", "mistake", "blunder")
 
 # What one classed turn is worth out of 1.0. `book` sits just under `good`: correct but generic is
 # a small deduction, not a flaw.
@@ -78,7 +79,7 @@ def accuracy(classes: Iterable[str]) -> int | None:
 def grade(acc: int | None, *, failed: bool = False) -> str | None:
     """Letter grade for an accuracy percentage, or None when there is nothing to grade.
 
-    `failed` is hardcore: one wrong answer ends the run at F regardless of what the earlier answers
+    `failed` is hardcore: one failing answer ends the run at F regardless of what the earlier answers
     averaged out to, because the run is judged on the move that ended it.
     """
     if failed:

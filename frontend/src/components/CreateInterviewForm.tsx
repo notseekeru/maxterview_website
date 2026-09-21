@@ -384,7 +384,7 @@ export function CreateInterviewForm({ onCreated, variant = "compact", className 
 
                     <div className={cn("flex flex-wrap gap-x-6 gap-y-2", featured && "sm:col-span-2")}>
                         <Toggle id="brutally_honest" checked={brutallyHonest} onChange={setBrutallyHonest} label="Brutally honest" hint="names weaknesses as they happen, and leads the feedback with them" />
-                        <Toggle id="hardcore" checked={hardcore} onChange={setHardcore} label="Hardcore" hint="one wrong answer ends the run on the spot, and the feedback is a shouting match" />
+                        <Toggle id="hardcore" checked={hardcore} onChange={setHardcore} label="Hardcore" hint="one vague or wrong answer ends the run on the spot, and the feedback is a shouting match" />
                         <Toggle id="human_mode" checked={humanMode} onChange={setHumanMode} label="Human mode" hint="contractions and plain words, no AI or corporate phrasing" />
                     </div>
 

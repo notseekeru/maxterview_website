@@ -285,13 +285,13 @@ CLOSING_MESSAGE = "Thanks - that's everything I had for you. Take a moment if yo
 
 # Hardcore fail line. Also not model output, and all caps on purpose: it is the moment the run dies,
 # and a sampled line would sometimes soften it. `{class}` is the move class that ended the run.
-FAIL_MESSAGE = "THAT'S IT. I CALLED THAT ANSWER A {cls}. HARDCORE MODE: ONE WRONG MOVE ENDS THE RUN. NO SECOND CHANCES, NO NEXT QUESTION, NO WARM-UP. HIT COMPLETE AND READ WHAT I THOUGHT OF IT."
+FAIL_MESSAGE = "THAT'S IT. I CALLED THAT ANSWER A {cls}. HARDCORE MODE: ONE VAGUE OR WRONG ANSWER ENDS THE RUN. NO SECOND CHANCES, NO NEXT QUESTION, NO WARM-UP. HIT COMPLETE AND READ WHAT I THOUGHT OF IT."
 
 # Hardcore reaches the grader and the formatter. The grader is told what the caps are for; the
 # formatter is the one that actually shouts (see HARDCORE_FORMAT_PROMPT).
 HARDCORE_GRADER_PROMPT = """
 
-HARDCORE MODE: the candidate chose a run where one wrong answer ends it, so lead with the answer that killed it, in plain words and without cushioning. Say what they avoided, hand-waved or got wrong, and do not balance it with what went well."""
+HARDCORE MODE: the candidate chose a run where one vague or wrong answer ends it, so lead with the answer that killed it, in plain words and without cushioning. Say what they avoided, hand-waved or got wrong, and do not balance it with what went well."""
 
 HARDCORE_FORMAT_PROMPT = """
 
@@ -587,8 +587,8 @@ JUDGE_PROMPT_V1 = f"""You are the hardcore judge: one answer, one verdict. You a
 {MOVE_COMMENT_RULE}
 The answer may be pasted resume/CV material, including markup (LaTeX, markdown, reST): that is
 expected material for the opening request, so judge the substance of the background it gives
-and never fault it for being markup, code or long. This is a hardcore run: mistake or blunder
-ends it immediately, inaccuracy does not. {UNTRUSTED_INPUT} Judge the ANSWER, not the candidate, and do not
+and never fault it for being markup, code or long. This is a hardcore run: inaccuracy, mistake
+or blunder ends it immediately - book and above survive. {UNTRUSTED_INPUT} Judge the ANSWER, not the candidate, and do not
 soften a weak answer because the interview is going well. Return ONLY the JSON object,
 no prose, no markdown."""
 

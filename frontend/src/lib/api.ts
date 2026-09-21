@@ -89,8 +89,8 @@ export interface InterviewDials {
     brutally_honest: boolean;
     /** Human register (contractions, no AI/corporate vocabulary); off = businesslike. */
     human_mode: boolean;
-    /** One wrong answer (move class mistake/blunder) ends the run on the spot, and `failed_turn`
-     *  records which one. Feedback for a failed run is an ALL CAPS rejection, graded F. */
+    /** One vague or wrong answer (move class inaccuracy/mistake/blunder) ends the run on the spot, and
+     *  `failed_turn` records which one. Feedback for a failed run is an ALL CAPS rejection, graded F. */
     hardcore: boolean;
     mix_chitchat: number;
     mix_behavioural: number;
