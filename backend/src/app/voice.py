@@ -2,11 +2,8 @@
 
 Framework-free (no FastAPI, no DB) so the caps and the envelope are testable without a server, the
 same split as app/resumes.py. Recorded audio is base64'd into the request and discarded when the call
-returns: the resume rule (PLAN D16) applied to voice, so nothing is stored, logged or replayable.
-
-AI HERE: this is written against the published model pages and pinned by respx doubles, NOT against a
-live account, because CLOUDFLARE_ACCOUNT_ID / CLOUDFLARE_API_TOKEN do not exist in this environment
-yet. VOICE.md holds the two curls that must pass before the first real call is trusted.
+returns: the resume rule (PLAN D16) applied to voice. Both directions are measured against the live
+API; the numbers and the model that does not work live in VOICE.md.
 """
 
 import asyncio
@@ -26,7 +23,10 @@ log = structlog.get_logger(__name__)
 ACCOUNT_ID = os.getenv("CLOUDFLARE_ACCOUNT_ID", "")
 API_TOKEN = os.getenv("CLOUDFLARE_API_TOKEN", "")
 STT_MODEL = os.getenv("CLOUDFLARE_STT_MODEL", "@cf/openai/whisper-large-v3-turbo")
-TTS_MODEL = os.getenv("CLOUDFLARE_TTS_MODEL", "@cf/myshell-ai/melotts")
+# Deepgram Aura-1, not MeloTTS: MeloTTS 500s on every request from this account and the Auras do not.
+# Aura is also the human voice the feature is for, and it is the scarce resource: roughly 1.4k-3.8k
+# neurons per run against a 10,000 a day allocation, where transcription costs a few hundred.
+TTS_MODEL = os.getenv("CLOUDFLARE_TTS_MODEL", "@cf/deepgram/aura-1")
 
 # A take is capped at 180s in the UI; 8MB is roughly four minutes of Opus, so this only catches a
 # client that ignored the timer.
@@ -56,9 +56,13 @@ class VoiceError(Exception):
 @dataclass(frozen=True)
 class Transcript:
     text: str
-    # Word timings are what make pace, filler and pause numbers possible later. Whisper returns them;
-    # the UI does not read them yet.
-    words: list[dict]
+    # Whisper turbo answers with SEGMENTS (start/end/text, 10 of them for a 90 second clip), not with
+    # per-word timings: pace and pause numbers read these, and word-level detail would need the
+    # non-turbo model.
+    segments: list[dict]
+    # Detected language, logged because a wrong guess here is the first suspect when the text comes
+    # back looking like nonsense.
+    language: str
 
 
 @dataclass(frozen=True)
@@ -96,8 +100,18 @@ def _failure(payload: object) -> str | None:
     return message or "Workers AI refused the request"
 
 
-# One framework-free self-check (AGENTS rule 5): this branch decides between a usable answer and a
-# 502, and it is the one an envelope change would silently flip.
+def _tts_body(model: str, text: str) -> dict:
+    """Two model families, two request shapes: Aura takes `text`, MeloTTS takes `prompt` plus `lang`.
+    Sending both keys would be a body that lies about which model it is addressing."""
+    if "aura" in model:
+        return {"text": text}
+    return {"prompt": text, "lang": "en"}
+
+
+# One framework-free self-check (AGENTS rule 5): this branch decides whether the provider sees a
+# sentence or a 400, and it is the one a model swap would silently flip.
+assert _tts_body("@cf/deepgram/aura-1", "hi") == {"text": "hi"}
+assert _tts_body("@cf/myshell-ai/melotts", "hi") == {"prompt": "hi", "lang": "en"}
 assert _failure({"success": False, "errors": [{"code": 7000, "message": "No more neurons"}]}) == "No more neurons"
 assert _failure({"success": True, "result": {"text": "hi"}}) is None
 
@@ -117,14 +131,14 @@ async def _run(model: str, body: dict) -> httpx.Response:
 
 
 def _audio_bytes(resp: httpx.Response) -> tuple[bytes, str]:
-    """The MP3, from whichever of the two documented shapes came back.
+    """The MP3, from whichever documented shape came back.
 
-    MeloTTS returns `audio/mpeg` binary; the JSON option returns the audio base64'd (sometimes as a
-    data URL). AI HERE: both are handled because neither is confirmed against a live account, and the
-    one that is wrong costs a 502 with no clue which. Drop the branch the first real call kills.
+    Aura returns `audio/mpeg` binary. The JSON branch is MeloTTS's, kept because that model is one env
+    var away, not because it is expected: its 500s are what stopped it being the default.
     """
     media_type = (resp.headers.get("content-type") or "").split(";")[0].strip()
     if media_type.startswith("audio/"):
+        # Aura-1 measured: raw `audio/mpeg`, which is the browser's easiest case to decode.
         return resp.content, media_type
     payload = json.loads(resp.content or b"null")
     if (message := _failure(payload)) is not None:
@@ -141,7 +155,7 @@ async def speak(text: str) -> Speech:
     if len(text) > MAX_TTS_CHARS:
         raise VoiceError(f"That line is longer than {MAX_TTS_CHARS} characters.")
     started = time.perf_counter()
-    resp = await _run(TTS_MODEL, {"prompt": text, "lang": "en"})
+    resp = await _run(TTS_MODEL, _tts_body(TTS_MODEL, text))
     if resp.status_code != 200:
         raise VoiceError(_status_message(resp.status_code))
     audio, media_type = _audio_bytes(resp)
@@ -163,11 +177,26 @@ async def transcribe(data: bytes, transcription: str = "transcribe") -> Transcri
     if (message := _failure(payload)) is not None:
         raise VoiceError(f"The transcription model refused that clip: {message}")
     result = payload.get("result") if isinstance(payload, dict) else payload
-    # Older whisper returns `result` as the text itself; the turbo model returns an object.
-    text = result if isinstance(result, str) else (result or {}).get("text") or ""
-    words = [] if isinstance(result, str) else ((result or {}).get("words") or [])
-    log.info("voice.stt.completed", bytes=len(data), latency_ms=round((time.perf_counter() - started) * 1000, 1), engine="cloud", chars=len(text))
-    return Transcript(text=text.strip(), words=words)
+    # The non-turbo `whisper` model answers with the text alone; the turbo model answers with an object.
+    if isinstance(result, str):
+        text, segments, info = result, [], {}
+    else:
+        result = result or {}
+        text = result.get("text") or ""
+        segments = result.get("segments") or []
+        info = result.get("transcription_info") or {}
+    log.info(
+        "voice.stt.completed",
+        bytes=len(data),
+        latency_ms=round((time.perf_counter() - started) * 1000, 1),
+        engine="cloud",
+        chars=len(text),
+        # Audio seconds and the detected language come back in `transcription_info`, which is what makes
+        # a run's neuron cost and a mis-detected language readable out of Loki (VOICE.md gotcha 10).
+        audio_s=info.get("duration"),
+        language=info.get("language"),
+    )
+    return Transcript(text=text.strip(), segments=segments, language=str(info.get("language") or ""))
 
 
 def _status_message(code: int) -> str:

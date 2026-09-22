@@ -1,9 +1,8 @@
 """The Workers AI contract: what we send, what we read back, and how a refusal reaches the visitor.
 
-No network and no credentials: respx doubles stand in for the provider. That is not a shortcut, it is
-the only option while CLOUDFLARE_ACCOUNT_ID / CLOUDFLARE_API_TOKEN do not exist here, so the doubles
-ARE the written spec. When the first real call happens, a mismatch breaks these BEFORE it breaks the
-visitor: the request body and the envelope are the two things a doc reading can get wrong.
+No network and no credentials: respx doubles stand in for the provider, so the request bodies and the
+envelope stay pinned even though the live shapes are now measured (2026-09-23). A model swap or an
+envelope change breaks these before it breaks the visitor.
 """
 
 import base64
@@ -38,13 +37,15 @@ async def test_speak_posts_the_prompt_and_returns_the_mp3():
     assert got.media_type == "audio/mpeg"
     body = route.calls[0].request
     assert body.headers["authorization"] == f"Bearer {TOKEN}"
-    # MeloTTS takes `prompt`, not the OpenAI `input` shape: the field name is the whole request.
-    assert body.content == b'{"prompt":"Tell me about the migration.","lang":"en"}'
+    # Aura takes `text`, MeloTTS takes `prompt` plus `lang`. The field name is the whole request, so
+    # both shapes are pinned: the default is one env var away from the other family.
+    assert body.content == b'{"text":"Tell me about the migration."}'
+    assert voice._tts_body("@cf/myshell-ai/melotts", "hi") == {"prompt": "hi", "lang": "en"}
 
 
 async def test_speak_reads_the_json_audio_option():
-    """The documented response is a union (binary OR JSON), and both branches ship because neither is
-    confirmed against a live account yet. This is the branch that dies when one of them is proven."""
+    """MeloTTS documents a JSON response with the audio base64'd. That branch is still reachable (one
+    env var), so it keeps a test; the 500s are why it is not the default."""
     payload = {"result": {"audio": base64.b64encode(b"mp3bytes").decode()}, "success": True, "errors": []}
     with respx.mock as mock:
         mock.post(url(voice.TTS_MODEL)).mock(return_value=Response(200, json=payload))
@@ -52,13 +53,23 @@ async def test_speak_reads_the_json_audio_option():
     assert got.audio == b"mp3bytes"
 
 
-async def test_transcribe_base64s_the_clip_and_reads_the_words():
-    payload = {"result": {"text": "I ran the migration.  ", "words": [{"word": "I", "start": 0.0, "end": 0.1}]}, "success": True, "errors": []}
+async def test_transcribe_base64s_the_clip_and_reads_the_segments():
+    # The real payload (2026-09-23): segments + transcription_info, no per-word array.
+    payload = {
+        "result": {
+            "text": "I ran the migration.  ",
+            "segments": [{"start": 0, "end": 2.1, "text": " I ran the migration."}],
+            "transcription_info": {"duration": 90.2, "language": "en"},
+        },
+        "success": True,
+        "errors": [],
+    }
     with respx.mock as mock:
         route = mock.post(url(voice.STT_MODEL)).mock(return_value=Response(200, json=payload))
         got = await voice.transcribe(CLIP)
     assert got.text == "I ran the migration."  # stripped: the answer box owns whitespace
-    assert got.words[0]["word"] == "I"
+    assert got.segments[0]["end"] == 2.1
+    assert got.language == "en"
     sent = route.calls[0].request.content
     # The clip must survive the round trip byte for byte, or every transcription is of something else.
     assert base64.b64decode(__import__("json").loads(sent)["audio"]) == CLIP

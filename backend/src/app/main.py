@@ -655,9 +655,7 @@ async def voice_capability(user: CurrentUser) -> dict:
 @api.post("/voice/tts")
 async def voice_tts(body: VoiceText, user: CurrentUser) -> Response:
     """One line in, audio out. Audio rides its own request and never the SSE stream (VOICE.md gotcha
-    9), and a caller cancels by walking away: nothing here is stored, so there is nothing to clean up.
-
-    503 is the honest code: this is optional infrastructure that is either configured or not, and the
+    9). 503 is the honest code: optional infrastructure that is either configured or not, and the
     sentence came back written for the visitor."""
     try:
         speech = await voice.speak(body.text)
@@ -669,11 +667,9 @@ async def voice_tts(body: VoiceText, user: CurrentUser) -> Response:
 @api.post("/voice/stt", response_model=VoiceTranscript)
 async def voice_stt(file: UploadFile, user: CurrentUser) -> VoiceTranscript:
     """One recorded take in, text out. Persists NOTHING: the clip lives for the length of this call,
-    which is the rule the resume extractor follows too (PLAN D16 applied to voice).
-
-    `read(cap + 1)` is what bounds what WE allocate: asking for one byte more than the cap detects
-    "too big" without ever holding the whole clip. It does not bound what Starlette already spooled
-    while parsing the form, so a cap on the request body upstream is still owed."""
+    which is the rule the resume extractor follows too (PLAN D16 applied to voice). `read(cap + 1)` is
+    what bounds what WE allocate; it does not bound what Starlette already spooled while parsing the
+    form, so a cap on the request body upstream is still owed."""
     data = await file.read(voice.MAX_UPLOAD_BYTES + 1)
     if len(data) > voice.MAX_UPLOAD_BYTES:
         raise HTTPException(status_code=status.HTTP_413_CONTENT_TOO_LARGE, detail=f"That recording is larger than {voice.MAX_UPLOAD_BYTES // (1024 * 1024)} MB.")
@@ -681,7 +677,7 @@ async def voice_stt(file: UploadFile, user: CurrentUser) -> VoiceTranscript:
         got = await voice.transcribe(data)
     except voice.VoiceError as exc:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
-    return VoiceTranscript(text=got.text, words=got.words)
+    return VoiceTranscript(text=got.text, segments=got.segments, language=got.language)
 
 
 # --- dashboard stats (aggregates, not per-row reads) ---

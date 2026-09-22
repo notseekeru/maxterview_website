@@ -187,11 +187,13 @@ class VoiceText(BaseModel):
 
 
 class VoiceTranscript(BaseModel):
-    """Held words from one take, plus the timings that make pace and filler numbers possible later.
-    Nothing here is persisted: the text joins the answer box, and the chat turn is what saves it."""
+    """One take's text, plus the segment timings Whisper actually returns (start/end per phrase) and the
+    language it detected. Nothing here is persisted: the text joins the answer box, and the chat turn
+    is what saves it. Timings are unused today; they are what pace and pause numbers will read."""
 
     text: str
-    words: list[dict] = Field(default_factory=list)
+    segments: list[dict] = Field(default_factory=list)
+    language: str = ""
 
 
 # --- messages ---

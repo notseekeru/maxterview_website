@@ -529,7 +529,9 @@ export async function transcribeAudio(clip: Blob): Promise<VoiceTranscript> {
 
 export interface VoiceTranscript {
     text: string;
-    words: unknown[];
+    /** Whisper turbo returns phrase segments (start/end/text), not per-word timings. Unused today. */
+    segments: unknown[];
+    language: string;
 }
 
 export type StreamEvent = { kind: "message"; content: string } | { kind: "done"; closing?: boolean; failed?: { turn: number; class: MoveClass } } | { kind: "error"; message: string };
