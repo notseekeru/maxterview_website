@@ -179,22 +179,27 @@ async def transcribe(data: bytes, transcription: str = "transcribe") -> Transcri
     result = payload.get("result") if isinstance(payload, dict) else payload
     # The non-turbo `whisper` model answers with the text alone; the turbo model answers with an object.
     if isinstance(result, str):
-        text, segments, info = result, [], {}
+        text, segments, info, usage = result, [], {}, {}
     else:
         result = result or {}
         text = result.get("text") or ""
         segments = result.get("segments") or []
         info = result.get("transcription_info") or {}
+        usage = result.get("usage") or {}
     log.info(
         "voice.stt.completed",
         bytes=len(data),
         latency_ms=round((time.perf_counter() - started) * 1000, 1),
         engine="cloud",
         chars=len(text),
-        # Audio seconds and the detected language come back in `transcription_info`, which is what makes
-        # a run's neuron cost and a mis-detected language readable out of Loki (VOICE.md gotcha 10).
+        # `transcription_info` carries the audio seconds and the detected language, which is what makes a
+        # run's cost and a mis-detected language readable out of Loki (VOICE.md gotcha 10).
         audio_s=info.get("duration"),
         language=info.get("language"),
+        # Measured, not estimated: the response reports the neurons it spent (87.26 for a 112s clip,
+        # which is the published 46.63 per audio minute). TTS returns raw audio, so its cost stays an
+        # estimate from characters.
+        neurons=usage.get("neurons"),
     )
     return Transcript(text=text.strip(), segments=segments, language=str(info.get("language") or ""))
 

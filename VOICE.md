@@ -38,8 +38,8 @@ fail once it is gone. Measured 2026-09-23 against the live account:
 
 | Direction | Model | Measured | Cost |
 | --------- | ----- | -------- | ---- |
-| Transcription | `whisper-large-v3-turbo` | 17.5s for a 90 second clip, 10 segments, correct text | 46.63 neurons/audio-minute, so ~70 for a 90s take and ~700 for a 15 minute answer set |
-| Voice | `@cf/deepgram/aura-1` | 0.41-1.03s per sentence, `audio/mpeg` | 1,363-2,727 neurons per 1k characters, so ~1.4k-3.8k for a run's 1,000-1,400 characters |
+| Transcription | `whisper-large-v3-turbo` | 6.8-17.5s for a 112 second clip through our own route (upload included), 10 segments, correct text | The response reports its own spend: **87.26 neurons** for that clip, which is the published 46.63 per audio minute. A 15 minute answer set is therefore ~700 |
+| Voice | `@cf/deepgram/aura-1` | 0.42-1.03s per sentence, `audio/mpeg` | 1,363-2,727 neurons per 1k characters, so ~1.4k-3.8k for a run's 1,000-1,400 characters. Estimated, not reported: this model returns raw audio with no usage envelope |
 
 The voice is the scarce resource, not the transcription: about 2 to 7 runs a day, where the answers
 would allow 14. `@cf/myshell-ai/melotts` is the model this account cannot run at all: it answers
@@ -87,12 +87,12 @@ face metrics go the same way: unproven value for the complexity, and the same ob
 
 | Stage                    | Measured (2026-09-23)                                                                        |
 | ------------------------ | -------------------------------------------------------------------------------------------- |
-| Text after they stop     | 17.5s for a 90 second clip, and it scales with length: Whisper is batch, not streaming. This is the wait that needs a progress hint, not a spinner |
+| Text after they stop     | 6.8-17.5s for a 112 second clip, upload included, and it scales with length: Whisper is batch, not streaming. This is the wait that needs a progress hint, not a spinner |
 | First token of the reply | `llm.chat.completed.latency_ms` is whole-turn, not time to first token. Measure that first     |
 | Hardcore judge           | Silence before the reply on hardcore runs. Read `llm.chat.*` in Loki for the real number       |
 | First audio of the reply | 0.4-1.0s per sentence, so the first audible gap is one chunk plus one round trip                |
 
-One turn therefore feels like: stop -> 17s -> text appears -> Enter -> 2-3s -> voice. The transcription
+One turn therefore feels like: stop -> 7-18s -> text appears -> Enter -> 2-3s -> voice. The transcription
 wait is the number that decides whether voice answering feels usable, and it is the one thing here I
 would redesign before shipping to anyone else.
 
@@ -138,9 +138,11 @@ confirms, the pipeline runs. Only the wait and the voice change.
    timer.
 9. Do not put audio inside the SSE stream. Audio rides its own request, one sentence at a time and
    serialized.
-10. Log `voice.stt.completed {bytes, latency_ms, engine, chars}`, `voice.tts.completed {chars,
-latency_ms, engine, bytes}` and `voice.unreachable | unauthorized | quota_exhausted {status}`. Cost,
-p95, and how often the cloud engine is down then come out of Loki with no new infra.
+10. Log `voice.stt.completed {bytes, latency_ms, engine, chars, audio_s, language, neurons}`,
+`voice.tts.completed {chars, latency_ms, engine, bytes}` and `voice.unreachable | unauthorized |
+quota_exhausted {status}`. Cost, p95, and how often the cloud engine is down then come out of Loki with
+no new infra. Transcription reports its own neuron spend; the voice does not, so its cost stays an
+estimate from characters.
 11. Cap concurrent upstream calls the way `resumes.py` caps parses: one replica means a burst of
     uploads is a burst of base64 held in memory.
 12. Read the Workers AI envelope before the result: a refusal arrives as HTTP 200 with

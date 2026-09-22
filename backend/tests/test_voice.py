@@ -60,6 +60,7 @@ async def test_transcribe_base64s_the_clip_and_reads_the_segments():
             "text": "I ran the migration.  ",
             "segments": [{"start": 0, "end": 2.1, "text": " I ran the migration."}],
             "transcription_info": {"duration": 90.2, "language": "en"},
+            "usage": {"neurons": 87.26},
         },
         "success": True,
         "errors": [],
