@@ -2,9 +2,12 @@ import { memo, useCallback, useEffect, useId, useLayoutEffect, useRef, useState 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
+import { MAX_TAKE_S, useRecorder, useSpeaker } from "@/hooks/useInterviewVoice";
 import { apiDetail, type Feedback, finishInterview, getFeedback, getInterview, getMessages, httpStatus, MAX_TURN_CHARS, type Message, regenerateFeedback, startInterview, streamChat } from "@/lib/api";
 import { OPENING_ASKS_RESUME, OPENING_HAS_RESUME } from "@/lib/config";
 import { cn } from "@/lib/utils";
+import { readVoicePref, writeVoicePref } from "@/lib/voice";
+import { Icon } from "./AppIcons";
 import { FeedbackView } from "./FeedbackView";
 import { FinishOverlay } from "./FinishOverlay";
 import { MoveBadge } from "./MoveBadge";
@@ -58,6 +61,30 @@ export function InterviewChat({ interviewId, onExit }: Props) {
     const abortRef = useRef<AbortController | null>(null);
     const scrollRef = useRef<HTMLDivElement | null>(null);
     const opening = hasResume ? OPENING_HAS_RESUME : OPENING_ASKS_RESUME;
+    const [voiceOn, setVoiceOn] = useState(readVoicePref);
+    // Voice is I/O around the turn: the applicant's speech lands in the answer box, the interviewer's
+    // reply is read aloud, and everything after that is the pipeline that already exists (VOICE.md).
+    const speaker = useSpeaker(voiceOn);
+    const mic = useRecorder(
+        useCallback((text: string) => {
+            if (!text) return;
+            setDraft((d) => (d.trim() ? `${d.trimEnd()} ${text}` : text).slice(0, MAX_TURN_CHARS));
+        }, []),
+    );
+    const voiceTitle = speaker.available ? (voiceOn ? "Stop reading replies aloud" : "Read each reply aloud") : "This browser has no voice, so replies can't be read aloud";
+    const placeholder = mic.recording
+        ? "Listening: press Stop to put your words here"
+        : status === "completed"
+          ? "Review above"
+          : interviewOver
+            ? "Interview finished — press Finish"
+            : confirmFinish
+              ? "Ending here skips the rest"
+              : status === "ready"
+                ? "Type your answer to the interviewer, or press Speak..."
+                : status === "streaming"
+                  ? "Waiting for the interviewer..."
+                  : "Starting…";
 
     const loadMessages = useCallback(async () => {
         try {
@@ -129,10 +156,36 @@ export function InterviewChat({ interviewId, onExit }: Props) {
         if (feedback) scrollRef.current?.scrollTo({ top: 0 });
     }, [feedback]);
 
+    // The opening line is a reply, so it is read aloud too, but only when voice was already on: the
+    // click that turns it on is the gesture that lets audio play (VOICE.md gotcha 5).
+    const openingSpoken = useRef(false);
+    useEffect(() => {
+        if (openingSpoken.current || !voiceOn || !speaker.available || status === "loading" || feedback || messages.length || !opening) return;
+        // Deferred past this commit: StrictMode runs this effect, cancels it and runs it again, so
+        // speaking inline would be stopped by our own cleanup before it was audible. A dev-only
+        // silence is the worst kind of bug to chase, and the flag moves inside the timer so the
+        // cancelled pass cannot claim to have spoken.
+        const timer = setTimeout(() => {
+            openingSpoken.current = true;
+            speaker.say(opening);
+        }, 0);
+        return () => clearTimeout(timer);
+    }, [voiceOn, speaker, status, feedback, messages.length, opening]);
+
+    /** The choice is per browser and survives the session; the speak call itself is driven by the
+     *  hook, so turning this off mid-sentence stops the sentence. */
+    function toggleVoice() {
+        const next = !voiceOn;
+        setVoiceOn(next);
+        writeVoicePref(next);
+    }
+
     async function send() {
         const content = draft.trim();
         if (!content || status !== "ready" || sendingRef.current) return;
         sendingRef.current = true;
+        // The take that failed is behind us now; a living mic error under a box that just sent is noise.
+        mic.clear();
         setDraft("");
         setError(null);
         setStatus("streaming");
@@ -157,6 +210,9 @@ export function InterviewChat({ interviewId, onExit }: Props) {
         abortRef.current = ac;
         let buffer = "";
         let settled = false;
+        // Spoken as it streams, sentence by sentence: waiting for the whole reply would put the voice
+        // a generation behind the text on screen.
+        speaker.begin();
         try {
             await streamChat(
                 interviewId,
@@ -165,8 +221,10 @@ export function InterviewChat({ interviewId, onExit }: Props) {
                     if (ev.kind === "message") {
                         buffer += ev.content;
                         setAssistBuf(buffer);
+                        speaker.push(ev.content);
                     } else if (ev.kind === "done") {
                         settled = true;
+                        speaker.flush();
                         if (buffer) {
                             setMessages((m) => [
                                 ...m,
@@ -188,6 +246,7 @@ export function InterviewChat({ interviewId, onExit }: Props) {
                         }
                     } else if (ev.kind === "error") {
                         settled = true;
+                        speaker.stop();
                         rollback();
                         setDraft(content);
                         // The server's message names the endpoint and what to do about it; the constant
@@ -201,8 +260,11 @@ export function InterviewChat({ interviewId, onExit }: Props) {
             if (!settled) {
                 setAssistBuf("");
                 const rows = await loadMessages();
-                if (rows?.some((m) => m.role === "user" && m.content === content)) setError(null);
-                else {
+                if (rows?.some((m) => m.role === "user" && m.content === content)) {
+                    setError(null);
+                    speaker.flush(); // the turn landed after all: finish the sentence the cut-off stream left hanging
+                } else {
+                    speaker.stop();
                     rollback();
                     setDraft(content);
                     setError(STREAM_FAILED);
@@ -210,6 +272,7 @@ export function InterviewChat({ interviewId, onExit }: Props) {
             }
         } catch (e: unknown) {
             if ((e as { name?: string })?.name !== "AbortError") {
+                speaker.stop();
                 const st = httpStatus(e);
                 if (st === 402) setQuotaLocked(true);
                 else if (st === 409) setInterviewOver(true);
@@ -225,6 +288,9 @@ export function InterviewChat({ interviewId, onExit }: Props) {
 
     /** Load the review and re-read the transcript it annotates. Every finish path lands here. */
     async function openReview(load: () => Promise<Feedback>) {
+        // The review page is silent: whatever the last reply had left to say stops here rather than
+        // talking over the thing it is being graded against.
+        speaker.stop();
         setStatus("completed");
         setReviewFailed(false);
         setError(null);
@@ -278,9 +344,15 @@ export function InterviewChat({ interviewId, onExit }: Props) {
                         <CardTitle>Interview</CardTitle>
                         <CardDescription>{STATUS_LABELS[status]}</CardDescription>
                     </div>
-                    <Button variant="outline" size="sm" onClick={onExit}>
-                        Exit
-                    </Button>
+                    <div className="flex items-center gap-2">
+                        <Button variant="ghost" size="sm" aria-pressed={voiceOn} onClick={toggleVoice} disabled={!speaker.available} title={voiceTitle}>
+                            <Icon name={voiceOn ? "sound" : "mute"} />
+                            {voiceOn ? "Voice on" : "Voice off"}
+                        </Button>
+                        <Button variant="outline" size="sm" onClick={onExit}>
+                            Exit
+                        </Button>
+                    </div>
                 </CardHeader>
 
                 {/* One scroller: the review, then the transcript it argues from. */}
@@ -324,9 +396,9 @@ export function InterviewChat({ interviewId, onExit }: Props) {
                     {status === "loading" && <p className="text-sm text-muted-foreground">Starting…</p>}
                     {/* Not while loading: a reopened run would flash the opening line before its
                     real transcript arrives. */}
-                    {status !== "loading" && messages.length === 0 && opening && <Bubble from="assistant" content={opening} />}
+                    {status !== "loading" && messages.length === 0 && opening && <Bubble from="assistant" content={opening} onReplay={voiceOn && speaker.available ? speaker.say : undefined} />}
                     {messages.map((m) => (
-                        <Bubble key={m.id} from={m.role} content={m.content} moveClass={m.move_class} comment={m.comment} />
+                        <Bubble key={m.id} from={m.role} content={m.content} moveClass={m.move_class} comment={m.comment} onReplay={m.role === "assistant" && voiceOn && speaker.available ? speaker.say : undefined} />
                     ))}
                     {assistBuf && <Bubble from="assistant" content={assistBuf} streaming />}
                     {status === "streaming" && !assistBuf && <p className="text-sm text-muted-foreground">Thinking…</p>}
@@ -341,29 +413,54 @@ export function InterviewChat({ interviewId, onExit }: Props) {
                         </div>
                     )}
                 </CardContent>
-                <CardFooter className="gap-2">
-                    <Textarea
-                        value={draft}
-                        maxLength={MAX_TURN_CHARS}
-                        aria-label="Your answer"
-                        onChange={(e) => setDraft(e.target.value)}
-                        placeholder={status === "completed" ? "Review above" : interviewOver ? "Interview finished — press Finish" : confirmFinish ? "Ending here skips the rest" : status === "ready" ? "Type your answer to the interviewer..." : status === "streaming" ? "Waiting for the interviewer..." : "Starting…"}
-                        onKeyDown={(e) => {
-                            if (e.key === "Enter" && !e.shiftKey && status === "ready") {
-                                e.preventDefault();
-                                void send();
-                            }
-                        }}
-                        disabled={status === "completed" || interviewOver}
-                    />
+                <CardFooter className="items-start gap-2">
+                    <div className="flex-1 space-y-1.5">
+                        <Textarea
+                            value={draft}
+                            maxLength={MAX_TURN_CHARS}
+                            aria-label="Your answer"
+                            onChange={(e) => setDraft(e.target.value)}
+                            placeholder={placeholder}
+                            onKeyDown={(e) => {
+                                if (e.key === "Enter" && !e.shiftKey && status === "ready") {
+                                    e.preventDefault();
+                                    void send();
+                                }
+                            }}
+                            disabled={status === "completed" || interviewOver || mic.recording}
+                        />
+                        {/* Nothing renders mid-answer (V4): the timer and the engine's own speech signal
+                            are the whole of the feedback until Stop. */}
+                        {mic.recording && (
+                            <p role="status" className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                                <span aria-hidden className={cn("h-1.5 w-1.5 rounded-full", mic.hearing ? "animate-pulse bg-destructive" : "bg-muted-foreground/40")} />
+                                {mic.hearing ? "Hearing you" : "Listening"} · {clock(mic.elapsed)} of {clock(MAX_TAKE_S)}
+                            </p>
+                        )}
+                        {!mic.recording && mic.notice && <p className="text-xs text-muted-foreground">{mic.notice}</p>}
+                        {mic.error && <p className="text-xs text-destructive">{mic.error}</p>}
+                    </div>
                     <div className="flex flex-col gap-2">
                         {confirmFinish && <p className="max-w-48 text-xs text-muted-foreground">End early? This run still has questions left.</p>}
-                        <Button onClick={() => void send()} disabled={status !== "ready" || !draft.trim() || interviewOver}>
+                        <Button onClick={() => void send()} disabled={status !== "ready" || !draft.trim() || interviewOver || mic.recording}>
                             Send
+                        </Button>
+                        {/* Disabled while the interviewer is replying: an open microphone would
+                            transcribe our own voice back into the answer (VOICE.md gotcha 7). */}
+                        <Button
+                            variant={mic.recording ? "destructive" : "outline"}
+                            size="sm"
+                            aria-pressed={mic.recording}
+                            onClick={() => (mic.recording ? mic.stop() : mic.start())}
+                            disabled={!mic.recording && (status !== "ready" || interviewOver || Boolean(mic.blocked))}
+                            title={mic.blocked ?? (mic.recording ? "Stop and put what you said into your answer" : "Speak your answer instead of typing it")}
+                        >
+                            <Icon name={mic.recording ? "stop" : "mic"} />
+                            {mic.recording ? "Stop" : "Speak"}
                         </Button>
                         {confirmFinish ? (
                             <div className="flex items-center gap-1.5">
-                                <Button variant="destructive" size="sm" onClick={() => void finishRun()} disabled={isFinishing}>
+                                <Button variant="destructive" size="sm" onClick={() => void finishRun()} disabled={isFinishing || mic.recording}>
                                     End it
                                 </Button>
                                 <Button variant="ghost" size="sm" onClick={() => setConfirmFinish(false)}>
@@ -371,7 +468,7 @@ export function InterviewChat({ interviewId, onExit }: Props) {
                                 </Button>
                             </div>
                         ) : (
-                            <Button variant="destructive" size="sm" onClick={() => (interviewOver ? void finishRun() : setConfirmFinish(true))} disabled={isFinishing || status === "streaming" || status === "completed" || !answered}>
+                            <Button variant="destructive" size="sm" onClick={() => (interviewOver ? void finishRun() : setConfirmFinish(true))} disabled={isFinishing || status === "streaming" || status === "completed" || !answered || mic.recording}>
                                 {isFinishing && <Spinner />}
                                 {isFinishing ? "Finishing…" : "Finish"}
                             </Button>
@@ -423,7 +520,7 @@ const MoveTip = memo(function MoveTip({ comment }: { comment: string }) {
     );
 });
 
-const Bubble = memo(function Bubble({ from, content, streaming, moveClass, comment }: { from: string; content: string; streaming?: boolean; moveClass?: string | null; comment?: string | null }) {
+const Bubble = memo(function Bubble({ from, content, streaming, moveClass, comment, onReplay }: { from: string; content: string; streaming?: boolean; moveClass?: string | null; comment?: string | null; onReplay?: (text: string) => void }) {
     const isUser = from === "user";
     const noted = isUser && !!comment;
     const bubble = (
@@ -432,6 +529,14 @@ const Bubble = memo(function Bubble({ from, content, streaming, moveClass, comme
             {streaming && <span className="inline-block animate-pulse">▋</span>}
         </div>
     );
+    // Replies only: a replay is how a word the engine misheard gets checked, and the applicant knows
+    // what they said. Nothing to replay while the reply is still arriving.
+    const replay =
+        onReplay && !streaming ? (
+            <button type="button" aria-label="Play this reply aloud" title="Play this reply aloud" onClick={() => onReplay(content)} className="mb-1 shrink-0 rounded-full p-1 text-muted-foreground/60 transition-colors hover:text-foreground">
+                <Icon name="sound" className="h-3.5 w-3.5" />
+            </button>
+        ) : null;
     // Before the bubble, not after: a badge on the right insets the bubble's edge, so every answer
     // would shift left the moment the review lands.
     const badge = isUser && moveClass ? <MoveBadge moveClass={moveClass} /> : null;
@@ -454,9 +559,16 @@ const Bubble = memo(function Bubble({ from, content, streaming, moveClass, comme
         <div className={`flex items-end gap-2 ${isUser ? "justify-end" : "justify-start"}`}>
             {badge}
             {bubble}
+            {replay}
         </div>
     );
 });
+
+/** mm:ss for the take timer, which is also the cap counting down beside it. */
+function clock(seconds: number): string {
+    const total = Math.floor(seconds);
+    return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, "0")}`;
+}
 
 function Spinner() {
     return <span role="status" aria-label="Loading" className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent" />;

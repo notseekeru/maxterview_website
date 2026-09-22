@@ -1,7 +1,7 @@
-import { BookOpen, ChartLine, CreditCard, FileText, LayoutDashboard, LogOut, type LucideIcon, Menu, MessageSquare, Monitor, Moon, Settings, ShieldCheck, Sun, User, X } from "lucide-react";
+import { BookOpen, ChartLine, CreditCard, FileText, LayoutDashboard, LogOut, type LucideIcon, Menu, MessageSquare, Mic, Monitor, Moon, Settings, ShieldCheck, Square, Sun, User, Volume2, VolumeX, X } from "lucide-react";
 import type { ComponentProps } from "react";
 
-export type IconName = "dashboard" | "chat" | "chart" | "file" | "settings" | "user" | "shield" | "card" | "book" | "sun" | "moon" | "monitor" | "logout" | "menu" | "x";
+export type IconName = "dashboard" | "chat" | "chart" | "file" | "settings" | "user" | "shield" | "card" | "book" | "sun" | "moon" | "monitor" | "logout" | "menu" | "x" | "sound" | "mute" | "mic" | "stop";
 
 const MAP: Record<IconName, LucideIcon> = {
     dashboard: LayoutDashboard,
@@ -19,6 +19,10 @@ const MAP: Record<IconName, LucideIcon> = {
     logout: LogOut,
     menu: Menu,
     x: X,
+    sound: Volume2,
+    mute: VolumeX,
+    mic: Mic,
+    stop: Square,
 };
 
 type IconProps = ComponentProps<LucideIcon> & { name: IconName };
