@@ -113,7 +113,7 @@ make new-migration name=<name>
 make lint        # ruff (backend) + biome (frontend)
 make exec        # full gate: frontend npm ci + biome + typecheck + build; backend ruff + pytest
 make test-llm    # end-to-end LLM smoke test (single turn) — needs a live model + running stack
-scripts/llm-smoke.sh         # the same smoke, callable directly (optional BASE_URL arg)
+scripts/llm-smoke.py         # the same smoke, callable directly (optional BASE_URL arg)
 make build / buildcache / down / clean  (dev)
 make prod-build / prod-up / prod-logs / prod-down  (prod-style)
 ```

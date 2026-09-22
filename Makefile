@@ -24,8 +24,8 @@ seed: ## Artificial dev-user history for the dashboard/history/analytics pages. 
 seed-wipe: ## Same, replacing this owner's existing rows.
 	@nix shell nixpkgs#python3 --command python3 scripts/seed-dev-data.py --wipe
 
-test-llm: ## End-to-end LLM smoke test (needs live model + running stack). See scripts/llm-smoke.sh.
-	@scripts/llm-smoke.sh
+test-llm: ## End-to-end LLM smoke test (needs live model + running stack). See scripts/llm-smoke.py.
+	@nix shell nixpkgs#python3 --command python3 -u scripts/llm-smoke.py
 probe-llm: ## Measure the LLM_* target: rate-limit cliff, prompt caching, stage latency. See scripts/llm-probe.py.
 	@set -a; . ./backend/.env; set +a; nix shell nixpkgs#python3 --command python3 -u scripts/llm-probe.py
 # DEV
