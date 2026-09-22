@@ -53,6 +53,7 @@ prefix, which the **app** owns (`API_PREFIX`) — no proxy or ingress rewrite st
 - `GET /stats/dimensions` · `GET /analytics` — server-side aggregates for the dashboard radar and deep-dive. Ask for exactly what `AnalyticsPage.tsx` renders; drop the route when the page does
 - `GET /usage` · `GET /health`
 - `GET|PUT|DELETE /settings/llm` + `POST /settings/llm/test` — BYOK (`BYOK.md`)
+- `GET /voice` (which directions this deployment can do) · `POST /voice/tts` (one line → audio) · `POST /voice/stt` (one clip → text, **persists nothing**). Both need the `CLOUDFLARE_*` pair; without it the UI disables the voice controls and says why (`VOICE.md`)
 - `POST /billing/checkout|cancel|webhook|webhook/simulate` — (`MONETIZATION.md` §3)
 
 `complete` auto-generates feedback and refuses with `409` if no turn was ever sent — an empty
@@ -92,6 +93,7 @@ you only need the vars for the features you actually use. Check which are set (n
 | Real AI interviewer chat + auto-feedback | `LLM_BASE_URL`, `LLM_MODEL`, `LLM_API_KEY`                     | —                                                      | empty → deterministic STUB (model-free tests/dev)                                                                    |
 | BYOK (own provider key)                  | `BYOK_ENCRYPTION_KEY`                                          | —                                                      | `BYOK.md`                                                                                                            |
 | Observability (JSON logs, error capture) | _(nothing)_ — dev logs to the console                          | prod: Loki + alerts, wired in gitops                   | `make logs`, or `OBSERVABILITY.md`                                                                                   |
+| Voice: interviewer speaks, answers dictate | `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN` (Workers AI - Read) | —                                                      | `VOICE.md`. Empty → the chat surface disables both controls and says why instead of failing on click                 |
 
 Feature env values come from your Clerk app's **Development instance** (`.clerk.accounts.dev` /
 `pk_test_` / `sk_test_`) and PayMongo **test mode** — both safe on `localhost`. Live keys are locked

@@ -34,22 +34,27 @@ avatar interviewers, always-on listening, and anything metered, billed or card-b
 ## The budget: 10,000 neurons a day, shared by the whole account
 
 Cloudflare's free allocation is 10,000 neurons per day per account, reset at 00:00 UTC, and requests
-fail once it is gone. At the published rates (`whisper-large-v3-turbo` 46.63 neurons per audio
-minute, MeloTTS 18.63 neurons per audio minute), one run of 10 answers at about 15 minutes of the
-applicant's speech and 2.5 minutes of the interviewer's speech costs roughly 700 neurons for the
-transcription and 47 for the voice. That is about 14 runs a day for free. Past that, voice goes
-unavailable with a reason on screen: a degraded feature, never a bill.
+fail once it is gone. Measured 2026-09-23 against the live account:
 
-**Unverified:** whether both models run on the free plan at all. Cloudflare notes that some
-resource-intensive models need a billing method on file. One curl each decides it, and the latency of
-a 90 second clip decides the UX. Both are owed before the first claim that this works.
+| Direction | Model | Measured | Cost |
+| --------- | ----- | -------- | ---- |
+| Transcription | `whisper-large-v3-turbo` | 17.5s for a 90 second clip, 10 segments, correct text | 46.63 neurons/audio-minute, so ~70 for a 90s take and ~700 for a 15 minute answer set |
+| Voice | `@cf/deepgram/aura-1` | 0.41-1.03s per sentence, `audio/mpeg` | 1,363-2,727 neurons per 1k characters, so ~1.4k-3.8k for a run's 1,000-1,400 characters |
+
+The voice is the scarce resource, not the transcription: about 2 to 7 runs a day, where the answers
+would allow 14. `@cf/myshell-ai/melotts` is the model this account cannot run at all: it answers
+`AiError: Internal server error` (code 3043) on every request, with or without `lang`, while the same
+token drives the other two. That is why the default is Aura, and it is also the better outcome: Aura is
+the human voice, MeloTTS is the generic one that got the browser engines deleted (V1).
+
+Past the allocation, voice goes unavailable with a reason on screen: a degraded feature, never a bill.
 
 ## Step 1: it speaks (built)
 
-MeloTTS through the backend, one request per sentence, played as it arrives. One consistent voice on
+Aura-1 through the backend, one request per sentence, played as it arrives. One consistent voice on
 every machine, which is the point (V1). The chunking is what makes it feel live: the streamed reply is
 buffered and spoken on a sentence boundary or 140 characters, so the first sentence is heard while the
-rest is still generating.
+rest is still generating. The model is one env var (`CLOUDFLARE_TTS_MODEL`).
 
 Controls: a mute toggle in the header (off by default, remembered per browser), a replay control per
 reply, cancel on unmount, a silent review page, and a finished interview that never reads itself aloud.
@@ -62,9 +67,9 @@ the existing pipeline runs unchanged. A silent or empty take never reaches the b
 a chat turn.
 
 The audio is parsed in-request and discarded, the rule `resumes.py` already follows, so nothing is
-stored. Word timings come back from Whisper and are unused today: they are what pace, filler and pause
-numbers will be built on, and holding a clip for the session is what would make an answer playable
-back, which V3 and the refused list rule out.
+stored. Whisper turbo returns phrase segments (start/end/text), not per-word timings, and they are
+unused today: they are what pace, filler and pause numbers will be built on. Holding a clip for the
+session is what would make an answer playable back, which V3 and the refused list rule out.
 
 The microphone never opens while the interviewer is speaking.
 
@@ -79,14 +84,16 @@ face metrics go the same way: unproven value for the complexity, and the same ob
 
 ## Latency
 
-| Stage                    | What to expect                                                                               |
+| Stage                    | Measured (2026-09-23)                                                                        |
 | ------------------------ | -------------------------------------------------------------------------------------------- |
-| Text after they stop     | 1-3s for the clip, plus the upload. Nothing is transcribed on the client                       |
+| Text after they stop     | 17.5s for a 90 second clip, and it scales with length: Whisper is batch, not streaming. This is the wait that needs a progress hint, not a spinner |
 | First token of the reply | `llm.chat.completed.latency_ms` is whole-turn, not time to first token. Measure that first     |
 | Hardcore judge           | Silence before the reply on hardcore runs. Read `llm.chat.*` in Loki for the real number       |
-| First audio of the reply | One sentence boundary, plus a Workers AI round trip. The first audible gap is the one to watch  |
+| First audio of the reply | 0.4-1.0s per sentence, so the first audible gap is one chunk plus one round trip                |
 
-One turn therefore feels like: stop -> 1-3s -> text appears -> Enter -> 1-3s -> voice.
+One turn therefore feels like: stop -> 17s -> text appears -> Enter -> 2-3s -> voice. The transcription
+wait is the number that decides whether voice answering feels usable, and it is the one thing here I
+would redesign before shipping to anyone else.
 
 ## Cost
 
@@ -100,7 +107,7 @@ figures come from Cloudflare's own pricing page (read 2026-09-22) and Groq's rat
 
 | Free route                                      | What it is                                                                                 | A run costs                | Why it is parked                                                                                                                                                                                   |
 | ----------------------------------------------- | ------------------------------------------------------------------------------------------ | -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Cloudflare Workers AI, Deepgram Aura-1 / Aura-2 | 1,363-2,727 neurons per 1k characters                                                      | 3,300-6,500 neurons        | Nicer voice than MeloTTS, at one to three runs a day                                                                                                                                               |
+| Cloudflare Workers AI, Deepgram Aura-2 | Same price as Aura-1, 1.18-1.97s per sentence against 0.41-1.03s        | 3,300-6,500 neurons        | Measured slower than Aura-1 for the same money. A drop-in swap: one env var |
 | Cloudflare Workers AI, `whisper` base           | 41.14 neurons per audio minute                                                             | ~620 neurons               | Cheaper sibling of the turbo model at slightly lower quality                                                                                                                                       |
 | Cloudflare Workers AI, Pipecat smart-turn-v2    | 0.51 neurons per audio minute                                                              | negligible                 | Turn detection, for a hands-free mode that is not planned                                                                                                                                          |
 | Groq free tier, `whisper-large-v3-turbo`        | OpenAI-compatible, no card, limited by audio seconds per day (see the console limits page) | inside the daily audio cap | A second provider for the same job, and also a shared organization budget                                                                                                                          |
