@@ -206,6 +206,9 @@ export function cloudTranscriber(upload: (clip: Blob) => Promise<string>, sink: 
     let stream: MediaStream | null = null;
     let chunks: Blob[] = [];
     let meter = 0;
+    // The analyser needs a context, and a context holds an audio thread until it is closed. One per
+    // take with nothing closing them accumulates for the life of the page.
+    let audio: AudioContext | null = null;
     let settled = false;
 
     const release = () => {
@@ -214,6 +217,8 @@ export function cloudTranscriber(upload: (clip: Blob) => Promise<string>, sink: 
         for (const track of stream?.getTracks() ?? []) track.stop();
         stream = null;
         recorder = null;
+        void audio?.close().catch(() => undefined);
+        audio = null;
     };
 
     const finish = (error: string | null) => {
@@ -271,19 +276,29 @@ export function cloudTranscriber(upload: (clip: Blob) => Promise<string>, sink: 
                     }
                     void deliver(clip);
                 };
-                recorder.start();
-                // The level meter is the reason the applicant can trust the microphone is live at all:
-                // nothing is transcribed on the client, so silence and a dead mic look identical.
-                const ctx = new AudioContext();
-                const analyser = ctx.createAnalyser();
-                analyser.fftSize = 1024;
-                ctx.createMediaStreamSource(stream).connect(analyser);
-                const frame = new Uint8Array(analyser.fftSize);
-                const tick = () => {
-                    sink.onLevel(levelOf(analyser, frame));
+                // Guarded: a stream the recorder will not accept (a device grabbed by another app, no
+                // audio track, a browser that reports a mime type it then refuses) throws here, and an
+                // uncaught throw left the take looking live until the three minute cap.
+                try {
+                    recorder.start();
+                    audio = new AudioContext();
+                    const analyser = audio.createAnalyser();
+                    analyser.fftSize = 1024;
+                    audio.createMediaStreamSource(stream).connect(analyser);
+                    const frame = new Uint8Array(analyser.fftSize);
+                    const tick = () => {
+                        sink.onLevel(levelOf(analyser, frame));
+                        meter = requestAnimationFrame(tick);
+                    };
                     meter = requestAnimationFrame(tick);
-                };
-                meter = requestAnimationFrame(tick);
+                } catch {
+                    try {
+                        recorder.stop();
+                    } catch {
+                        undefined; // never started
+                    }
+                    finish("The recorder could not start on this device. Type your answer instead.");
+                }
             })();
         },
         stop() {
