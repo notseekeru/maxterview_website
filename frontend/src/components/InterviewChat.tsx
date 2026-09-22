@@ -66,7 +66,7 @@ export function InterviewChat({ interviewId, onExit }: Props) {
     // reply is read aloud, and everything after that is the pipeline that already exists (VOICE.md).
     // The server is asked what it can do before anything is offered, so a deployment without Workers
     // AI shows a dead control with a reason instead of a button that fails on click.
-    const capability = useVoiceCapability();
+    const { capability, failed: capabilityFailed } = useVoiceCapability();
     const speaker = useSpeaker(voiceOn && Boolean(capability?.tts));
     const mic = useRecorder(
         capability,
@@ -78,9 +78,10 @@ export function InterviewChat({ interviewId, onExit }: Props) {
     const voiceTitle = capability?.tts ? (voiceOn ? "Stop reading replies aloud" : "Read each reply aloud") : undefined;
     // Voice limits belong to the server, not the run, so they are stated on screen where the controls
     // are. A title attribute is not enough: the buttons that need the explanation are disabled, and a
-    // hairline under the pointer is not where a stuck visitor looks. The speaker's limit sits with the
-    // toggle, the mic's with the box, and neither fact is written in both places.
-    const voiceNote = capability && !capability.tts ? "Replies can't be read aloud: this server has no speech voice configured." : null;
+    // hairline under the pointer is not where a stuck visitor looks. A probe that FAILED is a third
+    // state: the controls stay off, and the line says the check did not happen rather than inventing a
+    // deployment without voice.
+    const voiceNote = capabilityFailed ? "Voice couldn't be checked just now, so both controls are off. Reload to try again." : capability && !capability.tts ? "Replies can't be read aloud: this server has no speech voice configured." : null;
     const micProblem = mic.blocked ?? mic.error;
     const placeholder = mic.recording
         ? "Listening: press Stop to put your words here"

@@ -4,24 +4,32 @@ import { apiDetail, getVoiceCapability, synthesizeSpeech, transcribeAudio, type 
 import { cloudSpeaker, cloudTranscriber, createReader, micBlockedReason, type Transcriber, type VoiceReader } from "@/lib/voice";
 
 /** What this server can do, fetched once per mount. It is deployment config rather than run state, and
- *  a failure means "no voice here" rather than a broken page: the controls then say so instead of
- *  offering something that cannot work. */
-export function useVoiceCapability(): VoiceCapability | null {
+ *  a failed probe is NOT the same fact as a server without voice: claiming the second from the first
+ *  tells the visitor to stop trying for a reason that is not true. One retry, then say so. */
+export function useVoiceCapability(): { capability: VoiceCapability | null; failed: boolean } {
     const [capability, setCapability] = useState<VoiceCapability | null>(null);
+    const [failed, setFailed] = useState(false);
     useEffect(() => {
         let alive = true;
-        void getVoiceCapability()
-            .then((got) => {
-                if (alive) setCapability(got);
-            })
-            .catch(() => {
-                if (alive) setCapability({ tts: false, stt: false, tts_model: "", stt_model: "" });
-            });
+        let retry: ReturnType<typeof setTimeout> | undefined;
+        const load = (attempt: number) => {
+            void getVoiceCapability()
+                .then((got) => {
+                    if (alive) setCapability(got);
+                })
+                .catch(() => {
+                    if (!alive) return;
+                    if (attempt === 0) retry = setTimeout(() => load(1), 800);
+                    else setFailed(true);
+                });
+        };
+        load(0);
         return () => {
             alive = false;
+            clearTimeout(retry);
         };
     }, []);
-    return capability;
+    return { capability, failed };
 }
 
 /** The interviewer speaking (VOICE.md step 1). One reader per reply, and the reader outlives the
