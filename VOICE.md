@@ -98,8 +98,9 @@ would redesign before shipping to anyone else.
 
 ## Cost
 
-Zero. Both directions run inside the free daily allocation, nothing is metered because nothing is
-bought, so the chat-turn meter is untouched. A spent allocation is a disabled control, not an invoice.
+Zero dollars. Both directions run inside the free daily allocation, nothing is card-backed, so a spent
+allocation is a disabled control rather than an invoice. That allocation is one shared resource with no
+per-owner metering, which is a limit rather than a design: see Limits, and what comes next.
 
 ## Free alternatives (parked)
 
@@ -149,6 +150,26 @@ estimate from characters.
     `success: false`, and reading `result` anyway turns a quota message into a KeyError.
 13. A failed take still needs to end the session on the client, whatever the engine does: a recorder
     that keeps a hot microphone after an error is the state a visitor cannot get out of.
+14. A background probe that fails is not a verdict. A refused capability check once told the visitor
+    their deployment had no voice, which sends them off to fix a problem that is not there.
+
+## Limits, and what comes next
+
+Ordered by what to do first. The numbers are measured; the moves are not done. Everything here is
+survivable today because voice is optional infrastructure behind a capability gate (V7): a dead
+provider costs the visitor a feature, never the interview.
+
+| Limit | Evidence | Move |
+| ----- | -------- | ---- |
+| The upload cap is bytes, the bill is audio minutes | 8MB of low bitrate Opus decodes to hours, and Whisper bills per audio minute, so one request could spend most of a day's 10,000 neurons. `audio_s` is only known after the transcription, when the money is gone. Arithmetic, not tested: proving it costs the thing it measures | Cap at 1MB (three minutes of Opus is ~540KB), or verify duration before sending |
+| The daily budget is one account, shared with dev | 10,000 neurons a day on a single token, and nothing meters voice per owner. The chat-turn meter counts turns and is blind to it, so one heavy visitor turns voice off for everyone until 00:00 UTC | A token per environment, the owner logged on the voice events, and a per-owner voice budget before this is public |
+| A transient 5xx drops the take | The clip is still in memory when the upload fails, so the visitor re-records what we already have | Retry once on 5xx, both directions. There is no circuit breaker either |
+| The take cap and the read timeout disagree | 180s take against a 60s upstream read timeout. At the measured rate a full take is ~28s, and ~56s if the provider halves its speed | Widen the read timeout, or shorten the take |
+| The same sentence is paid for every time | The opening line is one fixed 101-character string for every visitor without a resume, ~275 neurons per interview, and a replay re-synthesizes | Cache synthesized audio keyed on the text |
+| One TLS handshake per sentence | `_run` builds a client per call, and TTS is one request per sentence, so the setup sits on the first-audio path | One shared client per process |
+| The wait grows with the answer | 6.8-17.5s for a 112 second clip, and Whisper is batch rather than streaming | A progress affordance, chunked transcription at more neurons, or a shorter take. This is the decision to revisit first |
+| Nothing watches voice | `llm.chat.*` has a Loki panel and alerts; the `voice.*` events exist with measured neurons and no dashboard | One panel and one alert, off events that already ship |
+| The concurrency cap is per pod | The semaphore is 2 per replica; the account budget is not coordinated | Fine at one replica. Replicas need a shared budget before they need tuning |
 
 ## Not doing
 
