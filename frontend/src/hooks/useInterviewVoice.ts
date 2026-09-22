@@ -1,57 +1,55 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { browserSpeaker, createReader, loadVoices, micBlockedReason, pickTranscriber, pickVoice, type Transcriber, type VoiceReader } from "@/lib/voice";
+import { apiDetail, getVoiceCapability, synthesizeSpeech, transcribeAudio, type VoiceCapability } from "@/lib/api";
+import { cloudSpeaker, cloudTranscriber, createReader, micBlockedReason, type Transcriber, type VoiceReader } from "@/lib/voice";
 
-/** The interviewer speaking (VOICE.md step 1). One reader per reply, and the reader outlives the
- *  component only until unmount: an utterance left queued keeps talking over the next screen. */
-export function useSpeaker(enabled: boolean) {
-    // "This browser has a voice at all", true only after the async list lands and has something in
-    // it. False on a Chrome for Linux built without a speech service, and on any browser whose
-    // voices are all loaded from a service the page cannot reach.
-    const [available, setAvailable] = useState(false);
-    const voice = useRef<SpeechSynthesisVoice | null>(null);
-    const reader = useRef<VoiceReader | null>(null);
-    const on = useRef(false);
-
+/** What this server can do, fetched once per mount. It is deployment config rather than run state, and
+ *  a failure means "no voice here" rather than a broken page: the controls then say so instead of
+ *  offering something that cannot work. */
+export function useVoiceCapability(): VoiceCapability | null {
+    const [capability, setCapability] = useState<VoiceCapability | null>(null);
     useEffect(() => {
-        if (typeof window === "undefined" || !("speechSynthesis" in window)) return;
         let alive = true;
-        void loadVoices().then((list) => {
-            if (!alive) return;
-            voice.current = pickVoice(list);
-            setAvailable(list.length > 0);
-        });
+        void getVoiceCapability()
+            .then((got) => {
+                if (alive) setCapability(got);
+            })
+            .catch(() => {
+                if (alive) setCapability({ tts: false, stt: false, tts_model: "", stt_model: "" });
+            });
         return () => {
             alive = false;
         };
     }, []);
+    return capability;
+}
+
+/** The interviewer speaking (VOICE.md step 1). One reader per reply, and the reader outlives the
+ *  component only until unmount: audio left queued keeps talking over the next screen. */
+export function useSpeaker(enabled: boolean) {
+    const reader = useRef<VoiceReader | null>(null);
+    const on = useRef(false);
 
     const stop = useCallback(() => {
         reader.current?.stop();
         reader.current = null;
-        // Belt and braces: the reader's abort cancels what it queued, this cancels anything else the
-        // document is holding. Off, and on the way out, nothing may keep speaking.
-        if (typeof window !== "undefined" && "speechSynthesis" in window) speechSynthesis.cancel();
     }, []);
 
     useEffect(() => {
-        // Availability is part of the decision: a browser with no voice at all must not be told to
-        // speak, whatever the stored preference says.
-        on.current = enabled && available;
-        if (!on.current) stop();
-    }, [enabled, available, stop]);
-    // Unmount, or leaving the route: an utterance outlives the component that queued it (gotcha 5).
+        on.current = enabled;
+        if (!enabled) stop();
+    }, [enabled, stop]);
+    // Unmount, or leaving the route: playback outlives the component that asked for it (gotcha 5).
     useEffect(() => stop, [stop]);
 
-    /** Take the voice over from whatever is speaking and start a fresh queue. A no-op while voice is
-     *  off, so the chat surface can drive this unconditionally and the decision stays in one place. */
+    /** Take the voice over from whatever is playing and start a fresh queue. A no-op while voice is
+     *  off, so the chat surface drives this unconditionally and the decision stays in one place. */
     const begin = useCallback(() => {
         stop();
-        if (on.current) reader.current = createReader(browserSpeaker(voice.current));
+        if (on.current) reader.current = createReader(cloudSpeaker(synthesizeSpeech));
     }, [stop]);
 
     return {
-        available,
         begin,
         push: useCallback((delta: string) => reader.current?.push(delta), []),
         flush: useCallback(() => reader.current?.flush(), []),
@@ -72,20 +70,19 @@ export function useSpeaker(enabled: boolean) {
  *  (VOICE.md gotcha 8): it stops itself well inside both. */
 export const MAX_TAKE_S = 180;
 
-const NOTHING_HEARD = "Nothing was heard, so nothing was added to your answer. Try again, or type it.";
-const ENGINE_ENDED = "Your browser ended the take early. Anything it caught is in your answer, so press the mic again to keep going.";
+const NOTHING_HEARD = "Nothing was heard in that take, so nothing was added to your answer. Try again, or type it.";
 const CAPPED = "Stopped at the three-minute cap.";
+const NO_STT = "Speech can't be transcribed here: this server has no transcription configured. Type your answer instead.";
 
-/** The applicant speaking (VOICE.md step 2). Press to start, press to stop, and the words land in
- *  the answer box for the applicant to confirm or edit: the transcript is what gets scored (V5). */
-export function useRecorder(onWords: (text: string) => void) {
+/** The applicant speaking (VOICE.md step 2). Press to start, press to stop, and the words land in the
+ *  answer box for the applicant to confirm or edit: the transcript is what gets scored (V5). */
+export function useRecorder(capability: VoiceCapability | null, onWords: (text: string) => void) {
     const [recording, setRecording] = useState(false);
-    const [hearing, setHearing] = useState(false);
+    const [level, setLevel] = useState(0);
     const [elapsed, setElapsed] = useState(0);
     const [error, setError] = useState<string | null>(null);
     const [notice, setNotice] = useState<string | null>(null);
     const rec = useRef<Transcriber | null>(null);
-    const words = useRef("");
     const startedAt = useRef(0);
     const capped = useRef(false);
     const done = useRef(onWords);
@@ -93,23 +90,35 @@ export function useRecorder(onWords: (text: string) => void) {
         done.current = onWords;
     }, [onWords]);
 
-    const finish = useCallback((failure: string | null, byEngine: boolean) => {
-        const heard = words.current.trim();
-        words.current = "";
+    /** Read once: a browser does not grow a microphone, and the server's answer does not change
+     *  without a reload. Both are known before the first take, so neither can surprise a take. */
+    const mounted = useState(micBlockedReason)[0];
+    const blocked = mounted ?? (capability && !capability.stt ? NO_STT : null);
+
+    const finish = useCallback((failure: string | null) => {
         rec.current = null;
         setRecording(false);
-        setHearing(false);
+        setLevel(0);
         setElapsed(0);
         setError(failure);
-        // A take that ended badly still hands over what it caught: losing words the applicant said
-        // to punish them for a dropped connection is the worse failure.
-        if (heard) {
-            done.current(heard);
-            setNotice(capped.current ? CAPPED : !failure && byEngine ? ENGINE_ENDED : null);
-        } else {
-            setNotice(failure ? null : NOTHING_HEARD);
-        }
     }, []);
+
+    const sink = useCallback(
+        (): Parameters<typeof cloudTranscriber>[1] => ({
+            onWords: (text: string) => {
+                const clean = text.trim();
+                if (clean) {
+                    done.current(clean);
+                    setNotice(capped.current ? CAPPED : null);
+                } else {
+                    setNotice(NOTHING_HEARD);
+                }
+            },
+            onLevel: setLevel,
+            onEnd: finish,
+        }),
+        [finish],
+    );
 
     useEffect(() => {
         if (!recording) return;
@@ -124,7 +133,7 @@ export function useRecorder(onWords: (text: string) => void) {
         return () => clearInterval(timer);
     }, [recording]);
 
-    // Leaving the route: the engine holds the microphone until it is told to let go.
+    // Leaving the route: the microphone stays lit until it is told to let go.
     useEffect(
         () => () => {
             rec.current?.cancel();
@@ -133,37 +142,37 @@ export function useRecorder(onWords: (text: string) => void) {
         [],
     );
 
-    /** Why the mic cannot run here, or null when it can. Read once: a browser does not grow one. */
-    const blocked = useState(micBlockedReason)[0];
-
     const start = useCallback(() => {
         if (rec.current) return;
-        const reason = micBlockedReason();
-        setError(reason);
+        setError(blocked);
         setNotice(null);
-        if (reason) return;
-        words.current = "";
+        if (blocked) return;
         capped.current = false;
         startedAt.current = Date.now();
         setElapsed(0);
-        setHearing(false);
+        setLevel(0);
         setRecording(true);
-        const next = pickTranscriber({
-            onWords: (text) => {
-                words.current = text;
-            },
-            onSpeech: setHearing,
-            onEnd: finish,
-        });
+        const next = cloudTranscriber(async (clip) => {
+            try {
+                return (await transcribeAudio(clip)).text;
+            } catch (e: unknown) {
+                // The server writes its refusals for the applicant (app/voice.py), and apiDetail
+                // prefers them over anything generic we could say here.
+                throw new Error(apiDetail(e, "The words did not come back. Try again, or type your answer.") ?? "");
+            }
+        }, sink());
         rec.current = next;
         next.start();
-    }, [finish]);
+    }, [blocked, sink]);
 
     return {
+        /** Settled answer from the server about its own voice support: until then no control is
+         *  offerable, and after it the reason is owed on screen rather than in a tooltip. */
+        ready: capability !== null,
         /** Non-null when no take can run here: the button is dead, and this says why. */
         blocked,
         recording,
-        hearing,
+        level,
         elapsed,
         error,
         notice,

@@ -493,6 +493,45 @@ export async function testLLMProvider(): Promise<{ ok: boolean; detail: string }
 // candidate never types past it and meets a raw 422.
 export const MAX_TURN_CHARS = 8000;
 
+// --- voice (VOICE.md M16). The only engine is Workers AI via the backend -------------------------
+
+/** What this server can do, so the chat surface gates its controls on the truth rather than on a
+ *  button that 503s. One engine means one boolean pair, not a preference. */
+export interface VoiceCapability {
+    tts: boolean;
+    stt: boolean;
+    tts_model: string;
+    stt_model: string;
+}
+
+export async function getVoiceCapability(): Promise<VoiceCapability> {
+    const { data } = await api.get<VoiceCapability>("/voice");
+    return data;
+}
+
+/** One line in, audio out. Its own request, never the SSE stream (VOICE.md gotcha 9): text and audio
+ *  do not share a pipe, and a take can be cancelled without touching the reply being generated. */
+export async function synthesizeSpeech(text: string, signal?: AbortSignal): Promise<Blob> {
+    const { data } = await api.post("/voice/tts", { text }, { responseType: "blob", signal });
+    return data as Blob;
+}
+
+/** One recorded clip in, text out. The clip is parsed and discarded in the request, so nothing here
+ *  is stored or replayable server-side (PLAN D16 applied to voice). */
+export async function transcribeAudio(clip: Blob): Promise<VoiceTranscript> {
+    const form = new FormData();
+    // The field name is the backend's parameter name; the filename is cosmetic, since the container is
+    // sniffed from the bytes rather than trusted (app/voice.py).
+    form.append("file", clip, `take.${clip.type.includes("mp4") ? "m4a" : clip.type.includes("ogg") ? "ogg" : "webm"}`);
+    const { data } = await api.post<VoiceTranscript>("/voice/stt", form);
+    return data;
+}
+
+export interface VoiceTranscript {
+    text: string;
+    words: unknown[];
+}
+
 export type StreamEvent = { kind: "message"; content: string } | { kind: "done"; closing?: boolean; failed?: { turn: number; class: MoveClass } } | { kind: "error"; message: string };
 
 export async function streamChat(interviewId: string, content: string, onEvent: (e: StreamEvent) => void, { signal }: { signal?: AbortSignal } = {}): Promise<void> {

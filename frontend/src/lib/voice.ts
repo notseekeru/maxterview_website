@@ -2,22 +2,23 @@
  *
  * The applicant's speech becomes text in the answer box, the interviewer's reply is read aloud, and
  * the transcript stays the graded artifact: nothing in here touches the dials, the question arc, the
- * judge, the grader or the chat meter. One seam, two engines. The browser engine is what ships now
- * and it is also the permanent fallback (V1); the cloud engine (Cloudflare Workers AI, one backend
- * route per direction) implements these same two interfaces and drops in without the chat surface
- * knowing which one it is talking to.
+ * judge, the grader or the chat meter.
+ *
+ * One engine: Workers AI, through the backend. The browser's own voice was removed deliberately. It
+ * is not only that it fails (Chromium on Linux needs `--enable-speech-dispatcher` and a loadable
+ * libspeechd, and Brave refuses recognition outright): it sounds like what it is, a screen reader,
+ * and an interviewer that talks like one destroys the illusion the feature exists to create. Quality
+ * is the reason (VOICE.md V1).
  */
-
-export type VoiceEngine = "browser" | "cloud";
 
 // --- speaking: sentence chunks, one at a time, in order ---
 
 /** A chunk ceiling that keeps the first sentence audible while the rest of the reply is still
- *  generating, and keeps Chrome's long-utterance stall out of reach. */
+ *  generating, and bounds a single MeloTTS request. */
 const CHUNK_CHARS = 140;
 
 /** A sentence end: `.!?` plus any closing punctuation, or a newline. Not a real segmenter, so an
- *  abbreviation or a decimal splits a chunk in two, which is audible as nothing: the queue is
+ *  abbreviation or a decimal splits a chunk in two. Audible as nothing, because the queue is
  *  serialized and the pieces play back to back in one voice.
  *  AI HERE: swap in a segmenter only if a mis-split ever becomes audible. */
 const BREAK = /[.!?]+["')\]]*\s|\n+/g;
@@ -72,12 +73,12 @@ export interface Speaker {
 }
 
 export interface VoiceReader {
-    /** Feed the stream: every complete sentence is spoken as soon as it lands. */
+    /** Feed the stream: every complete sentence is sent to be spoken as soon as it lands. */
     push(delta: string): void;
     /** The stream ended: speak the remainder. */
     flush(): void;
-    /** Cancel from here on. An utterance outlives the component that started it, so this is not
-     *  optional on unmount or a route change (VOICE.md gotcha 5). */
+    /** Cancel from here on. Audio outlives the component that asked for it, so this is not optional
+     *  on unmount or a route change (VOICE.md gotcha 5). */
     stop(): void;
 }
 
@@ -111,202 +112,215 @@ export function createReader(speaker: Speaker): VoiceReader {
     };
 }
 
-// --- the browser's own voice ---
+// --- the cloud voice ---
 
-/** The browser engine. One utterance per chunk, which is also what sidesteps Chrome's stall on long
- *  utterances. The workaround for that is chunking, not a timer. */
-export function browserSpeaker(voice: SpeechSynthesisVoice | null): Speaker {
-    return {
-        speak(text, signal) {
-            return new Promise<void>((resolve) => {
-                const u = new SpeechSynthesisUtterance(text);
-                if (voice) u.voice = voice;
-                const finish = () => {
-                    signal.removeEventListener("abort", onAbort);
-                    resolve();
-                };
-                function onAbort() {
-                    speechSynthesis.cancel();
-                    finish();
-                }
-                // Any terminal event resolves: an utterance that never ends would wedge the queue
-                // behind it, and the queue is the whole feature.
-                u.onend = finish;
-                u.onerror = finish;
-                signal.addEventListener("abort", onAbort, { once: true });
-                speechSynthesis.speak(u);
-            });
-        },
-    };
-}
-
-export function speechSupported(): boolean {
-    return typeof window !== "undefined" && "speechSynthesis" in window;
-}
-
-/** The voice list starts EMPTY and fills in asynchronously on Chrome, so nothing may read it on
- *  first paint. Chrome on Linux frequently finishes with none at all, which is why the caller has to
- *  treat "no voices" as "no voice" rather than as "not loaded yet". */
-export function loadVoices(): Promise<SpeechSynthesisVoice[]> {
-    if (!speechSupported()) return Promise.resolve([]);
-    const now = speechSynthesis.getVoices();
-    if (now.length) return Promise.resolve(now);
-    return new Promise((resolve) => {
-        const settle = () => {
-            clearTimeout(timer);
-            resolve(speechSynthesis.getVoices());
+/** Play one decoded clip to completion. Every terminal state resolves, including a decode failure and
+ *  a refused autoplay: an utterance that never resolves wedges the queue behind it, and the queue is
+ *  the whole feature. The blob URL is revoked by the caller once this settles. */
+function play(url: string, signal: AbortSignal): Promise<void> {
+    return new Promise<void>((resolve) => {
+        const el = new Audio(url);
+        const finish = () => {
+            signal.removeEventListener("abort", onAbort);
+            el.onended = null;
+            el.onerror = null;
+            resolve();
         };
-        const timer = setTimeout(settle, 1000);
-        speechSynthesis.addEventListener("voiceschanged", settle, { once: true });
+        function onAbort() {
+            el.pause();
+            finish();
+        }
+        el.onended = finish;
+        el.onerror = finish;
+        signal.addEventListener("abort", onAbort, { once: true });
+        void el.play().catch(finish);
     });
 }
 
-/** The visitor's own operating system voice (VOICE.md step 1: good on Edge and macOS, rough on
- *  Chrome for Linux). Only ever used when the cloud voice is unavailable. */
-export function pickVoice(voices: SpeechSynthesisVoice[]): SpeechSynthesisVoice | null {
-    const english = voices.filter((v) => v.lang.toLowerCase().startsWith("en"));
-    return english.find((v) => v.localService) ?? english[0] ?? voices[0] ?? null;
+/** The cloud speaker. `fetchAudio` is injected rather than imported so this file stays free of the API
+ *  client, and so the reader can be driven by a plain function in a test. */
+export function cloudSpeaker(fetchAudio: (text: string, signal: AbortSignal) => Promise<Blob>): Speaker {
+    return {
+        async speak(text, signal) {
+            const blob = await fetchAudio(text, signal);
+            const url = URL.createObjectURL(blob);
+            try {
+                await play(url, signal);
+            } finally {
+                URL.revokeObjectURL(url);
+            }
+        },
+    };
 }
 
 // --- listening ---
 
-/** The applicant's speech, as the sink sees it. One channel, because the Web Speech API is one
- *  channel: `onend` fires for our own stop, a silence timeout, a refusal and a network drop alike. */
+/** What the recorder reports. One channel: the take started, how loud it is, and how it ended. */
 export interface TranscriptionSink {
-    /** Held words, final only (`interimResults` is off, so this never rewrites what was already
-     *  shown (VOICE.md V4). */
+    /** Held words, once, when the take ends. The answer box is the confirm step (VOICE.md V5). */
     onWords(text: string): void;
-    /** The engine's own speech detection. The mic-live signal, and it costs no second mic consumer
-     *  (VOICE.md gotcha 4: on Android a meter's `getUserMedia` and recognition cannot coexist). */
-    onSpeech(speaking: boolean): void;
-    /** The take is over, whoever ended it. `error` is written for the applicant, null on a clean
-     *  end; `byEngine` marks the engine ending it itself (silence timeout, dropped session). */
-    onEnd(error: string | null, byEngine: boolean): void;
+    /** 0..1 microphone level for the meter. Called while the take runs; rAF stops in a background tab,
+     *  so a hidden tab shows a frozen meter rather than a stalled one. */
+    onLevel(level: number): void;
+    /** The take is over. `error` is written for the applicant, null on a clean end. */
+    onEnd(error: string | null): void;
 }
 
 export interface Transcriber {
-    readonly engine: VoiceEngine;
     start(): void;
-    /** The applicant pressed stop. Held words survive; `cancel` throws them away. */
+    /** The applicant pressed stop. The clip is uploaded and the words arrive through the sink. */
     stop(): void;
+    /** Unmount, navigation: drop the microphone and throw the clip away. */
     cancel(): void;
 }
 
-/** Every reason a take cannot run, each with its own sentence (VOICE.md gotcha 3): a refused
- *  permission, a missing device, a browser without recognition and a page that is not a secure
- *  context are four different things to the person reading it. */
-function refusalText(reason: SpeechRecognitionErrorCode | "unsupported" | "insecure"): string | null {
-    switch (reason) {
-        case "not-allowed":
-        case "service-not-allowed":
-            return "Microphone access is blocked. Allow it in this site's settings, then try again.";
-        case "audio-capture":
-            return "No microphone found. Check which input your system has selected, then try again.";
-        case "network":
-            return "Transcription dropped its connection. Check your network, then try again.";
-        case "unsupported":
-            return "This browser can't transcribe speech. Chrome, Edge and Safari can. Type your answer for now.";
-        case "insecure":
-            return "Microphone capture needs HTTPS (localhost counts). Type your answer for now.";
-        default:
-            // "aborted" and "no-speech" are not failures: the engine ended, nothing broke.
-            return null;
-    }
-}
-
-function speechRecognitionCtor(): (new () => SpeechRecognition) | null {
-    if (typeof window === "undefined") return null;
-    return window.SpeechRecognition ?? window.webkitSpeechRecognition ?? null;
-}
-
-/** Why a take cannot run on this browser, or null when it can. */
+/** Why a take cannot run at all here, or null when it can. Checked before the microphone is asked for,
+ *  because a refusal at that point costs a permission prompt for nothing. */
 export function micBlockedReason(): string | null {
-    if (!window.isSecureContext) return refusalText("insecure");
-    if (!speechRecognitionCtor()) return refusalText("unsupported");
+    if (!window.isSecureContext) return "Microphone capture needs HTTPS (localhost counts). Type your answer instead.";
+    if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") return "This browser cannot record audio. Type your answer instead.";
     return null;
 }
 
-export function browserTranscriber(lang: string, sink: TranscriptionSink): Transcriber {
-    let rec: SpeechRecognition | null = null;
-    let words = "";
-    let error: string | null = null;
-    let stoppedByUser = false;
+/** Containers to offer the recorder, most preferred first, and the one the browser picks is what gets
+ *  uploaded: Safari does not produce what Chrome and Firefox do (VOICE.md gotcha 2), and the backend
+ *  sniffs the container rather than trusting this. */
+const RECORDING_TYPES = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4", "audio/ogg;codecs=opus"];
+
+export function pickRecordingType(): string | undefined {
+    if (typeof MediaRecorder === "undefined") return undefined;
+    return RECORDING_TYPES.find((type) => MediaRecorder.isTypeSupported(type));
+}
+
+/** Root-mean-square of one analyser frame, scaled to 0..1. Speech sits well below full scale, so the
+ *  curve is deliberately generous: a meter that only moves on a shout is not feedback. */
+function levelOf(analyser: AnalyserNode, frame: Uint8Array<ArrayBuffer>): number {
+    analyser.getByteTimeDomainData(frame);
+    let sum = 0;
+    for (const sample of frame) sum += ((sample - 128) / 128) ** 2;
+    return Math.min(1, Math.sqrt(sum / frame.length) * 4);
+}
+
+export function cloudTranscriber(upload: (clip: Blob) => Promise<string>, sink: TranscriptionSink): Transcriber {
+    let recorder: MediaRecorder | null = null;
+    let stream: MediaStream | null = null;
+    let chunks: Blob[] = [];
+    let meter = 0;
     let settled = false;
 
-    const finish = () => {
+    const release = () => {
+        cancelAnimationFrame(meter);
+        meter = 0;
+        for (const track of stream?.getTracks() ?? []) track.stop();
+        stream = null;
+        recorder = null;
+    };
+
+    const finish = (error: string | null) => {
         if (settled) return;
         settled = true;
-        rec = null;
-        sink.onSpeech(false);
-        sink.onEnd(error, !stoppedByUser);
+        release();
+        sink.onLevel(0);
+        sink.onEnd(error);
+    };
+
+    /** The clip is uploaded and discarded server-side, so the words arrive a second or two after the
+     *  applicant stops (VOICE.md step 2). `upload` rejects with a message written for the applicant:
+     *  this file stays API-free, and the caller owns that translation. */
+    const deliver = async (clip: Blob) => {
+        try {
+            sink.onWords(await upload(clip));
+            finish(null);
+        } catch (e: unknown) {
+            finish(e instanceof Error && e.message ? e.message : "The recording could not be transcribed. Try again, or type your answer.");
+        }
     };
 
     return {
-        engine: "browser",
         start() {
-            const Ctor = speechRecognitionCtor();
-            error = micBlockedReason();
-            if (!Ctor || error) {
-                finish();
+            const blocked = micBlockedReason();
+            if (blocked) {
+                finish(blocked);
                 return;
             }
-            const r = new Ctor();
-            rec = r;
-            r.lang = lang;
-            // Continuous, because a take is one answer and the engine's own silence timeout must not
-            // be what ends it: that is what the cap and the stop button are for.
-            r.continuous = true;
-            r.interimResults = false;
-            r.maxAlternatives = 1;
-            r.onspeechstart = () => sink.onSpeech(true);
-            r.onspeechend = () => sink.onSpeech(false);
-            r.onresult = (e) => {
-                for (let i = e.resultIndex; i < e.results.length; i += 1) {
-                    if (e.results[i].isFinal) words += e.results[i][0].transcript;
+            void (async () => {
+                try {
+                    stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
+                } catch (e: unknown) {
+                    finish(permissionMessage(e));
+                    return;
                 }
-                sink.onWords(words.trim());
-            };
-            r.onerror = (e) => {
-                error = refusalText(e.error);
-            };
-            r.onend = finish;
-            try {
-                r.start();
-            } catch {
-                // Chrome throws when a recognition is already running for this document.
-                error = "The microphone is busy in another tab. Close it, then try again.";
-                finish();
-            }
+                if (settled) return; // cancelled while the prompt was up
+                const mediaType = pickRecordingType();
+                try {
+                    recorder = new MediaRecorder(stream, mediaType ? { mimeType: mediaType } : undefined);
+                } catch {
+                    finish("This browser's recorder refused the microphone. Type your answer instead.");
+                    return;
+                }
+                recorder.ondataavailable = (e) => {
+                    if (e.data.size) chunks.push(e.data);
+                };
+                recorder.onerror = () => finish("The recording stopped early. Try again, or type your answer.");
+                recorder.onstop = () => {
+                    const clip = new Blob(chunks, { type: recorder?.mimeType || mediaType || "audio/webm" });
+                    chunks = [];
+                    if (!clip.size) {
+                        finish("Nothing was recorded, so nothing was added to your answer. Try again, or type it.");
+                        return;
+                    }
+                    void deliver(clip);
+                };
+                recorder.start();
+                // The level meter is the reason the applicant can trust the microphone is live at all:
+                // nothing is transcribed on the client, so silence and a dead mic look identical.
+                const ctx = new AudioContext();
+                const analyser = ctx.createAnalyser();
+                analyser.fftSize = 1024;
+                ctx.createMediaStreamSource(stream).connect(analyser);
+                const frame = new Uint8Array(analyser.fftSize);
+                const tick = () => {
+                    sink.onLevel(levelOf(analyser, frame));
+                    meter = requestAnimationFrame(tick);
+                };
+                meter = requestAnimationFrame(tick);
+            })();
         },
         stop() {
-            stoppedByUser = true;
-            // stop() flushes the words already heard; abort() would throw them away.
-            if (rec) rec.stop();
-            else finish();
+            // Stop the tracks with the recorder: a live microphone after the take is a lit indicator
+            // for nothing (VOICE.md gotcha 8).
+            recorder?.stop();
+            if (!recorder) finish(null);
+            for (const track of stream?.getTracks() ?? []) track.stop();
         },
         cancel() {
             settled = true;
-            rec?.abort();
-            rec = null;
+            chunks = [];
+            try {
+                recorder?.stop();
+            } catch {
+                undefined; // already stopped: nothing to release
+            }
+            release();
         },
     };
 }
 
-/** Which engine a fresh take uses. The cloud engine is the primary (V1) and the reason this is a
- *  function rather than a direct call: it becomes a reachability choice here, with the browser
- *  engine as the answer whenever the cloud route is unavailable (V3: the engine is chosen before the
- *  take, and never swaps mid-answer).
- *  AI HERE: until the Workers AI route exists every take is the browser engine. */
-export function pickTranscriber(sink: TranscriptionSink): Transcriber {
-    return browserTranscriber(navigator.language || "en-US", sink);
+/** The two permission failures are different problems with different fixes (VOICE.md gotcha 3). */
+function permissionMessage(e: unknown): string {
+    const name = (e as { name?: string })?.name;
+    if (name === "NotAllowedError" || name === "SecurityError") return "Microphone access is blocked. Allow it in this site's settings, then reload the page.";
+    if (name === "NotFoundError" || name === "OverconstrainedError") return "No microphone found. Check which input your system has selected, then reload the page.";
+    if (name === "NotReadableError") return "The microphone is held by another application. Close it, then reload the page.";
+    return "The microphone could not be opened. Type your answer instead.";
 }
 
 // --- the visitor's choice, per browser ---
 
 const PREF_KEY = "maxterview.voice";
 
-/** Voice is off until asked for. The click that turns it on is also the gesture that lets audio
- *  play, which is what stops the autoplay policy from eating the first sentence. */
+/** Voice is off until asked for. The click that turns it on is also the gesture that lets audio play,
+ *  which is what stops the autoplay policy from eating the first sentence. */
 export function readVoicePref(): boolean {
     try {
         return localStorage.getItem(PREF_KEY) === "on";
@@ -320,31 +334,5 @@ export function writeVoicePref(on: boolean): void {
         localStorage.setItem(PREF_KEY, on ? "on" : "off");
     } catch {
         undefined; // the choice just does not outlive the tab
-    }
-}
-
-// The Web Speech API's recognition half is a draft the DOM lib does not ship: `SpeechRecognitionResult`,
-// `SpeechRecognitionEvent` and `SpeechRecognitionErrorEvent` are there, the controller and its two
-// constructor names are not.
-declare global {
-    interface SpeechRecognition extends EventTarget {
-        lang: string;
-        continuous: boolean;
-        interimResults: boolean;
-        maxAlternatives: number;
-        start(): void;
-        stop(): void;
-        abort(): void;
-        onstart: ((this: SpeechRecognition, ev: Event) => unknown) | null;
-        onend: ((this: SpeechRecognition, ev: Event) => unknown) | null;
-        onerror: ((this: SpeechRecognition, ev: SpeechRecognitionErrorEvent) => unknown) | null;
-        onresult: ((this: SpeechRecognition, ev: SpeechRecognitionEvent) => unknown) | null;
-        onspeechstart: ((this: SpeechRecognition, ev: Event) => unknown) | null;
-        onspeechend: ((this: SpeechRecognition, ev: Event) => unknown) | null;
-    }
-
-    interface Window {
-        SpeechRecognition?: new () => SpeechRecognition;
-        webkitSpeechRecognition?: new () => SpeechRecognition;
     }
 }

@@ -12,11 +12,35 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse, StreamingResponse
 from pydantic import ValidationError
 
-from app import API_PREFIX, billing, byok, dials, levels, llm, payments, rating, resumes
+from app import API_PREFIX, billing, byok, dials, levels, llm, payments, rating, resumes, voice
 from app.auth import CLERK_ENABLED, get_current_user
 from app.db import close_pool, fetch, fetchrow, init_pool
 from app.logs import RequestContextMiddleware, configure_logging
-from app.models import Analytics, ChatMessage, ChatTurn, ClerkUser, ClientError, Dials, Feedback, FeedbackCreate, Interview, InterviewCreate, InterviewDimensions, InterviewTemplate, LLMProvider, LLMProviderUpdate, Message, Resume, ResumeCreate, ResumeExtract, ResumeSummary, TemplateCreate
+from app.models import (
+    Analytics,
+    ChatMessage,
+    ChatTurn,
+    ClerkUser,
+    ClientError,
+    Dials,
+    Feedback,
+    FeedbackCreate,
+    Interview,
+    InterviewCreate,
+    InterviewDimensions,
+    InterviewTemplate,
+    LLMProvider,
+    LLMProviderUpdate,
+    Message,
+    Resume,
+    ResumeCreate,
+    ResumeExtract,
+    ResumeSummary,
+    TemplateCreate,
+    VoiceCapability,
+    VoiceText,
+    VoiceTranscript,
+)
 from app.ratelimit import ClientRateLimitMiddleware
 
 APP_ENV = os.getenv("APP_ENV", "development")
@@ -616,6 +640,48 @@ async def delete_resume(
     row = await fetchrow("DELETE FROM resumes WHERE id = $1 AND owner_id = $2 RETURNING id", resume_id, user.sub)
     if row is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Resume not found")
+
+
+# --- voice (M16): Workers AI is the only engine, and it is optional infrastructure ---
+
+
+@api.get("/voice", response_model=VoiceCapability)
+async def voice_capability(user: CurrentUser) -> dict:
+    """Gate for the chat surface's voice controls: booleans, no secrets, so a deployment without the
+    Workers AI values shows a disabled control with a reason instead of a button that 503s."""
+    return voice.capability()
+
+
+@api.post("/voice/tts")
+async def voice_tts(body: VoiceText, user: CurrentUser) -> Response:
+    """One line in, audio out. Audio rides its own request and never the SSE stream (VOICE.md gotcha
+    9), and a caller cancels by walking away: nothing here is stored, so there is nothing to clean up.
+
+    503 is the honest code: this is optional infrastructure that is either configured or not, and the
+    sentence came back written for the visitor."""
+    try:
+        speech = await voice.speak(body.text)
+    except voice.VoiceError as exc:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
+    return Response(content=speech.audio, media_type=speech.media_type, headers={"Cache-Control": "no-store"})
+
+
+@api.post("/voice/stt", response_model=VoiceTranscript)
+async def voice_stt(file: UploadFile, user: CurrentUser) -> VoiceTranscript:
+    """One recorded take in, text out. Persists NOTHING: the clip lives for the length of this call,
+    which is the rule the resume extractor follows too (PLAN D16 applied to voice).
+
+    `read(cap + 1)` is what bounds what WE allocate: asking for one byte more than the cap detects
+    "too big" without ever holding the whole clip. It does not bound what Starlette already spooled
+    while parsing the form, so a cap on the request body upstream is still owed."""
+    data = await file.read(voice.MAX_UPLOAD_BYTES + 1)
+    if len(data) > voice.MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=status.HTTP_413_CONTENT_TOO_LARGE, detail=f"That recording is larger than {voice.MAX_UPLOAD_BYTES // (1024 * 1024)} MB.")
+    try:
+        got = await voice.transcribe(data)
+    except voice.VoiceError as exc:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
+    return VoiceTranscript(text=got.text, words=got.words)
 
 
 # --- dashboard stats (aggregates, not per-row reads) ---

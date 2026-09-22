@@ -2,7 +2,7 @@ import { memo, useCallback, useEffect, useId, useLayoutEffect, useRef, useState 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
-import { MAX_TAKE_S, useRecorder, useSpeaker } from "@/hooks/useInterviewVoice";
+import { MAX_TAKE_S, useRecorder, useSpeaker, useVoiceCapability } from "@/hooks/useInterviewVoice";
 import { apiDetail, type Feedback, finishInterview, getFeedback, getInterview, getMessages, httpStatus, MAX_TURN_CHARS, type Message, regenerateFeedback, startInterview, streamChat } from "@/lib/api";
 import { OPENING_ASKS_RESUME, OPENING_HAS_RESUME } from "@/lib/config";
 import { cn } from "@/lib/utils";
@@ -64,14 +64,24 @@ export function InterviewChat({ interviewId, onExit }: Props) {
     const [voiceOn, setVoiceOn] = useState(readVoicePref);
     // Voice is I/O around the turn: the applicant's speech lands in the answer box, the interviewer's
     // reply is read aloud, and everything after that is the pipeline that already exists (VOICE.md).
-    const speaker = useSpeaker(voiceOn);
+    // The server is asked what it can do before anything is offered, so a deployment without Workers
+    // AI shows a dead control with a reason instead of a button that fails on click.
+    const capability = useVoiceCapability();
+    const speaker = useSpeaker(voiceOn && Boolean(capability?.tts));
     const mic = useRecorder(
+        capability,
         useCallback((text: string) => {
             if (!text) return;
             setDraft((d) => (d.trim() ? `${d.trimEnd()} ${text}` : text).slice(0, MAX_TURN_CHARS));
         }, []),
     );
-    const voiceTitle = speaker.available ? (voiceOn ? "Stop reading replies aloud" : "Read each reply aloud") : "This browser has no voice, so replies can't be read aloud";
+    const voiceTitle = capability?.tts ? (voiceOn ? "Stop reading replies aloud" : "Read each reply aloud") : undefined;
+    // Voice limits belong to the server, not the run, so they are stated on screen where the controls
+    // are. A title attribute is not enough: the buttons that need the explanation are disabled, and a
+    // hairline under the pointer is not where a stuck visitor looks. The speaker's limit sits with the
+    // toggle, the mic's with the box, and neither fact is written in both places.
+    const voiceNote = capability && !capability.tts ? "Replies can't be read aloud: this server has no speech voice configured." : null;
+    const micProblem = mic.blocked ?? mic.error;
     const placeholder = mic.recording
         ? "Listening: press Stop to put your words here"
         : status === "completed"
@@ -160,7 +170,7 @@ export function InterviewChat({ interviewId, onExit }: Props) {
     // click that turns it on is the gesture that lets audio play (VOICE.md gotcha 5).
     const openingSpoken = useRef(false);
     useEffect(() => {
-        if (openingSpoken.current || !voiceOn || !speaker.available || status === "loading" || feedback || messages.length || !opening) return;
+        if (openingSpoken.current || !voiceOn || !capability?.tts || status === "loading" || feedback || messages.length || !opening) return;
         // Deferred past this commit: StrictMode runs this effect, cancels it and runs it again, so
         // speaking inline would be stopped by our own cleanup before it was audible. A dev-only
         // silence is the worst kind of bug to chase, and the flag moves inside the timer so the
@@ -170,7 +180,7 @@ export function InterviewChat({ interviewId, onExit }: Props) {
             speaker.say(opening);
         }, 0);
         return () => clearTimeout(timer);
-    }, [voiceOn, speaker, status, feedback, messages.length, opening]);
+    }, [voiceOn, capability, speaker, status, feedback, messages.length, opening]);
 
     /** The choice is per browser and survives the session; the speak call itself is driven by the
      *  hook, so turning this off mid-sentence stops the sentence. */
@@ -339,20 +349,23 @@ export function InterviewChat({ interviewId, onExit }: Props) {
     return (
         <>
             <Card className={cn("flex min-h-0 w-full flex-1 flex-col", glow)}>
-                <CardHeader className="flex-row items-center justify-between space-y-0">
-                    <div>
-                        <CardTitle>Interview</CardTitle>
-                        <CardDescription>{STATUS_LABELS[status]}</CardDescription>
+                <CardHeader className="space-y-1.5">
+                    <div className="flex flex-row items-center justify-between space-y-0">
+                        <div>
+                            <CardTitle>Interview</CardTitle>
+                            <CardDescription>{STATUS_LABELS[status]}</CardDescription>
+                        </div>
+                        <div className="flex items-center gap-2">
+                            <Button variant="ghost" size="sm" aria-pressed={voiceOn} onClick={toggleVoice} disabled={!capability?.tts} title={voiceTitle}>
+                                <Icon name={voiceOn ? "sound" : "mute"} />
+                                {voiceOn ? "Voice on" : "Voice off"}
+                            </Button>
+                            <Button variant="outline" size="sm" onClick={onExit}>
+                                Exit
+                            </Button>
+                        </div>
                     </div>
-                    <div className="flex items-center gap-2">
-                        <Button variant="ghost" size="sm" aria-pressed={voiceOn} onClick={toggleVoice} disabled={!speaker.available} title={voiceTitle}>
-                            <Icon name={voiceOn ? "sound" : "mute"} />
-                            {voiceOn ? "Voice on" : "Voice off"}
-                        </Button>
-                        <Button variant="outline" size="sm" onClick={onExit}>
-                            Exit
-                        </Button>
-                    </div>
+                    {voiceNote && <p className="text-xs text-muted-foreground">{voiceNote}</p>}
                 </CardHeader>
 
                 {/* One scroller: the review, then the transcript it argues from. */}
@@ -396,9 +409,9 @@ export function InterviewChat({ interviewId, onExit }: Props) {
                     {status === "loading" && <p className="text-sm text-muted-foreground">Starting…</p>}
                     {/* Not while loading: a reopened run would flash the opening line before its
                     real transcript arrives. */}
-                    {status !== "loading" && messages.length === 0 && opening && <Bubble from="assistant" content={opening} onReplay={voiceOn && speaker.available ? speaker.say : undefined} />}
+                    {status !== "loading" && messages.length === 0 && opening && <Bubble from="assistant" content={opening} onReplay={voiceOn && capability?.tts ? speaker.say : undefined} />}
                     {messages.map((m) => (
-                        <Bubble key={m.id} from={m.role} content={m.content} moveClass={m.move_class} comment={m.comment} onReplay={m.role === "assistant" && voiceOn && speaker.available ? speaker.say : undefined} />
+                        <Bubble key={m.id} from={m.role} content={m.content} moveClass={m.move_class} comment={m.comment} onReplay={m.role === "assistant" && voiceOn && capability?.tts ? speaker.say : undefined} />
                     ))}
                     {assistBuf && <Bubble from="assistant" content={assistBuf} streaming />}
                     {status === "streaming" && !assistBuf && <p className="text-sm text-muted-foreground">Thinking…</p>}
@@ -429,16 +442,18 @@ export function InterviewChat({ interviewId, onExit }: Props) {
                             }}
                             disabled={status === "completed" || interviewOver || mic.recording}
                         />
-                        {/* Nothing renders mid-answer (V4): the timer and the engine's own speech signal
-                            are the whole of the feedback until Stop. */}
+                        {/* Nothing renders mid-answer (V4): the meter and the timer are the whole of the
+                            feedback until Stop, because nothing is transcribed on this side. */}
                         {mic.recording && (
                             <p role="status" className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                                <span aria-hidden className={cn("h-1.5 w-1.5 rounded-full", mic.hearing ? "animate-pulse bg-destructive" : "bg-muted-foreground/40")} />
-                                {mic.hearing ? "Hearing you" : "Listening"} · {clock(mic.elapsed)} of {clock(MAX_TAKE_S)}
+                                <span aria-hidden className="h-1 w-16 overflow-hidden rounded-full bg-muted">
+                                    <span className="block h-full rounded-full bg-destructive transition-[width] duration-100" style={{ width: `${Math.round(mic.level * 100)}%` }} />
+                                </span>
+                                Recording · {clock(mic.elapsed)} of {clock(MAX_TAKE_S)}
                             </p>
                         )}
                         {!mic.recording && mic.notice && <p className="text-xs text-muted-foreground">{mic.notice}</p>}
-                        {mic.error && <p className="text-xs text-destructive">{mic.error}</p>}
+                        {!mic.recording && micProblem && <p className="text-xs text-destructive">{micProblem}</p>}
                     </div>
                     <div className="flex flex-col gap-2">
                         {confirmFinish && <p className="max-w-48 text-xs text-muted-foreground">End early? This run still has questions left.</p>}
@@ -452,8 +467,8 @@ export function InterviewChat({ interviewId, onExit }: Props) {
                             size="sm"
                             aria-pressed={mic.recording}
                             onClick={() => (mic.recording ? mic.stop() : mic.start())}
-                            disabled={!mic.recording && (status !== "ready" || interviewOver || Boolean(mic.blocked))}
-                            title={mic.blocked ?? (mic.recording ? "Stop and put what you said into your answer" : "Speak your answer instead of typing it")}
+                            disabled={!mic.recording && (!mic.ready || status !== "ready" || interviewOver || Boolean(mic.blocked))}
+                            title={mic.recording ? "Stop and put what you said into your answer" : "Speak your answer instead of typing it"}
                         >
                             <Icon name={mic.recording ? "stop" : "mic"} />
                             {mic.recording ? "Stop" : "Speak"}

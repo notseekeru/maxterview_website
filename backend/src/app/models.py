@@ -4,7 +4,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field, computed_field
 
-from app import dials, levels, rating, resumes
+from app import dials, levels, rating, resumes, voice
 
 # Level slugs accepted on create, unpacked from the canonical levels vocabulary so the
 # API, DB CHECK, prompt, and frontend can never drift (see app/levels.py).
@@ -163,6 +163,35 @@ class ResumeExtract(BaseModel):
     text: str
     pages: int
     truncated: bool
+
+
+# --- voice (M16) ---
+
+
+class VoiceCapability(BaseModel):
+    """What this server can actually do, so the chat surface gates its controls on the truth rather than
+    on a button that 503s. One engine means one boolean pair, not a preference."""
+
+    tts: bool
+    stt: bool
+    tts_model: str = ""
+    stt_model: str = ""
+
+
+class VoiceText(BaseModel):
+    """One line to speak. The client chunks at sentence boundaries and caps each chunk at 140
+    characters, so this is a ceiling on a caller rather than a limit anyone meets: it is what stands
+    between a hostile body and the daily neuron budget. Imported from app/voice.py, never restated."""
+
+    text: str = Field(min_length=1, max_length=voice.MAX_TTS_CHARS)
+
+
+class VoiceTranscript(BaseModel):
+    """Held words from one take, plus the timings that make pace and filler numbers possible later.
+    Nothing here is persisted: the text joins the answer box, and the chat turn is what saves it."""
+
+    text: str
+    words: list[dict] = Field(default_factory=list)
 
 
 # --- messages ---
