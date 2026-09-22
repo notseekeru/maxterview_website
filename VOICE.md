@@ -62,7 +62,8 @@ reply, cancel on unmount, a silent review page, and a finished interview that ne
 ## Step 2: it listens (built)
 
 One answer: press to speak (hard 180s cap, visible timer, live level meter), talk, press stop. The clip
-is posted to one backend route, the text arrives a second or two later, lands in the answer box, and
+is posted to one backend route, the text arrives when Whisper is done (see Latency), lands in the
+answer box, and
 the existing pipeline runs unchanged. A silent or empty take never reaches the box, so it cannot spend
 a chat turn.
 

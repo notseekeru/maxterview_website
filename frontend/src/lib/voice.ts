@@ -224,9 +224,9 @@ export function cloudTranscriber(upload: (clip: Blob) => Promise<string>, sink: 
         sink.onEnd(error);
     };
 
-    /** The clip is uploaded and discarded server-side, so the words arrive a second or two after the
-     *  applicant stops (VOICE.md step 2). `upload` rejects with a message written for the applicant:
-     *  this file stays API-free, and the caller owns that translation. */
+    /** The clip is uploaded and discarded server-side, and the wait scales with its length: ~18s for 90
+     *  seconds of audio, since Whisper is batch (VOICE.md latency). `upload` rejects with a message
+     *  written for the applicant: this file stays API-free and the caller owns that translation. */
     const deliver = async (clip: Blob) => {
         try {
             sink.onWords(await upload(clip));
