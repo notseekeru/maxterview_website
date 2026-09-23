@@ -2,7 +2,6 @@ import { useEffect, useRef } from "react";
 import { Link } from "react-router-dom";
 
 import { Button } from "@/components/ui/button";
-import { Separator } from "@/components/ui/separator";
 import { useDocumentTitle } from "@/hooks/useDocumentTitle";
 import { MOVE_CLASSES } from "@/lib/moveClasses";
 import { PLANS } from "@/lib/plans";
@@ -229,7 +228,7 @@ export function Landing() {
             </main>
 
             <footer className="mx-auto flex w-full max-w-5xl flex-col gap-4 px-6 pb-10 text-sm text-muted-foreground">
-                <Separator />
+                <div aria-hidden className="h-px w-full shrink-0 bg-border" />
                 <div className="flex flex-wrap items-center justify-between gap-3">
                     <span>maxterview — AI mock-interview coach.</span>
                     <div className="flex items-center gap-4">

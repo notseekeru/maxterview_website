@@ -97,7 +97,7 @@ export interface InterviewDials {
     mix_technical: number;
 }
 
-export interface InterviewInput extends InterviewDials {
+interface InterviewInput extends InterviewDials {
     role: string;
     topic?: string;
     level: string;
@@ -159,14 +159,14 @@ export interface Resume extends ResumeSummary {
     text: string;
 }
 
-export interface ResumeInput {
+interface ResumeInput {
     name: string;
     text: string;
 }
 
 /** What a PDF gave us before anyone decided to keep it. `truncated` is true for the page cap, the
  *  character cap, and unreadable pages alike - the UI only has to say "not the whole document". */
-export interface ResumeExtract {
+interface ResumeExtract {
     text: string;
     pages: number;
     truncated: boolean;
@@ -457,7 +457,7 @@ export interface LLMProviderStatus {
     system: { configured: boolean; base_url: string; model: string };
 }
 
-export interface LLMProviderInput {
+interface LLMProviderInput {
     base_url: string;
     model: string;
     /** Omit/empty to keep the stored key. An endpoint that needs no auth can be
@@ -529,14 +529,14 @@ export async function transcribeAudio(clip: Blob): Promise<VoiceTranscript> {
     return data;
 }
 
-export interface VoiceTranscript {
+interface VoiceTranscript {
     text: string;
     /** Whisper turbo returns phrase segments (start/end/text), not per-word timings. Unused today. */
     segments: unknown[];
     language: string;
 }
 
-export type StreamEvent = { kind: "message"; content: string } | { kind: "done"; closing?: boolean; failed?: { turn: number; class: MoveClass } } | { kind: "error"; message: string };
+type StreamEvent = { kind: "message"; content: string } | { kind: "done"; closing?: boolean; failed?: { turn: number; class: MoveClass } } | { kind: "error"; message: string };
 
 export async function streamChat(interviewId: string, content: string, onEvent: (e: StreamEvent) => void, { signal }: { signal?: AbortSignal } = {}): Promise<void> {
     const res = await fetch(`${BASE}/interviews/${interviewId}/chat/stream`, {

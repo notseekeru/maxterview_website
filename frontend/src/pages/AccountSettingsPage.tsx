@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { chatTurns, getUsage, turnsToday, type Usage } from "@/lib/api";
 import { clerkEnabled } from "@/lib/config";
+import { TIER_NAME } from "@/lib/plans";
 
 // /settings/account — single-user account + plan.
 export function AccountSettingsPage() {
@@ -16,7 +17,7 @@ export function AccountSettingsPage() {
         void load().catch(() => setUsage(null));
     }, [load]);
 
-    const tierLabel = usage?.tier === "premium" ? "Premium" : usage?.tier === "dev" ? "Developer (dev)" : "Free";
+    const tierLabel = TIER_NAME[usage?.tier ?? "free"];
     const today = usage ? turnsToday(usage) : null;
 
     return (

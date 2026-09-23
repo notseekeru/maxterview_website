@@ -5,7 +5,7 @@
 // A run legitimately has holes: a dim the interview never probed comes back null/absent, which is
 // "not assessed", not zero. Every helper below therefore takes only the keys a run actually scored.
 
-export const AXES = [
+const AXES = [
     { value: "communication", label: "Communication" },
     { value: "substance", label: "Substance" },
     { value: "profile", label: "Profile" },

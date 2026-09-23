@@ -37,7 +37,7 @@ export interface Line {
 
 /** `[lines worth speaking now, text held back]`. Held text is the whole contract: a boundary is what
  *  lets the first sentence be heard before the reply has finished streaming. */
-export function takeLines(text: string, atEnd: boolean, first = FIRST_CHARS, limit = CHUNK_CHARS): { lines: Line[]; rest: string } {
+function takeLines(text: string, atEnd: boolean, first = FIRST_CHARS, limit = CHUNK_CHARS): { lines: Line[]; rest: string } {
     const lines: Line[] = [];
     let rest = text;
     // Where `rest` starts in `text`: a line's end is reported as an offset into the whole string, not
@@ -100,7 +100,7 @@ export interface Speaker<T> {
 
 /** What the reader reports back. `onSpoken` is the caption's clock: the caller reveals the reply up to
  *  that offset, so the reader is what keeps the words and the voice on the same beat. */
-export interface ReaderSink {
+interface ReaderSink {
     /** How far into the pushed stream the voice has got. */
     onSpoken(chars: number): void;
     /** The queue is empty and the stream has ended: nothing is held back any more. */
@@ -329,7 +329,7 @@ export function cloudSpeaker(fetchAudio: (text: string, signal: AbortSignal) => 
 // --- listening ---
 
 /** What the recorder reports. One channel: the take started, how loud it is, and how it ended. */
-export interface TranscriptionSink {
+interface TranscriptionSink {
     /** Held words, once, when the take ends. The answer box is the confirm step (VOICE.md V5). */
     onWords(text: string): void;
     /** 0..1 microphone level for the meter. Called while the take runs; rAF stops in a background tab,
@@ -360,7 +360,7 @@ export function micBlockedReason(): string | null {
  *  sniffs the container rather than trusting this. */
 const RECORDING_TYPES = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4", "audio/ogg;codecs=opus"];
 
-export function pickRecordingType(): string | undefined {
+function pickRecordingType(): string | undefined {
     if (typeof MediaRecorder === "undefined") return undefined;
     return RECORDING_TYPES.find((type) => MediaRecorder.isTypeSupported(type));
 }

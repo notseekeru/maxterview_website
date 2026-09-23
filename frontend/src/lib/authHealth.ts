@@ -6,9 +6,9 @@
 // key that does NOT start pk_ means the wrong secret was pasted into
 // VITE_CLERK_PUBLISHABLE_KEY (most often whsec_/sk_). In that state we must NOT boot
 // <ClerkProvider> — it would use a garbage key and nobody could ever sign in.
-export const clerkKey = (import.meta.env.VITE_CLERK_PUBLISHABLE_KEY as string | undefined) ?? "";
+const clerkKey = (import.meta.env.VITE_CLERK_PUBLISHABLE_KEY as string | undefined) ?? "";
 
-export const clerkKeyShapeValid = /^pk_/.test(clerkKey);
+const clerkKeyShapeValid = /^pk_/.test(clerkKey);
 
 export const clerkEnabled = clerkKeyShapeValid && clerkKey.length > 0;
 
@@ -40,7 +40,7 @@ type Listener = (gateOn: boolean) => void;
 let sawMissingCreds401 = false;
 const listeners = new Set<Listener>();
 
-export function authGateOn(): boolean {
+function authGateOn(): boolean {
     return sawMissingCreds401 && !clerkEnabled;
 }
 

@@ -2,7 +2,6 @@ import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
 import { apiDetail, createInterview, createTemplate, deleteTemplate, type InterviewDials, type InterviewTemplate, isQuotaError, listResumes, listTemplates, type ResumeSummary, type TemplateInput, updateTemplate } from "@/lib/api";
 import { COMPANY_SIZES, CYNICISM, companySizeLabel, DIAL_FIELDS, LEVELS, MIX_FIELDS, MIX_MAX, mixCountLabel, ROLE_PRESETS } from "@/lib/interviewOptions";
@@ -321,7 +320,9 @@ export function CreateInterviewForm({ onCreated, variant = "compact", className 
                     )}
 
                     <div className={cn("space-y-1.5", featured && "sm:col-span-2")}>
-                        <Label htmlFor="role">Role</Label>
+                        <label htmlFor="role" className="text-sm font-medium leading-none">
+                            Role
+                        </label>
                         <div className="flex flex-wrap gap-1.5">
                             {(showAllRoles ? ROLE_PRESETS : ROLE_PRESETS.slice(0, 8)).map((preset) => (
                                 <button
@@ -357,7 +358,9 @@ export function CreateInterviewForm({ onCreated, variant = "compact", className 
                     />
                     <DialSlider id="cynicism" label="Cynicism" value={CYNICISM[cynicism].value} values={CYNICISM.map((c) => c.value)} labels={CYNICISM.map((c) => c.label)} onChange={(v) => setCynicism(CYNICISM.findIndex((c) => c.value === v))} hint={CYNICISM[cynicism].hint} />
                     <div className="space-y-1.5">
-                        <Label htmlFor="topic">Topic (optional)</Label>
+                        <label htmlFor="topic" className="text-sm font-medium leading-none">
+                            Topic (optional)
+                        </label>
                         <Input id="topic" value={topic} onChange={(e) => setTopic(e.target.value)} maxLength={500} placeholder="e.g. system design" />
                     </div>
 
@@ -410,11 +413,11 @@ function DialSlider({ id, label, value, values, labels, onChange, hint, numbered
     const index = Math.max(0, values.indexOf(value));
     return (
         <div className="space-y-1">
-            <Label htmlFor={id} className="flex flex-wrap items-baseline gap-x-1.5">
+            <label htmlFor={id} className="flex flex-wrap items-baseline gap-x-1.5 text-sm font-medium leading-none">
                 {label}
                 <span className="text-xs font-normal text-foreground">{labels[index]}</span>
                 {hint && <span className="text-xs font-normal text-muted-foreground">· {hint}</span>}
-            </Label>
+            </label>
             <Slider id={id} name={id} min={0} max={values.length - 1} step={1} value={index} aria-valuetext={labels[index]} onChange={(e) => onChange(values[Number(e.target.value)])} />
             <div className="flex justify-between text-[10px] leading-none text-muted-foreground" aria-hidden>
                 <span>{numbered ? "off" : labels[0]}</span>

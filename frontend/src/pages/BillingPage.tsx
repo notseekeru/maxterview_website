@@ -4,9 +4,9 @@ import { Page } from "@/components/PagePrimitives";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
-import { cancelUpgrade, chatTurns, getUsage, startUpgrade, type Tier, turnsToday, type Usage } from "@/lib/api";
+import { cancelUpgrade, chatTurns, getUsage, startUpgrade, turnsToday, type Usage } from "@/lib/api";
 import { clerkEnabled } from "@/lib/config";
-import { PLANS } from "@/lib/plans";
+import { PLANS, TIER_NAME } from "@/lib/plans";
 
 // /settings/billing. Free vs Premium cards + current-plan summary. The upgrade CTA posts to
 // /billing/checkout, which answers with PayMongo's Maya page; PayMongo has no billing portal, so our
@@ -51,8 +51,6 @@ function useUsage() {
     }, []);
     return { usage, failed, loading: !usage && !failed };
 }
-
-const TIER_NAME: Record<Tier, string> = { free: "Free", premium: "Premium", dev: "Developer (dev)" };
 
 function Summary({ usage, failed, loading }: { usage: Usage | null; failed: boolean; loading: boolean }) {
     return (

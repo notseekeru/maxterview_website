@@ -5,7 +5,7 @@ export type Theme = "light" | "dark" | "system";
 
 const STORAGE_KEY = "maxterview.theme";
 
-export const DEFAULT_THEME: Theme = "dark";
+const DEFAULT_THEME: Theme = "dark";
 
 function safeParse(raw: string | null): Theme | null {
     return raw === "light" || raw === "dark" || raw === "system" ? raw : null;
@@ -20,14 +20,12 @@ function effectiveDark(theme: Theme): boolean {
     return resolved === "dark";
 }
 
-// Inert under SSR (not used).
 export function applyTheme(theme: Theme): void {
-    if (typeof document === "undefined") return;
     document.documentElement.classList.toggle("dark", effectiveDark(theme));
 }
 
 export function readStoredTheme(): Theme {
-    return safeParse(typeof window !== "undefined" ? window.localStorage.getItem(STORAGE_KEY) : null) ?? DEFAULT_THEME;
+    return safeParse(window.localStorage.getItem(STORAGE_KEY)) ?? DEFAULT_THEME;
 }
 
 export function storeTheme(theme: Theme): void {

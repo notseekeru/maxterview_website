@@ -2,7 +2,7 @@ import { useEffect, useRef } from "react";
 
 import { cn } from "@/lib/utils";
 
-export interface RowMenuItem {
+interface RowMenuItem {
     label: string;
     onSelect: () => void;
     /** Destructive entries (delete) read red and are separated from the rest. */
