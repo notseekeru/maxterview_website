@@ -456,8 +456,9 @@ export function InterviewChat({ interviewId, onExit }: Props) {
                     {messages.map((m, i) => (
                         <Bubble key={m.id} from={m.role} content={caption(m.id, m.content)} moveClass={m.move_class} comment={m.comment} last={lastOfRun.has(m.id)} lead={messages[i - 1]?.role !== m.role} onReplay={m.role === "assistant" && voiceOn && capability?.tts ? speaker.say : undefined} />
                     ))}
-                    {live && <Bubble from="assistant" content={live} streaming last lead={messages[messages.length - 1]?.role !== "assistant"} />}
-                    {status === "streaming" && !live && <p className="my-1 self-center text-xs text-muted-foreground">Thinking…</p>}
+                    {/* One bubble for the whole turn: the three dots it starts as are the reply it
+                        becomes, in the same element, with the interviewer's face already there. */}
+                    {status === "streaming" && <Bubble from="assistant" content={live} thinking={!live} streaming last lead={messages[messages.length - 1]?.role !== "assistant"} />}
                     {reviewFailed && status === "completed" && (
                         <div role="status" className="my-1 flex flex-col items-center gap-1.5 self-center rounded-2xl border bg-muted/50 px-3.5 py-2 text-center text-xs text-muted-foreground">
                             <p className="font-medium text-foreground">Interview finished, your review wasn't ready.</p>
@@ -604,7 +605,20 @@ const TipButton = memo(function TipButton({ comment }: { comment: string }) {
     );
 });
 
-const Bubble = memo(function Bubble({ from, content, streaming, moveClass, comment, onReplay, last, lead }: { from: string; content: string; streaming?: boolean; moveClass?: string | null; comment?: string | null; onReplay?: (text: string) => void; last?: boolean; lead?: boolean }) {
+/** Three blinking dots for a reply that has not been said yet. They render inside the interviewer's own
+ *  bubble, under the interviewer's face, so a turn is one thing that fills in rather than a status line
+ *  above a bubble that shows up later. */
+const Thinking = memo(function Thinking() {
+    return (
+        <span role="status" aria-label="The interviewer is thinking" className="flex items-center gap-1 py-1">
+            {[0, 1, 2].map((i) => (
+                <span key={i} aria-hidden className="h-1.5 w-1.5 animate-pulse rounded-full bg-muted-foreground/50" style={{ animationDelay: `${i * 200}ms` }} />
+            ))}
+        </span>
+    );
+});
+
+const Bubble = memo(function Bubble({ from, content, streaming, thinking, moveClass, comment, onReplay, last, lead }: { from: string; content: string; streaming?: boolean; thinking?: boolean; moveClass?: string | null; comment?: string | null; onReplay?: (text: string) => void; last?: boolean; lead?: boolean }) {
     const isUser = from === "user";
     const noted = isUser && !!comment;
     // An answer folds at six lines and offers the rest behind a toggle. Only the answer: a reply is
@@ -631,8 +645,8 @@ const Bubble = memo(function Bubble({ from, content, streaming, moveClass, comme
     const bubble = (
         <div className={cn("max-w-[85%] whitespace-pre-line break-words rounded-3xl px-3.5 py-2 text-sm leading-relaxed lg:max-w-[45rem]", isUser ? "bg-primary text-primary-foreground" : "border bg-card", last && (isUser ? "rounded-br-md" : "rounded-bl-md"))}>
             <div ref={bodyRef} className={cn("break-words", folded && "line-clamp-6")}>
-                {content}
-                {streaming && <span className="inline-block animate-pulse">▋</span>}
+                {thinking ? <Thinking /> : content}
+                {streaming && !thinking && <span className="inline-block animate-pulse">▋</span>}
             </div>
             {clipped && (
                 <button type="button" aria-expanded={expanded} onClick={() => setExpanded((e) => !e)} className={cn("mt-1 block text-xs font-medium transition-colors", isUser ? "text-primary-foreground/70 hover:text-primary-foreground" : "text-muted-foreground hover:text-foreground")}>
