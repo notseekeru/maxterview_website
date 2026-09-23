@@ -50,7 +50,6 @@ export interface AxisGroup {
     dims: string[];
 }
 
-/** Scored dims bucketed by axis, in registry order, empty axes dropped. */
 export function groupDims(keys: string[]): AxisGroup[] {
     const groups: AxisGroup[] = [...AXES, { value: "other", label: "Other" }].map((a) => ({ axis: a.value, label: a.label, dims: [] }));
     const byAxis = new Map(groups.map((g) => [g.axis, g]));

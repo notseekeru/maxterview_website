@@ -51,7 +51,6 @@ export function DecisionVerdict({ decision, certainty, className }: { decision: 
     );
 }
 
-/** Compact variant for history rows: label + certainty, no bar. */
 export function DecisionChip({ decision, certainty, className }: { decision: Decision; certainty?: number | null; className?: string }) {
     return (
         <span className={cn("inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-[11px] font-medium", className)}>

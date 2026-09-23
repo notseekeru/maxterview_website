@@ -7,7 +7,6 @@ import { cn } from "@/lib/utils";
 import { DecisionVerdict } from "./DecisionVerdict";
 import { GradeChip } from "./MoveBadge";
 
-/** Count the annotations by class, in ladder order (best -> worst), for the review header. */
 function tallyMoves(messages: Message[]) {
     return MOVE_CLASSES.map((meta) => ({ meta, count: messages.filter((m) => m.move_class === meta.value).length })).filter((t) => t.count > 0);
 }

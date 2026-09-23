@@ -21,17 +21,14 @@
 
 set -euo pipefail
 
-# ── helpers ──────────────────────────────────────────────────────────
 die() { echo "[port-claimer] ERROR: $*" >&2; exit 1; }
 info() { echo "[port-claimer] $*"; }
 warn() { echo "[port-claimer] WARN: $*" >&2; }
 
-# ── dependency check ─────────────────────────────────────────────────
 for cmd in docker ss; do
     command -v "$cmd" >/dev/null 2>&1 || die "required command not found: $cmd"
 done
 
-# ── port helpers ─────────────────────────────────────────────────────
 port_in_use() {
     local port="$1"
     ss -tlnp "sport = :$port" 2>/dev/null | grep -q LISTEN
@@ -53,7 +50,6 @@ compose_label() {
     fi
 }
 
-# ── parse args ───────────────────────────────────────────────────────
 SELF_PROJECT=""
 ARGS=()
 
@@ -75,7 +71,6 @@ done
 set -- "${ARGS[@]}"
 [[ $# -eq 0 ]] && die "Usage: port-claimer.sh [--self <project>] <port> [port...]"
 
-# ── main ─────────────────────────────────────────────────────────────
 BLOCKED_PORTS=()
 OWNED_PORTS=()
 
@@ -110,7 +105,6 @@ for PORT in "$@"; do
 
     PROJECT=$(compose_label "$CID" "com.docker.compose.project")
 
-    # Skip if this port belongs to our own project
     if [[ -n "$SELF_PROJECT" && "$PROJECT" == "$SELF_PROJECT" ]]; then
         info "→ Port $PORT is held by the current project ($PROJECT) — already running, nothing to free."
         OWNED_PORTS+=("$PORT")
@@ -121,7 +115,6 @@ for PORT in "$@"; do
 
     info "→ Held by compose project '$PROJECT' ($WORKDIR)"
 
-    # Rebuild the exact compose command that started this container
     COMPOSE_CMD=(docker compose -p "$PROJECT")
     if [[ -n "$CONFIG_FILES" ]]; then
         IFS=',' read -ra FILES <<< "$CONFIG_FILES"
@@ -136,7 +129,6 @@ for PORT in "$@"; do
         warn "'docker compose down' for project '$PROJECT' exited non-zero."
     fi
 
-    # Wait up to 10 s for the port to be released
     for i in $(seq 1 10); do
         if ! port_in_use "$PORT"; then
             info "→ Port $PORT released."
@@ -151,7 +143,6 @@ for PORT in "$@"; do
     fi
 done
 
-# ── final verification ───────────────────────────────────────────────
 ALL_FREE=true
 for PORT in "$@"; do
     if port_in_use "$PORT"; then
@@ -163,7 +154,6 @@ for PORT in "$@"; do
         if $OWNED; then
             continue
         fi
-        # Check if this port was previously blocked (non-compose, unfreeable)
         BLOCKED=false
         for b in "${BLOCKED_PORTS[@]}"; do
             [[ "$b" == "$PORT" ]] && BLOCKED=true && break

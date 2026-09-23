@@ -35,8 +35,6 @@ export function BillingPage() {
 // PayMongo subscriptions are PHP-only, so the price is stated in pesos (app/billing plans are
 // created with amount=49900).
 
-// --- shared data hook ---
-
 function useUsage() {
     const [usage, setUsage] = useState<Usage | null>(null);
     const [failed, setFailed] = useState(false);

@@ -1,7 +1,5 @@
 import { Page } from "@/components/PagePrimitives";
 
-// /settings/docs
-
 export function DocsPage() {
     return (
         <Page title="Docs" description="Guide & product notes.">

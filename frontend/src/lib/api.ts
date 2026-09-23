@@ -48,7 +48,7 @@ export function apiDetail(e: unknown, fallback: string | null = null): string | 
     return fallback;
 }
 
-// --- types (mirror backend app/models.py) ---
+// Types mirror backend app/models.py.
 
 export interface Interview extends InterviewDials {
     id: string;
@@ -243,7 +243,6 @@ export interface AnalyticsRun {
     dials: InterviewDials;
     /** 1-10 dimension scores; empty when the run was never scored. */
     scores: Record<string, number>;
-    /** Candidate turns in the run. */
     turns: number;
     /** Move class -> turns the reviewer classed so. A run can have fewer moves than turns. */
     moves: Partial<Record<MoveClass, number>>;
@@ -365,8 +364,6 @@ export function turnsToday(usage: Usage): { limit: number; used: number; remaini
     return { limit, used: usage.chat_turns_used_today ?? limit - remaining, remaining };
 }
 
-// --- interviews ---
-
 export async function listInterviews(): Promise<Interview[]> {
     const { data } = await api.get<Interview[]>("/interviews");
     return data;
@@ -423,8 +420,6 @@ export async function regenerateFeedback(id: string): Promise<Feedback> {
     const { data } = await api.post<Feedback>(`/interviews/${id}/feedback/generate`);
     return data;
 }
-
-// --- M10 usage + billing ---
 
 export async function getUsage(): Promise<Usage> {
     const { data } = await api.get<Usage>("/usage");
@@ -486,14 +481,13 @@ export async function testLLMProvider(): Promise<{ ok: boolean; detail: string }
     return data;
 }
 
-// --- SSE chat stream ---
 // The backend streams SSE deltas; we consume them with native fetch streaming.
 
 // M11: the backend caps a chat turn (models.ChatTurn); the UI enforces the same bound so the
 // candidate never types past it and meets a raw 422.
 export const MAX_TURN_CHARS = 8000;
 
-// --- voice (VOICE.md M16). The only engine is Workers AI via the backend -------------------------
+// Voice (VOICE.md M16). The only engine is Workers AI via the backend.
 
 /** What this server can do, so the chat surface gates its controls on the truth rather than on a
  *  button that 503s. One engine means one boolean pair, not a preference. */

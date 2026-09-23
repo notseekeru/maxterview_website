@@ -9,7 +9,6 @@ import { chatTurns, getUsage, turnsToday, type Usage } from "@/lib/api";
 import { clerkEnabled } from "@/lib/config";
 import { TIER_NAME } from "@/lib/plans";
 
-// /settings/account — single-user account + plan.
 export function AccountSettingsPage() {
     const [usage, setUsage] = useState<Usage | null>(null);
     const load = useCallback(async () => setUsage(await getUsage()), []);

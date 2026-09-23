@@ -107,7 +107,6 @@ if CORS_ALLOW_ORIGINS:
 # and it is the layer that stamps X-Request-ID on every response.
 app.add_middleware(RequestContextMiddleware)
 
-
 # The beacon's payload is ~300 bytes; this is the boundary between a report and a body worth parsing.
 CLIENT_ERROR_MAX_BYTES = 4096
 
@@ -137,9 +136,6 @@ async def client_errors(request: Request) -> Response:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Not a browser error report") from exc
     log.info("browser.error", message=body.message, route=body.route, component_stack=body.component_stack)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
-
-
-# --- interviews (all scoped to owner_id, D4) ---
 
 
 # Interview row columns for every SELECT/RETURNING that builds an `Interview`. Shared because
@@ -369,8 +365,6 @@ async def regenerate_feedback(
         )
     return dict(row)
 
-
-# --- interview templates (saved create-interview presets, owner-scoped, D4) ---
 
 # Per-owner ceiling: presets render as one chip row above the create form.
 TEMPLATE_CAP = 20
@@ -640,7 +634,7 @@ async def delete_resume(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Resume not found")
 
 
-# --- voice (M16): Workers AI is the only engine, and it is optional infrastructure ---
+# Voice (M16): Workers AI is the only engine, and it is optional infrastructure.
 
 
 @api.get("/voice", response_model=VoiceCapability)
@@ -678,7 +672,7 @@ async def voice_stt(file: UploadFile, user: CurrentUser) -> VoiceTranscript:
     return VoiceTranscript(text=got.text, segments=got.segments, language=got.language)
 
 
-# --- dashboard stats (aggregates, not per-row reads) ---
+# Dashboard stats: aggregates, not per-row reads.
 
 # The dashboard radar's second series spans this many of the newest rated runs, not just the newest
 # one: a single run's per-dim holes are noise, and a dimension the last run happened not to probe read
@@ -880,9 +874,6 @@ def dial_groups(rows: list[asyncpg.Record]) -> dict[str, list[dict]]:
     return groups
 
 
-# --- usage ---
-
-
 @api.get("/usage")
 async def get_usage(user: CurrentUser, config: LLMConfigDep) -> dict:
     """Cheap quota status: tier + the daily GLOBAL chat-turn dial (per owner, all interviews)."""
@@ -911,7 +902,7 @@ async def get_usage(user: CurrentUser, config: LLMConfigDep) -> dict:
     }
 
 
-# --- settings: BYOK LLM provider (app/byok.py, BYOK.md) ---
+# BYOK LLM provider (app/byok.py, BYOK.md).
 
 
 @api.get("/settings/llm", response_model=LLMProvider)
@@ -935,9 +926,6 @@ async def delete_llm_provider(user: CurrentUser) -> None:
 @api.post("/settings/llm/test")
 async def test_llm_provider(user: CurrentUser) -> dict:
     return await byok.test(user)
-
-
-# --- billing (PayMongo: upgrade / cancel / webhook) ---
 
 
 @api.post("/billing/checkout")
@@ -971,9 +959,6 @@ async def billing_webhook_simulate(event: dict) -> PlainTextResponse:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
     await payments.handle_webhook_event(event)
     return PlainTextResponse("ok")
-
-
-# --- SSE: interview chat streaming ---
 
 
 @api.post("/interviews/{interview_id}/chat/stream")

@@ -12,7 +12,7 @@ from app.models import DECISIONS, ChatMessage, Dials, FeedbackSummary
 
 log = structlog.get_logger(__name__)
 
-# --- config (D7): OpenAI-compatible, one self-hosted qwen for dev AND prod (DeepSeek deferred) ---
+# Config (D7): OpenAI-compatible, one self-hosted qwen for dev AND prod.
 LLM_BASE_URL = os.getenv("LLM_BASE_URL", "").rstrip("/")
 LLM_MODEL = os.getenv("LLM_MODEL", "")
 LLM_API_KEY = os.getenv("LLM_API_KEY", "")
@@ -476,7 +476,6 @@ DIMENSION_RUBRIC: dict[str, str] = {
 }
 FEEDBACK_DIMS: tuple[str, ...] = tuple(d for dims in DIMENSION_AXES.values() for d in dims)
 
-
 # AI HERE: one framework-free self-check (AGENTS rule 5). A dim added to the axes without rubric
 # text (or the reverse) fails here, instead of reaching the prompt as a literal `None`.
 assert set(DIMENSION_RUBRIC) == set(FEEDBACK_DIMS) and len(FEEDBACK_DIMS) == len(set(FEEDBACK_DIMS))
@@ -644,7 +643,6 @@ FAIL_SHOUT_MAX = 240
 # rubric or an injectable line in the interviewer's mouth.
 assert all(UNTRUSTED_INPUT in p for p in (GRADER_PROMPT_V1, MOVES_PROMPT_V1, JUDGE_PROMPT_V1, FAIL_SHOUT_PROMPT))
 
-
 # Concrete JSON example inlined (DeepSeek's JSON-mode docs require a shape example, and
 # it hard-codes the schema so a weak local backend cannot drift the field names). The
 # formatter runs on fresh, SHORT grader notes rather than the long raw transcript.
@@ -675,8 +673,6 @@ reject/lean_reject/lean_hire/hire; certainty is an integer 0-100 for how well th
 rounded UP past the evidence the notes describe; verdict is 2-3 sentences; tips is an array of 2-4 short strings addressed to the CANDIDATE in
 second person, about their own answers - never instructions to the interviewer, and never a request to go and cover something the interview simply did not probe.
 Return ONLY the JSON object, no prose, no markdown."""
-
-# --- HTTP / streaming helpers ---
 
 
 async def stream_chat(messages: list[ChatMessage], config: LLMConfig) -> AsyncIterator[str]:
@@ -726,8 +722,6 @@ def _extract_delta(chunk: str) -> str:
         return ""
     return ""
 
-
-# --- feedback generation + structured-output guard ---
 
 # A dim the formatter omits or nulls is "not assessed" and is dropped, not an error: with ten dims a
 # three-question transcript legitimately has holes, and rejecting the whole set for one of them threw

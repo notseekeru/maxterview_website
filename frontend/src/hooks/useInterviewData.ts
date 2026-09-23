@@ -55,17 +55,13 @@ export function useDashboardStats() {
 
 export interface InterviewDims {
     total: number;
-    /** Every interview with status 'completed', whether or not scoring succeeded. */
     completed: number;
     /** Subset of `completed` that carries a move review (drives avgAccuracy/accuracyTrend). */
     rated: number;
     avgAccuracy: number;
     accuracyTrend: { label: string; accuracy: number }[];
-    /** Subset of `completed` the model put on the hire/reject spectrum. */
     decided: number;
-    /** Of `decided`, those on the hiring half (hire/lean_hire). */
     hiring: number;
-    /** Mean certainty over decided runs, or null when none reported it. */
     avgCertainty: number | null;
 }
 

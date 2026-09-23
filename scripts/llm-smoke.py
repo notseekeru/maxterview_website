@@ -28,24 +28,19 @@ CONTAINER = "maxterview_backend_dev"
 ROLE = "LLM Smoke"  # identifies test rows; removal is the API's own DELETE, never SQL
 TURN = "I write code and ship features."
 
-
 def log(msg: str) -> None:
     print(f"[llm-smoke] {msg}", flush=True)
-
 
 def die(msg: str) -> None:
     print(f"[llm-smoke] FAIL: {msg}", file=sys.stderr, flush=True)
     raise SystemExit(1)
-
 
 def check(cond: Any, label: str, detail: Any = "") -> None:
     """The whole assertion framework: a smoke test owes a verdict, not a runner."""
     if not cond:
         die(f"{label}{f' ({detail})' if detail else ''}")
 
-
-# --- inside the container: app.llm is importable here ---
-
+# Inside the container: app.llm is importable here.
 
 def _call(base: str, token: str, method: str, path: str, body: Any = None, timeout: float = 20.0):
     """-> (status, json | text). HTTP errors are returned, not raised: the status IS the assertion."""
@@ -67,7 +62,6 @@ def _call(base: str, token: str, method: str, path: str, body: Any = None, timeo
         return status, json.loads(raw)
     except ValueError:
         return status, raw[:400].decode("utf-8", "replace")
-
 
 def stream_turn(base: str, token: str, iid: str, timeout: float) -> tuple[str, float]:
     """POST one candidate turn, read SSE until done/error. Returns (sse, seconds)."""
@@ -103,7 +97,6 @@ def stream_turn(base: str, token: str, iid: str, timeout: float) -> tuple[str, f
     check("event: error" not in text, "stream emitted no error event", text.strip()[-300:])
     check("event: message" in text, "stream emitted message deltas")
     return text, time.monotonic() - started
-
 
 def run_inside(args: argparse.Namespace) -> None:
     from app.llm import FEEDBACK_DIMS
@@ -144,9 +137,7 @@ def run_inside(args: argparse.Namespace) -> None:
         status, _ = _call(base, token, "DELETE", f"/api/interviews/{iid}", timeout=15)
         log(f"deleted test interview {iid} (HTTP {status})")
 
-
-# --- host side: docker plumbing only ---
-
+# Host side: docker plumbing only.
 
 def run_host(args: argparse.Namespace) -> None:
     if not shutil.which("docker"):
@@ -170,7 +161,6 @@ def run_host(args: argparse.Namespace) -> None:
         die("SMOKE TEST FAILED (assertion output above)")
     log("SMOKE TEST PASSED")
 
-
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0], formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("base", nargs="?", default="http://localhost:8000", help="backend base URL (default http://localhost:8000)")
@@ -183,7 +173,6 @@ def main() -> None:
         run_inside(args)
     else:
         run_host(args)
-
 
 if __name__ == "__main__":
     main()

@@ -76,8 +76,6 @@ function Notice({ children }: { children: ReactNode }) {
     );
 }
 
-// --- summary ---
-
 function SummaryRow({ data }: { data: Analytics }) {
     const scored = data.runs.map((r) => r.accuracy).filter((a): a is number => a != null);
     const avg = scored.length === 0 ? null : scored.reduce((a, b) => a + b, 0) / scored.length;
@@ -123,8 +121,6 @@ function Panel({ title, hint, children, className }: { title: string; hint?: str
 }
 
 const Empty = ({ children }: { children: ReactNode }) => <p className="text-sm text-muted-foreground">{children}</p>;
-
-// --- per-day aggregation for the three time charts ---
 
 /** One point on a time chart: the day, the runs behind it, plus one number per series. */
 interface DayPoint {
@@ -186,8 +182,6 @@ const dayLabel = (label: unknown, payload: readonly { payload?: DayPoint }[]) =>
     return n ? `${label} · ${n} run${n === 1 ? "" : "s"}` : String(label);
 };
 
-// --- accuracy over time ---
-
 // Mean accuracy per day, reusing the dashboard's chart so the two cannot render the series
 // differently.
 function AccuracyHistory({ runs }: { runs: AnalyticsRun[] }) {
@@ -202,8 +196,6 @@ function AccuracyHistory({ runs }: { runs: AnalyticsRun[] }) {
         </Panel>
     );
 }
-
-// --- practice activity ---
 
 const ACTIVITY_CONFIG: ChartConfig = {
     completed: { label: "Finished", color: "var(--chart-1)" },
@@ -237,8 +229,6 @@ function ActivityWeekly({ weeks }: { weeks: AnalyticsActivityWeek[] }) {
     );
 }
 
-// --- move classes ---
-
 const MOVE_CONFIG: ChartConfig = { count: { label: "Turns", color: "var(--chart-1)" } };
 
 // Ordered by rating.MOVE_CLASSES, never by count: an axis that reorders itself between loads cannot
@@ -269,8 +259,6 @@ function MoveBreakdown({ counts }: { counts: Analytics["move_classes"] }) {
         </Panel>
     );
 }
-
-// --- per-dimension history ---
 
 // Ten 1-10 dims is past where a line chart reads, so only the three axis means are drawn and the
 // per-dim breakdown is the table beside it. Each run collapses to its per-axis mean FIRST (a run that
@@ -349,8 +337,6 @@ function DimensionAverages({ runs, keys }: { runs: AnalyticsRun[]; keys: string[
     );
 }
 
-// --- decisions ---
-
 // Daily means of the hire/reject lean and of how well the transcript evidenced it. Both gaps are
 // real: a day with no decision, or none reporting certainty, is a hole, not a zero.
 function DecisionHistory({ runs }: { runs: AnalyticsRun[] }) {
@@ -426,8 +412,6 @@ function DecisionSplit({ runs }: { runs: AnalyticsRun[] }) {
     );
 }
 
-// --- dial breakdown (how the create knobs correlate with outcomes) ---
-
 const DIAL_TITLES: Record<string, string> = {
     level: "By target level",
     cynicism: "By interviewer stance",
@@ -492,8 +476,6 @@ function DialRow({ row }: { row: AnalyticsDial }) {
         </div>
     );
 }
-
-// --- run log ---
 
 type SortKey = "created_at" | "accuracy" | "role";
 
@@ -624,8 +606,6 @@ function AnswerMix({ run }: { run: AnalyticsRun }) {
         </span>
     );
 }
-
-// --- vocabulary (display halves of backend app/rating.py, app/models.py) ---
 
 // Rating order, best -> worst, derived from lib/moveClasses so a class added to the rubric appears
 // here without an edit.

@@ -39,9 +39,6 @@ class ClerkUser(BaseModel):
     tier: str = "free"
 
 
-# --- interviews ---
-
-
 class Dials(BaseModel):
     """The interview's dressing knobs, shared by create + response so they cannot drift.
 
@@ -102,9 +99,6 @@ class Interview(Dials):
         return rating.grade(self.accuracy, failed=self.failed_turn is not None)
 
 
-# --- interview templates ---
-
-
 class TemplateCreate(InterviewCreate):
     """A saved preset: a create body plus a name (inherits, so it cannot hold a knob a create rejects).
 
@@ -119,9 +113,6 @@ class InterviewTemplate(TemplateCreate):
     owner_id: str
     created_at: datetime
     updated_at: datetime
-
-
-# --- resumes ---
 
 
 class ResumeSummary(BaseModel):
@@ -165,9 +156,6 @@ class ResumeExtract(BaseModel):
     truncated: bool
 
 
-# --- voice (M16) ---
-
-
 class VoiceCapability(BaseModel):
     """What this server can actually do, so the chat surface gates its controls on the truth rather than
     on a button that 503s. One engine means one boolean pair, not a preference."""
@@ -196,9 +184,6 @@ class VoiceTranscript(BaseModel):
     language: str = ""
 
 
-# --- messages ---
-
-
 class Message(BaseModel):
     id: str
     interview_id: str
@@ -210,9 +195,6 @@ class Message(BaseModel):
     # move_class is None, and on turns the annotator classed without writing a usable note.
     comment: str | None = None
     created_at: datetime
-
-
-# --- feedback ---
 
 
 class FeedbackCreate(BaseModel):
@@ -242,9 +224,6 @@ class Feedback(BaseModel):
     @property
     def grade(self) -> Grade | None:
         return rating.grade(self.accuracy, failed=self.failed_turn is not None)
-
-
-# --- dashboard stats ---
 
 
 class InterviewDimensions(BaseModel):
@@ -331,9 +310,6 @@ class Analytics(BaseModel):
     # at least one run created.
     streak_days: int
     hardcore_failures: int
-
-
-# --- LLM context / feedback / chat-turn payloads ---
 
 
 class ChatMessage(BaseModel):

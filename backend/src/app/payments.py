@@ -296,9 +296,6 @@ async def _first_invoice_intent(subs_id: str) -> str:
     return intent["id"]
 
 
-# --- webhooks ---
-
-
 def verify_signature(raw_body: bytes, header: str) -> bool:
     """`Paymongo-Signature: t=<unix>,te=<hmac>,li=<hmac>` over f"{t}.{raw_body}".
 

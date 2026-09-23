@@ -11,7 +11,7 @@
  * is the reason (VOICE.md V1).
  */
 
-// --- speaking: sentence-sized lines, prefetched one ahead, in order ---
+// Speaking: sentence-sized lines, prefetched one ahead, in order.
 
 /** The ceiling on the FIRST line, which is the one that bounds the silence before the interviewer
  *  starts: the shorter it is, the sooner the first word lands. */
@@ -101,16 +101,13 @@ export interface Speaker<T> {
 /** What the reader reports back. `onSpoken` is the caption's clock: the caller reveals the reply up to
  *  that offset, so the reader is what keeps the words and the voice on the same beat. */
 interface ReaderSink {
-    /** How far into the pushed stream the voice has got. */
     onSpoken(chars: number): void;
     /** The queue is empty and the stream has ended: nothing is held back any more. */
     onDrained(): void;
 }
 
 export interface VoiceReader {
-    /** Feed the stream: every complete sentence is sent to be spoken as soon as it lands. */
     push(delta: string): void;
-    /** The stream ended: speak the remainder. */
     flush(): void;
     /** Cancel from here on. Audio outlives the component that asked for it, so this is not optional
      *  on unmount or a route change (VOICE.md gotcha 5). */
@@ -263,8 +260,6 @@ if (import.meta.env.DEV) {
     })();
 }
 
-// --- the cloud voice ---
-
 /** How long a line gets to become audible before it is written off. The audio is already in hand at
  *  this point, so decoding it is milliseconds: five seconds means a media stack that has stopped
  *  answering, and the queue (and with it the caption) must not sit behind it for the whole session. */
@@ -325,8 +320,6 @@ export function cloudSpeaker(fetchAudio: (text: string, signal: AbortSignal) => 
         },
     };
 }
-
-// --- listening ---
 
 /** What the recorder reports. One channel: the take started, how loud it is, and how it ended. */
 interface TranscriptionSink {
@@ -502,8 +495,6 @@ function permissionMessage(e: unknown): string {
     if (name === "NotReadableError") return "The microphone is held by another application. Close it, then reload the page.";
     return "The microphone could not be opened. Type your answer instead.";
 }
-
-// --- the visitor's choice, per browser ---
 
 const PREF_KEY = "maxterview.voice";
 

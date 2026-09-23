@@ -5,7 +5,6 @@ import { cn } from "@/lib/utils";
 interface RowMenuItem {
     label: string;
     onSelect: () => void;
-    /** Destructive entries (delete) read red and are separated from the rest. */
     destructive?: boolean;
 }
 

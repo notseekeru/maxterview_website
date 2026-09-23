@@ -16,7 +16,6 @@ export function MoveBadge({ moveClass }: { moveClass: string }) {
     );
 }
 
-/** Accuracy + grade, the review's headline. */
 export function GradeChip({ accuracy, grade }: { accuracy?: number | null; grade?: Grade | null }) {
     if (typeof accuracy !== "number") return null;
     return (
