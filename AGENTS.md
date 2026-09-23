@@ -36,7 +36,7 @@ Commits are atomic: one logical change per commit, scoped to a coherent set of f
 - **Data Safety:** Never execute commands that risk uncommitted or unstaged data without explicit user confirmation.
 - **Security:** **ZERO TOUCH POLICY ON CREDENTIALS/SECRETS UNTIL EXPLICITLY STATED.** Do not read, fetch, display, store, or infer any credential, token, or secret. If a task requires one, ALWAYS ask the user.
 - **Documentation Optimization:** Do not write useless comments/docs. Prioritize removing unhelpful, and redundant documentation, comment or code. Remove it if it offers little to no value. DO NOT WRITE IT IF YOU THINK IT IS GOING TO BE UNMAINTAINABLE FOR HOW WORTHLESS IT IS.
-- **Comment Test:** A comment earns its line only by carrying the *why* the code cannot: an invariant, a platform/version trap, an ordering or security constraint, a measured number, a rejected alternative. Everything else goes.
+- **Comment Test:** A comment earns its line only by carrying the _why_ the code cannot: an invariant, a platform/version trap, an ordering or security constraint, a measured number, a rejected alternative. Everything else goes.
   - **Restatement dies.** If it restates the identifier, signature, or the next line, delete it. The code is the spec.
   - **Banners die.** No `// --- section ---` dividers, either within a file or splitting one function from the next. Sectioning is what order, naming, and file boundaries are for.
   - **Step labels die.** No narration of what the next statement does (`# parse args`, `# wait for ports`); keep only what a reader cannot get from the statement itself (why 10 s, why retry, why this port).
