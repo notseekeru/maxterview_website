@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
 import { Textarea } from "@/components/ui/textarea";
@@ -531,13 +531,54 @@ export function InterviewChat({ interviewId, onExit }: Props) {
     );
 }
 
-/** The reviewer's note on one answer, under it. Visible, not folded: the note is the review. The
- *  bulb marks it, the text stays on screen where the answer ends. */
-const Note = memo(function Note({ comment }: { comment: string }) {
+/** The reviewer's note on one answer, behind the bulb that used to sit in front of it. Folded so
+ *  the transcript keeps its height until a note is asked for; the next click anywhere else, or Esc,
+ *  puts it away, which is also how a second bulb takes over from this one. */
+const TipButton = memo(function TipButton({ comment }: { comment: string }) {
+    const [open, setOpen] = useState(false);
+    // The bulb sits left of an answer that can be a whole screen wide, so the card's natural spot can
+    // land past the transcript's right edge, where it gets clipped and drags a scrollbar in. It slides
+    // back by the overflow, measured from the bulb rather than the card: a reopen must not measure the
+    // shift it applied last time.
+    const [shift, setShift] = useState(0);
+    const ref = useRef<HTMLDivElement | null>(null);
+    const cardRef = useRef<HTMLDivElement | null>(null);
+    useLayoutEffect(() => {
+        if (!open) return;
+        const card = cardRef.current;
+        const bulb = ref.current?.getBoundingClientRect();
+        const log = ref.current?.closest<HTMLElement>('[role="log"]')?.getBoundingClientRect();
+        if (!card || !bulb || !log) return;
+        const over = bulb.left + card.offsetWidth + 8 - log.right;
+        setShift(over > 0 ? -over : 0);
+    }, [open]);
+    useEffect(() => {
+        if (!open) return;
+        const away = (e: Event) => {
+            if (!ref.current?.contains(e.target as Node)) setOpen(false);
+        };
+        const esc = (e: KeyboardEvent) => {
+            if (e.key === "Escape") setOpen(false);
+        };
+        document.addEventListener("pointerdown", away);
+        document.addEventListener("keydown", esc);
+        return () => {
+            document.removeEventListener("pointerdown", away);
+            document.removeEventListener("keydown", esc);
+        };
+    }, [open]);
     return (
-        <div className="flex max-w-[85%] items-start gap-1.5 lg:max-w-[45rem]">
-            <Icon name="tip" className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground/70" />
-            <p className="text-xs leading-relaxed text-muted-foreground">{comment}</p>
+        <div ref={ref} className="relative shrink-0">
+            <button type="button" aria-expanded={open} aria-label="Show the tip for this answer" title="Show the tip for this answer" onClick={() => setOpen((o) => !o)} className={cn("flex rounded-full p-1 transition-colors", open ? "text-foreground" : "text-muted-foreground/60 hover:text-foreground")}>
+                <Icon name="tip" className="h-3.5 w-3.5" />
+            </button>
+            {/* Above the bulb and over the answer it grades. AI HERE: a row at the very top of the
+                scroller would clip it, which needs a measure-and-flip; not worth the layout read yet. */}
+            {open && (
+                <div ref={cardRef} role="note" style={{ left: shift }} className="absolute bottom-full z-30 mb-1 w-64 max-w-[70vw] rounded-2xl border bg-popover px-3 py-2 text-xs leading-relaxed text-popover-foreground shadow-md lg:w-80">
+                    {comment}
+                </div>
+            )}
         </div>
     );
 });
@@ -564,26 +605,16 @@ const Bubble = memo(function Bubble({ from, content, streaming, moveClass, comme
     // Before the bubble, not after: a badge on the right insets the bubble's edge, so every answer
     // would shift left the moment the review lands.
     const badge = isUser && moveClass ? <MoveBadge moveClass={moveClass} /> : null;
-    if (noted) {
-        return (
-            <div className={cn("flex flex-col items-end gap-1", lead && "mt-3")}>
-                {/* The badge keeps its place on the answer's LAST line, and the note hangs under the
-                    bubble it grades instead of across the transcript from it. */}
-                <div className="flex min-w-0 max-w-full items-end gap-2">
-                    {badge}
-                    {bubble}
-                </div>
-                <Note comment={comment} />
-            </div>
-        );
-    }
     return (
-        <div className={cn("flex items-end gap-2", isUser ? "justify-end" : "justify-start", lead && "mt-3")}>
+        <div className={cn("flex min-w-0 max-w-full items-end gap-2", isUser ? "justify-end" : "justify-start", lead && "mt-3")}>
             {/* The face rides the last reply of a burst, and an invisible twin holds its column in
                 every other row so bubbles are never pushed sideways. */}
             <span aria-hidden className={cn("flex h-7 w-7 shrink-0 items-center justify-center self-end rounded-full bg-primary/10 text-primary", !(last && !isUser) && "invisible")}>
                 <Icon name="chat" className="h-3.5 w-3.5" />
             </span>
+            {/* The bulb shares the gutter with the badge, and its column is held on every answer by
+                an invisible twin, same as the face: the review landing cannot shove the bubble. */}
+            {isUser && (noted ? <TipButton comment={comment} /> : <span aria-hidden className="w-[22px] shrink-0" />)}
             {badge}
             {bubble}
             {replay}
