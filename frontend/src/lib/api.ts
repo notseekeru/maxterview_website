@@ -510,9 +510,11 @@ export async function getVoiceCapability(): Promise<VoiceCapability> {
 }
 
 /** One line in, audio out. Its own request, never the SSE stream (VOICE.md gotcha 9): text and audio
- *  do not share a pipe, and a take can be cancelled without touching the reply being generated. */
+ *  do not share a pipe, and a take can be cancelled without touching the reply being generated.
+ *  Timed out because the reply's caption waits on this line: a request that hangs forever would hold
+ *  the words back with it. A spoken sentence takes about a second. */
 export async function synthesizeSpeech(text: string, signal?: AbortSignal): Promise<Blob> {
-    const { data } = await api.post("/voice/tts", { text }, { responseType: "blob", signal });
+    const { data } = await api.post("/voice/tts", { text }, { responseType: "blob", signal, timeout: 15000 });
     return data as Blob;
 }
 

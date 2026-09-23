@@ -11,65 +11,100 @@
  * is the reason (VOICE.md V1).
  */
 
-// --- speaking: sentence chunks, one at a time, in order ---
+// --- speaking: sentence-sized lines, prefetched one ahead, in order ---
 
-/** A chunk ceiling that keeps the first sentence audible while the rest of the reply is still
- *  generating, and bounds a single MeloTTS request. */
-const CHUNK_CHARS = 140;
+/** The ceiling on the FIRST line, which is the one that bounds the silence before the interviewer
+ *  starts: the shorter it is, the sooner the first word lands. */
+const FIRST_CHARS = 140;
+
+/** The ceiling on every line after it. Those are fetched while the previous one is being heard, so
+ *  this only decides how much text the caption gets at once, and it is wide enough for a whole
+ *  sentence: a cut mid-clause ends on a clipped intonation, a cut at a sentence end is a pause. */
+const CHUNK_CHARS = 320;
 
 /** A sentence end: `.!?` plus any closing punctuation, or a newline. Not a real segmenter, so an
- *  abbreviation or a decimal splits a chunk in two. Audible as nothing, because the queue is
+ *  abbreviation or a decimal splits a line in two. Audible as nothing, because the queue is
  *  serialized and the pieces play back to back in one voice.
  *  AI HERE: swap in a segmenter only if a mis-split ever becomes audible. */
 const BREAK = /[.!?]+["')\]]*\s|\n+/g;
 
-/** `[chunks worth speaking now, text held back]`. Held text is the whole contract: a boundary is
- *  what lets the first sentence be heard before the reply has finished streaming. */
-export function takeChunks(text: string, atEnd: boolean): [string[], string] {
-    const out: string[] = [];
+/** One line to speak, and where it ends in the stream it came from. `end` is the caption's cut: the
+ *  reply is revealed up to here when this line is heard, so the words and the voice share one beat. */
+export interface Line {
+    text: string;
+    end: number;
+}
+
+/** `[lines worth speaking now, text held back]`. Held text is the whole contract: a boundary is what
+ *  lets the first sentence be heard before the reply has finished streaming. */
+export function takeLines(text: string, atEnd: boolean, first = FIRST_CHARS, limit = CHUNK_CHARS): { lines: Line[]; rest: string } {
+    const lines: Line[] = [];
     let rest = text;
+    // Where `rest` starts in `text`: a line's end is reported as an offset into the whole string, not
+    // into the piece that happens to be under the scalpel this pass.
+    let base = 0;
     for (;;) {
+        const cap = lines.length ? limit : first;
         BREAK.lastIndex = 0;
         const m = BREAK.exec(rest);
         const ends = m ? m.index + m[0].length : -1;
-        if (ends > 0 && ends <= CHUNK_CHARS) {
-            const chunk = rest.slice(0, ends).trim();
-            if (chunk) out.push(chunk);
+        if (ends > 0 && ends <= cap) {
+            const line = rest.slice(0, ends).trim();
+            if (line) lines.push({ text: line, end: base + ends });
             rest = rest.slice(ends);
+            base += ends;
             continue;
         }
-        if (rest.length > CHUNK_CHARS) {
+        if (rest.length > cap) {
             // No sentence end within reach: cut at the last word that fits, so one long clause is
             // heard now instead of the whole reply being heard late.
-            const cut = Math.max(rest.lastIndexOf(" ", CHUNK_CHARS), 1);
-            const chunk = rest.slice(0, cut).trim();
-            if (chunk) out.push(chunk);
+            const cut = Math.max(rest.lastIndexOf(" ", cap), 1);
+            const line = rest.slice(0, cut).trim();
+            if (line) lines.push({ text: line, end: base + cut });
             rest = rest.slice(cut);
+            base += cut;
             continue;
         }
         break;
     }
     if (atEnd) {
         const tail = rest.trim();
-        if (tail) out.push(tail);
+        if (tail) lines.push({ text: tail, end: base + rest.length });
         rest = "";
     }
-    return [out, rest];
+    return { lines, rest };
 }
 
 if (import.meta.env.DEV) {
-    const [spoken, held] = takeChunks("One. Two", false);
-    console.assert(spoken.length === 1 && spoken[0] === "One." && held === "Two", "voice: the chunker stopped holding text back", spoken, held);
-    // A clause with no sentence end in it: every chunk still respects the ceiling, and nothing is
+    const held = takeLines("One. Two", false);
+    console.assert(held.lines.length === 1 && held.lines[0].text === "One." && held.rest === "Two", "voice: the chunker stopped holding text back", held);
+    // The offset is the caption's cut, so it has to land after the sentence and its break, or the
+    // revealed text loses the space in front of the next one.
+    console.assert("One. Two".slice(0, held.lines[0].end) === "One. ", "voice: a line's end is not where the caption cuts", held.lines[0].end);
+    // A clause with no sentence end in it: every line still respects the ceiling, and nothing is
     // dropped or said twice between what is spoken and what is held back.
-    const [wrapped, tail] = takeChunks("x ".repeat(2 * CHUNK_CHARS), false);
-    console.assert(wrapped.every((c) => c.length <= CHUNK_CHARS) && `${wrapped.join("")}${tail}`.replace(/\s+/g, "") === "x".repeat(2 * CHUNK_CHARS), "voice: long unbroken text lost or duplicated a chunk", wrapped.length, tail.length);
+    const wrapped = takeLines("x ".repeat(2 * CHUNK_CHARS), false, CHUNK_CHARS, CHUNK_CHARS);
+    const whole = `${wrapped.lines.map((l) => l.text).join("")}${wrapped.rest}`.replace(/\s+/g, "");
+    console.assert(wrapped.lines.every((l) => l.text.length <= CHUNK_CHARS) && whole === "x".repeat(2 * CHUNK_CHARS), "voice: long unbroken text lost or duplicated a line", wrapped.lines.length, wrapped.rest.length);
 }
 
-/** One voice, one line at a time. Resolves when the line has been heard, or immediately once the
- *  signal aborts. Implementations must never overlap two lines (VOICE.md gotcha 9). */
-export interface Speaker {
-    speak(text: string, signal: AbortSignal): Promise<void>;
+/** One voice, one line at a time. Implementations must never overlap two lines (VOICE.md gotcha 9). */
+export interface Speaker<T> {
+    /** Fetch one line's audio. Run ahead of playback, so it must make no sound. */
+    load(text: string, signal: AbortSignal): Promise<T>;
+    /** Play a loaded line to completion, reporting the moment it becomes audible. Resolves `true` when
+     *  the line was heard and `false` when it was not (a refused autoplay, a decode failure), and
+     *  resolves in every terminal state: a line that never settles wedges the queue behind it. */
+    play(clip: T, signal: AbortSignal, onStart: () => void): Promise<boolean>;
+}
+
+/** What the reader reports back. `onSpoken` is the caption's clock: the caller reveals the reply up to
+ *  that offset, so the reader is what keeps the words and the voice on the same beat. */
+export interface ReaderSink {
+    /** How far into the pushed stream the voice has got. */
+    onSpoken(chars: number): void;
+    /** The queue is empty and the stream has ended: nothing is held back any more. */
+    onDrained(): void;
 }
 
 export interface VoiceReader {
@@ -82,70 +117,208 @@ export interface VoiceReader {
     stop(): void;
 }
 
-export function createReader(speaker: Speaker): VoiceReader {
-    let buf = "";
-    let queue: Promise<void> = Promise.resolve();
-    const ctl = new AbortController();
+/** A line on its way to being heard, plus its audio fetch once there is one to make. */
+interface Job<T> {
+    text: string;
+    end: number;
+    audio?: Promise<T>;
+}
 
-    const enqueue = (text: string) => {
-        const { signal } = ctl;
-        queue = queue.then(() => (signal.aborted ? undefined : speaker.speak(text, signal))).catch(() => undefined);
+/** Lines are fetched one ahead of playback. That lookahead is the whole seamlessness of this file:
+ *  without it every sentence waits a round trip after the one before it has finished, which is heard
+ *  as a stitched-together monologue rather than a person talking. One line of lookahead is also the
+ *  whole waste: turning the voice off mid-reply has already paid for the next line. */
+export function createReader<T>(speaker: Speaker<T>, sink: ReaderSink): VoiceReader {
+    const ctl = new AbortController();
+    const { signal } = ctl;
+    // Held-back text, and how much of the stream has been received: an offset in the stream is
+    // `seen - buf.length + line.end`, which is what the caption slices on.
+    let buf = "";
+    let seen = 0;
+    let jobs: Job<T>[] = [];
+    let loading: Job<T> | null = null;
+    let ended = false;
+    let drained = false;
+    let running = false;
+
+    const fetchAudio = (job: Job<T>) => {
+        const audio = speaker.load(job.text, signal);
+        // Handled now, awaited later: a rejection that lands while the previous line is still playing
+        // is not an unhandled rejection, it is the next iteration's problem.
+        audio.catch(() => undefined);
+        return audio;
     };
+
+    /** Keep the earliest line that still needs its audio in flight, and no more than one: starting the
+     *  next fetch the moment the current line arrives is what removes the gap between two sentences,
+     *  since a line only waits for its audio when the voice is not already busy with the one before. */
+    function preload(): void {
+        if (loading) return;
+        const job = jobs.find((j) => !j.audio);
+        if (!job) return;
+        loading = job;
+        job.audio = fetchAudio(job);
+        void job.audio.then(clear, clear);
+        function clear() {
+            if (loading === job) loading = null;
+            preload();
+        }
+    }
+
+    async function run(): Promise<void> {
+        if (running) return;
+        running = true;
+        while (!signal.aborted) {
+            const job = jobs[0];
+            if (!job) break;
+            preload(); // its audio is either in flight or about to be
+            let clip: T;
+            try {
+                // `preload()` leaves a fetch in flight for this line; the cast is only because TS cannot
+                // see that a generic `T` is not a promise of itself.
+                clip = (await job.audio) as T;
+            } catch {
+                // Nothing was heard, so nothing is held back: a line nobody heard cannot hold the caption.
+                jobs.shift();
+                sink.onSpoken(job.end);
+                continue;
+            }
+            jobs.shift();
+            if (signal.aborted) break;
+            if (!(await speaker.play(clip, signal, () => sink.onSpoken(job.end)))) sink.onSpoken(job.end);
+        }
+        running = false;
+        if (ended && !drained && !signal.aborted && !jobs.length) {
+            drained = true;
+            sink.onDrained();
+        }
+    }
 
     return {
         push(delta) {
-            if (ctl.signal.aborted) return;
-            const [chunks, rest] = takeChunks(buf + delta, false);
+            if (signal.aborted) return;
+            const base = seen - buf.length;
+            seen += delta.length;
+            const { lines, rest } = takeLines(buf + delta, false);
+            for (const line of lines) jobs.push({ text: line.text, end: base + line.end });
             buf = rest;
-            for (const chunk of chunks) enqueue(chunk);
+            preload();
+            void run();
         },
         flush() {
-            if (ctl.signal.aborted) return;
-            const [chunks, rest] = takeChunks(buf, true);
-            buf = rest;
-            for (const chunk of chunks) enqueue(chunk);
+            if (signal.aborted) return;
+            const base = seen - buf.length;
+            const { lines } = takeLines(buf, true);
+            for (const line of lines) jobs.push({ text: line.text, end: base + line.end });
+            buf = "";
+            ended = true;
+            preload();
+            void run();
         },
         stop() {
             ctl.abort();
             buf = "";
+            jobs = [];
         },
     };
 }
 
+if (import.meta.env.DEV) {
+    // Order, and the lookahead, are the parts no single unit test of the chunker can see. A fake
+    // speaker is the only way to watch the interleaving.
+    void (async () => {
+        const stream = "One. Two. Three.";
+        const heard: string[] = [];
+        const gate: number[] = [];
+        let loading = 0;
+        let overlapped = false;
+        const fake: Speaker<string> = {
+            async load(text) {
+                loading += 1;
+                return text;
+            },
+            async play(clip, _signal, onStart) {
+                overlapped ||= loading > 1;
+                loading -= 1;
+                onStart();
+                heard.push(clip);
+                return true;
+            },
+        };
+        const reader = createReader(fake, { onSpoken: (chars) => gate.push(chars), onDrained: () => undefined });
+        reader.push(stream);
+        reader.flush();
+        await new Promise((r) => setTimeout(r, 10));
+        console.assert(heard.join(" ") === stream, "voice: the reader dropped, reordered or merged a line", heard);
+        let from = 0;
+        const aligned =
+            gate.length === heard.length &&
+            gate.every((end, i) => {
+                const ok = stream.slice(from, end).trim() === heard[i];
+                from = end;
+                return ok;
+            });
+        console.assert(aligned, "voice: the caption's cut does not match the words being said", gate, heard);
+        console.assert(overlapped, "voice: each line waits for the one before it to finish, so every sentence pays a round trip", heard);
+    })();
+}
+
 // --- the cloud voice ---
 
-/** Play one decoded clip to completion. Every terminal state resolves, including a decode failure and
- *  a refused autoplay: an utterance that never resolves wedges the queue behind it, and the queue is
- *  the whole feature. The blob URL is revoked by the caller once this settles. */
-function play(url: string, signal: AbortSignal): Promise<void> {
-    return new Promise<void>((resolve) => {
+/** How long a line gets to become audible before it is written off. The audio is already in hand at
+ *  this point, so decoding it is milliseconds: five seconds means a media stack that has stopped
+ *  answering, and the queue (and with it the caption) must not sit behind it for the whole session. */
+const AUDIBLE_MS = 5000;
+
+/** Play one decoded clip to completion. Every terminal state resolves, including a decode failure, a
+ *  refused autoplay and a pipeline that never starts: an utterance that never resolves wedges the
+ *  queue behind it, and the queue is the whole feature. The blob URL is revoked by the caller once
+ *  this settles. */
+function play(url: string, signal: AbortSignal, onStart: () => void): Promise<boolean> {
+    return new Promise<boolean>((resolve) => {
         const el = new Audio(url);
+        let heard = false;
+        let watchdog: ReturnType<typeof setTimeout> | undefined;
         const finish = () => {
             signal.removeEventListener("abort", onAbort);
+            clearTimeout(watchdog);
+            el.onplaying = null;
             el.onended = null;
             el.onerror = null;
-            resolve();
+            resolve(heard);
         };
         function onAbort() {
             el.pause();
             finish();
         }
+        // `playing`, not the `play()` promise: the caption is released on this callback, and it has to
+        // land with the sound rather than with the request to make it.
+        el.onplaying = () => {
+            if (heard) return;
+            heard = true;
+            onStart();
+        };
         el.onended = finish;
         el.onerror = finish;
         signal.addEventListener("abort", onAbort, { once: true });
         void el.play().catch(finish);
+        watchdog = setTimeout(() => {
+            if (heard) return;
+            el.pause(); // written off, and not left to start talking under the next line
+            finish();
+        }, AUDIBLE_MS);
     });
 }
 
 /** The cloud speaker. `fetchAudio` is injected rather than imported so this file stays free of the API
  *  client, and so the reader can be driven by a plain function in a test. */
-export function cloudSpeaker(fetchAudio: (text: string, signal: AbortSignal) => Promise<Blob>): Speaker {
+export function cloudSpeaker(fetchAudio: (text: string, signal: AbortSignal) => Promise<Blob>): Speaker<Blob> {
     return {
-        async speak(text, signal) {
-            const blob = await fetchAudio(text, signal);
+        load: (text, signal) => fetchAudio(text, signal),
+        async play(blob, signal, onStart) {
             const url = URL.createObjectURL(blob);
             try {
-                await play(url, signal);
+                return await play(url, signal, onStart);
             } finally {
                 URL.revokeObjectURL(url);
             }

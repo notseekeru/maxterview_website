@@ -59,6 +59,9 @@ export function InterviewChat({ interviewId, onExit }: Props) {
     const [hasResume, setHasResume] = useState(false);
     const sendingRef = useRef(false);
     const abortRef = useRef<AbortController | null>(null);
+    // The reply being streamed now. It names the bubble the caption gate applies to, so an earlier reply
+    // is never held back by the voice of a later one.
+    const replyId = useRef("");
     const scrollRef = useRef<HTMLDivElement | null>(null);
     const inputRef = useRef<HTMLTextAreaElement | null>(null);
     const opening = hasResume ? OPENING_HAS_RESUME : OPENING_ASKS_RESUME;
@@ -235,7 +238,9 @@ export function InterviewChat({ interviewId, onExit }: Props) {
         let buffer = "";
         let settled = false;
         // Spoken as it streams, sentence by sentence: waiting for the whole reply would put the voice
-        // a generation behind the text on screen.
+        // a generation behind the text on screen. `speaker.begin` also holds the caption back to what
+        // has been said out loud, so the words and the voice share one beat.
+        replyId.current = `local-reply-${Date.now()}`;
         speaker.begin();
         try {
             await streamChat(
@@ -253,7 +258,7 @@ export function InterviewChat({ interviewId, onExit }: Props) {
                             setMessages((m) => [
                                 ...m,
                                 {
-                                    id: `assistant-${Date.now()}`,
+                                    id: replyId.current,
                                     interview_id: interviewId,
                                     role: "assistant",
                                     content: buffer,
@@ -362,6 +367,13 @@ export function InterviewChat({ interviewId, onExit }: Props) {
     // Consecutive turns from one side close up tight and only the last of each burst carries the
     // interviewer's face, the way a chat app groups a paragraph of short replies.
     const lastOfRun = new Set(messages.filter((m, i) => messages[i + 1]?.role !== m.role).map((m) => m.id));
+    // While the voice is on, a reply is revealed up to what has been said out loud: the caption and the
+    // audio then land together, instead of the text streaming a whole reply ahead of the voice reading
+    // it. Null whenever nothing is held back (voice off, a replay, the queue drained), and only ever on
+    // the reply being streamed now.
+    const speech = speaker.spoken;
+    const caption = (id: string, content: string) => (speech === null || id !== replyId.current ? content : content.slice(0, speech));
+    const live = caption(replyId.current, assistBuf);
 
     return (
         <div className="flex h-dvh flex-col bg-background">
@@ -442,10 +454,10 @@ export function InterviewChat({ interviewId, onExit }: Props) {
                     real transcript arrives. */}
                     {status !== "loading" && messages.length === 0 && opening && <Bubble from="assistant" content={opening} last onReplay={voiceOn && capability?.tts ? speaker.say : undefined} />}
                     {messages.map((m, i) => (
-                        <Bubble key={m.id} from={m.role} content={m.content} moveClass={m.move_class} comment={m.comment} last={lastOfRun.has(m.id)} lead={messages[i - 1]?.role !== m.role} onReplay={m.role === "assistant" && voiceOn && capability?.tts ? speaker.say : undefined} />
+                        <Bubble key={m.id} from={m.role} content={caption(m.id, m.content)} moveClass={m.move_class} comment={m.comment} last={lastOfRun.has(m.id)} lead={messages[i - 1]?.role !== m.role} onReplay={m.role === "assistant" && voiceOn && capability?.tts ? speaker.say : undefined} />
                     ))}
-                    {assistBuf && <Bubble from="assistant" content={assistBuf} streaming last lead={messages[messages.length - 1]?.role !== "assistant"} />}
-                    {status === "streaming" && !assistBuf && <p className="my-1 self-center text-xs text-muted-foreground">Thinking…</p>}
+                    {live && <Bubble from="assistant" content={live} streaming last lead={messages[messages.length - 1]?.role !== "assistant"} />}
+                    {status === "streaming" && !live && <p className="my-1 self-center text-xs text-muted-foreground">Thinking…</p>}
                     {reviewFailed && status === "completed" && (
                         <div role="status" className="my-1 flex flex-col items-center gap-1.5 self-center rounded-2xl border bg-muted/50 px-3.5 py-2 text-center text-xs text-muted-foreground">
                             <p className="font-medium text-foreground">Interview finished, your review wasn't ready.</p>
@@ -500,7 +512,16 @@ export function InterviewChat({ interviewId, onExit }: Props) {
                             className={cn("h-8 w-8 shrink-0 rounded-full", !mic.recording && "text-muted-foreground")}
                             aria-pressed={mic.recording}
                             aria-label={mic.recording ? "Stop and keep what you said" : "Speak your answer"}
-                            onClick={() => (mic.recording ? mic.stop() : mic.start())}
+                            onClick={() => {
+                                if (mic.recording) mic.stop();
+                                else {
+                                    // A talking interviewer would be transcribed into the answer (VOICE.md
+                                    // gotcha 7), and pressing the microphone is the applicant
+                                    // interrupting: the voice stops for them.
+                                    speaker.stop();
+                                    mic.start();
+                                }
+                            }}
                             disabled={!mic.recording && (!mic.ready || status !== "ready" || interviewOver || Boolean(mic.blocked))}
                             title={mic.recording ? "Stop and put what you said into your answer" : "Speak your answer instead of typing it"}
                         >

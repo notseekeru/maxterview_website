@@ -51,13 +51,27 @@ Past the allocation, voice goes unavailable with a reason on screen: a degraded 
 
 ## Step 1: it speaks (built)
 
-Aura-1 through the backend, one request per sentence, played as it arrives. One consistent voice on
-every machine, which is the point (V1). The chunking is what makes it feel live: the streamed reply is
-buffered and spoken on a sentence boundary or 140 characters, so the first sentence is heard while the
-rest is still generating. The model is one env var (`CLOUDFLARE_TTS_MODEL`).
+Aura-1 through the backend, one request per line, played as it arrives. One consistent voice on every
+machine, which is the point (V1). The voice is cast rather than inherited: Aura-1's own default speaker
+is `angus`, an Irish man, so the request names `hera`, Deepgram's smooth, warm, professional adult
+American female (`CLOUDFLARE_TTS_SPEAKER`; asteria, luna, athena and stella are all one value away).
+
+The line boundaries are what make it feel live: the streamed reply is buffered and spoken at a sentence
+end, or at the last word that fits when a sentence runs long (140 characters for the first line, 320
+after it), so the first sentence is heard while the rest is still generating. Each line's audio is then
+fetched while the previous one is being heard, so the seam between two sentences is milliseconds rather
+than a round trip, and synthesis is keyed on the line's text: a replay, or the opening line shared by
+every visitor without a resume, costs no neuron the second time.
+
+The caption is gated on the voice, not the other way round. While the voice is on, a reply is revealed
+up to the line being spoken, so the words and the audio land together instead of the text streaming a
+whole reply ahead of it. Turning the voice off, replaying a reply, or a line that is not heard releases
+the held text immediately: a silent reply still reads normally.
 
 Controls: a mute toggle in the header (off by default, remembered per browser), a replay control per
 reply, cancel on unmount, a silent review page, and a finished interview that never reads itself aloud.
+Pressing the microphone stops the voice: an interviewer gets interrupted, and a talking one would be
+transcribed into the answer (gotcha 7).
 
 ## Step 2: it listens (built)
 
@@ -90,7 +104,7 @@ face metrics go the same way: unproven value for the complexity, and the same ob
 | Text after they stop     | 6.8-17.5s for a 112 second clip, upload included, and it scales with length: Whisper is batch, not streaming. This is the wait that needs a progress hint, not a spinner |
 | First token of the reply | `llm.chat.completed.latency_ms` is whole-turn, not time to first token. Measure that first     |
 | Hardcore judge           | Silence before the reply on hardcore runs. Read `llm.chat.*` in Loki for the real number       |
-| First audio of the reply | 0.4-1.0s per sentence, so the first audible gap is one chunk plus one round trip                |
+| First audio of the reply | One line, 0.4-1.3s measured, and later lines are fetched while the previous one is being heard: the gap between two sentences measured 8ms (2026-09-23) |
 
 One turn therefore feels like: stop -> 7-18s -> text appears -> Enter -> 2-3s -> voice. The transcription
 wait is the number that decides whether voice answering feels usable, and it is the one thing here I
@@ -101,6 +115,10 @@ would redesign before shipping to anyone else.
 Zero dollars. Both directions run inside the free daily allocation, nothing is card-backed, so a spent
 allocation is a disabled control rather than an invoice. That allocation is one shared resource with no
 per-owner metering, which is a limit rather than a design: see Limits, and what comes next.
+
+A line is paid for once: synthesized audio is cached on its text (8MB in memory, evicted oldest first),
+which covers a replay and the opening line every visitor without a resume shares. The applicant's speech
+is never synthesized, so nothing in that cache is a recording.
 
 ## Free alternatives (parked)
 
@@ -140,10 +158,10 @@ confirms, the pipeline runs. Only the wait and the voice change.
 9. Do not put audio inside the SSE stream. Audio rides its own request, one sentence at a time and
    serialized.
 10. Log `voice.stt.completed {bytes, latency_ms, engine, chars, audio_s, language, neurons}`,
-`voice.tts.completed {chars, latency_ms, engine, bytes}` and `voice.unreachable | unauthorized |
-quota_exhausted {status}`. Cost, p95, and how often the cloud engine is down then come out of Loki with
-no new infra. Transcription reports its own neuron spend; the voice does not, so its cost stays an
-estimate from characters.
+`voice.tts.completed {chars, latency_ms, engine, bytes, speaker, cached}` and `voice.unreachable |
+unauthorized | quota_exhausted {status}`. Cost, p95, and how often the cloud engine is down then come
+out of Loki with no new infra. Transcription reports its own neuron spend; the voice does not, so its
+cost stays an estimate from characters.
 11. Cap concurrent upstream calls the way `resumes.py` caps parses: one replica means a burst of
     uploads is a burst of base64 held in memory.
 12. Read the Workers AI envelope before the result: a refusal arrives as HTTP 200 with
@@ -152,6 +170,12 @@ estimate from characters.
     that keeps a hot microphone after an error is the state a visitor cannot get out of.
 14. A background probe that fails is not a verdict. A refused capability check once told the visitor
     their deployment had no voice, which sends them off to fix a problem that is not there.
+15. A voice is not a default. `@cf/deepgram/aura-1` answers `angus`, an Irish man, and leaving `speaker`
+    out of the body measured byte-for-byte identical to asking for him (2026-09-23). An interviewer's
+    voice is a cast decision, so it is named in the body and changeable by one env var.
+16. A caption held back until the voice reaches it is a caption hostage to the voice. Both waits are
+    bounded: the TTS request times out in 15s, and a line that is not audible within 5s is written off
+    and its text released. Without them a stuck media pipeline leaves the reply invisible for good.
 
 ## Limits, and what comes next
 
@@ -165,8 +189,6 @@ provider costs the visitor a feature, never the interview.
 | The daily budget is one account, shared with dev | 10,000 neurons a day on a single token, and nothing meters voice per owner. The chat-turn meter counts turns and is blind to it, so one heavy visitor turns voice off for everyone until 00:00 UTC | A token per environment, the owner logged on the voice events, and a per-owner voice budget before this is public |
 | A transient 5xx drops the take | The clip is still in memory when the upload fails, so the visitor re-records what we already have | Retry once on 5xx, both directions. There is no circuit breaker either |
 | The take cap and the read timeout disagree | 180s take against a 60s upstream read timeout. At the measured rate a full take is ~28s, and ~56s if the provider halves its speed | Widen the read timeout, or shorten the take |
-| The same sentence is paid for every time | The opening line is one fixed 101-character string for every visitor without a resume, ~275 neurons per interview, and a replay re-synthesizes | Cache synthesized audio keyed on the text |
-| One TLS handshake per sentence | `_run` builds a client per call, and TTS is one request per sentence, so the setup sits on the first-audio path | One shared client per process |
 | The wait grows with the answer | 6.8-17.5s for a 112 second clip, and Whisper is batch rather than streaming | A progress affordance, chunked transcription at more neurons, or a shorter take. This is the decision to revisit first |
 | Nothing watches voice | `llm.chat.*` has a Loki panel and alerts; the `voice.*` events exist with measured neurons and no dashboard | One panel and one alert, off events that already ship |
 | The concurrency cap is per pod | The semaphore is 2 per replica; the account budget is not coordinated | Fine at one replica. Replicas need a shared budget before they need tuning |

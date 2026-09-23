@@ -33,14 +33,26 @@ export function useVoiceCapability(): { capability: VoiceCapability | null; fail
 }
 
 /** The interviewer speaking (VOICE.md step 1). One reader per reply, and the reader outlives the
- *  component only until unmount: audio left queued keeps talking over the next screen. */
+ *  component only until unmount: audio left queued keeps talking over the next screen.
+ *
+ *  `spoken` is the caption's clock: while the voice is on, the reply is revealed up to what has been
+ *  said out loud, so the words and the audio share one beat instead of the text running a whole reply
+ *  ahead of the voice. It is null whenever nothing is held back, which is every case with no voice to
+ *  sync to: voice off, a replay, or a queue that has drained. */
 export function useSpeaker(enabled: boolean) {
     const reader = useRef<VoiceReader | null>(null);
     const on = useRef(false);
+    // Reader generations: a stopped reader's callbacks land after the next one has started, and they say
+    // nothing about the line being spoken now.
+    const gen = useRef(0);
+    const [spoken, setSpoken] = useState<number | null>(null);
 
     const stop = useCallback(() => {
+        gen.current += 1;
         reader.current?.stop();
         reader.current = null;
+        // Nothing is being said, so nothing stays held back.
+        setSpoken(null);
     }, []);
 
     useEffect(() => {
@@ -52,25 +64,42 @@ export function useSpeaker(enabled: boolean) {
 
     /** Take the voice over from whatever is playing and start a fresh queue. A no-op while voice is
      *  off, so the chat surface drives this unconditionally and the decision stays in one place. */
-    const begin = useCallback(() => {
-        stop();
-        if (on.current) reader.current = createReader(cloudSpeaker(synthesizeSpeech));
-    }, [stop]);
+    const start = useCallback(
+        (gate: boolean) => {
+            stop();
+            if (!on.current) return;
+            const id = gen.current;
+            reader.current = createReader(cloudSpeaker(synthesizeSpeech), {
+                onSpoken: (chars) => {
+                    if (id === gen.current) setSpoken(chars);
+                },
+                onDrained: () => {
+                    if (id === gen.current) setSpoken(null);
+                },
+            });
+            if (gate) setSpoken(0);
+        },
+        [stop],
+    );
 
     return {
-        begin,
+        /** A reply is starting: the caption is held back to what has been said out loud. */
+        begin: useCallback(() => start(true), [start]),
         push: useCallback((delta: string) => reader.current?.push(delta), []),
         flush: useCallback(() => reader.current?.flush(), []),
-        /** One line, now: a replay, or the opening line. Takes the voice from anything mid-sentence. */
+        /** One line, now: a replay, or the opening line. Takes the voice from anything mid-sentence, and
+         *  never gates the caption: the reply it replays is already on screen in full. */
         say: useCallback(
             (text: string) => {
-                begin();
+                start(false);
                 reader.current?.push(text);
                 reader.current?.flush();
             },
-            [begin],
+            [start],
         ),
         stop,
+        /** How much of the reply has been said out loud, or null when nothing is held back. */
+        spoken,
     };
 }
 
