@@ -84,6 +84,7 @@ LLMConfigDep = Annotated[llm.LLMConfig, Depends(_llm_config)]
 async def lifespan(_app: FastAPI):
     await init_pool()
     yield
+    await voice.aclose()
     await close_pool()
 
 

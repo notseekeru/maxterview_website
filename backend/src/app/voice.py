@@ -11,6 +11,7 @@ import base64
 import json
 import os
 import time
+from collections import OrderedDict
 from dataclasses import dataclass
 
 import httpx
@@ -27,6 +28,11 @@ STT_MODEL = os.getenv("CLOUDFLARE_STT_MODEL", "@cf/openai/whisper-large-v3-turbo
 # Aura is also the human voice the feature is for, and it is the scarce resource: roughly 1.4k-3.8k
 # neurons per run against a 10,000 a day allocation, where transcription costs a few hundred.
 TTS_MODEL = os.getenv("CLOUDFLARE_TTS_MODEL", "@cf/deepgram/aura-1")
+# The model's own default is `angus`, an Irish man: the interviewer's voice is cast, not inherited.
+# `hera` is Deepgram's adult American female, described as smooth, warm and professional. The other
+# Aura-1 female voices are asteria (confident, energetic), luna (young, friendly), athena (British,
+# calm) and stella (fast, casual).
+TTS_SPEAKER = os.getenv("CLOUDFLARE_TTS_SPEAKER", "hera")
 
 # A take is capped at 180s in the UI; 8MB is roughly four minutes of Opus, so this only catches a
 # client that ignored the timer.
@@ -43,6 +49,19 @@ TIMEOUT = httpx.Timeout(connect=10.0, read=60.0, write=30.0, pool=10.0)
 # is a burst of held bytes: unbounded, that is an OOMKill (a full outage) rather than a slow take.
 CONCURRENCY = int(os.getenv("VOICE_CONCURRENCY", "2"))
 _slots = asyncio.Semaphore(CONCURRENCY)
+
+# Synthesized lines, keyed on the voice that would say them. The opening line is one fixed string for
+# every visitor without a resume, and a replay asks for a line we already have, so both stop costing
+# neurons. Only the INTERVIEWER's lines ever reach this: no applicant audio is synthesized, so nothing
+# here is a recording. Bounded in bytes rather than entries because a clip's size tracks its text, and
+# the pod is 256Mi.
+CACHE_BYTES = int(os.getenv("VOICE_TTS_CACHE_BYTES", str(8 * 1024 * 1024)))
+_cache: OrderedDict[tuple[str, str, str], "Speech"] = OrderedDict()
+
+# One client per process, per event loop: a pool's connections belong to the loop that opened them.
+# TTS is one request per sentence and `_run` used to build a client per call, which put a TLS
+# handshake on the path to the first word (VOICE.md Limits).
+_http: tuple[asyncio.AbstractEventLoop, httpx.AsyncClient] | None = None
 
 # Container magic bytes. Whisper needs a real container, and the browser's Content-Type is not proof of
 # one (Safari and Chrome disagree, and either can be spoofed). Same reasoning as resumes._has_pdf_header.
@@ -82,6 +101,22 @@ def _has_container(data: bytes) -> bool:
     return any(data[offset : offset + len(magic)] == magic for magic, offset in _CONTAINERS)
 
 
+def _client() -> httpx.AsyncClient:
+    global _http
+    loop = asyncio.get_running_loop()
+    if _http is None or _http[0] is not loop or _http[1].is_closed:
+        _http = (loop, httpx.AsyncClient(timeout=TIMEOUT))
+    return _http[1]
+
+
+async def aclose() -> None:
+    """Shutdown: the pool outlives the last request, so something has to close it."""
+    global _http
+    if _http is not None:
+        await _http[1].aclose()
+        _http = None
+
+
 def _endpoint(model: str) -> str:
     return f"https://api.cloudflare.com/client/v4/accounts/{ACCOUNT_ID}/ai/run/{model}"
 
@@ -101,16 +136,32 @@ def _failure(payload: object) -> str | None:
 
 
 def _tts_body(model: str, text: str) -> dict:
-    """Two model families, two request shapes: Aura takes `text`, MeloTTS takes `prompt` plus `lang`.
-    Sending both keys would be a body that lies about which model it is addressing."""
+    """Two model families, two request shapes: Aura takes `text` and a named `speaker`, MeloTTS takes
+    `prompt` plus `lang`. Sending both keys would be a body that lies about which model it is
+    addressing, and leaving the speaker out hands the interviewer's gender to the provider's default."""
     if "aura" in model:
-        return {"text": text}
+        return {"text": text, "speaker": TTS_SPEAKER}
     return {"prompt": text, "lang": "en"}
+
+
+def _cached(key: tuple[str, str, str]) -> "Speech | None":
+    hit = _cache.get(key)
+    if hit is not None:
+        _cache.move_to_end(key)
+    return hit
+
+
+def _remember(key: tuple[str, str, str], speech: "Speech") -> None:
+    _cache[key] = speech
+    # Oldest first, and the newest line is never the one evicted: a clip larger than the whole budget
+    # is still worth serving, it just empties the cache.
+    while len(_cache) > 1 and sum(len(s.audio) for s in _cache.values()) > CACHE_BYTES:
+        _cache.popitem(last=False)
 
 
 # One framework-free self-check (AGENTS rule 5): this branch decides whether the provider sees a
 # sentence or a 400, and it is the one a model swap would silently flip.
-assert _tts_body("@cf/deepgram/aura-1", "hi") == {"text": "hi"}
+assert _tts_body("@cf/deepgram/aura-1", "hi") == {"text": "hi", "speaker": TTS_SPEAKER}
 assert _tts_body("@cf/myshell-ai/melotts", "hi") == {"prompt": "hi", "lang": "en"}
 assert _failure({"success": False, "errors": [{"code": 7000, "message": "No more neurons"}]}) == "No more neurons"
 assert _failure({"success": True, "result": {"text": "hi"}}) is None
@@ -122,8 +173,7 @@ async def _run(model: str, body: dict) -> httpx.Response:
         raise VoiceError("Voice is not configured on this server yet.")
     async with _slots:
         try:
-            async with httpx.AsyncClient(timeout=TIMEOUT) as client:
-                return await client.post(_endpoint(model), headers={"Authorization": f"Bearer {API_TOKEN}"}, json=body)
+            return await _client().post(_endpoint(model), headers={"Authorization": f"Bearer {API_TOKEN}"}, json=body)
         except httpx.HTTPError as exc:
             # The visitor gets one sentence; the log gets the class, never the audio or the token.
             log.warning("voice.unreachable", model=model, error=type(exc).__name__)
@@ -154,13 +204,20 @@ async def speak(text: str) -> Speech:
     """One line in, MP3 out. The caller chunks; this never sees a paragraph."""
     if len(text) > MAX_TTS_CHARS:
         raise VoiceError(f"That line is longer than {MAX_TTS_CHARS} characters.")
+    key = (TTS_MODEL, TTS_SPEAKER, text)
+    hit = _cached(key)
+    if hit is not None:
+        log.info("voice.tts.completed", chars=len(text), latency_ms=0.0, engine="cloud", bytes=len(hit.audio), speaker=TTS_SPEAKER, cached=True)
+        return hit
     started = time.perf_counter()
     resp = await _run(TTS_MODEL, _tts_body(TTS_MODEL, text))
     if resp.status_code != 200:
         raise VoiceError(_status_message(resp.status_code))
     audio, media_type = _audio_bytes(resp)
-    log.info("voice.tts.completed", chars=len(text), latency_ms=round((time.perf_counter() - started) * 1000, 1), engine="cloud", bytes=len(audio))
-    return Speech(audio=audio, media_type=media_type)
+    log.info("voice.tts.completed", chars=len(text), latency_ms=round((time.perf_counter() - started) * 1000, 1), engine="cloud", bytes=len(audio), speaker=TTS_SPEAKER, cached=False)
+    speech = Speech(audio=audio, media_type=media_type)
+    _remember(key, speech)
+    return speech
 
 
 async def transcribe(data: bytes, transcription: str = "transcribe") -> Transcript:

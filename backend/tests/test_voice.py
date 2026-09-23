@@ -6,6 +6,7 @@ envelope change breaks these before it breaks the visitor.
 """
 
 import base64
+import json
 
 import pytest
 import respx
@@ -23,6 +24,7 @@ def configured(monkeypatch):
     """The module reads env at import, so the tests set the values the same way a deployment does."""
     monkeypatch.setattr(voice, "ACCOUNT_ID", ACCOUNT)
     monkeypatch.setattr(voice, "API_TOKEN", TOKEN)
+    voice._cache.clear()
 
 
 def url(model: str) -> str:
@@ -37,10 +39,23 @@ async def test_speak_posts_the_prompt_and_returns_the_mp3():
     assert got.media_type == "audio/mpeg"
     body = route.calls[0].request
     assert body.headers["authorization"] == f"Bearer {TOKEN}"
-    # Aura takes `text`, MeloTTS takes `prompt` plus `lang`. The field name is the whole request, so
-    # both shapes are pinned: the default is one env var away from the other family.
-    assert body.content == b'{"text":"Tell me about the migration."}'
+    # Aura takes `text` plus the named voice, MeloTTS takes `prompt` plus `lang`. The field names are
+    # the whole request, so both shapes are pinned: the default is one env var away from the other
+    # family, and a body with no speaker is the provider's default voice, which is not a choice.
+    assert json.loads(body.content) == {"text": "Tell me about the migration.", "speaker": voice.TTS_SPEAKER}
+    assert voice.TTS_SPEAKER in {"asteria", "athena", "hera", "luna", "stella"}
     assert voice._tts_body("@cf/myshell-ai/melotts", "hi") == {"prompt": "hi", "lang": "en"}
+
+
+async def test_a_repeated_line_is_synthesized_once():
+    """The opening line is one fixed string for every visitor without a resume, and a replay asks for a
+    line already spoken. The second ask must cost no upstream call, and so no neuron."""
+    with respx.mock as mock:
+        route = mock.post(url(voice.TTS_MODEL)).mock(return_value=Response(200, content=b"ID3audio", headers={"content-type": "audio/mpeg"}))
+        first = await voice.speak("Say that again.")
+        again = await voice.speak("Say that again.")
+    assert route.call_count == 1
+    assert first == again == voice.Speech(audio=b"ID3audio", media_type="audio/mpeg")
 
 
 async def test_speak_reads_the_json_audio_option():
