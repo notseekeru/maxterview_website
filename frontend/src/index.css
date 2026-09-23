@@ -89,8 +89,31 @@
 }
 
 @layer base {
+    /* OS scrollbars draw stepper arrows at both ends. Inside the composer a long draft hits its
+       growth cap and pulls those arrows into the chatbox, which reads as a broken control. Thin
+       bar, no buttons: the scroll is still there, the chrome is not. */
     * {
         border-color: var(--border);
+        scrollbar-width: thin;
+        scrollbar-color: color-mix(in oklab, var(--muted-foreground) 30%, transparent) transparent;
+    }
+    ::-webkit-scrollbar {
+        width: 8px;
+        height: 8px;
+    }
+    ::-webkit-scrollbar-track,
+    ::-webkit-scrollbar-corner {
+        background: transparent;
+    }
+    ::-webkit-scrollbar-button {
+        display: none;
+    }
+    ::-webkit-scrollbar-thumb {
+        background-color: color-mix(in oklab, var(--muted-foreground) 30%, transparent);
+        border-radius: 9999px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+        background-color: color-mix(in oklab, var(--muted-foreground) 55%, transparent);
     }
     body {
         background-color: var(--background);
