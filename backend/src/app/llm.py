@@ -283,12 +283,12 @@ INTRO_TURN = "This is your FIRST turn: open with one short line saying you will 
 # line that asks a question the API then refuses to accept is worse than no closing line. So the
 # arc's last entry is the last QUESTION, and the turn after it is this fixed line: correct by
 # construction, no model call, and it ends the transcript cleanly (see main.chat_stream).
-CLOSING_MESSAGE = "Thanks - that's everything I had for you. Take a moment if you want, then hit Complete and you'll get your full feedback: how you communicated, the substance of your answers, your profile as a hire, and where you landed on the hire/reject spectrum."
+CLOSING_MESSAGE = "Thanks - that's everything I had for you. Take a moment if you want, then hit the ✓ at the top right and you'll get your full feedback: how you communicated, the substance of your answers, your profile as a hire, and where you landed on the hire/reject spectrum."
 
 # Hardcore fail line, canned: the fallback when the shout call returns nothing (llm.fail_shout), and
 # the stub's stand-in. All caps on purpose: it is the moment the run dies, and a half-shouted model
 # line reads worse than a template.
-FAIL_MESSAGE = "THAT'S IT. I CALLED THAT ANSWER: {cls}. HARDCORE MODE: ONE VAGUE OR WRONG ANSWER ENDS THE RUN. NO SECOND CHANCES, NO NEXT QUESTION, NO WARM-UP. HIT COMPLETE AND READ WHAT I THOUGHT OF IT."
+FAIL_MESSAGE = "THAT'S IT. I CALLED THAT ANSWER: {cls}. HARDCORE MODE: ONE VAGUE OR WRONG ANSWER ENDS THE RUN. NO SECOND CHANCES, NO NEXT QUESTION, NO WARM-UP. HIT THE ✓ AT THE TOP RIGHT AND READ WHAT I THOUGHT OF IT."
 
 # Hardcore reaches the grader and the formatter. The grader is told what the caps are for; the
 # formatter is the one that actually shouts (see HARDCORE_FORMAT_PROMPT).

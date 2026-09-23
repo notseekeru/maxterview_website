@@ -1,6 +1,7 @@
 import { memo, useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import { Modal } from "@/components/ui/modal";
 import { Textarea } from "@/components/ui/textarea";
 import { MAX_TAKE_S, useRecorder, useSpeaker, useVoiceCapability } from "@/hooks/useInterviewVoice";
 import { apiDetail, type Feedback, finishInterview, getFeedback, getInterview, getMessages, httpStatus, MAX_TURN_CHARS, type Message, regenerateFeedback, startInterview, streamChat } from "@/lib/api";
@@ -357,12 +358,25 @@ export function InterviewChat({ interviewId, onExit }: Props) {
                             <CardDescription>{STATUS_LABELS[status]}</CardDescription>
                         </div>
                         <div className="flex items-center gap-2">
-                            <Button variant="ghost" size="sm" aria-pressed={voiceOn} onClick={toggleVoice} disabled={!capability?.tts} title={voiceTitle}>
+                            {/* Icon-only: the labels came off, so the tooltip and the aria-label carry the
+                                meaning. Finish sits here rather than in the composer, where it stacked
+                                under Send and got misclicked as a second submit. */}
+                            <Button variant="ghost" size="sm" className="w-8 px-0" aria-pressed={voiceOn} aria-label={voiceOn ? "Voice on" : "Voice off"} onClick={toggleVoice} disabled={!capability?.tts} title={voiceTitle}>
                                 <Icon name={voiceOn ? "sound" : "mute"} />
-                                {voiceOn ? "Voice on" : "Voice off"}
                             </Button>
-                            <Button variant="outline" size="sm" onClick={onExit}>
-                                Exit
+                            <Button variant="outline" size="sm" className="w-8 px-0" aria-label="Exit this interview" title="Exit to your dashboard" onClick={onExit}>
+                                <Icon name="logout" />
+                            </Button>
+                            <Button
+                                variant="destructive"
+                                size="sm"
+                                className="w-8 px-0"
+                                aria-label={interviewOver ? "Finish and get your feedback" : "End this interview"}
+                                title={interviewOver ? "Finish and get your feedback" : "End this interview"}
+                                onClick={() => (interviewOver ? void finishRun() : setConfirmFinish(true))}
+                                disabled={isFinishing || status === "streaming" || status === "completed" || !answered || mic.recording}
+                            >
+                                {isFinishing ? <Spinner /> : <Icon name="complete" />}
                             </Button>
                         </div>
                     </div>
@@ -401,7 +415,7 @@ export function InterviewChat({ interviewId, onExit }: Props) {
                                 <>
                                     <p className="font-medium">That was the whole interview.</p>
                                     <p className="mt-1 text-muted-foreground">
-                                        This run has asked every question in its mix, so there's nothing left to answer here. Press <span className="font-medium text-foreground">Finish</span> for your feedback, or start a new interview with a wider mix.
+                                        This run has asked every question in its mix, so there's nothing left to answer here. Press the <span className="font-medium text-foreground">✓</span> at the top right for your feedback, or start a new interview with a wider mix.
                                     </p>
                                 </>
                             )}
@@ -427,22 +441,46 @@ export function InterviewChat({ interviewId, onExit }: Props) {
                         </div>
                     )}
                 </CardContent>
-                <CardFooter className="items-start gap-2">
-                    <div className="flex-1 space-y-1.5">
-                        <Textarea
-                            value={draft}
-                            maxLength={MAX_TURN_CHARS}
-                            aria-label="Your answer"
-                            onChange={(e) => setDraft(e.target.value)}
-                            placeholder={placeholder}
-                            onKeyDown={(e) => {
-                                if (e.key === "Enter" && !e.shiftKey && status === "ready") {
-                                    e.preventDefault();
-                                    void send();
-                                }
-                            }}
-                            disabled={status === "completed" || interviewOver || mic.recording}
-                        />
+                <CardFooter>
+                    <div className="flex flex-1 flex-col gap-1.5">
+                        {/* One row: box, then send. The microphone rides inside the box on its right edge,
+                            where it belongs to the answer it records instead of stacking beside Send. */}
+                        <div className="flex items-center gap-2">
+                            <div className="relative flex-1">
+                                <Textarea
+                                    value={draft}
+                                    maxLength={MAX_TURN_CHARS}
+                                    aria-label="Your answer"
+                                    className="pr-11"
+                                    onChange={(e) => setDraft(e.target.value)}
+                                    placeholder={placeholder}
+                                    onKeyDown={(e) => {
+                                        if (e.key === "Enter" && !e.shiftKey && status === "ready") {
+                                            e.preventDefault();
+                                            void send();
+                                        }
+                                    }}
+                                    disabled={status === "completed" || interviewOver || mic.recording}
+                                />
+                                {/* Disabled while the interviewer is replying: an open microphone would
+                                    transcribe our own voice back into the answer (VOICE.md gotcha 7). */}
+                                <Button
+                                    variant={mic.recording ? "destructive" : "outline"}
+                                    size="icon"
+                                    aria-pressed={mic.recording}
+                                    aria-label={mic.recording ? "Stop and keep what you said" : "Speak your answer"}
+                                    className="absolute top-1/2 right-1.5 h-7 w-7 -translate-y-1/2"
+                                    onClick={() => (mic.recording ? mic.stop() : mic.start())}
+                                    disabled={!mic.recording && (!mic.ready || status !== "ready" || interviewOver || Boolean(mic.blocked))}
+                                    title={mic.recording ? "Stop and put what you said into your answer" : "Speak your answer instead of typing it"}
+                                >
+                                    <Icon name={mic.recording ? "stop" : "mic"} />
+                                </Button>
+                            </div>
+                            <Button size="icon" aria-label="Send your answer" title="Send your answer" onClick={() => void send()} disabled={status !== "ready" || !draft.trim() || interviewOver || mic.recording}>
+                                <Icon name="send" />
+                            </Button>
+                        </div>
                         {/* Nothing renders mid-answer (V4): the meter and the timer are the whole of the
                             feedback until Stop, because nothing is transcribed on this side. */}
                         {mic.recording && (
@@ -456,43 +494,23 @@ export function InterviewChat({ interviewId, onExit }: Props) {
                         {!mic.recording && mic.notice && <p className="text-xs text-muted-foreground">{mic.notice}</p>}
                         {!mic.recording && micProblem && <p className="text-xs text-destructive">{micProblem}</p>}
                     </div>
-                    <div className="flex flex-col gap-2">
-                        {confirmFinish && <p className="max-w-48 text-xs text-muted-foreground">End early? This run still has questions left.</p>}
-                        <Button onClick={() => void send()} disabled={status !== "ready" || !draft.trim() || interviewOver || mic.recording}>
-                            Send
-                        </Button>
-                        {/* Disabled while the interviewer is replying: an open microphone would
-                            transcribe our own voice back into the answer (VOICE.md gotcha 7). */}
-                        <Button
-                            variant={mic.recording ? "destructive" : "outline"}
-                            size="sm"
-                            aria-pressed={mic.recording}
-                            onClick={() => (mic.recording ? mic.stop() : mic.start())}
-                            disabled={!mic.recording && (!mic.ready || status !== "ready" || interviewOver || Boolean(mic.blocked))}
-                            title={mic.recording ? "Stop and put what you said into your answer" : "Speak your answer instead of typing it"}
-                        >
-                            <Icon name={mic.recording ? "stop" : "mic"} />
-                            {mic.recording ? "Stop" : "Speak"}
-                        </Button>
-                        {confirmFinish ? (
-                            <div className="flex items-center gap-1.5">
-                                <Button variant="destructive" size="sm" onClick={() => void finishRun()} disabled={isFinishing || mic.recording}>
-                                    End it
-                                </Button>
-                                <Button variant="ghost" size="sm" onClick={() => setConfirmFinish(false)}>
-                                    Keep going
-                                </Button>
-                            </div>
-                        ) : (
-                            <Button variant="destructive" size="sm" onClick={() => (interviewOver ? void finishRun() : setConfirmFinish(true))} disabled={isFinishing || status === "streaming" || status === "completed" || !answered || mic.recording}>
-                                {isFinishing && <Spinner />}
-                                {isFinishing ? "Finishing…" : "Finish"}
-                            </Button>
-                        )}
-                    </div>
                 </CardFooter>
             </Card>
             {finishing && <FinishOverlay open={!finishing.dismissed} title={finishing.title} done={finishing.done} onDismiss={() => setFinishing((f) => (f ? { ...f, dismissed: true } : f))} />}
+            {/* Its own modal now that Finish lives in the header: the old inline prompt had nowhere to
+                hang off a 32px icon without shoving the header row around. */}
+            <Modal open={confirmFinish} onClose={() => setConfirmFinish(false)} title="End early?">
+                <p>This run still has questions left. Finishing now reviews the answers you gave and ends it here.</p>
+                <div className="flex justify-end gap-2">
+                    <Button variant="outline" size="sm" onClick={() => setConfirmFinish(false)}>
+                        Keep going
+                    </Button>
+                    <Button variant="destructive" size="sm" onClick={() => void finishRun()} disabled={isFinishing || mic.recording}>
+                        {isFinishing && <Spinner />}
+                        End it
+                    </Button>
+                </div>
+            </Modal>
         </>
     );
 }
