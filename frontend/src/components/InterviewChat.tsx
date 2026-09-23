@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
 import { Textarea } from "@/components/ui/textarea";
@@ -531,41 +531,13 @@ export function InterviewChat({ interviewId, onExit }: Props) {
     );
 }
 
-/** The reviewer's note on one answer, beside it: two lines until asked for more, so a long note
- *  cannot tower over the answer it grades. The control appears only when the text is actually cut,
- *  measured rather than guessed from a character count. */
-const MoveTip = memo(function MoveTip({ comment }: { comment: string }) {
-    const [expanded, setExpanded] = useState(false);
-    const [cut, setCut] = useState(false);
-    const ref = useRef<HTMLParagraphElement>(null);
-    const id = useId();
-
-    // Measured while collapsed: a line-clamped box hides the overflow, so any gap between scrollHeight
-    // and clientHeight means there is more to read. While expanded the last value stands, or the
-    // control that would collapse it disappears along with the measurement that revealed it.
-    useLayoutEffect(() => {
-        const el = ref.current;
-        if (!el || expanded) return;
-        const measure = () => setCut(el.scrollHeight > el.clientHeight + 1);
-        measure();
-        const ro = new ResizeObserver(measure); // the transcript's width moves with the window
-        ro.observe(el);
-        return () => ro.disconnect();
-    }, [expanded]);
-
+/** The reviewer's note on one answer, under it. Visible, not folded: the note is the review. The
+ *  bulb marks it, the text stays on screen where the answer ends. */
+const Note = memo(function Note({ comment }: { comment: string }) {
     return (
-        <div className="relative ml-6 w-[22.5rem] max-w-[40%] shrink-0">
-            <p id={id} ref={ref} className={cn("text-xs leading-relaxed text-muted-foreground", !expanded && "line-clamp-2")}>
-                {comment}
-            </p>
-            {/* Collapsed, the control rides the last line instead of taking a row of its own: a third row
-                pushed the note past the bottom of the answer it grades. Opaque, because it covers the
-                ellipsis it replaces. */}
-            {cut && (
-                <button type="button" aria-expanded={expanded} aria-controls={id} onClick={() => setExpanded((v) => !v)} className={cn("text-[11px] text-muted-foreground underline underline-offset-2 hover:text-foreground", expanded ? "mt-0.5 block" : "absolute right-0 bottom-0 bg-card pl-1")}>
-                    {expanded ? "Less" : "More"}
-                </button>
-            )}
+        <div className="flex max-w-[85%] items-start gap-1.5 lg:max-w-[45rem]">
+            <Icon name="tip" className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground/70" />
+            <p className="text-xs leading-relaxed text-muted-foreground">{comment}</p>
         </div>
     );
 });
@@ -576,7 +548,7 @@ const Bubble = memo(function Bubble({ from, content, streaming, moveClass, comme
     // The flat corner marks the end of a burst, and only that bubble gets the interviewer's face.
     // Width is a reading cap, not a column cap: the screen fills edge to edge, the line does not.
     const bubble = (
-        <div className={cn("whitespace-pre-line break-words rounded-3xl px-3.5 py-2 text-sm leading-relaxed", isUser ? "bg-primary text-primary-foreground" : "border bg-card", last && (isUser ? "rounded-br-md" : "rounded-bl-md"), !noted && "max-w-[85%] lg:max-w-[45rem]")}>
+        <div className={cn("max-w-[85%] whitespace-pre-line break-words rounded-3xl px-3.5 py-2 text-sm leading-relaxed lg:max-w-[45rem]", isUser ? "bg-primary text-primary-foreground" : "border bg-card", last && (isUser ? "rounded-br-md" : "rounded-bl-md"))}>
             {content}
             {streaming && <span className="inline-block animate-pulse">▋</span>}
         </div>
@@ -594,16 +566,14 @@ const Bubble = memo(function Bubble({ from, content, streaming, moveClass, comme
     const badge = isUser && moveClass ? <MoveBadge moveClass={moveClass} /> : null;
     if (noted) {
         return (
-            <div className={cn("flex items-start gap-2", lead && "mt-3")}>
-                <MoveTip comment={comment} />
-                {/* Tip holds the left edge, answer the right: a run reads as tips down one side and
-                    answers down the other. The pair is wrapped so the badge keeps its old place on the
-                    answer's LAST line while the tip starts on its first, and neither box carries a
-                    percentage max-width - flex shrinking does the capping once a tip takes the left. */}
-                <div className="ml-auto flex min-w-0 items-end gap-2">
+            <div className={cn("flex flex-col items-end gap-1", lead && "mt-3")}>
+                {/* The badge keeps its place on the answer's LAST line, and the note hangs under the
+                    bubble it grades instead of across the transcript from it. */}
+                <div className="flex min-w-0 max-w-full items-end gap-2">
                     {badge}
                     {bubble}
                 </div>
+                <Note comment={comment} />
             </div>
         );
     }
