@@ -586,12 +586,38 @@ const TipButton = memo(function TipButton({ comment }: { comment: string }) {
 const Bubble = memo(function Bubble({ from, content, streaming, moveClass, comment, onReplay, last, lead }: { from: string; content: string; streaming?: boolean; moveClass?: string | null; comment?: string | null; onReplay?: (text: string) => void; last?: boolean; lead?: boolean }) {
     const isUser = from === "user";
     const noted = isUser && !!comment;
+    // An answer folds at six lines and offers the rest behind a toggle. Only the answer: a reply is
+    // read as it arrives, and one that folds itself away mid-read is worse than a long one.
+    const [expanded, setExpanded] = useState(false);
+    const [clipped, setClipped] = useState(false);
+    const bodyRef = useRef<HTMLDivElement | null>(null);
+    const foldable = isUser && !streaming;
+    useEffect(() => {
+        const el = bodyRef.current;
+        if (!el || !foldable || expanded) return;
+        // The box is the measure, and it has to be measured CLAMPED: only then does it report more
+        // content than it shows, which is what the toggle exists for. Re-run on width changes too,
+        // because a wider bubble pulls lines back over the fold.
+        const measure = () => setClipped(el.scrollHeight > el.clientHeight + 1);
+        measure();
+        const ro = new ResizeObserver(measure);
+        ro.observe(el);
+        return () => ro.disconnect();
+    }, [foldable, expanded]);
+    const folded = foldable && !expanded;
     // The flat corner marks the end of a burst, and only that bubble gets the interviewer's face.
     // Width is a reading cap, not a column cap: the screen fills edge to edge, the line does not.
     const bubble = (
         <div className={cn("max-w-[85%] whitespace-pre-line break-words rounded-3xl px-3.5 py-2 text-sm leading-relaxed lg:max-w-[45rem]", isUser ? "bg-primary text-primary-foreground" : "border bg-card", last && (isUser ? "rounded-br-md" : "rounded-bl-md"))}>
-            {content}
-            {streaming && <span className="inline-block animate-pulse">▋</span>}
+            <div ref={bodyRef} className={cn("break-words", folded && "line-clamp-6")}>
+                {content}
+                {streaming && <span className="inline-block animate-pulse">▋</span>}
+            </div>
+            {clipped && (
+                <button type="button" aria-expanded={expanded} onClick={() => setExpanded((e) => !e)} className={cn("mt-1 block text-xs font-medium transition-colors", isUser ? "text-primary-foreground/70 hover:text-primary-foreground" : "text-muted-foreground hover:text-foreground")}>
+                    {expanded ? "Show less" : "Show more"}
+                </button>
+            )}
         </div>
     );
     // Replies only: a replay is how a word the engine misheard gets checked, and the applicant knows
