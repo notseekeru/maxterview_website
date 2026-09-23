@@ -15,6 +15,7 @@ from pydantic import ValidationError
 from app import API_PREFIX, billing, byok, dials, levels, llm, payments, rating, resumes, voice
 from app.auth import CLERK_ENABLED, get_current_user
 from app.db import close_pool, fetch, fetchrow, init_pool
+from app.dials import DIAL_FIELDS
 from app.logs import RequestContextMiddleware, configure_logging
 from app.models import (
     Analytics,
@@ -140,10 +141,6 @@ async def client_errors(request: Request) -> Response:
 
 # --- interviews (all scoped to owner_id, D4) ---
 
-
-# The interview dressing dials, as pydantic field names. Identical in the DB, so one tuple serves
-# the `Dials(**row)` build, the columns of every interview read, and nothing can drift between them.
-DIAL_FIELDS = ("company_size", "cynicism", "brutally_honest", "human_mode", "hardcore", "mix_chitchat", "mix_behavioural", "mix_technical")
 
 # Interview row columns for every SELECT/RETURNING that builds an `Interview`. Shared because
 # `Interview` fills an absent field from its default, so a query that forgets a dial would answer

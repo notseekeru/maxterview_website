@@ -20,3 +20,8 @@ CYNICISM: tuple[str, ...] = ("kind", "neutral", "skeptical")
 
 # Per-kind question budget ceiling for the chitchat/behavioural/technical sliders.
 MIX_MAX = 4
+
+# The same dials as pydantic field names, in the order every read/write uses them. Identical in the
+# DB, so one tuple serves the `Dials(**row)` build, the columns of every interview read, and nothing
+# can drift between them.
+DIAL_FIELDS: tuple[str, ...] = ("company_size", "cynicism", "brutally_honest", "human_mode", "hardcore", "mix_chitchat", "mix_behavioural", "mix_technical")
