@@ -1,6 +1,5 @@
 import { memo, useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Modal } from "@/components/ui/modal";
 import { Textarea } from "@/components/ui/textarea";
 import { MAX_TAKE_S, useRecorder, useSpeaker, useVoiceCapability } from "@/hooks/useInterviewVoice";
@@ -61,6 +60,7 @@ export function InterviewChat({ interviewId, onExit }: Props) {
     const sendingRef = useRef(false);
     const abortRef = useRef<AbortController | null>(null);
     const scrollRef = useRef<HTMLDivElement | null>(null);
+    const inputRef = useRef<HTMLTextAreaElement | null>(null);
     const opening = hasResume ? OPENING_HAS_RESUME : OPENING_ASKS_RESUME;
     const [voiceOn, setVoiceOn] = useState(readVoicePref);
     // Voice is I/O around the turn: the applicant's speech lands in the answer box, the interviewer's
@@ -89,11 +89,11 @@ export function InterviewChat({ interviewId, onExit }: Props) {
         : status === "completed"
           ? "Review above"
           : interviewOver
-            ? "Interview finished — press Finish"
+            ? "Interview finished. Press ✓ at the top right for your feedback"
             : confirmFinish
               ? "Ending here skips the rest"
               : status === "ready"
-                ? "Type your answer to the interviewer, or press Speak..."
+                ? "Type your answer, or press the microphone to speak"
                 : status === "streaming"
                   ? "Waiting for the interviewer..."
                   : "Starting…";
@@ -159,6 +159,18 @@ export function InterviewChat({ interviewId, onExit }: Props) {
             abortRef.current?.abort();
         };
     }, [interviewId, loadMessages, loadExisting]);
+
+    // The composer grows with the answer and stops at nine lines, then scrolls inside the pill. A
+    // pasted paragraph should not push the transcript off the screen.
+    // AI HERE: fixed pixel cap and a layout-forced reflow per keystroke. Upgrade path is a measure
+    // in useLayoutEffect keyed on value length only.
+    // biome-ignore lint/correctness/useExhaustiveDependencies: el.scrollHeight is a function of draft, which no linter can see through the DOM.
+    useEffect(() => {
+        const el = inputRef.current;
+        if (!el) return;
+        el.style.height = "auto";
+        el.style.height = `${Math.min(el.scrollHeight, 240)}px`;
+    }, [draft]);
 
     useEffect(() => {
         scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
@@ -343,55 +355,59 @@ export function InterviewChat({ interviewId, onExit }: Props) {
         await openReview(() => regenerateFeedback(interviewId));
     }
 
-    // Hardcore is the only dial with a body count, so it gets the only glow: ambient while the run
-    // is live, full strength once it fails. Light-mode red is the darker token - #ff9999 on white
+    // Hardcore is the only dial with a body count, so it gets the only red: a tinted bar while the
+    // run is live, full strength once it fails. Light-mode red is the darker token, #ff9999 on white
     // is invisible.
-    const glow = hardcoreFailed ? "border-destructive shadow-[0_0_30px_-2px_rgba(160,0,0,0.45)] dark:shadow-[0_0_34px_-2px_rgba(255,153,153,0.6)]" : hardcoreRun && status !== "completed" ? "border-destructive/40 shadow-[0_0_20px_-4px_rgba(160,0,0,0.3)] dark:shadow-[0_0_24px_-4px_rgba(255,153,153,0.45)]" : undefined;
+    const hardcoreBar = hardcoreFailed ? "border-destructive bg-destructive/10" : hardcoreRun && status !== "completed" ? "border-destructive/40 bg-destructive/5" : undefined;
+    // Consecutive turns from one side close up tight and only the last of each burst carries the
+    // interviewer's face, the way a chat app groups a paragraph of short replies.
+    const lastOfRun = new Set(messages.filter((m, i) => messages[i + 1]?.role !== m.role).map((m) => m.id));
 
     return (
-        <>
-            <Card className={cn("flex min-h-0 w-full flex-1 flex-col", glow)}>
-                <CardHeader className="space-y-1.5">
-                    <div className="flex flex-row items-center justify-between space-y-0">
-                        <div>
-                            <CardTitle>Interview</CardTitle>
-                            <CardDescription>{STATUS_LABELS[status]}</CardDescription>
-                        </div>
-                        <div className="flex items-center gap-2">
-                            {/* Icon-only: the labels came off, so the tooltip and the aria-label carry the
-                                meaning. Finish sits here rather than in the composer, where it stacked
-                                under Send and got misclicked as a second submit. */}
-                            <Button variant="ghost" size="sm" className="w-8 px-0" aria-pressed={voiceOn} aria-label={voiceOn ? "Voice on" : "Voice off"} onClick={toggleVoice} disabled={!capability?.tts} title={voiceTitle}>
-                                <Icon name={voiceOn ? "sound" : "mute"} />
-                            </Button>
-                            <Button variant="outline" size="sm" className="w-8 px-0" aria-label="Exit this interview" title="Exit to your dashboard" onClick={onExit}>
-                                <Icon name="logout" />
-                            </Button>
-                            <Button
-                                variant="destructive"
-                                size="sm"
-                                className="w-8 px-0"
-                                aria-label={interviewOver ? "Finish and get your feedback" : "End this interview"}
-                                title={interviewOver ? "Finish and get your feedback" : "End this interview"}
-                                onClick={() => (interviewOver ? void finishRun() : setConfirmFinish(true))}
-                                disabled={isFinishing || status === "streaming" || status === "completed" || !answered || mic.recording}
-                            >
-                                {isFinishing ? <Spinner /> : <Icon name="complete" />}
-                            </Button>
-                        </div>
-                    </div>
-                    {voiceNote && <p className="text-xs text-muted-foreground">{voiceNote}</p>}
-                </CardHeader>
+        <div className="flex h-dvh flex-col bg-background">
+            <header className={cn("flex items-center gap-2 border-b bg-background px-2 py-2 sm:px-3", hardcoreBar)}>
+                <Button variant="ghost" size="icon" className="rounded-full" aria-label="Exit this interview" title="Exit to your dashboard" onClick={onExit}>
+                    <Icon name="back" />
+                </Button>
+                <span aria-hidden className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
+                    <Icon name="chat" />
+                </span>
+                <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-semibold">Interviewer</p>
+                    <p className="flex items-center gap-1.5 truncate text-xs text-muted-foreground">
+                        <span aria-hidden className={cn("h-1.5 w-1.5 shrink-0 rounded-full", hardcoreFailed ? "bg-destructive" : status === "streaming" ? "animate-pulse bg-foreground" : status === "completed" ? "bg-muted-foreground/40" : "bg-foreground/70")} />
+                        {STATUS_LABELS[status]}
+                    </p>
+                </div>
+                {/* Icon-only: the labels came off, so the tooltip and the aria-label carry the meaning.
+                    Finish sits here rather than in the composer, where it stacked under Send. */}
+                <Button variant="ghost" size="icon" className="rounded-full" aria-pressed={voiceOn} aria-label={voiceOn ? "Voice on" : "Voice off"} onClick={toggleVoice} disabled={!capability?.tts} title={voiceTitle}>
+                    <Icon name={voiceOn ? "sound" : "mute"} />
+                </Button>
+                <Button
+                    variant="destructive"
+                    size="icon"
+                    className="rounded-full"
+                    aria-label={interviewOver ? "Finish and get your feedback" : "End this interview"}
+                    title={interviewOver ? "Finish and get your feedback" : "End this interview"}
+                    onClick={() => (interviewOver ? void finishRun() : setConfirmFinish(true))}
+                    disabled={isFinishing || status === "streaming" || status === "completed" || !answered || mic.recording}
+                >
+                    {isFinishing ? <Spinner /> : <Icon name="complete" />}
+                </Button>
+            </header>
+            {voiceNote && <p className="border-b bg-muted/40 px-4 py-1.5 text-center text-xs text-muted-foreground">{voiceNote}</p>}
 
-                {/* One scroller: the review, then the transcript it argues from. */}
-                <CardContent className="flex-1 overflow-y-auto space-y-3" ref={scrollRef} role="log" aria-live="polite" aria-busy={status === "streaming"} aria-label="Interview transcript">
+            {/* One scroller: the review, then the transcript it argues from. */}
+            <div className="min-h-0 flex-1 overflow-y-auto" ref={scrollRef} role="log" aria-live="polite" aria-busy={status === "streaming"} aria-label="Interview transcript">
+                <div className="mx-auto flex w-full max-w-[100rem] flex-col gap-1 px-4 py-5 sm:px-6">
                     {/* Safe to always offer: /finish refuses an empty transcript, so a review implies
                         at least one answer to re-annotate. */}
                     {feedback && <FeedbackView feedback={feedback} messages={messages} onAnnotate={() => void retryReview()} annotating={isFinishing} />}
                     {/* The screen was closed while the run is still being finished: keep the wait visible
                         where the review will land, plus a way back to the stages. */}
                     {finishing?.dismissed && (
-                        <div role="status" className="flex items-center gap-2 rounded-lg border p-3 text-sm text-muted-foreground">
+                        <div role="status" className="my-1 flex items-center gap-2 self-center rounded-2xl border bg-muted/50 px-3 py-1.5 text-xs text-muted-foreground">
                             {finishing.done ? (
                                 <span aria-hidden className="text-primary">
                                     ✓
@@ -400,105 +416,105 @@ export function InterviewChat({ interviewId, onExit }: Props) {
                                 <Spinner />
                             )}
                             {finishing.title}. It will appear here.
-                            <Button variant="ghost" size="sm" className="ml-auto" onClick={() => setFinishing((f) => (f ? { ...f, dismissed: false } : f))}>
+                            <Button variant="ghost" size="sm" className="h-6 px-2" onClick={() => setFinishing((f) => (f ? { ...f, dismissed: false } : f))}>
                                 Show progress
                             </Button>
                         </div>
                     )}
-                    {error && <p className="text-sm text-destructive">{error}</p>}
+                    {error && <p className="my-1 self-center rounded-2xl border border-destructive/40 bg-destructive/10 px-3 py-1.5 text-center text-xs text-destructive">{error}</p>}
                     {quotaLocked && <UpgradeNotice reason="your free chat turns ran out." />}
                     {interviewOver && (
-                        <div role="status" className={hardcoreFailed ? "rounded-lg border border-destructive bg-destructive/10 p-3 text-sm" : "rounded-lg border p-3 text-sm"}>
+                        <div role="status" className={cn("my-1 self-center rounded-2xl border px-3.5 py-2 text-center text-xs", hardcoreFailed ? "border-destructive bg-destructive/10 text-destructive" : "bg-muted/50 text-muted-foreground")}>
                             {hardcoreFailed ? (
-                                <p className="font-semibold uppercase tracking-wide text-destructive"> Your Run failed — go and tell your mommy and cry about it</p>
+                                <p className="font-semibold uppercase tracking-wide">Your run failed. Go and tell your mommy and cry about it.</p>
                             ) : (
                                 <>
-                                    <p className="font-medium">That was the whole interview.</p>
-                                    <p className="mt-1 text-muted-foreground">
+                                    <p className="font-medium text-foreground">That was the whole interview.</p>
+                                    <p className="mt-1">
                                         This run has asked every question in its mix, so there's nothing left to answer here. Press the <span className="font-medium text-foreground">✓</span> at the top right for your feedback, or start a new interview with a wider mix.
                                     </p>
                                 </>
                             )}
                         </div>
                     )}
-                    {status === "loading" && <p className="text-sm text-muted-foreground">Starting…</p>}
+                    {status === "loading" && <p className="my-1 self-center text-xs text-muted-foreground">Starting…</p>}
                     {/* Not while loading: a reopened run would flash the opening line before its
                     real transcript arrives. */}
-                    {status !== "loading" && messages.length === 0 && opening && <Bubble from="assistant" content={opening} onReplay={voiceOn && capability?.tts ? speaker.say : undefined} />}
-                    {messages.map((m) => (
-                        <Bubble key={m.id} from={m.role} content={m.content} moveClass={m.move_class} comment={m.comment} onReplay={m.role === "assistant" && voiceOn && capability?.tts ? speaker.say : undefined} />
+                    {status !== "loading" && messages.length === 0 && opening && <Bubble from="assistant" content={opening} last onReplay={voiceOn && capability?.tts ? speaker.say : undefined} />}
+                    {messages.map((m, i) => (
+                        <Bubble key={m.id} from={m.role} content={m.content} moveClass={m.move_class} comment={m.comment} last={lastOfRun.has(m.id)} lead={messages[i - 1]?.role !== m.role} onReplay={m.role === "assistant" && voiceOn && capability?.tts ? speaker.say : undefined} />
                     ))}
-                    {assistBuf && <Bubble from="assistant" content={assistBuf} streaming />}
-                    {status === "streaming" && !assistBuf && <p className="text-sm text-muted-foreground">Thinking…</p>}
+                    {assistBuf && <Bubble from="assistant" content={assistBuf} streaming last lead={messages[messages.length - 1]?.role !== "assistant"} />}
+                    {status === "streaming" && !assistBuf && <p className="my-1 self-center text-xs text-muted-foreground">Thinking…</p>}
                     {reviewFailed && status === "completed" && (
-                        <div role="status" className="rounded-lg border p-3 text-sm">
-                            <p className="font-medium">Interview finished — your review wasn't ready.</p>
-                            <p className="mt-1 text-muted-foreground">We couldn't generate your feedback this run. Try again, or exit and check your history.</p>
-                            <Button variant="outline" size="sm" className="mt-2" onClick={() => void retryReview()} disabled={isFinishing}>
+                        <div role="status" className="my-1 flex flex-col items-center gap-1.5 self-center rounded-2xl border bg-muted/50 px-3.5 py-2 text-center text-xs text-muted-foreground">
+                            <p className="font-medium text-foreground">Interview finished, your review wasn't ready.</p>
+                            <p>We couldn't generate your feedback this run. Try again, or exit and check your history.</p>
+                            <Button variant="outline" size="sm" onClick={() => void retryReview()} disabled={isFinishing}>
                                 {isFinishing && <Spinner />}
                                 {isFinishing ? "Reviewing…" : "Retry review"}
                             </Button>
                         </div>
                     )}
-                </CardContent>
-                <CardFooter>
-                    <div className="flex flex-1 flex-col gap-1.5">
-                        {/* One row: box, then send. The microphone rides inside the box on its right edge,
-                            where it belongs to the answer it records instead of stacking beside Send. */}
-                        <div className="flex items-center gap-2">
-                            <div className="relative flex-1">
-                                <Textarea
-                                    value={draft}
-                                    maxLength={MAX_TURN_CHARS}
-                                    aria-label="Your answer"
-                                    className="pr-11"
-                                    onChange={(e) => setDraft(e.target.value)}
-                                    placeholder={placeholder}
-                                    onKeyDown={(e) => {
-                                        if (e.key === "Enter" && !e.shiftKey && status === "ready") {
-                                            e.preventDefault();
-                                            void send();
-                                        }
-                                    }}
-                                    disabled={status === "completed" || interviewOver || mic.recording}
-                                />
-                                {/* Disabled while the interviewer is replying: an open microphone would
-                                    transcribe our own voice back into the answer (VOICE.md gotcha 7). */}
-                                <Button
-                                    variant={mic.recording ? "destructive" : "outline"}
-                                    size="icon"
-                                    aria-pressed={mic.recording}
-                                    aria-label={mic.recording ? "Stop and keep what you said" : "Speak your answer"}
-                                    className="absolute top-1/2 right-1.5 h-7 w-7 -translate-y-1/2"
-                                    onClick={() => (mic.recording ? mic.stop() : mic.start())}
-                                    disabled={!mic.recording && (!mic.ready || status !== "ready" || interviewOver || Boolean(mic.blocked))}
-                                    title={mic.recording ? "Stop and put what you said into your answer" : "Speak your answer instead of typing it"}
-                                >
-                                    <Icon name={mic.recording ? "stop" : "mic"} />
-                                </Button>
-                            </div>
-                            <Button size="icon" aria-label="Send your answer" title="Send your answer" onClick={() => void send()} disabled={status !== "ready" || !draft.trim() || interviewOver || mic.recording}>
-                                <Icon name="send" />
-                            </Button>
-                        </div>
-                        {/* Nothing renders mid-answer (V4): the meter and the timer are the whole of the
-                            feedback until Stop, because nothing is transcribed on this side. */}
-                        {mic.recording && (
-                            <p role="status" className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                                <span aria-hidden className="h-1 w-16 overflow-hidden rounded-full bg-muted">
-                                    <span className="block h-full rounded-full bg-destructive transition-[width] duration-100" style={{ width: `${Math.round(mic.level * 100)}%` }} />
-                                </span>
-                                Recording · {clock(mic.elapsed)} of {clock(MAX_TAKE_S)}
-                            </p>
-                        )}
-                        {!mic.recording && mic.notice && <p className="text-xs text-muted-foreground">{mic.notice}</p>}
-                        {!mic.recording && micProblem && <p className="text-xs text-destructive">{micProblem}</p>}
+                </div>
+            </div>
+            {/* The pill: box and both buttons are one control, the way a chat app draws it. It grows to
+                six lines and then scrolls (see the draft effect), and it is never resizable. */}
+            <div className="border-t bg-background px-3 py-2.5 sm:px-4">
+                <div className="mx-auto w-full max-w-[100rem]">
+                    {/* Nothing renders mid-answer (V4): the meter and the timer are the whole of the
+                        feedback until Stop, because nothing is transcribed on this side. */}
+                    {mic.recording && (
+                        <p role="status" className="mb-1.5 flex items-center gap-1.5 px-2 text-xs text-muted-foreground">
+                            <span aria-hidden className="h-1 w-16 overflow-hidden rounded-full bg-muted">
+                                <span className="block h-full rounded-full bg-destructive transition-[width] duration-100" style={{ width: `${Math.round(mic.level * 100)}%` }} />
+                            </span>
+                            Recording · {clock(mic.elapsed)} of {clock(MAX_TAKE_S)}
+                        </p>
+                    )}
+                    {!mic.recording && mic.notice && <p className="mb-1.5 px-2 text-xs text-muted-foreground">{mic.notice}</p>}
+                    {!mic.recording && micProblem && <p className="mb-1.5 px-2 text-xs text-destructive">{micProblem}</p>}
+                    <div className="flex items-end gap-1 rounded-3xl border bg-card p-1 pl-2 shadow-sm transition-shadow focus-within:border-ring focus-within:shadow-md">
+                        <Textarea
+                            ref={inputRef}
+                            rows={1}
+                            value={draft}
+                            maxLength={MAX_TURN_CHARS}
+                            aria-label="Your answer"
+                            className="max-h-60 min-h-0 resize-none border-0 bg-transparent px-1 py-2 shadow-none focus-visible:ring-0"
+                            onChange={(e) => setDraft(e.target.value)}
+                            placeholder={placeholder}
+                            onKeyDown={(e) => {
+                                if (e.key === "Enter" && !e.shiftKey && status === "ready") {
+                                    e.preventDefault();
+                                    void send();
+                                }
+                            }}
+                            disabled={status === "completed" || interviewOver || mic.recording}
+                        />
+                        {/* Disabled while the interviewer is replying: an open microphone would
+                            transcribe our own voice back into the answer (VOICE.md gotcha 7). */}
+                        <Button
+                            variant={mic.recording ? "destructive" : "ghost"}
+                            size="icon"
+                            className={cn("h-8 w-8 shrink-0 rounded-full", !mic.recording && "text-muted-foreground")}
+                            aria-pressed={mic.recording}
+                            aria-label={mic.recording ? "Stop and keep what you said" : "Speak your answer"}
+                            onClick={() => (mic.recording ? mic.stop() : mic.start())}
+                            disabled={!mic.recording && (!mic.ready || status !== "ready" || interviewOver || Boolean(mic.blocked))}
+                            title={mic.recording ? "Stop and put what you said into your answer" : "Speak your answer instead of typing it"}
+                        >
+                            <Icon name={mic.recording ? "stop" : "mic"} />
+                        </Button>
+                        <Button size="icon" className="h-8 w-8 shrink-0 rounded-full" aria-label="Send your answer" title="Send your answer" onClick={() => void send()} disabled={status !== "ready" || !draft.trim() || interviewOver || mic.recording}>
+                            <Icon name="send" />
+                        </Button>
                     </div>
-                </CardFooter>
-            </Card>
+                </div>
+            </div>
             {finishing && <FinishOverlay open={!finishing.dismissed} title={finishing.title} done={finishing.done} onDismiss={() => setFinishing((f) => (f ? { ...f, dismissed: true } : f))} />}
-            {/* Its own modal now that Finish lives in the header: the old inline prompt had nowhere to
-                hang off a 32px icon without shoving the header row around. */}
+            {/* Its own modal now that Finish lives in the header: the old inline prompt had nowhere
+                to hang off a 32px icon without shoving the header row around. */}
             <Modal open={confirmFinish} onClose={() => setConfirmFinish(false)} title="End early?">
                 <p>This run still has questions left. Finishing now reviews the answers you gave and ends it here.</p>
                 <div className="flex justify-end gap-2">
@@ -511,7 +527,7 @@ export function InterviewChat({ interviewId, onExit }: Props) {
                     </Button>
                 </div>
             </Modal>
-        </>
+        </div>
     );
 }
 
@@ -554,11 +570,13 @@ const MoveTip = memo(function MoveTip({ comment }: { comment: string }) {
     );
 });
 
-const Bubble = memo(function Bubble({ from, content, streaming, moveClass, comment, onReplay }: { from: string; content: string; streaming?: boolean; moveClass?: string | null; comment?: string | null; onReplay?: (text: string) => void }) {
+const Bubble = memo(function Bubble({ from, content, streaming, moveClass, comment, onReplay, last, lead }: { from: string; content: string; streaming?: boolean; moveClass?: string | null; comment?: string | null; onReplay?: (text: string) => void; last?: boolean; lead?: boolean }) {
     const isUser = from === "user";
     const noted = isUser && !!comment;
+    // The flat corner marks the end of a burst, and only that bubble gets the interviewer's face.
+    // Width is a reading cap, not a column cap: the screen fills edge to edge, the line does not.
     const bubble = (
-        <div className={cn("whitespace-pre-line rounded-lg px-3 py-2 text-sm", !noted && "max-w-[80%]", isUser ? "bg-primary text-primary-foreground" : "border bg-card")}>
+        <div className={cn("whitespace-pre-line break-words rounded-3xl px-3.5 py-2 text-sm leading-relaxed", isUser ? "bg-primary text-primary-foreground" : "border bg-card", last && (isUser ? "rounded-br-md" : "rounded-bl-md"), !noted && "max-w-[85%] lg:max-w-[45rem]")}>
             {content}
             {streaming && <span className="inline-block animate-pulse">▋</span>}
         </div>
@@ -576,7 +594,7 @@ const Bubble = memo(function Bubble({ from, content, streaming, moveClass, comme
     const badge = isUser && moveClass ? <MoveBadge moveClass={moveClass} /> : null;
     if (noted) {
         return (
-            <div className="flex items-start gap-2">
+            <div className={cn("flex items-start gap-2", lead && "mt-3")}>
                 <MoveTip comment={comment} />
                 {/* Tip holds the left edge, answer the right: a run reads as tips down one side and
                     answers down the other. The pair is wrapped so the badge keeps its old place on the
@@ -590,7 +608,12 @@ const Bubble = memo(function Bubble({ from, content, streaming, moveClass, comme
         );
     }
     return (
-        <div className={`flex items-end gap-2 ${isUser ? "justify-end" : "justify-start"}`}>
+        <div className={cn("flex items-end gap-2", isUser ? "justify-end" : "justify-start", lead && "mt-3")}>
+            {/* The face rides the last reply of a burst, and an invisible twin holds its column in
+                every other row so bubbles are never pushed sideways. */}
+            <span aria-hidden className={cn("flex h-7 w-7 shrink-0 items-center justify-center self-end rounded-full bg-primary/10 text-primary", !(last && !isUser) && "invisible")}>
+                <Icon name="chat" className="h-3.5 w-3.5" />
+            </span>
             {badge}
             {bubble}
             {replay}
