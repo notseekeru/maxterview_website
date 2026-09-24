@@ -1,4 +1,3 @@
-import { Link } from "react-router-dom";
 import { Bar, BarChart, CartesianGrid, Cell, Line, LineChart, XAxis, YAxis } from "recharts";
 
 import { RangeBar } from "@/components/OfferLetter";
@@ -6,12 +5,8 @@ import { Panel, Stat } from "@/components/PagePrimitives";
 import { Card, CardContent } from "@/components/ui/card";
 import { type ChartConfig, ChartContainer, ChartTooltip, ChartTooltipContent, DRAW_MS } from "@/components/ui/chart";
 import type { OfferBenefitStat, OfferGroup, OffersAnalytics } from "@/lib/api";
-import { bandPosition, compactMoney, money, tierFill, tierTone, vsAverage } from "@/lib/offers";
-import { cn } from "@/lib/utils";
+import { compactMoney, money, tierFill } from "@/lib/offers";
 
-/** The offers half of /analytics: the simulated letters, what they add up to, and the comparisons the
- *  numbers invite. Every figure and every benefit's wording arrives already computed from
- *  GET /stats/analytics; this file decides only how it is shown. */
 export function OffersSection({ board }: { board: OffersAnalytics }) {
     if (board.offers.length === 0) {
         return (
@@ -23,8 +18,6 @@ export function OffersSection({ board }: { board: OffersAnalytics }) {
         );
     }
 
-    // No letter here on purpose: a run's letter is folded into its own review, right where the
-    // interview ends. This section is the comparison across all of them.
     return (
         <div className="space-y-4">
             <OfferTiles board={board} />
@@ -36,7 +29,6 @@ export function OffersSection({ board }: { board: OffersAnalytics }) {
             </div>
             <ByLevel groups={board.by_level} />
             <BenefitLadder benefits={board.benefits} offers={board.summary.count} />
-            <OfferTable board={board} />
         </div>
     );
 }
@@ -81,16 +73,8 @@ function OfferTrend({ board }: { board: OffersAnalytics }) {
     );
 }
 
-/** By how the run scored, not by dollars: the score IS the band position, so the bars compare across
- *  levels where the pay does not. */
 const BAND_CONFIG: ChartConfig = { avg_performance: { label: "Up the band", color: "var(--chart-1)" } };
 
-/** How far up its own level's range each tier of run landed, as a horizontal bar chart.
- *
- * A chart rather than a row per tier: the tiers are a couple of buckets, and rows left the card with the
- * empty half of a fixed-height box under them. Bars fill the height whatever the bucket count. The score
- * IS the band position, so a longer bar means a higher position inside the level, not a bigger salary;
- * the pay behind each bar is in the tooltip. */
 function BandPosition({ groups }: { groups: OfferGroup[] }) {
     return (
         <Panel title="How far up the band" hint="Mean run score per tier. 100 is the top of that level's range." className="h-80">
@@ -122,8 +106,6 @@ function BandPosition({ groups }: { groups: OfferGroup[] }) {
     );
 }
 
-/** Level -> the range the offers landed in, with the mean marked. Tracks are scaled to the widest top
- *  on the page, so a level's span reads against the whole ladder rather than in a vacuum. */
 function ByLevel({ groups }: { groups: OfferGroup[] }) {
     const max = Math.max(...groups.map((g) => g.high_base));
 
@@ -153,8 +135,6 @@ function BenefitLadder({ benefits, offers }: { benefits: OfferBenefitStat[]; off
     const earned = benefits.filter((b) => b.offers > 0).length;
 
     return (
-        // Rungs laid out in two columns: nine full-width bars would be a lot of empty track for a rate
-        // that is mostly 100%, and the ladder reads as a set, not as a ranking.
         <Panel title="Benefits earned" hint={`${earned} of ${benefits.length} rungs cleared by at least one offer, out of ${offers} offers`}>
             <div className="grid gap-x-8 gap-y-2.5 md:grid-cols-2">
                 {benefits.map((b) => (
@@ -168,72 +148,6 @@ function BenefitLadder({ benefits, offers }: { benefits: OfferBenefitStat[]; off
                         </div>
                     </div>
                 ))}
-            </div>
-        </Panel>
-    );
-}
-
-/** Every offer, newest first. The delta column is the comparison the table exists for; the title links
- *  to the run, which is where that run's letter lives. Sorted client-side (already in memory). */
-function OfferTable({ board }: { board: OffersAnalytics }) {
-    return (
-        <Panel title="All offers" hint={`${board.offers.length} offer${board.offers.length === 1 ? "" : "s"}, newest first. Click a row to read its letter.`}>
-            <div className="-mx-3 overflow-x-auto">
-                <table className="w-full min-w-[54rem] border-collapse text-sm">
-                    <thead className="text-xs text-muted-foreground">
-                        <tr className="border-b">
-                            <th className="px-3 py-2 text-left font-medium">Date</th>
-                            <th className="px-3 py-2 text-left font-medium">Offer</th>
-                            <th className="px-3 py-2 text-left font-medium">Band</th>
-                            <th className="px-3 py-2 text-left font-medium">Run score</th>
-                            <th className="px-3 py-2 text-right font-medium">Base</th>
-                            <th className="px-3 py-2 text-right font-medium">Total comp</th>
-                            <th className="px-3 py-2 text-right font-medium">vs average</th>
-                            <th className="px-3 py-2 text-right font-medium">Benefits</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {board.offers.map((offer) => {
-                            const delta = vsAverage(offer, board.summary.avg_base);
-                            return (
-                                <tr key={offer.interview_id} className="border-b last:border-0">
-                                    <td className="whitespace-nowrap px-3 py-2 tabular-nums text-muted-foreground">{offer.created_at.slice(0, 10)}</td>
-                                    <td className="max-w-[16rem] px-3 py-2">
-                                        <Link className="block truncate hover:underline" to={`/interviews/${offer.interview_id}`}>
-                                            {offer.title}
-                                        </Link>
-                                        <span className="block truncate text-xs text-muted-foreground">
-                                            {offer.level === "any" ? "any level" : offer.level}
-                                            {offer.grade && offer.accuracy != null && ` · ${offer.grade} ${offer.accuracy}%`}
-                                        </span>
-                                    </td>
-                                    <td className="px-3 py-2 text-xs text-muted-foreground">
-                                        {compactMoney(offer.band_low)} to {compactMoney(offer.band_high)} · {bandPosition(offer)}% up
-                                    </td>
-                                    <td className="px-3 py-2">
-                                        <span className="flex items-center gap-2">
-                                            <span className={cn("rounded border px-1.5 py-0.5 text-[11px] font-medium", tierTone(offer.tier))}>{offer.performance}</span>
-                                            <span className="text-xs text-muted-foreground">{offer.tier_label}</span>
-                                        </span>
-                                    </td>
-                                    <td className="px-3 py-2 text-right tabular-nums">{money(offer.base_salary)}</td>
-                                    <td className="px-3 py-2 text-right tabular-nums">{money(offer.total_comp)}</td>
-                                    <td className="px-3 py-2 text-right tabular-nums">
-                                        {delta === null ? (
-                                            "—"
-                                        ) : (
-                                            <span className={delta > 0 ? "text-[var(--chart-1)]" : delta < 0 ? "text-[var(--chart-4)]" : "text-muted-foreground"}>
-                                                {delta > 0 ? "+" : ""}
-                                                {delta}%
-                                            </span>
-                                        )}
-                                    </td>
-                                    <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">{offer.benefits.length}</td>
-                                </tr>
-                            );
-                        })}
-                    </tbody>
-                </table>
             </div>
         </Panel>
     );

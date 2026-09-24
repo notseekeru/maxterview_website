@@ -7,11 +7,6 @@ export const money = (n: number) => `$${Math.round(n).toLocaleString("en-US")}`;
 /** For axes and band edges: `$176k`. The exact figure belongs in the tooltip or the table. */
 export const compactMoney = (n: number) => (Math.abs(n) >= 1000 ? `$${Math.round(n / 1000)}k` : money(n));
 
-/** Signed percentage against the average base, or null when there is no average to compare with. */
-export function vsAverage(offer: Offer, avgBase: number): number | null {
-    return avgBase > 0 ? Math.round((100 * (offer.base_salary - avgBase)) / avgBase) : null;
-}
-
 /** How far up its own level's band the money landed, 0-100. Computed from the stored numbers rather
  *  than read off `performance`: rounding the base to a round salary is what separates the two, and the
  *  letter is about where the money sits. */
