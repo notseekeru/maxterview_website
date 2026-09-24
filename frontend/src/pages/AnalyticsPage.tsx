@@ -3,8 +3,9 @@ import { useState } from "react";
 import { Bar, BarChart, CartesianGrid, Cell, Line, LineChart, XAxis, YAxis } from "recharts";
 
 import { AccuracyTrendChart } from "@/components/AccuracyTrendChart";
-import { Page } from "@/components/PagePrimitives";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { OffersSection } from "@/components/OffersSection";
+import { Page, Panel, Stat } from "@/components/PagePrimitives";
+import { Card, CardContent } from "@/components/ui/card";
 import { type ChartConfig, ChartContainer, ChartTooltip, ChartTooltipContent, DRAW_MS } from "@/components/ui/chart";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAnalytics } from "@/hooks/useInterviewData";
@@ -14,10 +15,48 @@ import { DECISIONS, decisionLabel, isHiring } from "@/lib/interviewOptions";
 import { gradeTone, MOVE_CLASSES, moveClassMeta } from "@/lib/moveClasses";
 import { cn } from "@/lib/utils";
 
-// /analytics — the deep dive behind the dashboard's tiles. Every chart and the raw run log come
-// from ONE aggregate request (GET /stats/analytics).
+// /analytics — the deep dive behind the dashboard's tiles. Every chart, every offer letter and the raw
+// run log come from ONE aggregate request (GET /stats/analytics), and the page is split into the
+// sections the strip below jumps to, so a long history is navigable instead of scrolled.
 const TITLE = "Analytics";
 const DESCRIPTION = "Every run you have started, and what the numbers say about them.";
+
+// The sections, in render order. One owner: the jump strip and the <Section> headings both read this,
+// so a section cannot be added to the page and forgotten in the nav (or labelled twice).
+const SECTIONS = {
+    offers: { title: "Offers", hint: "The simulated letter each graded run earned, and what they add up to." },
+    practice: { title: "Practice", hint: "Accuracy, answer quality and volume across the whole history." },
+    decisions: { title: "Decisions & settings", hint: "How the hiring calls and the dials you chose track your outcomes." },
+    runs: { title: "Run log", hint: "Every run, unfinished and archived included." },
+} as const;
+
+type SectionId = keyof typeof SECTIONS;
+
+function Section({ id, children }: { id: SectionId; children: ReactNode }) {
+    const { title, hint } = SECTIONS[id];
+    return (
+        // scroll-mt keeps the heading clear of the sticky shell bar when a jump lands.
+        <section id={id} className="scroll-mt-20 space-y-4">
+            <div className="space-y-1 border-b pb-2">
+                <h2 className="text-lg font-semibold tracking-tight">{title}</h2>
+                <p className="text-xs text-muted-foreground">{hint}</p>
+            </div>
+            {children}
+        </section>
+    );
+}
+
+function JumpStrip() {
+    return (
+        <nav aria-label="Analytics sections" className="flex flex-wrap gap-2">
+            {Object.entries(SECTIONS).map(([id, s]) => (
+                <a key={id} href={`#${id}`} className="rounded-full border px-2.5 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground">
+                    {s.title}
+                </a>
+            ))}
+        </nav>
+    );
+}
 
 export function AnalyticsPage() {
     const { data, loading, error } = useAnalytics();
@@ -45,21 +84,31 @@ export function AnalyticsPage() {
         return <Notice>{error ?? "Could not load your analytics."}</Notice>;
     }
     if (data.runs.length === 0) {
-        return <Notice>No interviews yet — complete one and this page fills in with your accuracy history, move breakdown and dial comparisons.</Notice>;
+        return <Notice>No interviews yet — complete one and this page fills in with your accuracy history, move breakdown, dial comparisons and the offer each graded run earned.</Notice>;
     }
 
     return (
         <Page wide title={TITLE} description={DESCRIPTION}>
+            <JumpStrip />
             <SummaryRow data={data} />
-            <div className="grid gap-4 xl:grid-cols-2">
-                <AccuracyHistory runs={data.runs} />
-                <MoveBreakdown counts={data.move_classes} />
-            </div>
-            <ActivityWeekly weeks={data.activity} />
-            <DimensionHistory runs={data.runs} />
-            <DecisionHistory runs={data.runs} />
-            <DialBreakdown dials={data.dials} />
-            <RunLog runs={data.runs} />
+            <Section id="offers">
+                <OffersSection board={data.offers} />
+            </Section>
+            <Section id="practice">
+                <div className="grid gap-4 xl:grid-cols-2">
+                    <AccuracyHistory runs={data.runs} />
+                    <MoveBreakdown counts={data.move_classes} />
+                </div>
+                <ActivityWeekly weeks={data.activity} />
+                <DimensionHistory runs={data.runs} />
+            </Section>
+            <Section id="decisions">
+                <DecisionHistory runs={data.runs} />
+                <DialBreakdown dials={data.dials} />
+            </Section>
+            <Section id="runs">
+                <RunLog runs={data.runs} />
+            </Section>
         </Page>
     );
 }
@@ -85,38 +134,12 @@ function SummaryRow({ data }: { data: Analytics }) {
 
     return (
         <div className="grid grid-cols-2 gap-4 lg:grid-cols-5">
-            <Stat label="Interviews" value={String(data.runs.length)} />
+            <Stat label="Interviews" value={String(data.runs.length)} hint={`${data.runs.filter((r) => r.status === "completed").length} finished · ${data.runs.filter((r) => r.status !== "completed").length} open`} />
             <Stat label="Avg accuracy" value={avg === null ? "—" : `${Math.round(avg)}%`} hint={scored.length === 0 ? "nothing scored yet" : `across ${scored.length} scored runs`} />
             <Stat label="Hire rate" value={decided.length === 0 ? "—" : `${Math.round((hiring.length / decided.length) * 100)}%`} hint={decided.length === 0 ? "no decided runs" : `${hiring.length} of ${decided.length} decided`} />
             <Stat label="Answers given" value={String(data.total_turns)} hint={classed === 0 ? "none classed yet" : `${classed} classed by the reviewer`} />
             <Stat label="Streak" value={`${data.streak_days}d`} hint={data.hardcore_failures > 0 ? `${data.hardcore_failures} hardcore failure${data.hardcore_failures === 1 ? "" : "s"}` : "consecutive practice days"} />
         </div>
-    );
-}
-
-function Stat({ label, value, hint }: { label: string; value: string; hint?: string }) {
-    return (
-        <Card>
-            <CardHeader className="pb-2">
-                <CardTitle className="text-xs font-medium text-muted-foreground">{label}</CardTitle>
-            </CardHeader>
-            <CardContent>
-                <p className="text-3xl font-semibold tabular-nums">{value}</p>
-                {hint && <p className="mt-1 text-xs text-muted-foreground">{hint}</p>}
-            </CardContent>
-        </Card>
-    );
-}
-
-function Panel({ title, hint, children, className }: { title: string; hint?: string; children: ReactNode; className?: string }) {
-    return (
-        <Card className={cn("flex flex-col", className)}>
-            <CardHeader className="pb-2">
-                <CardTitle className="text-sm">{title}</CardTitle>
-                {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
-            </CardHeader>
-            <CardContent className="min-h-0 grow">{children}</CardContent>
-        </Card>
     );
 }
 
@@ -287,8 +310,11 @@ function DimensionHistory({ runs }: { runs: AnalyticsRun[] }) {
 
     return (
         <Panel title="Dimension scores over time" hint={`Daily mean of each axis · ${describeDays(data, "scored run")}`}>
+            {/* The chart fills its cell's height instead of sitting at a fixed 16rem: the dimension table
+                beside it is the taller column, and a fixed chart height left the difference as a gap under
+                the chart. */}
             <div className="grid gap-4 lg:grid-cols-[2fr_1fr]">
-                <ChartContainer defer config={DIM_CONFIG} className="h-64 w-full">
+                <ChartContainer defer config={DIM_CONFIG} className="h-full min-h-64 w-full">
                     <LineChart data={data} margin={{ left: 4, right: 8, top: 8, bottom: 0 }}>
                         <CartesianGrid vertical={false} strokeDasharray="3 3" />
                         <XAxis dataKey="label" tickLine={false} axisLine={false} tickMargin={8} interval="preserveStartEnd" />
@@ -300,7 +326,9 @@ function DimensionHistory({ runs }: { runs: AnalyticsRun[] }) {
                         ))}
                     </LineChart>
                 </ChartContainer>
-                <DimensionAverages runs={scored} keys={keys} />
+                <div className="flex h-full flex-col justify-center">
+                    <DimensionAverages runs={scored} keys={keys} />
+                </div>
             </div>
         </Panel>
     );
@@ -349,7 +377,7 @@ function DecisionHistory({ runs }: { runs: AnalyticsRun[] }) {
                 <Empty>Once runs come back with a hire/reject call, the lean and its certainty plot here.</Empty>
             ) : (
                 <div className="grid gap-4 lg:grid-cols-[2fr_1fr]">
-                    <ChartContainer defer config={DECISION_CONFIG} className="h-64 w-full">
+                    <ChartContainer defer config={DECISION_CONFIG} className="h-full min-h-64 w-full">
                         {/* -100..100 is the reject -> hire spectrum centred on zero, so the sign is
                             the decision and the magnitude is only the lean. */}
                         <LineChart data={data} margin={{ left: 4, right: 8, top: 8, bottom: 0 }}>
@@ -361,7 +389,9 @@ function DecisionHistory({ runs }: { runs: AnalyticsRun[] }) {
                             <Line dataKey="certainty" name="Certainty %" type="monotone" animationDuration={DRAW_MS} stroke="var(--color-certainty)" strokeWidth={2} strokeDasharray="4 3" dot={{ r: 3 }} connectNulls />
                         </LineChart>
                     </ChartContainer>
-                    <DecisionSplit runs={decided} />
+                    <div className="flex h-full flex-col justify-center">
+                        <DecisionSplit runs={decided} />
+                    </div>
                 </div>
             )}
         </Panel>
@@ -435,9 +465,12 @@ function DialBreakdown({ dials }: { dials: Analytics["dials"] }) {
     }
     return (
         <Panel title="How your settings track outcomes" hint="Per-value averages over completed runs. Accuracy covers the scored runs; hire rate only the decided ones.">
-            <div className="grid gap-x-8 gap-y-6 md:grid-cols-2 xl:grid-cols-3">
+            {/* CSS columns, not a 3-column grid: a grid stretches every box in a row to the tallest one,
+                and the dial groups differ by hundreds of pixels, so the short ones ended as tall empty
+                cards. Columns pack them by height instead. */}
+            <div className="columns-1 gap-x-8 md:columns-2 xl:columns-3">
                 {groups.map(([key, rows]) => (
-                    <div key={key} className="space-y-2">
+                    <div key={key} className="mb-6 break-inside-avoid space-y-2">
                         <h3 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{DIAL_TITLES[key] ?? key}</h3>
                         <div className="space-y-2.5">
                             {rows.map((row) => (

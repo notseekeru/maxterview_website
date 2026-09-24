@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useDocumentTitle } from "@/hooks/useDocumentTitle";
 import { cn } from "@/lib/utils";
 
@@ -20,5 +21,39 @@ export function Page({ title, description, children, actions, wide }: { title: s
             </header>
             {children}
         </div>
+    );
+}
+
+/** Headline number with its denominator under it: two pages (analytics, offers) open on a row of these,
+ *  and a tile that cannot say what it is averaged over is a number nobody can act on.
+ *
+ *  The hint is pinned to the tile's floor rather than trailing the number: the grid stretches every tile
+ *  in a row to the tallest, and a hint that floats leaves the shorter tiles with a band of dead space.
+ *  Same for the number itself, which keeps the big figure on a shared baseline across the row. */
+export function Stat({ label, value, hint }: { label: string; value: string; hint?: string }) {
+    return (
+        <Card className="flex flex-col">
+            <CardHeader className="pb-2">
+                <CardTitle className="text-xs font-medium text-muted-foreground">{label}</CardTitle>
+            </CardHeader>
+            <CardContent className="flex grow flex-col">
+                <p className="text-3xl font-semibold tabular-nums">{value}</p>
+                {hint && <p className="mt-auto pt-2 text-xs text-muted-foreground">{hint}</p>}
+            </CardContent>
+        </Card>
+    );
+}
+
+/** One titled card, sized by the caller. `hint` is the panel's denominator or method, never a caption
+ *  restating the title. */
+export function Panel({ title, hint, children, className }: { title: string; hint?: string; children: ReactNode; className?: string }) {
+    return (
+        <Card className={cn("flex flex-col", className)}>
+            <CardHeader className="pb-2">
+                <CardTitle className="text-sm">{title}</CardTitle>
+                {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
+            </CardHeader>
+            <CardContent className="min-h-0 grow">{children}</CardContent>
+        </Card>
     );
 }

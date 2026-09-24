@@ -14,7 +14,21 @@ No DB and no model: the two hops that need either are the ones under test's cont
 
 from app import llm, main, rating
 
-INTERVIEW = {**llm.Dials().model_dump(), "hardcore": True, "failed_turn": None, "failed_class": None, "resume_text": None}
+INTERVIEW = {
+    **llm.Dials().model_dump(),
+    "hardcore": True,
+    "failed_turn": None,
+    "failed_class": None,
+    "resume_text": None,
+    # The offer pass (main._sync_offer) reads these off the same row, so a stand-in that omitted them
+    # would not be shaped like the query it answers. Empty scores price no offer, which is the
+    # behaviour these tests are not about.
+    "role": "Backend Engineer",
+    "level": "mid",
+    "scores": {},
+    "accuracy": None,
+    "decision": "hire",
+}
 SUMMARY = llm.FeedbackSummary(scores={}, verdict="ok", tips=["a", "b"], decision="hire", certainty=80, moves={})
 
 

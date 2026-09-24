@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 from typing import Literal
 from uuid import UUID
 
@@ -20,6 +20,10 @@ Cynicism = Literal[*dials.CYNICISM]
 # transcript evidences the decision, not how positive it is.
 DECISIONS: tuple[str, ...] = ("reject", "lean_reject", "lean_hire", "hire")
 Decision = Literal[*DECISIONS]
+# The hiring end of that spectrum: the only calls that extend an offer (app/offer.py prices the letter,
+# main._sync_offer decides whether one exists at all). Spelled once because the hire-rate column on the
+# analytics page and the offer gate have to agree on what counts as a hire.
+HIRING_DECISIONS: tuple[str, ...] = ("hire", "lean_hire")
 # Chess-style review vocabulary, spelled once in app/rating.py (migration 0010's CHECK and the
 # frontend labels derive from the same words).
 MoveClass = Literal[*rating.MOVE_CLASSES]
@@ -292,6 +296,136 @@ class AnalyticsDial(BaseModel):
     hire_rate: int | None = None
 
 
+class OfferSummary(BaseModel):
+    """Headline numbers over every offer this owner has been issued.
+
+    Means, with the median beside them: a personal history is a handful of offers, and one top-of-band
+    letter drags a two-offer mean somewhere the candidate never was. `best_id`/`worst_id` name the runs
+    behind the extremes so the letter view can open the actual letter.
+
+    Every field defaults to 0 so the empty case is `OfferSummary(count=0)` and the page branches on
+    `count` alone."""
+
+    count: int = 0
+    avg_base: int = 0
+    median_base: int = 0
+    low_base: int = 0
+    high_base: int = 0
+    avg_total: int = 0
+    low_total: int = 0
+    high_total: int = 0
+    avg_signing: int = 0
+    avg_equity: int = 0
+    avg_performance: int = 0
+    # Benefits per offer, so "the ladder is filling up" is a number rather than a feeling.
+    avg_benefits: float = 0.0
+    best_id: str | None = None
+    worst_id: str | None = None
+
+
+class OfferBenefit(BaseModel):
+    """One granted benefit, with the letter's own wording for what it is worth. app/offer.py writes
+    both, so the frontend renders a benefit instead of composing one."""
+
+    key: str
+    label: str
+    value: str
+
+
+class Offer(BaseModel):
+    """One issued offer, joined to the run and review that earned it: one page-ready row.
+
+    `band_low`/`band_high` are the edges of the band `base_salary` sits in, so the letter can show
+    where the offer landed without the frontend owning a second copy of the rate card."""
+
+    interview_id: str
+    role: str
+    level: str
+    title: str
+    band: str
+    band_low: int
+    band_high: int
+    base_salary: int
+    signing_bonus: int
+    equity: int
+    performance: int
+    # Slug + label come from app/offer.py's tier(); the frontend owns only the tone it paints them in.
+    tier: str
+    tier_label: str
+    benefits: list[OfferBenefit] = Field(default_factory=list)
+    # Joined from the review, so an offer can be read against the interview behind it. Null when the
+    # feedback row is gone (the offer is priced from it, so this is a data-repair case, not a state).
+    accuracy: int | None = None
+    grade: Grade | None = None
+    decision: Decision | None = None
+    # When the letter was priced, which is also the date on the page (no second copy of it).
+    created_at: datetime
+    starts_on: date
+
+    @computed_field
+    @property
+    def total_comp(self) -> int:
+        """Annual, deliberately WITHOUT the signing bonus: averaging a one-time payment into a yearly
+        number is how a $20k bonus reads as a $20k raise."""
+        return self.base_salary + self.equity
+
+
+class OfferGroup(BaseModel):
+    """One bucket of a comparison (by level, by tier): the offers under it and their spread.
+
+    `span` is `high - low` precomputed because the page draws a RANGE bar: a transparent low bar with
+    the span stacked on it, which is the only honest way to show a two-offer average as a range."""
+
+    key: str
+    label: str
+    offers: int
+    avg_base: int
+    low_base: int
+    high_base: int
+    span: int
+    avg_total: int
+    avg_performance: int
+
+
+class OfferBenefitStat(BaseModel):
+    """One rung of the benefit ladder across every offer: how many cleared it.
+
+    The FULL ladder comes back, unearned rungs included at 0: the climb is the point, and a rung that
+    silently vanished would read as a rung that does not exist."""
+
+    key: str
+    label: str
+    offers: int
+    # Out of every offer, so a rung nobody cleared reads 0%.
+    rate: int
+
+
+class OfferMonth(BaseModel):
+    """One calendar month of the offer trend, oldest first."""
+
+    month: str
+    offers: int
+    avg_base: int
+
+
+class OffersAnalytics(BaseModel):
+    """The offers half of the analytics payload: what the simulated letters say.
+
+    Its own model rather than flat fields on Analytics because the analytics page renders it as its own
+    section, and because the per-run letter (GET /interviews/{id}/offer) reuses models.Offer."""
+
+    summary: OfferSummary
+    # Newest first, archived runs included - an offer already issued does not stop existing because the
+    # run was tidied off the history list.
+    offers: list[Offer]
+    # Both comparisons bucket the PRICED band, not the run's target level: `any` prices as mid, and a
+    # level row holding nothing would be a chart of a dial nobody turned.
+    by_level: list[OfferGroup]
+    by_tier: list[OfferGroup]
+    benefits: list[OfferBenefitStat]
+    activity: list[OfferMonth]
+
+
 class Analytics(BaseModel):
     """Everything /stats/analytics answers, in one bounded payload (models.InterviewDimensions for
     the dashboard radar is the precedent: aggregate server-side, never fan out per run).
@@ -310,6 +444,10 @@ class Analytics(BaseModel):
     # at least one run created.
     streak_days: int
     hardcore_failures: int
+    # The letters themselves. Nested rather than spread over this model because the offline halves of
+    # the page (practice, decisions, runs) do not need any of it, and the chat's review fetches the
+    # one letter it shows from its own route.
+    offers: OffersAnalytics
 
 
 class ChatMessage(BaseModel):

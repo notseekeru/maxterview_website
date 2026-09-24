@@ -47,10 +47,11 @@ prefix, which the **app** owns (`API_PREFIX`) — no proxy or ingress rewrite st
 - `POST /interviews` (role required → `pending`) · `GET|DELETE /interviews[/{id}]` · `POST /interviews/{id}/start|finish`
 - `POST /interviews/{id}/chat/stream` — **SSE** (`event: message` / `done` / `error`); persists both turns. Over quota → `402`
 - `GET /interviews/{id}/messages` · `GET /interviews/{id}/feedback` (accuracy + grade / verdict / tips + 1-10 dims)
+- `GET /interviews/{id}/offer` — the simulated letter that review earned (`404` when it earned none: no review, nothing scored, or a reject/lean_reject call). Priced by `app/offer.py`, written by `main._sync_offer`
 - `POST /interviews/{id}/feedback/generate` — (re)score a completed run. `409` when not completed or empty, `503` when the model is down (retryable)
 - `GET|POST|PUT|DELETE /templates` — owner-scoped dial presets (20 max). The first `GET` seeds three built-ins per owner (The Killer / The Griller / The Chiller) and marks it done, so a deleted default stays deleted
 - `POST /resumes/extract` (multipart PDF → text, **persists nothing**) · `GET|POST /resumes` · `GET|PUT|DELETE /resumes/{id}` — the resume library. Text only: the uploaded PDF is never stored or served back. An interview or preset holds `resume_id` (`ON DELETE SET NULL`), and both prompts read the text from the row
-- `GET /stats/dimensions` · `GET /analytics` — server-side aggregates for the dashboard radar and deep-dive. Ask for exactly what `AnalyticsPage.tsx` renders; drop the route when the page does
+- `GET /stats/dimensions` · `GET /analytics` — server-side aggregates for the dashboard radar and deep-dive, the offers half (`Analytics.offers`) included. Ask for exactly what `AnalyticsPage.tsx` renders; drop the route when the page does
 - `GET /usage` · `GET /health`
 - `GET|PUT|DELETE /settings/llm` + `POST /settings/llm/test` — BYOK (`BYOK.md`)
 - `GET /voice` (which directions this deployment can do) · `POST /voice/tts` (one line → audio) · `POST /voice/stt` (one clip → text, **persists nothing**). Both need the `CLOUDFLARE_*` pair; without it the UI disables the voice controls and says why (`VOICE.md`)

@@ -7,7 +7,7 @@ from dataclasses import dataclass
 import httpx
 import structlog
 
-from app import levels, rating
+from app import dimensions, levels, rating
 from app.models import DECISIONS, ChatMessage, Dials, FeedbackSummary
 
 log = structlog.get_logger(__name__)
@@ -452,16 +452,8 @@ def system_prompt(role: str, level: str, topic: str = "", asked: int = 0, dials:
 
 # Scoring dimensions: THE single source of truth for the rubric. The grader prompt and formatter
 # schema/prompt below are generated from it, and the feedback JSON keys are these slugs verbatim.
-# Axis -> dims, in render order. Communication is the original four, kept as-is so old runs stay
-# comparable; substance is the reviewer's read on the work, profile on the person. `culture fit` is
-# deliberately NOT a dim: scored directly it is a bias proxy with no evidence bar, so it is split
-# into the two things people actually mean by it - did they own the work, and how do they work with
-# others (ownership, collaboration).
-DIMENSION_AXES: dict[str, tuple[str, ...]] = {
-    "communication": ("clarity", "relevance", "structure", "confidence"),
-    "substance": ("technical_depth", "problem_solving", "production"),
-    "profile": ("ownership", "collaboration", "growth_potential"),
-}
+# Axis membership lives in app/dimensions.py (app/offer.py prices the offer off the same axes); the
+# rubric prose below is prompt text, so it stays next to the prompt that reads it.
 DIMENSION_RUBRIC: dict[str, str] = {
     "clarity": "how well-structured and easy to follow each answer was",
     "relevance": "how directly the answer addressed the question and the role",
@@ -474,7 +466,10 @@ DIMENSION_RUBRIC: dict[str, str] = {
     "collaboration": "working with other people: disagreeing, influencing without authority, unblocking someone, taking feedback without defending",
     "growth_potential": "learning rate and coachability: what they would do differently, what changed their mind, how fast they absorb a correction",
 }
-FEEDBACK_DIMS: tuple[str, ...] = tuple(d for dims in DIMENSION_AXES.values() for d in dims)
+FEEDBACK_DIMS: tuple[str, ...] = dimensions.FEEDBACK_DIMS
+# Re-exported under llm's own namespace too: the prompt, the smoke script and the tests all read the
+# axes off this module, and an alias cannot drift from the registry (app/dimensions.py).
+DIMENSION_AXES: dict[str, tuple[str, ...]] = dimensions.DIMENSION_AXES
 
 # AI HERE: one framework-free self-check (AGENTS rule 5). A dim added to the axes without rubric
 # text (or the reverse) fails here, instead of reaching the prompt as a literal `None`.
@@ -483,7 +478,7 @@ assert set(DIMENSION_RUBRIC) == set(FEEDBACK_DIMS) and len(FEEDBACK_DIMS) == len
 
 def _dimension_lines() -> str:
     """The rubric as the grader reads it: one axis per line, its dims listed inside it."""
-    return "\n".join(f"{axis.upper()}: " + "; ".join(f"{d} - {DIMENSION_RUBRIC[d]}" for d in dims) for axis, dims in DIMENSION_AXES.items())
+    return "\n".join(f"{axis.upper()}: " + "; ".join(f"{d} - {DIMENSION_RUBRIC[d]}" for d in dims) for axis, dims in dimensions.DIMENSION_AXES.items())
 
 
 GRADER_PROMPT_V1 = f"""You are maxterview's interview grader. You will be given an interview transcript between an interviewer and a candidate applying for a software role.

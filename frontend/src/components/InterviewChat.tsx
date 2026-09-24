@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
 import { Textarea } from "@/components/ui/textarea";
 import { MAX_TAKE_S, useRecorder, useSpeaker, useVoiceCapability } from "@/hooks/useInterviewVoice";
-import { apiDetail, type Feedback, finishInterview, getFeedback, getInterview, getMessages, httpStatus, MAX_TURN_CHARS, type Message, regenerateFeedback, startInterview, streamChat } from "@/lib/api";
+import { apiDetail, type Feedback, finishInterview, getFeedback, getInterview, getMessages, getOffer, httpStatus, MAX_TURN_CHARS, type Message, type Offer, regenerateFeedback, startInterview, streamChat } from "@/lib/api";
 import { OPENING_ASKS_RESUME, OPENING_HAS_RESUME } from "@/lib/config";
 import { cn } from "@/lib/utils";
 import { readVoicePref, writeVoicePref } from "@/lib/voice";
@@ -38,6 +38,7 @@ export function InterviewChat({ interviewId, onExit }: Props) {
     const [assistBuf, setAssistBuf] = useState("");
     const [error, setError] = useState<string | null>(null);
     const [feedback, setFeedback] = useState<Feedback | null>(null);
+    const [offer, setOffer] = useState<Offer | null>(null);
     const [quotaLocked, setQuotaLocked] = useState(false);
     const [interviewOver, setInterviewOver] = useState(false);
     const [hardcoreRun, setHardcoreRun] = useState(false);
@@ -183,6 +184,23 @@ export function InterviewChat({ interviewId, onExit }: Props) {
         if (feedback) scrollRef.current?.scrollTo({ top: 0 });
     }, [feedback]);
 
+    // The letter is priced from the review, so it is fetched when the review lands and never before.
+    // A 404 here (unfinished run, or a review that scored nothing) is not a failure: it is no letter,
+    // and the review renders without one.
+    useEffect(() => {
+        if (!feedback) return;
+        let cancelled = false;
+        getOffer(feedback.interview_id)
+            .then((o) => {
+                if (!cancelled) setOffer(o);
+            })
+            .catch(() => {
+                if (!cancelled) setOffer(null);
+            });
+        return () => {
+            cancelled = true;
+        };
+    }, [feedback]);
     // The opening line is a reply, so it is read aloud too, but only when voice was already on: the
     // click that turns it on is the gesture that lets audio play (VOICE.md gotcha 5).
     const openingSpoken = useRef(false);
@@ -415,7 +433,7 @@ export function InterviewChat({ interviewId, onExit }: Props) {
                 <div className="mx-auto flex w-full max-w-[100rem] flex-col gap-1 px-4 py-5 sm:px-6">
                     {/* Safe to always offer: /finish refuses an empty transcript, so a review implies
                         at least one answer to re-annotate. */}
-                    {feedback && <FeedbackView feedback={feedback} messages={messages} onAnnotate={() => void retryReview()} annotating={isFinishing} />}
+                    {feedback && <FeedbackView feedback={feedback} messages={messages} offer={offer} onAnnotate={() => void retryReview()} annotating={isFinishing} />}
                     {/* The screen was closed while the run is still being finished: keep the wait visible
                         where the review will land, plus a way back to the stages. */}
                     {finishing?.dismissed && (

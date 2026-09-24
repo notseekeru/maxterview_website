@@ -1,17 +1,19 @@
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import type { Decision, Feedback, Message } from "@/lib/api";
+import type { Decision, Feedback, Message, Offer } from "@/lib/api";
 import { ALL_DIMS, dimLabel, groupDims } from "@/lib/dimensions";
 import { MOVE_CLASSES } from "@/lib/moveClasses";
+import { money } from "@/lib/offers";
 import { cn } from "@/lib/utils";
 import { DecisionVerdict } from "./DecisionVerdict";
 import { GradeChip } from "./MoveBadge";
+import { OfferLetter } from "./OfferLetter";
 
 function tallyMoves(messages: Message[]) {
     return MOVE_CLASSES.map((meta) => ({ meta, count: messages.filter((m) => m.move_class === meta.value).length })).filter((t) => t.count > 0);
 }
 
-export function FeedbackView({ feedback, messages = [], onAnnotate, annotating }: { feedback: Feedback; messages?: Message[]; onAnnotate?: () => void; annotating?: boolean }) {
+export function FeedbackView({ feedback, messages = [], offer, onAnnotate, annotating }: { feedback: Feedback; messages?: Message[]; offer?: Offer | null; onAnnotate?: () => void; annotating?: boolean }) {
     // ALL dims, not just the scored ones: with ten of them a run that probed four is a normal outcome
     // (the run's dials are stated on the interview screen; the mix is why the holes are holes).
     const scores = feedback.scores ?? {};
@@ -41,9 +43,11 @@ export function FeedbackView({ feedback, messages = [], onAnnotate, annotating }
                 {graded > 0 ? (
                     <div className="space-y-3">
                         <div className="flex flex-wrap items-center justify-between gap-2">
-                            <GradeChip accuracy={feedback.accuracy} grade={feedback.grade} />
-                            <span className="text-xs text-muted-foreground">
-                                {graded} answer{graded === 1 ? "" : "s"} graded
+                            <span className="flex items-center gap-3">
+                                <GradeChip accuracy={feedback.accuracy} grade={feedback.grade} />
+                                <span className="text-xs text-muted-foreground">
+                                    {graded} answer{graded === 1 ? "" : "s"} graded
+                                </span>
                             </span>
                         </div>
                         <div className="flex flex-wrap gap-1.5">
@@ -72,6 +76,20 @@ export function FeedbackView({ feedback, messages = [], onAnnotate, annotating }
                 {decision && <DecisionVerdict decision={decision} certainty={feedback.certainty} />}
 
                 <p className="text-sm leading-relaxed">{feedback.verdict}</p>
+
+                {/* Folded onto the review because it IS the run's outcome: the letter is priced from
+                    these scores, and the review is where the candidate is already looking. Collapsed by
+                    default so it opens as a summary with the number, not a wall of letter. */}
+                {offer && (
+                    <details className="rounded-lg border">
+                        <summary className="cursor-pointer px-3 py-2 text-sm font-medium hover:text-foreground">
+                            Offer letter · {money(offer.base_salary)} base · {offer.tier_label}
+                        </summary>
+                        <div className="px-3 pb-3">
+                            <OfferLetter offer={offer} />
+                        </div>
+                    </details>
+                )}
 
                 {Array.isArray(feedback.tips) && feedback.tips.length > 0 && (
                     <div className="space-y-1.5">

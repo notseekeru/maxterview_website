@@ -276,10 +276,116 @@ export interface Analytics {
     total_turns: number;
     streak_days: number;
     hardcore_failures: number;
+    /** The offer letters and their comparisons: the offers section of the same page, same request. */
+    offers: OffersAnalytics;
 }
 
 export async function getAnalytics(): Promise<Analytics> {
     const { data } = await api.get<Analytics>("/stats/analytics");
+    return data;
+}
+
+// Offers (mirrors backend models.Offer*): the deterministic letter each graded run earned, priced
+// server-side by app/offer.py. Numbers and wording both come from there; this side only formats them.
+
+export interface OfferBenefit {
+    key: string;
+    label: string;
+    /** The letter's own wording for what the benefit is worth, written by app/offer.py. */
+    value: string;
+}
+
+export interface Offer {
+    interview_id: string;
+    role: string;
+    level: string;
+    /** Role with its seniority prefix, as the letter addresses it ("Senior Backend Engineer"). */
+    title: string;
+    /** The level slug the offer was PRICED against; `any` prices as mid. */
+    band: string;
+    band_low: number;
+    band_high: number;
+    base_salary: number;
+    /** One-time, so it is deliberately outside total_comp. */
+    signing_bonus: number;
+    equity: number;
+    /** 0-100 read of the run: 50% communication, 25% substance, 25% move accuracy. */
+    performance: number;
+    /** Backend-owned tier slug + label; the tone is this side's (lib/offers.ts). */
+    tier: string;
+    tier_label: string;
+    benefits: OfferBenefit[];
+    /** Joined from the review that priced it; null if that review row is gone. */
+    accuracy?: number | null;
+    grade?: Grade | null;
+    decision?: Decision | null;
+    created_at: string;
+    starts_on: string;
+    /** Annual base + equity (the signing bonus is one-time). Computed server-side. */
+    total_comp: number;
+}
+
+export interface OfferSummary {
+    count: number;
+    avg_base: number;
+    median_base: number;
+    low_base: number;
+    high_base: number;
+    avg_total: number;
+    low_total: number;
+    high_total: number;
+    avg_signing: number;
+    avg_equity: number;
+    avg_performance: number;
+    avg_benefits: number;
+    /** The runs behind the extremes, so the letter view can open the actual letter. */
+    best_id: string | null;
+    worst_id: string | null;
+}
+
+export interface OfferGroup {
+    key: string;
+    label: string;
+    offers: number;
+    avg_base: number;
+    low_base: number;
+    high_base: number;
+    /** high - low, precomputed: the range bar draws a transparent low plus this span. */
+    span: number;
+    avg_total: number;
+    avg_performance: number;
+}
+
+export interface OfferBenefitStat {
+    key: string;
+    label: string;
+    offers: number;
+    /** Out of ALL offers, so a rung nobody cleared reads 0. */
+    rate: number;
+}
+
+export interface OfferMonth {
+    /** YYYY-MM, oldest first. */
+    month: string;
+    offers: number;
+    avg_base: number;
+}
+
+export interface OffersAnalytics {
+    summary: OfferSummary;
+    /** Newest first, archived runs included. */
+    offers: Offer[];
+    by_level: OfferGroup[];
+    by_tier: OfferGroup[];
+    /** The whole ladder, rungs nobody cleared included. */
+    benefits: OfferBenefitStat[];
+    activity: OfferMonth[];
+}
+
+/** One run's letter, for the review that folds it in. Rejects with a 404 when the run has none yet
+ *  (not completed, or its review scored nothing), which the caller renders as no letter. */
+export async function getOffer(interviewId: string): Promise<Offer> {
+    const { data } = await api.get<Offer>(`/interviews/${interviewId}/offer`);
     return data;
 }
 

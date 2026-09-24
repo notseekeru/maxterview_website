@@ -2,7 +2,9 @@ import asyncio
 import json
 import os
 import time
+from collections import Counter
 from contextlib import asynccontextmanager
+from statistics import fmean, median
 from typing import Annotated
 
 import asyncpg
@@ -12,12 +14,13 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse, StreamingResponse
 from pydantic import ValidationError
 
-from app import API_PREFIX, billing, byok, dials, levels, llm, payments, rating, resumes, voice
+from app import API_PREFIX, billing, byok, dials, levels, llm, offer, payments, rating, resumes, voice
 from app.auth import CLERK_ENABLED, get_current_user
 from app.db import close_pool, fetch, fetchrow, init_pool
 from app.dials import DIAL_FIELDS
 from app.logs import RequestContextMiddleware, configure_logging
 from app.models import (
+    HIRING_DECISIONS,
     Analytics,
     ChatMessage,
     ChatTurn,
@@ -33,6 +36,7 @@ from app.models import (
     LLMProvider,
     LLMProviderUpdate,
     Message,
+    Offer,
     Resume,
     ResumeCreate,
     ResumeExtract,
@@ -336,6 +340,7 @@ async def create_feedback(
 ) -> dict:
     await _require_interview_owned(interview_id, user.sub)
     await _upsert_feedback(interview_id, body.scores, body.verdict, body.tips, body.decision, body.certainty)
+    await _sync_offer(interview_id)
     return dict(await _feedback_row(interview_id))
 
 
@@ -758,10 +763,14 @@ WHERE owner_id = $1 AND created_at >= now() - interval '12 weeks'
 GROUP BY 1 ORDER BY 1
 """
 
+# The hiring end of models.DECISIONS, rendered into SQL from the one tuple that defines it, so the
+# hire-rate column and the offer gate in _sync_offer cannot disagree about what a hire is.
+HIRING_SQL = ", ".join(f"'{d}'" for d in HIRING_DECISIONS)
+
 # Dial breakdowns, one row per (dial, value), over the COMPLETED runs only: an in-progress run has no
 # outcome to attribute to its dials. `runs` and `rated` are separate on purpose - a dial whose runs
 # were never scored reports avg_accuracy NULL, not a 0% that reads as failure.
-ANALYTICS_DIALS_SQL = """
+ANALYTICS_DIALS_SQL = f"""
 WITH runs AS (
     SELECT i.level, i.cynicism, i.company_size, i.hardcore, i.human_mode, i.brutally_honest,
            i.mix_chitchat, i.mix_behavioural, i.mix_technical, f.accuracy, f.decision
@@ -782,7 +791,7 @@ SELECT dial, value, count(*) AS runs, count(accuracy) AS rated,
        ROUND(avg(accuracy)::numeric, 1) AS avg_accuracy,
        -- Denominated on DECIDED runs (count(decision)), not all rated ones: an undecided run is not
        -- a miss. NULL when nothing was decided, so the UI can say "—" instead of 0%.
-       (100.0 * count(*) FILTER (WHERE decision IN ('hire', 'lean_hire')) / nullif(count(decision), 0))::int AS hire_rate
+       (100.0 * count(*) FILTER (WHERE decision IN ({HIRING_SQL})) / nullif(count(decision), 0))::int AS hire_rate
 FROM labelled
 GROUP BY dial, value
 """
@@ -803,17 +812,18 @@ SELECT count(*) FROM ranked WHERE gap - rn IN (-1, 0)
 
 @api.get("/stats/analytics", response_model=Analytics)
 async def get_analytics(user: CurrentUser) -> dict:
-    # Four statements, not one: the runs list, the weekly activity and the dial breakdown each filter
-    # a different population (all runs / all runs / completed only), and folding them together would
-    # cost more to read than the extra round trips cost to run.
+    # Five statements, not one: the runs list, the weekly activity, the dial breakdown and the offers
+    # each filter a different population (all runs / all runs / completed only / graded only), and
+    # folding them together would cost more to read than the extra round trips cost to run.
     # AI HERE: each statement re-scans this owner's full history, and the response carries one row per
-    # run. Fine at a personal history's size. Upgrade path, in order: aggregate the per-day series
-    # server-side (the charts only need day buckets, not every run), cap the run log to the most recent
-    # N with the rest behind a cursor, then a rollup table or a short-TTL cache keyed by owner. The
-    # all-time window is a product call, not a perf one, so none of that trims what is shown.
+    # run plus one per offer. Fine at a personal history's size. Upgrade path, in order: aggregate the
+    # per-day series server-side (the charts only need day buckets, not every run), cap the run log to
+    # the most recent N with the rest behind a cursor, then a rollup table or a short-TTL cache keyed by
+    # owner. The all-time window is a product call, not a perf one, so none of that trims what is shown.
     run_rows = await fetch(ANALYTICS_RUNS_SQL, user.sub)
     activity = await fetch(ANALYTICS_ACTIVITY_SQL, user.sub)
     dial_rows = await fetch(ANALYTICS_DIALS_SQL, user.sub)
+    offer_rows = await fetch(OFFERS_SQL, user.sub)
     streak = await fetchrow(ANALYTICS_STREAK_SQL, user.sub)
 
     runs = []
@@ -836,6 +846,7 @@ async def get_analytics(user: CurrentUser) -> dict:
         "total_turns": total_turns,
         "streak_days": streak["count"] if streak else 0,
         "hardcore_failures": hardcore_failures,
+        "offers": offer_board([offer_row(r) for r in offer_rows]),
     }
 
 
@@ -872,6 +883,159 @@ def dial_groups(rows: list[asyncpg.Record]) -> dict[str, list[dict]]:
         ordered = [v for v in labels if v in values] + [v for v in values if v not in labels]
         groups[key] = [{"key": v, "label": labels.get(v, v), **values[v]} for v in ordered]
     return groups
+
+
+# --- offers (the simulated letter; app/offer.py owns the rate card) ---
+
+# Every offer this owner was issued, newest first, joined to the run behind it and the review that
+# priced it. No archived filter: an offer was issued, and hiding the run from the history list does
+# not un-issue it.
+OFFER_COLS = """
+o.interview_id::text, o.title, o.band, o.base_salary, o.signing_bonus, o.equity, o.performance,
+       o.benefits, o.created_at, i.role, i.level, i.failed_class, f.accuracy, f.decision"""
+
+OFFERS_SQL = f"""
+SELECT {OFFER_COLS}
+FROM offers o
+JOIN interviews i ON i.id = o.interview_id
+LEFT JOIN feedback f ON f.interview_id = o.interview_id
+WHERE i.owner_id = $1
+ORDER BY o.created_at DESC
+"""
+
+# One run's letter, for the review that folds it in: same columns, scoped to the caller's own run.
+OFFER_SQL = f"""
+SELECT {OFFER_COLS}
+FROM offers o
+JOIN interviews i ON i.id = o.interview_id
+LEFT JOIN feedback f ON f.interview_id = o.interview_id
+WHERE o.interview_id = $1 AND i.owner_id = $2
+"""
+
+
+def offer_row(r: asyncpg.Record) -> Offer:
+    """One stored offer as the page reads it: band edges and tier label resolved here, from the rate
+    card, rather than baked into the row (a re-priced band shows up for old letters too).
+
+    Returns the MODEL, not a dict: the aggregations below need `total_comp`, which only exists once
+    pydantic has built the row."""
+    floor, ceiling, _ = offer.band_range(r["band"])
+    tier, tier_label = offer.tier(r["performance"])
+    return Offer(
+        **{
+            "interview_id": r["interview_id"],
+            "role": r["role"],
+            "level": r["level"],
+            "title": r["title"],
+            "band": r["band"],
+            "band_low": floor,
+            "band_high": ceiling,
+            "base_salary": r["base_salary"],
+            "signing_bonus": r["signing_bonus"],
+            "equity": r["equity"],
+            "performance": r["performance"],
+            "tier": tier,
+            "tier_label": tier_label,
+            "benefits": r["benefits"] or [],
+            "accuracy": r["accuracy"],
+            "grade": rating.grade(r["accuracy"], failed=r["failed_class"] is not None),
+            "decision": r["decision"],
+            "created_at": r["created_at"],
+            "starts_on": offer.start_date(r["created_at"]),
+        }
+    )
+
+
+def offer_summary(rows: list[Offer]) -> dict:
+    if not rows:
+        return {"count": 0}
+    bases = sorted(r.base_salary for r in rows)
+    totals = sorted(r.total_comp for r in rows)
+    best = max(rows, key=lambda r: r.total_comp)
+    worst = min(rows, key=lambda r: r.total_comp)
+    return {
+        "count": len(rows),
+        "avg_base": round(fmean(bases)),
+        "median_base": round(median(bases)),
+        "low_base": bases[0],
+        "high_base": bases[-1],
+        "avg_total": round(fmean(totals)),
+        "low_total": totals[0],
+        "high_total": totals[-1],
+        "avg_signing": round(fmean(r.signing_bonus for r in rows)),
+        "avg_equity": round(fmean(r.equity for r in rows)),
+        "avg_performance": round(fmean(r.performance for r in rows)),
+        "avg_benefits": round(fmean(len(r.benefits) for r in rows), 1),
+        "best_id": best.interview_id,
+        "worst_id": worst.interview_id,
+    }
+
+
+def offer_groups(rows: list[Offer], buckets: list[tuple[str, str]], key_of) -> list[dict]:
+    """Bucket the offers by a vocabulary, in the vocabulary's own order: a comparison chart that
+    reshuffles between loads cannot be read. Empty buckets are dropped - the point is comparing what
+    the candidate actually did, not padding the axis with levels they never targeted."""
+    groups = []
+    for key, label in buckets:
+        group = [r for r in rows if key_of(r) == key]
+        if not group:
+            continue
+        bases = sorted(r.base_salary for r in group)
+        groups.append(
+            {
+                "key": key,
+                "label": label,
+                "offers": len(group),
+                "avg_base": round(fmean(bases)),
+                "low_base": bases[0],
+                "high_base": bases[-1],
+                "span": bases[-1] - bases[0],
+                "avg_total": round(fmean(r.total_comp for r in group)),
+                "avg_performance": round(fmean(r.performance for r in group)),
+            }
+        )
+    return groups
+
+
+def offer_benefits(rows: list[Offer]) -> list[dict]:
+    """The benefit ladder counted over every offer. Rates are out of ALL offers, so a rung nobody
+    cleared reads 0% rather than being absent."""
+    counted = Counter(b.key for r in rows for b in r.benefits)
+    total = len(rows) or 1
+    return [{"key": key, "label": label, "offers": counted.get(key, 0), "rate": round(100 * counted.get(key, 0) / total)} for key, label in offer.ladder()]
+
+
+def offer_activity(rows: list[Offer]) -> list[dict]:
+    """Offers per calendar month, oldest first, as the MEAN base of that month: a monthly total over a
+    personal history is a count, and the count is the bar beside it."""
+    months: dict[str, list[int]] = {}
+    for r in rows:
+        months.setdefault(r.created_at.strftime("%Y-%m"), []).append(r.base_salary)
+    return [{"month": m, "offers": len(v), "avg_base": round(fmean(v))} for m, v in sorted(months.items())]
+
+
+def offer_board(rows: list[Offer]) -> dict:
+    """The offers half of the analytics payload, assembled from the same row builder the per-run letter
+    uses, so a summary and a letter can never disagree about the same offer."""
+    return {
+        "summary": offer_summary(rows),
+        "offers": rows,
+        "by_level": offer_groups(rows, [(s, levels.label(s)) for s in levels.LEVELS], lambda o: o.band),
+        "by_tier": offer_groups(rows, [(key, label) for key, _, label in offer.TIERS], lambda o: o.tier),
+        "benefits": offer_benefits(rows),
+        "activity": offer_activity(rows),
+    }
+
+
+@api.get("/interviews/{interview_id}/offer", response_model=Offer)
+async def get_interview_offer(interview_id: str, user: CurrentUser) -> dict:
+    """One run's letter. The review folds the offer in, and the review is about ONE run: asking for the
+    whole history there would ship every offer to read one. 404 means no letter yet (the run is not
+    completed, or its review scored nothing), which the review renders as nothing at all."""
+    row = await fetchrow(OFFER_SQL, interview_id, user.sub)
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No offer for this interview")
+    return offer_row(row)
 
 
 @api.get("/usage")
@@ -1175,6 +1339,47 @@ async def _upsert_feedback(interview_id: str, scores: dict, verdict: str, tips: 
     )
 
 
+async def _sync_offer(interview_id: str) -> None:
+    """Price the offer from the review that was just written, or re-price it after a re-grade.
+
+    Called from both feedback write paths and nowhere else: the offer is a function of the stored
+    scores, so minting one anywhere else would let the two disagree. Three cases write no letter: no
+    feedback row, a review that scored nothing (an offer with no evidence behind it is a guess wearing
+    a number), and a NON-HIRING call - reject and lean_reject are verdicts the candidate still has to
+    read, and a letter beside one would contradict the review it came from. That last case DELETES any
+    letter already priced, so a re-grade to a rejection cannot leave one standing. Only a COMPLETED run
+    gets a letter: the manual POST /feedback path accepts any status, and a pending run has no
+    interview to have been offered for.
+    """
+    row = await fetchrow(
+        "SELECT i.role, i.level, f.scores, f.accuracy, f.decision FROM interviews i JOIN feedback f ON f.interview_id = i.id WHERE i.id = $1 AND i.status = 'completed'",
+        interview_id,
+    )
+    if row is None:
+        return
+    if row["decision"] not in HIRING_DECISIONS:
+        await fetchrow("DELETE FROM offers WHERE interview_id = $1", interview_id)
+        return
+    priced = offer.terms(row["role"], row["level"], row["scores"] or {}, row["accuracy"])
+    if priced is None:
+        return
+    await fetchrow(
+        "INSERT INTO offers (interview_id, title, band, base_salary, signing_bonus, equity, performance, benefits) "
+        "VALUES ($1, $2, $3, $4, $5, $6, $7, $8) "
+        "ON CONFLICT (interview_id) DO UPDATE SET title = EXCLUDED.title, band = EXCLUDED.band, base_salary = EXCLUDED.base_salary, "
+        "signing_bonus = EXCLUDED.signing_bonus, equity = EXCLUDED.equity, performance = EXCLUDED.performance, "
+        "benefits = EXCLUDED.benefits, created_at = now()",
+        interview_id,
+        priced.title,
+        priced.band,
+        priced.base_salary,
+        priced.signing_bonus,
+        priced.equity,
+        priced.performance,
+        priced.benefits,
+    )
+
+
 def _questions_by_turn(history_rows: list[asyncpg.Record]) -> dict[int, str]:
     """Candidate turn number -> the question it answered, for the per-turn hardcore backfill.
 
@@ -1286,6 +1491,7 @@ async def _generate_and_persist_feedback(interview_id: str, config: llm.LLMConfi
     # Accuracy averages what was STORED, not the model's payload: a turn the writer dropped must not
     # count towards the score it never earned.
     await _upsert_feedback(interview_id, summary.scores, summary.verdict, summary.tips, summary.decision, summary.certainty, accuracy)
+    await _sync_offer(interview_id)
     return dict(await _feedback_row(interview_id))
 
 
