@@ -53,15 +53,16 @@
     },
     {
       "datasource": {
-        "type": "loki",
-        "uid": "${DS_LOKI}"
+        "type": "prometheus",
+        "uid": "${DS_PROM}"
       },
       "fieldConfig": {
         "defaults": {
           "custom": {
             "fillOpacity": 10,
             "lineWidth": 1
-          }
+          },
+          "unit": "reqps"
         },
         "overrides": [
           {
@@ -102,32 +103,35 @@
       "targets": [
         {
           "datasource": {
-            "type": "loki",
-            "uid": "${DS_LOKI}"
+            "type": "prometheus",
+            "uid": "${DS_PROM}"
           },
-          "expr": "sum(count_over_time({app=\"$app\"} | json | event=\"http.request\" [$__auto]))",
+          "editorMode": "code",
+          "expr": "sum(rate(http_server_request_duration_seconds_count{service_name=\"$app\"}[$__rate_interval]))",
           "legendFormat": "requests",
-          "queryType": "range",
+          "range": true,
           "refId": "A"
         },
         {
           "datasource": {
-            "type": "loki",
-            "uid": "${DS_LOKI}"
+            "type": "prometheus",
+            "uid": "${DS_PROM}"
           },
-          "expr": "sum(count_over_time({app=\"$app\"} | json | status >= 500 [$__auto]))",
+          "editorMode": "code",
+          "expr": "sum(rate(http_server_request_duration_seconds_count{service_name=\"$app\", http_response_status_code=~\"5..\"}[$__rate_interval]))",
           "legendFormat": "5xx",
-          "queryType": "range",
+          "range": true,
           "refId": "B"
         }
       ],
-      "title": "Requests (5xx overlay)",
-      "type": "timeseries"
+      "title": "Request rate (5xx overlay)",
+      "type": "timeseries",
+      "description": "Every request that reached the app, from the OTLP histogram. /api/health is not recorded, so this is not traffic, it is work."
     },
     {
       "datasource": {
-        "type": "loki",
-        "uid": "${DS_LOKI}"
+        "type": "prometheus",
+        "uid": "${DS_PROM}"
       },
       "fieldConfig": {
         "defaults": {
@@ -135,7 +139,7 @@
             "fillOpacity": 10,
             "lineWidth": 1
           },
-          "unit": "ms"
+          "unit": "s"
         },
         "overrides": []
       },
@@ -160,27 +164,30 @@
       "targets": [
         {
           "datasource": {
-            "type": "loki",
-            "uid": "${DS_LOKI}"
+            "type": "prometheus",
+            "uid": "${DS_PROM}"
           },
-          "expr": "quantile_over_time(0.95, {app=\"$app\"} | json | event=\"http.request\" | keep status, duration_ms | unwrap duration_ms [$__auto])",
-          "legendFormat": "p95 \u00b7 {{status}}",
-          "queryType": "range",
+          "editorMode": "code",
+          "expr": "histogram_quantile(0.95, sum by (le, http_route) (rate(http_server_request_duration_seconds_bucket{service_name=\"$app\"}[$__rate_interval])))",
+          "legendFormat": "p95 \u00b7 {{http_route}}",
+          "range": true,
           "refId": "A"
         },
         {
           "datasource": {
-            "type": "loki",
-            "uid": "${DS_LOKI}"
+            "type": "prometheus",
+            "uid": "${DS_PROM}"
           },
-          "expr": "sum(sum_over_time({app=\"$app\"} | json | event=\"http.request\" | unwrap duration_ms [$__auto])) / sum(count_over_time({app=\"$app\"} | json | event=\"http.request\" [$__auto]))",
+          "editorMode": "code",
+          "expr": "sum(rate(http_server_request_duration_seconds_sum{service_name=\"$app\"}[$__rate_interval])) / sum(rate(http_server_request_duration_seconds_count{service_name=\"$app\"}[$__rate_interval]))",
           "legendFormat": "mean",
-          "queryType": "range",
+          "range": true,
           "refId": "B"
         }
       ],
-      "title": "Request duration",
-      "type": "timeseries"
+      "title": "Request duration (p95 per route)",
+      "type": "timeseries",
+      "description": "True percentiles from the OTLP histogram. The route label is the matched template, so it stays one series per endpoint."
     },
     {
       "datasource": {
@@ -269,16 +276,16 @@
     },
     {
       "datasource": {
-        "type": "loki",
-        "uid": "${DS_LOKI}"
+        "type": "prometheus",
+        "uid": "${DS_PROM}"
       },
       "fieldConfig": {
         "defaults": {
           "custom": {
-            "fillOpacity": 10,
-            "lineWidth": 1
+            "lineWidth": 1,
+            "fillOpacity": 10
           },
-          "unit": "ms"
+          "unit": "s"
         },
         "overrides": [
           {
@@ -327,37 +334,73 @@
       "targets": [
         {
           "datasource": {
-            "type": "loki",
-            "uid": "${DS_LOKI}"
+            "type": "prometheus",
+            "uid": "${DS_PROM}"
           },
-          "expr": "quantile_over_time(0.95, {app=\"$app\"} | json | event=\"llm.chat.completed\" | keep model, latency_ms | unwrap latency_ms [$__auto])",
-          "legendFormat": "p95 \u00b7 {{model}}",
-          "queryType": "range",
+          "editorMode": "code",
+          "expr": "histogram_quantile(0.95, sum by (le, llm_stage) (rate(llm_client_call_duration_seconds_bucket{service_name=\"$app\"}[$__rate_interval])))",
+          "legendFormat": "p95 \u00b7 {{llm_stage}}",
+          "range": true,
           "refId": "A"
         },
         {
           "datasource": {
-            "type": "loki",
-            "uid": "${DS_LOKI}"
+            "type": "prometheus",
+            "uid": "${DS_PROM}"
           },
-          "expr": "sum(sum_over_time({app=\"$app\"} | json | event=\"llm.chat.completed\" | unwrap latency_ms [$__auto])) / sum(count_over_time({app=\"$app\"} | json | event=\"llm.chat.completed\" [$__auto]))",
-          "legendFormat": "mean",
-          "queryType": "range",
+          "editorMode": "code",
+          "expr": "sum by (llm_stage) (rate(llm_client_call_duration_seconds_sum{service_name=\"$app\"}[$__rate_interval])) / sum by (llm_stage) (rate(llm_client_call_duration_seconds_count{service_name=\"$app\"}[$__rate_interval]))",
+          "legendFormat": "mean \u00b7 {{llm_stage}}",
+          "range": true,
           "refId": "B"
         },
         {
           "datasource": {
-            "type": "loki",
-            "uid": "${DS_LOKI}"
+            "type": "prometheus",
+            "uid": "${DS_PROM}"
           },
-          "expr": "sum(count_over_time({app=\"$app\"} | json | event=~\"llm[a-z._]*(unavailable|failed|transport_error)\" [$__auto]))",
-          "legendFormat": "failures",
-          "queryType": "range",
+          "editorMode": "code",
+          "expr": "sum by (llm_stage) (rate(llm_client_call_duration_seconds_count{service_name=\"$app\", llm_outcome=\"error\"}[$__rate_interval]))",
+          "legendFormat": "errors \u00b7 {{llm_stage}}",
+          "range": true,
           "refId": "C"
         }
       ],
-      "title": "LLM latency and failures",
-      "type": "timeseries"
+      "title": "LLM latency and failures by stage",
+      "type": "timeseries",
+      "description": "`cancelled` is the browser closing the stream; `error` is the provider failing."
+    },
+    {
+      "datasource": {
+        "type": "tempo",
+        "uid": "${DS_TRACES}"
+      },
+      "description": "Any log line carrying a trace_id links straight to its trace.",
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 11,
+        "w": 24,
+        "x": 0,
+        "y": 25
+      },
+      "id": 7,
+      "options": {},
+      "targets": [
+        {
+          "datasource": {
+            "type": "tempo",
+            "uid": "${DS_TRACES}"
+          },
+          "query": "{ resource.service.name = \"$app\" }",
+          "queryType": "traceql",
+          "refId": "A"
+        }
+      ],
+      "title": "Recent traces",
+      "type": "traces"
     }
   ],
   "refresh": "1m",
@@ -392,6 +435,32 @@
         "query": "{{APP}}",
         "refresh": 0,
         "type": "custom"
+      },
+      {
+        "current": {
+          "selected": true,
+          "text": "{{DS_PROM}}",
+          "value": "{{DS_PROM}}"
+        },
+        "hide": 0,
+        "label": "Prometheus",
+        "name": "DS_PROM",
+        "query": "prometheus",
+        "refresh": 0,
+        "type": "datasource"
+      },
+      {
+        "current": {
+          "selected": true,
+          "text": "{{DS_TRACES}}",
+          "value": "{{DS_TRACES}}"
+        },
+        "hide": 0,
+        "label": "Tempo",
+        "name": "DS_TRACES",
+        "query": "tempo",
+        "refresh": 0,
+        "type": "datasource"
       }
     ]
   },
@@ -400,6 +469,6 @@
     "to": "now"
   },
   "timezone": "browser",
-  "title": "{{PROJECT}}: logs & errors",
+  "title": "{{PROJECT}}: logs, metrics & traces",
   "uid": "{{PROJECT}}-logs"
 }

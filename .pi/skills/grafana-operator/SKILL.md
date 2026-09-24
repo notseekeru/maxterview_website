@@ -40,15 +40,21 @@ URL=https://sturdypoplar3317.grafana.net
 | --- | --- |
 | Folder, project | `maxterview` — rule group + dashboard |
 | Folder, Grafana's own | `afys5ycv6iv40b` — holds the 11 built-in Cloud dashboards, never touch |
-| Rule group | `maxterview-logs`, interval 60s, 4 rules |
-| Dashboard | `maxterview-logs` (uid = same slug), 6 Loki panels |
+| Rule group | `maxterview-logs`, interval 60s, 4 rules (2 Prometheus: 5xx, model failures; 2 Loki: tracebacks, browser errors) |
+| Dashboard | `maxterview-logs` (uid = same slug), 7 panels (3 Loki, 3 Prometheus, 1 traces) |
 | Rule uids | `cfys2cemal24ga`, `efys2cf010ykgc`, `afys2cfcxi2v4e`, `afystat9eb1tsb` |
 | Contact point | `slack-maxterview` (uid `dfys2agrrsr9ce`, type slack; webhook is a secret in Infisical) |
 | Root notification policy | receiver `slack-maxterview`, `group_by = [grafana_folder, alertname]`, `provenance: api` |
 | Loki datasource | `grafanacloud-logs` (also `grafanacloud-prom`, `-traces`, `-profiles`) |
 
 Datasources belong to the **stack** and are shared by every project on it. There is no per-project
-datasource and none should be created: a project is isolated by folder + the Loki `app` label.
+datasource and none should be created: a project is isolated by folder + the `app` label on logs and
+`service_name` on metrics (the app sets it from `telemetry.py`).
+
+The two Prometheus rules and three dashboard panels only have data while the app exports OTLP
+(`OTEL_EXPORTER_OTLP_ENDPOINT` set). No data means NoData, `noDataState: OK`, and a board that looks
+calm: check `sum(http_server_request_duration_seconds_count{service_name="maxterview-backend"})`
+before believing a quiet latency panel.
 
 ## Verb semantics (each one measured; guessing moves other people's rules)
 
@@ -161,7 +167,7 @@ Dashboard variables are pinned, never discovered: `DS_LOKI` and `app` are `refre
 `current` value substituted at install time. A `query`-type variable over `label_values(app)` resolves
 to **no options** here — the Loki plugin parses the classic expr as LogQL and answers
 `parse error at line 1, col 1: syntax error: unexpected IDENTIFIER` — which wipes `current` and leaves
-every panel querying `{app=""}`: all six panels red/empty at once, root cause one variable away. The
+every panel querying `{app=""}`: every panel red/empty at once, root cause one variable away. The
 label values themselves are fine (`/loki/api/v1/label/app/values` lists five apps). After changing
 `--datasource` or the app label, rerun `bootstrap.py`; the dashboard reloads values, it does not find
 them.

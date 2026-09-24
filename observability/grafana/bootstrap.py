@@ -1,13 +1,20 @@
 #!/usr/bin/env python3
-"""Portable Grafana observability kit: one folder, one Loki alert rule group, one logs dashboard.
+"""Portable Grafana observability kit: one folder, one alert rule group, one dashboard.
 
-  ./bootstrap.py <project> [app-label] [--datasource UID] [--receiver NAME] [--url URL] [--dry-run] [--delete]
+  ./bootstrap.py <project> [app-label] [--datasource UID] [--prometheus-datasource UID] [--traces-datasource UID] [--receiver NAME] [--url URL] [--dry-run] [--delete]
 
-Creates folder `<project>`, rule group `<project>-logs` (four rules on the `app` label, alerting on
-5xx, LLM failures, error-level tracebacks and browser errors) and dashboard `<project>-logs`.
-`app-label` defaults to `<project>-backend`. Reruns converge by uid: the live rule group is read
+Creates folder `<project>`, rule group `<project>-logs` and dashboard `<project>-logs`. The group holds
+four rules: 5xx and model failures counted from the OTLP metrics, error-level tracebacks and browser
+errors read from the logs. The dashboard covers all three signals, so a project that only ships logs
+still gets a usable board and two dead panels.
+`app-label` defaults to `<project>-backend`.
+Reruns converge by uid: the live rule group is read
 first and its rule uids are merged back, so alert state, silences and resolved/unresolved
 progression survive.
+
+The metric panels and the two metric rules select `service_name="<app-label>"`, which only matches an
+app whose OTLP `service.name` is the same string as its pod label (the backend sets it in
+telemetry.py).
 
 Provisioning: rules are written without `disable_provenance`, so Grafana marks them provisioned and
 locks them against UI edits. That is deliberate — this repo stays the only writer. Changing a rule
@@ -39,6 +46,8 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 DEFAULT_URL = "https://sturdypoplar3317.grafana.net"
 DEFAULT_DATASOURCE = "grafanacloud-logs"
+DEFAULT_PROMETHEUS_DATASOURCE = "grafanacloud-prom"
+DEFAULT_TRACES_DATASOURCE = "grafanacloud-traces"
 DEFAULT_RECEIVER = "slack-maxterview"
 
 
@@ -100,8 +109,9 @@ def load(name, values):
 
 
 def install(args, app):
-    values = {"PROJECT": args.project, "APP": app,
-              "DATASOURCE": args.datasource, "RECEIVER": args.receiver}
+    values = {"PROJECT": args.project, "APP": app, "DATASOURCE": args.datasource,
+              "DS_PROM": args.prometheus_datasource, "DS_TRACES": args.traces_datasource,
+              "RECEIVER": args.receiver}
     rules = load("rules/alerting.json", values)
     dashboard = load("dashboards/logs.json", values)
     group = f"{args.project}-logs"
@@ -151,9 +161,18 @@ def install(args, app):
     print(f"app label check: {query} -> {rows[0]['value'][1] if rows else 0} in the last 24h")
     if not rows:
         fail(f'kit installed, but no Loki rows for app="{app}" in the last 24h — nothing was rolled '
-             "back. The four rules have noDataState=OK, so a project whose logger emits different "
+             "back. The log rules have noDataState=OK, so a project whose logger emits different "
              "field names never fires and never complains — a "
              "quiet stack and a dead rule look identical. Fix the label or the field names, then rerun.")
+
+    # Not a failure: the first sample lands 60s after the first request, so an install that precedes
+    # the deploy reports zero. It is printed because a metric rule with a mistyped service_name is
+    # indistinguishable from a quiet stack.
+    series = api(args.url, tok, "/api/datasources/proxy/uid/"
+                 + urllib.parse.quote(args.prometheus_datasource)
+                 + "/api/v1/query?"
+                 + urllib.parse.urlencode({"query": f'sum(http_server_request_duration_seconds_count{{service_name="{app}"}})'}))
+    print(f"metric check: service_name={app} -> {len(series['data']['result'])} series so far")
     print("installed; rules report health=unknown until their first evaluation (~1 minute)")
 
 
@@ -165,6 +184,12 @@ def main():
                         help="Loki app label the rules alert on (default <project>-backend)")
     parser.add_argument("--datasource", default=DEFAULT_DATASOURCE,
                         help=f"Loki datasource uid (default {DEFAULT_DATASOURCE}, shared by the stack)")
+    parser.add_argument("--prometheus-datasource", default=DEFAULT_PROMETHEUS_DATASOURCE,
+                        help=f"Prometheus datasource uid for the metric panels and rules "
+                             f"(default {DEFAULT_PROMETHEUS_DATASOURCE}, shared by the stack)")
+    parser.add_argument("--traces-datasource", default=DEFAULT_TRACES_DATASOURCE,
+                        help=f"Tempo datasource uid for the trace panel "
+                             f"(default {DEFAULT_TRACES_DATASOURCE}, shared by the stack)")
     parser.add_argument("--receiver", default=DEFAULT_RECEIVER,
                         help=f"contact point set on each rule, so the global notification tree stays "
                              f"untouched (default {DEFAULT_RECEIVER})")

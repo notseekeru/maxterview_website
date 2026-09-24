@@ -11,24 +11,27 @@
           "refId": "A",
           "queryType": "range",
           "relativeTimeRange": {
-            "from": 600,
+            "from": 900,
             "to": 0
           },
-          "datasourceUid": "{{DATASOURCE}}",
+          "datasourceUid": "{{DS_PROM}}",
           "model": {
             "editorMode": "code",
-            "expr": "sum(count_over_time({app=\"{{APP}}\"} | json | status >= 500 [5m]))",
-            "intervalMs": 1000,
-            "maxDataPoints": 43200,
+            "expr": "sum(increase(http_server_request_duration_seconds_count{service_name=\"{{APP}}\", http_response_status_code=~\"5..\"}[15m]))",
+            "instant": false,
+            "legendFormat": "5xx in 15m",
+            "range": true,
+            "refId": "A",
             "queryType": "range",
-            "refId": "A"
+            "intervalMs": 1000,
+            "maxDataPoints": 43200
           }
         },
         {
           "refId": "B",
           "queryType": "",
           "relativeTimeRange": {
-            "from": 600,
+            "from": 900,
             "to": 0
           },
           "datasourceUid": "__expr__",
@@ -45,7 +48,7 @@
           "refId": "C",
           "queryType": "",
           "relativeTimeRange": {
-            "from": 600,
+            "from": 900,
             "to": 0
           },
           "datasourceUid": "__expr__",
@@ -53,10 +56,10 @@
             "conditions": [
               {
                 "evaluator": {
+                  "type": "gt",
                   "params": [
                     5
-                  ],
-                  "type": "gt"
+                  ]
                 }
               }
             ],
@@ -73,7 +76,7 @@
       "for": "1m",
       "keep_firing_for": "0s",
       "annotations": {
-        "description": "sum(count_over_time({app=\"{{APP}}\"} | json | status >= 500 [5m])) \u2014 fires above 5",
+        "description": "More than 5 responses with a 5xx status in 15 minutes. Read the trace from one of them, then the Error logs for the exception.",
         "summary": "{{PROJECT}}: backend 5xx"
       },
       "labels": {
@@ -95,14 +98,17 @@
             "from": 900,
             "to": 0
           },
-          "datasourceUid": "{{DATASOURCE}}",
+          "datasourceUid": "{{DS_PROM}}",
           "model": {
             "editorMode": "code",
-            "expr": "sum(count_over_time({app=\"{{APP}}\"} | json | event=~\"llm[a-z._]*(unavailable|failed|transport_error)\" [10m]))",
-            "intervalMs": 1000,
-            "maxDataPoints": 43200,
+            "expr": "sum(increase(llm_client_call_duration_seconds_count{service_name=\"{{APP}}\", llm_outcome=\"error\"}[15m]))",
+            "instant": false,
+            "legendFormat": "model errors in 15m",
+            "range": true,
+            "refId": "A",
             "queryType": "range",
-            "refId": "A"
+            "intervalMs": 1000,
+            "maxDataPoints": 43200
           }
         },
         {
@@ -134,10 +140,10 @@
             "conditions": [
               {
                 "evaluator": {
+                  "type": "gt",
                   "params": [
                     2
-                  ],
-                  "type": "gt"
+                  ]
                 }
               }
             ],
@@ -154,7 +160,7 @@
       "for": "1m",
       "keep_firing_for": "0s",
       "annotations": {
-        "description": "sum(count_over_time({app=\"{{APP}}\"} | json | event=~\"llm[a-z._]*(unavailable|failed|transport_error)\" [10m])) \u2014 fires above 2",
+        "description": "More than 2 failed model calls in 15 minutes, across every stage. A cancelled stream (the browser left) does not count: only the provider failing.",
         "summary": "{{PROJECT}}: llm failures"
       },
       "labels": {

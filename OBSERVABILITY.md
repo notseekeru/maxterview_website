@@ -1,9 +1,10 @@
 # OBSERVABILITY — maxterview
 
-One pipeline: structured logs. Everything else is a query over those logs. Decisions: no backend error
-tracker (Loki already receives the tracebacks), no third-party browser error tracker (a beacon posts
-browser errors into the same logs), no app-side metrics or traces yet, Grafana Cloud free tier, and the
-app never holds a Grafana write credential.
+Structured logs carry every content event, OTLP carries every duration and count, and a log line
+carries the trace id, so the two join. Decisions: no backend error tracker (Loki already receives the
+tracebacks), no third-party browser error tracker (a beacon posts browser errors into the same logs),
+no RUM (the browser has no trace context to contribute yet), Grafana Cloud free tier, and the app holds
+no telemetry write credential in either pipeline.
 
 ## Shipped — tier 1, app-local
 
@@ -17,27 +18,52 @@ app never holds a Grafana write credential.
 
 ## Shipped — tier 2, log pipeline
 
-Logs leave the cluster: Alloy tails pod stdout through the Kubernetes API into Grafana Cloud Loki, and a rule set turns those lines into alerts. Labels are `namespace/pod/container/app` plus the external `cluster`/`app`.
+Logs leave the cluster: Alloy tails pod stdout through the Kubernetes API into Grafana Cloud Loki.
+Labels are `namespace/pod/container/app` plus the external `cluster`/`app`.
 
 | Area | Where | What |
 | --- | --- | --- |
 | Collector | `gitops/apps/maxterview/base/alloy.yaml` | One **Deployment**, not a DaemonSet: `discovery.kubernetes` → `loki.source.kubernetes` goes through the Kubernetes API, so no hostPath, no node filesystem, no privileged container — just a namespaced Role for pods list/watch and pods/log get. |
 | Discovery scope | same | `namespaces { own_namespace = true }`. Discovery lists cluster-wide by default and the namespaced Role forbids that: the first deploy produced a 403 and zero targets. Here the Role *is* the scope. |
 | Target filter | same | `drop` on `__meta_kubernetes_pod_phase =~ "Succeeded|Failed"` — a finished Job pod has no live stream and API tailing re-opens it in a hot loop. Drop, not keep-on-Running, so a missing label can never silently drop every target. |
+| Probe noise | `frontend/nginx.conf` | `map $http_user_agent` plus `access_log ... if=`: the kube-probe fetching `/` every 10s was 17,283 of 17,756 lines a day, 97% of the entire pipeline. Dropped in nginx for the same reason the backend skips `/api/health`, so the line never leaves the node. |
 | Config changes | same | The `maxterview/config-hash` pod annotation. Argo updating a ConfigMap restarts nothing and Alloy reads its config at startup, so the hash must be bumped together with the config to roll the pod. |
-| Credential | Terraform `maxterview-logs` Secret, values from Infisical | `LOKI_URL`/`LOKI_USER`/`LOKI_TOKEN`, scope `logs:write` and nothing else. The app never holds it. |
-| Alerts | Grafana, `maxterview` folder | Four **Grafana-managed** rules — backend 5xx, LLM failures, backend tracebacks, browser errors (`event="browser.error"` above 2 in 10m, so a one-off blocked script stays quiet while a screen that keeps breaking does not) — routed to a Slack contact point (webhook lives in Infisical at `/sources/webhooks`). Loki-ruler alerts are deprecated in new stacks. |
-| Dashboard | Grafana, `maxterview` folder; kit in `observability/grafana` | `maxterview-logs`, six Loki panels: log volume by `level`, requests with a 5xx overlay, request duration (p95 per status code plus a true mean — per-request quantiles are not available), error-level logs, browser-error beacons, and LLM latency (p95 per model) with failures on a second axis. `bootstrap.py <project> [app-label]` reproduces folder + rules + dashboard for any project; `cp -r` is the install. |
-| Ceilings | — | 14-day retention, 5 MB/s ingest, 5k streams, 50 GB/mo. Metric history inherits the log window, since metrics are LogQL queries over these lines. |
+| Credential | Terraform `maxterview-logs` Secret, values from Infisical | `LOKI_URL`/`LOKI_USER`/`LOKI_TOKEN`/`OTLP_URL`: one access-policy token, scoped `logs:write`, `metrics:write`, `traces:write`, and one stack instance id. Both pipelines authenticate with it. The app never holds it, and it is the only write credential either pipeline has. |
 
 Independent of all of the above: k3s ships `metrics-server`, and `kubectl top` fails on a kubelet
 certificate SAN. Fixing that (`--tls-san`, brief apiserver restart) unblocks M18's load test with no
 new pipeline at all.
 
+## Shipped — tier 3, OTLP
+
+The app emits traces and metrics to the in-cluster Alloy receiver, which is the only holder of a write
+credential. HTTP/protobuf only: the Python exporter has no gRPC client wired, so there is no second
+listen address. The endpoint env var is the kill switch: empty means the SDK is never installed and
+every call site runs against the API's no-op proxies, so nothing in the app branches on whether
+telemetry is on.
+
+| Area | Where | What |
+| --- | --- | --- |
+| Emission | `backend/src/app/telemetry.py` | OTel SDK over OTLP/HTTP to `http://maxterview-alloy:4318`. Export runs on the batch processor's own thread and drops when its queue is full, so an unreachable collector costs the request path nothing; shutdown flushes under a 5s bound so it cannot hold the pod in Terminating. |
+| Spans | `logs.py` (root), `main.py` (`feedback.generate`), `llm.py` (one per model call) | The root span wraps the same region `duration_ms` measures. Every model call carries `llm.stage` (chat/judge/grader/formatter/classify/shout), which is the only way to see that a feedback run is several calls in a row and which one owns the clock. |
+| Metrics | same | `http.server.request.duration` and `llm.client.call.duration`. Bucket boundaries are pinned in the SDK, not left to its defaults. The translated Prometheus names are `http_server_request_duration_seconds` and `llm_client_call_duration_seconds`; the panels and the two metric rules are written against those. |
+| Cardinality | `logs.py::_route`, plus the label set | The route label is the matched template, never the raw path, so a scanner sweeping URLs cannot mint a series per URL. Labels stay `route`, `method`, `status`, `model`, `stage`, `outcome`; never `interview_id` or `user_sub`. |
+| Correlation | `logs.py` binds `trace_id` and `span_id` into the log context | That is the whole Grafana-side wiring: the Loki datasource already carries the derived-field regex, and Tempo already points at logs, metrics and profiles. |
+| Collector | `gitops/apps/maxterview/base/alloy.yaml` | One `otelcol.receiver.otlp` (HTTP, ClusterIP Service, unauthenticated inside the namespace: the same trust boundary the log tailing already relies on), one batch processor, one `otelcol.exporter.otlphttp` at the Grafana Cloud OTLP gateway, which routes by signal. |
+| Ordering | same | An unset `OTLP_URL` has to fail the pod's startup rather than leave a silently empty endpoint, so Terraform carries all four secret keys before this revision syncs, and the config hash above is what rolls the pod onto them. |
+
+## Alerts and the dashboard, across both pipelines
+
+| Area | Where | What |
+| --- | --- | --- |
+| Alerts | Grafana, `maxterview` folder | Four **Grafana-managed** rules: 5xx and model failures counted from the OTLP metrics, tracebacks and browser errors read from the logs (`event="browser.error"` above 2 in 10m, so a one-off blocked script stays quiet while a screen that keeps breaking does not). Routed to a Slack contact point (webhook lives in Infisical at `/sources/webhooks`). Loki-ruler alerts are deprecated in new stacks. |
+| Dashboard | Grafana, `maxterview` folder; kit in `observability/grafana` | `maxterview-logs`: log volume by `level`, error-level logs and browser beacons from Loki; request rate with a 5xx overlay, request duration p95 per route, and LLM latency and failures per stage from the OTLP metrics; and a trace browser. `bootstrap.py <project> [app-label]` reproduces folder + rules + dashboard for any project; `cp -r` is the install. A project that ships logs only gets a board with two dead panels, which is the honest picture. |
+| Ceilings | — | 14-day retention for every signal, which is the whole of the history question: no exporter buys more on this tier. 5 MB/s ingest, 5k streams and 50 GB/mo for logs; 10k active series for metrics. |
+
 ## Parked — the trigger unparks each
 
-- **OTel SDK → OTLP**, pointed at the in-cluster Alloy receiver (never at Grafana directly, so the app still holds no credential): when a number needs a real histogram, or history deeper than 14 days.
-- **Tempo traces**: when a latency problem spans more than one hop.
-- **Faro/RUM**: only after OTel exists, for frontend-to-backend trace correlation.
+- **Faro/RUM**: only after the browser has a trace context worth contributing.
+- **Pyroscope profiles** (the stack has the datasource): the first CPU-bound path that needs one. It is another exporter on the receiver Alloy already has, not a new pipeline.
 - **Uptime probes, ingress observability**: the first incident that needs one.
 - **Readiness deepening**: more than one replica, or a DB outage indistinguishable from an app outage.
+- **History past 14 days**: not reachable with an exporter. Every signal on the free tier keeps 14 days, so this needs a paid tier or self-hosted storage.
