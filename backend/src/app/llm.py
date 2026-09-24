@@ -1,13 +1,14 @@
 import json
 import os
 import re
+import time
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 
 import httpx
 import structlog
 
-from app import dimensions, levels, rating
+from app import dimensions, levels, rating, telemetry
 from app.models import DECISIONS, ChatMessage, Dials, FeedbackSummary
 
 log = structlog.get_logger(__name__)
@@ -671,6 +672,31 @@ Return ONLY the JSON object, no prose, no markdown."""
 
 
 async def stream_chat(messages: list[ChatMessage], config: LLMConfig) -> AsyncIterator[str]:
+    """Timed and traced wrapper around the provider stream.
+
+    The sample is the whole stream, not the first token: a turn that dribbles for 90s and a turn that
+    answers in 3s are the same number to a user who is reading it as it arrives.
+    """
+    started = time.perf_counter()
+    outcome = "ok"
+    with telemetry.span("llm.stream", **{"llm.stage": "chat", "llm.model": config.model}) as current:
+        try:
+            async for token in _stream_chat(messages, config):
+                yield token
+        except GeneratorExit:
+            # The tab closed or the SSE connection dropped. Not a model failure, and telling the two
+            # apart is most of the reason to have the sample at all.
+            outcome = "cancelled"
+            raise
+        except BaseException:
+            outcome = "error"
+            raise
+        finally:
+            current.set_attribute("llm.outcome", outcome)
+            telemetry.record("llm.client.call.duration", time.perf_counter() - started, **{"llm.stage": "chat", "llm.model": config.model, "llm.outcome": outcome})
+
+
+async def _stream_chat(messages: list[ChatMessage], config: LLMConfig) -> AsyncIterator[str]:
     """Stream the assistant reply as incremental text deltas (SSE).
 
     In stub mode (no base URL) yields the last user message echoed back, tokenized by
@@ -936,6 +962,30 @@ async def _completion(
     *,
     config: LLMConfig,
     max_tokens: int,
+    stage: str,
+    json_output: bool = False,
+    json_schema: dict | None = None,
+    temperature: float | None = 0.0,
+) -> str | None:
+    """Timed and traced wrapper: every non-streaming model call in the app arrives here or at
+    `stream_chat`. `stage` is what makes a feedback run legible, since grader, formatter and the
+    per-turn judge are the same call to the same provider.
+    """
+    started = time.perf_counter()
+    with telemetry.span("llm.completion", **{"llm.stage": stage, "llm.model": config.model}) as current:
+        text = await _completion_call(system, user_text, config=config, max_tokens=max_tokens, json_output=json_output, json_schema=json_schema, temperature=temperature)
+        outcome = "ok" if text is not None else "error"
+        current.set_attribute("llm.outcome", outcome)
+    telemetry.record("llm.client.call.duration", time.perf_counter() - started, **{"llm.stage": stage, "llm.model": config.model, "llm.outcome": outcome})
+    return text
+
+
+async def _completion_call(
+    system: str,
+    user_text: str,
+    *,
+    config: LLMConfig,
+    max_tokens: int,
     json_output: bool = False,
     json_schema: dict | None = None,
     # Greedy by default: the feedback hops are extraction (notes -> JSON), not writing,
@@ -1005,6 +1055,7 @@ async def _request_grader_notes(history: list[ChatMessage], dials: Dials | None,
             transcript,
             config=grader_config(config),
             max_tokens=LLM_MAX_GRADER_TOKENS,
+            stage="grader",
         )
         if notes is not None:
             return notes
@@ -1047,6 +1098,7 @@ async def _request_format(notes: str, config: LLMConfig, failure: tuple[int, str
             notes,
             config=config,
             max_tokens=LLM_MAX_FEEDBACK_TOKENS,
+            stage="formatter",
             json_output=True,
             json_schema=FEEDBACK_JSON_SCHEMA,
         )
@@ -1117,6 +1169,7 @@ async def classify_turns(history: list[ChatMessage], config: LLMConfig) -> dict[
             transcript,
             config=grader_config(config),
             max_tokens=LLM_MAX_FEEDBACK_TOKENS,
+            stage="classify",
             json_output=True,
             json_schema=MOVES_JSON_SCHEMA,
         )
@@ -1148,6 +1201,7 @@ async def judge_answer(question: str, answer: str, config: LLMConfig, turn: int 
             user_text,
             config=grader_config(config),
             max_tokens=LLM_MAX_FEEDBACK_TOKENS,
+            stage="judge",
             json_output=True,
             json_schema=JUDGE_JSON_SCHEMA,
         )
@@ -1188,6 +1242,7 @@ async def fail_shout(question: str, answer: str, cls: str, config: LLMConfig) ->
         f"Question: {question}\nAnswer: {answer}\nClass: {cls}",
         config=grader_config(config),
         max_tokens=FAIL_SHOUT_TOKENS,
+        stage="shout",
         temperature=0.7,
     )
     text = _clip_shout((line or "").strip().strip('"').strip())

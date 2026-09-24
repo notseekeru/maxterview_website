@@ -14,7 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse, StreamingResponse
 from pydantic import ValidationError
 
-from app import API_PREFIX, billing, byok, dials, levels, llm, offer, payments, rating, resumes, voice
+from app import API_PREFIX, billing, byok, dials, levels, llm, offer, payments, rating, resumes, telemetry, voice
 from app.auth import CLERK_ENABLED, get_current_user
 from app.db import close_pool, fetch, fetchrow, init_pool
 from app.dials import DIAL_FIELDS
@@ -87,10 +87,12 @@ LLMConfigDep = Annotated[llm.LLMConfig, Depends(_llm_config)]
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
+    telemetry.configure()
     await init_pool()
     yield
     await voice.aclose()
     await close_pool()
+    telemetry.shutdown()
 
 
 # Before anything can log: one chain for structlog and stdlib (uvicorn, unhandled tracebacks) alike.
@@ -1456,6 +1458,16 @@ async def _auto_generate_and_persist_feedback(interview_id: str, config: llm.LLM
 
 
 async def _generate_and_persist_feedback(interview_id: str, config: llm.LLMConfig) -> dict | None:
+    """Traced wrapper. This is the only place in the app that makes several model calls in a row, so
+    the span is the only thing that can say which stage owns the wall clock.
+    """
+    with telemetry.span("feedback.generate") as current:
+        row = await _run_feedback_pipeline(interview_id, config)
+        current.set_attribute("feedback.outcome", "ok" if row is not None else "error")
+        return row
+
+
+async def _run_feedback_pipeline(interview_id: str, config: llm.LLMConfig) -> dict | None:
     # `id` is selected for the move-review mapping, and `move_class`/`comment` for the hardcore path
     # (which already annotated live); the `, id` tiebreak keeps the order stable, since llm numbers
     # candidate turns off this exact list.

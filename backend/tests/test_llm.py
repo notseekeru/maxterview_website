@@ -521,6 +521,7 @@ async def test_completion_is_greedy_and_downgrades_json_schema_to_json_object():
             "notes",
             config=REAL,
             max_tokens=64,
+            stage="test",
             json_output=True,
             json_schema=llm.FEEDBACK_JSON_SCHEMA,
         )
@@ -537,7 +538,7 @@ async def test_completion_does_not_retry_repeated_server_errors():
     with respx.mock(base_url="http://llm.test") as mock:
         route = mock.post("/chat/completions")
         route.side_effect = [Response(500, json={"error": "boom"})]
-        out = await llm._completion("sys", "notes", config=REAL, max_tokens=64, json_schema=llm.FEEDBACK_JSON_SCHEMA)
+        out = await llm._completion("sys", "notes", config=REAL, max_tokens=64, stage="test", json_schema=llm.FEEDBACK_JSON_SCHEMA)
     assert out is None
     assert len(route.calls) == 1  # only the json-schema capability 400/404/422 is downgraded
 

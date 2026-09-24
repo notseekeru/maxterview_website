@@ -4,9 +4,9 @@ Two producers reach stdout: structlog (our calls) and stdlib `logging` (uvicorn,
 unhandled traceback). `configure_logging()` routes both through one chain — without that bridge prod
 is a mix of JSON and plain text, and the plain-text lines are the ones that matter most.
 
-AI HERE: logs are the ONLY telemetry this app ships. Rate, latency, error ratio and turn cost are
-LogQL queries over these lines; the upgrade path is an OTLP exporter when a number needs a real
-histogram or history past Loki's 14-day retention (PLAN M13).
+Logs stay the only signal for content: every number the dashboard derives from a log line is a LogQL
+aggregate, which is an approximation over whatever lines survive 14 days of retention. Duration moved
+to `telemetry.py`, which is what makes a percentile real (M13 tier 3).
 """
 
 import logging
@@ -18,7 +18,7 @@ import uuid
 import structlog
 from starlette.datastructures import MutableHeaders
 
-from app import API_PREFIX
+from app import API_PREFIX, telemetry
 
 APP_ENV = os.getenv("APP_ENV", "development")
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
@@ -35,10 +35,16 @@ _SHARED_PROCESSORS = [
     structlog.processors.format_exc_info,
 ]
 
+# No space after `:` or `,`. The `grafanacloud-logs` datasource's traceID derived field is a regex over
+# the raw line (`[tT]race_?[iI][dD]"?[:=]"?(\w+)`) with no room for whitespace, and that field is
+# shared by every project on the stack, so the shape of our JSON is its contract. Compact also trims
+# a byte or two per line off every log the cluster ships.
+COMPACT_JSON = {"separators": (",", ":")}
+
 
 def configure_logging() -> None:
     """Call once at import of the app module, before anything logs."""
-    renderer = structlog.dev.ConsoleRenderer() if APP_ENV in ("development", "test") else structlog.processors.JSONRenderer()
+    renderer = structlog.dev.ConsoleRenderer() if APP_ENV in ("development", "test") else structlog.processors.JSONRenderer(**COMPACT_JSON)
     structlog.configure(
         processors=[*_SHARED_PROCESSORS, structlog.stdlib.ProcessorFormatter.wrap_for_formatter],
         logger_factory=structlog.stdlib.LoggerFactory(),
@@ -71,6 +77,8 @@ class RequestContextMiddleware:
 
     Pure ASGI rather than `BaseHTTPMiddleware`: no task boundary, so the response is never buffered
     (SSE keeps streaming) and `duration_ms` covers the whole body — for a chat turn that is the turn.
+    The root OTLP span wraps the same region, so the metric, the log line and the trace are one
+    measurement of one thing.
     """
 
     def __init__(self, app):
@@ -95,19 +103,37 @@ class RequestContextMiddleware:
                 MutableHeaders(scope=message)["X-Request-ID"] = request_id
             await send(message)
 
-        try:
-            await self.app(scope, receive, send_with_id)
-        finally:
-            if scope["path"] != SKIP_PATH:
-                # Auth and routing run inside the route, so identity and the path params are read off
-                # the shared scope after the fact: contextvars cannot carry them back up here, since
-                # the rate limiter is a BaseHTTPMiddleware and blocks upward propagation.
-                log.info(
-                    "http.request",
-                    method=scope["method"],
-                    path=scope["path"],
-                    status=status,
-                    duration_ms=round((time.perf_counter() - started) * 1000, 1),
-                    user=scope.get("state", {}).get("user_sub"),
-                    interview_id=(scope.get("path_params") or {}).get("interview_id"),
-                )
+        with telemetry.span("http.server", **{"http.request.method": scope["method"]}) as current:
+            context = current.get_span_context()
+            if context.is_valid:
+                # On the log line as well as the span: the Loki datasource's derived field turns a
+                # `trace_id` in the JSON into the link, and the access line is where a human starts.
+                structlog.contextvars.bind_contextvars(trace_id=format(context.trace_id, "032x"), span_id=format(context.span_id, "016x"))
+            try:
+                await self.app(scope, receive, send_with_id)
+            finally:
+                elapsed = time.perf_counter() - started
+                route = self._route(scope)
+                current.update_name(f"{scope['method']} {route}")
+                current.set_attribute("http.route", route)
+                current.set_attribute("http.response.status_code", status)
+                if scope["path"] != SKIP_PATH:
+                    telemetry.record("http.server.request.duration", elapsed, **{"http.request.method": scope["method"], "http.route": route, "http.response.status_code": status})
+                    # Auth and routing run inside the route, so identity and the path params are read off
+                    # the shared scope after the fact: contextvars cannot carry them back up here, since
+                    # the rate limiter is a BaseHTTPMiddleware and blocks upward propagation.
+                    log.info(
+                        "http.request",
+                        method=scope["method"],
+                        path=scope["path"],
+                        status=status,
+                        duration_ms=round(elapsed * 1000, 1),
+                        user=scope.get("state", {}).get("user_sub"),
+                        interview_id=(scope.get("path_params") or {}).get("interview_id"),
+                    )
+
+    @staticmethod
+    def _route(scope) -> str:
+        # FastAPI sets `scope["route"]` on a match only. An unmatched path is a scanner, and a metric
+        # label per random path is a cardinality bill: one bucket set per URL ever probed.
+        return getattr(scope.get("route"), "path", "unmatched")
