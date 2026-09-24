@@ -15,9 +15,9 @@ sys.path.insert(0, REPO + "/backend/src")
 
 
 def app_modules():
-    from app import dials, levels, llm, rating
+    from app import dials, levels, llm, offer, rating
 
-    return llm, rating, dials, levels
+    return llm, rating, dials, levels, offer
 
 
 def _dials():
@@ -26,6 +26,10 @@ def _dials():
 
 def _levels():
     return app_modules()[3]
+
+
+def _offer():
+    return app_modules()[4]
 
 
 CANDIDATES = (
@@ -181,81 +185,192 @@ WEAK_ANSWERS = (
     "Yeah so my strategy is to just make sure everything is good and there are no problems. If it's not broken then it's fine.",
 )
 
-TECH_CANDIDATES: tuple[dict, ...] = tuple(c for c in CANDIDATES if c["role"] in {
-    "DevOps Engineer",
-    "Cloud Engineer",
-    "DevOps / Cloud Hybrid Engineer",
-    "QA / Test Automation Engineer",
-    "Data Engineer",
-})
-assert TECH_CANDIDATES and {c["role"] for c in TECH_CANDIDATES} >= {"DevOps Engineer", "Cloud Engineer", "QA / Test Automation Engineer", "Data Engineer"}
-assert sum(1 for c in TECH_CANDIDATES if "Hybrid" in c["role"]) == 1
+TECH_ROLES = frozenset(
+    {
+        "DevOps Engineer",
+        "Cloud Engineer",
+        "DevOps / Cloud Hybrid Engineer",
+        "QA / Test Automation Engineer",
+        "Data Engineer",
+    }
+)
+
+# Engineers 2x: the audience is engineers, and the non-engineering personas exist so the role axis on
+# the analytics pages is more than one column.
+ROLE_WEIGHT = 2.0
+
+# (weight, low, high) the run's strength is drawn from: a practice history is mostly average with a few
+# rough runs and a few that went well. This is the load-bearing distribution - strength decides the
+# move classes, the dimension scores, the grade AND the offer - so it is what puts every grade band
+# (S..F) and both ends of the salary ladder on the seeded pages.
+STRENGTH_MIX: tuple[tuple[float, float, float], ...] = (
+    (0.12, 0.05, 0.30),
+    (0.30, 0.30, 0.55),
+    (0.38, 0.55, 0.80),
+    (0.20, 0.80, 1.00),
+)
+
+# Target level, weighted like real practice: mid and senior dominate, the tails are rare.
+LEVEL_WEIGHTS: tuple[tuple[str, int], ...] = (
+    ("any", 4),
+    ("intern", 3),
+    ("junior", 14),
+    ("mid", 30),
+    ("senior", 28),
+    ("staff", 16),
+    ("principal", 5),
+)
+
+# When people practise: after work. 7am..10pm.
+HOURS: tuple[int, ...] = tuple(range(7, 23))
+HOUR_WEIGHTS: tuple[int, ...] = (2, 4, 6, 8, 6, 5, 6, 5, 5, 8, 12, 14, 10, 6, 4, 3)
+
+HISTORY_DAYS = 90
+WEEKEND_WEIGHT = 0.35
 
 WEAK_OPENING = "I don't have my resume with me right now but I can summarize - I've worked in a few companies doing software type work. I can tell you more as we go."
 
-def build_specs(rng: random.Random, n: int = 24) -> list[dict]:
-    now = datetime.now(UTC)
+
+def build_specs(rng: random.Random, n: int = 40) -> list[dict]:
+    """A plausible practice history: `n` runs over the last `HISTORY_DAYS` days.
+
+    Every axis is drawn rather than fixed - role, target level, strength, dials, outcome, archive -
+    because the seeded pages are the only place these distributions are visible before real users
+    exist. Two self-checks ride the first call: the class vocabulary must cover every candidate, and the
+    level weights must cover every level the app accepts.
+    """
+    weights = role_weights()
+    assert len(weights) == len(CANDIDATES) and len({c["role"] for c in CANDIDATES}) == len(CANDIDATES)
+    assert {slug for slug, _ in LEVEL_WEIGHTS} == set(_levels().LEVELS), "a level with no weight never gets seeded"
+    levels_ = [slug for slug, _ in LEVEL_WEIGHTS]
+    level_weights = [w for _, w in LEVEL_WEIGHTS]
+
     specs: list[dict] = []
-
-    def day(offset_days: int, hour: int) -> datetime:
-        return (now - timedelta(days=offset_days)).replace(hour=hour, minute=rng.randrange(60), second=rng.randrange(60), microsecond=0)
-
-    def dials() -> dict:
-        mix = [rng.choice((0, 1, 2)), rng.randrange(0, 5), rng.randrange(1, 5)]
-        if not any(mix):
-            mix[2] = 2
-        return {
-            "company_size": rng.choice(_dials().COMPANY_SIZES),
-            "cynicism": rng.choice(_dials().CYNICISM),
-            "brutally_honest": rng.random() < 0.3,
-            "human_mode": rng.random() < 0.8,
-            "mix_chitchat": mix[0],
-            "mix_behavioural": mix[1],
-            "mix_technical": mix[2],
+    for when in practice_when(rng, n):
+        c = rng.choices(CANDIDATES, weights=weights, k=1)[0]
+        strength = draw_strength(rng)
+        status = rng.choices(("completed", "in_progress", "pending"), weights=(78, 14, 8), k=1)[0]
+        spec = {
+            **person(c),
+            # The target level is what the candidate dialled in, NOT the persona's own seniority:
+            # practising above or below your level is the point of the product, and it is the only way
+            # the level comparison gets rows for levels no persona has.
+            "level": rng.choices(levels_, weights=level_weights, k=1)[0],
+            "when": when,
+            "status": status,
+            "strength": strength,
+            **dials(rng),
         }
+        if status == "pending":
+            spec["answers"] = []
+        elif strength < 0.30 and rng.random() < 0.6:
+            # A rough run reads as a rough transcript, not as good answers scored badly.
+            spec["answers"] = [WEAK_OPENING, *WEAK_ANSWERS]
+        if status == "completed" and rng.random() < 0.12:
+            spec["archived"] = True
+        if rng.random() < 0.12:
+            spec["hardcore"] = True
+            spec["cynicism"] = "skeptical"
+            if status == "completed" and rng.random() < 0.5:
+                spec["fail_at"] = rng.randrange(0, max(1, min(len(spec["answers"]), planned_questions(spec))))
+        specs.append(spec)
+    return specs
 
-    for offset in (0, 0, 1, 2, 3):
-        c = rng.choice(TECH_CANDIDATES)
-        specs.append({**person(c), "when": day(offset, rng.randrange(8, 22)), "status": "completed", **dials()})
-    specs[-1]["status"] = rng.choice(("in_progress", "completed"))
-    tc = rng.choice(TECH_CANDIDATES)
-    specs.append({**person(tc), "topic": "hardcore: test strategy under pressure", "when": day(rng.randrange(4, 7), 20), "status": "completed", "hardcore": True, "cynicism": "skeptical", "fail_at": rng.randrange(1, 4)})
-    specs.append({"role": rng.choice(TECH_CANDIDATES)["role"], "level": rng.choice(_levels().LEVELS[1:]), "topic": "never started", "opening": "", "answers": [], "when": day(rng.randrange(5, 9), 11), "status": "pending"})
-    for offset in rng.sample(range(4, 16), 3):
-        specs.append({**person(rng.choice(TECH_CANDIDATES)), "topic": "practice - weak answers", "when": day(offset, 21), "status": "in_progress", "answers": [WEAK_OPENING, *WEAK_ANSWERS], "strength": rng.uniform(0.0, 0.2), **dials()})
-    for _ in range(16):
-        c = rng.choice(TECH_CANDIDATES)
-        weak = rng.random() < 0.15
-        specs.append(
-            {
-                **person(c),
-                "answers": [WEAK_OPENING, *WEAK_ANSWERS] if weak else list(c["answers"]),
-                "strength": rng.uniform(0.1, 0.35) if weak else rng.uniform(0.55, 0.97),
-                "when": day(rng.randrange(7, 60), rng.randrange(8, 22)),
-                "status": "completed",
-                "archived": rng.random() < 0.12,
-                **dials(),
-            }
+
+def role_weights() -> list[float]:
+    return [ROLE_WEIGHT if c["role"] in TECH_ROLES else 1.0 for c in CANDIDATES]
+
+
+def draw_strength(rng: random.Random) -> float:
+    _, low, high = rng.choices(STRENGTH_MIX, weights=[w for w, _, _ in STRENGTH_MIX], k=1)[0]
+    return rng.uniform(low, high)
+
+
+def practice_when(rng: random.Random, count: int) -> list[datetime]:
+    """`count` run timestamps over the last `HISTORY_DAYS`, oldest first.
+
+    Weighted toward recent days (a practice history that is still being written) and away from
+    weekends, with a forced run on each of the last few days so the streak tile has something real
+    under it. Uniform days would leave the trend flat and the streak at whatever the dice said.
+    """
+    now = datetime.now(UTC)
+    offsets = list(range(HISTORY_DAYS))
+    weights = [(0.35 + 0.65 * (1 - off / (HISTORY_DAYS - 1)) ** 2) * (WEEKEND_WEIGHT if (now - timedelta(days=off)).weekday() >= 5 else 1.0) for off in offsets]
+    streak = rng.randint(3, 7)
+    picked = list(range(streak)) + rng.choices(offsets, weights=weights, k=max(0, count - streak))
+    return sorted(
+        (now - timedelta(days=off)).replace(
+            hour=rng.choices(HOURS, weights=HOUR_WEIGHTS, k=1)[0],
+            minute=rng.randrange(60),
+            second=rng.randrange(60),
+            microsecond=0,
         )
-    specs.sort(key=lambda s: s["when"])
-    return specs[-n:] if n else specs
+        for off in picked
+    )
+
+
+def dials(rng: random.Random) -> dict:
+    """The create knobs, drawn from the app's own vocabulary (app/dials.py).
+
+    Correlated on purpose: how people set up a hard run is not independent - skeptical comes with
+    brutally honest - and the mix is any combination with at least one question in it.
+    """
+    mix = [rng.randrange(_dials().MIX_MAX + 1) for _ in range(3)]
+    if not any(mix):
+        mix[rng.randrange(3)] = 2
+    skeptical = rng.random() < 0.35
+    return {
+        "company_size": rng.choices(_dials().COMPANY_SIZES, weights=(6, 9, 11, 9, 6, 5, 4), k=1)[0],
+        "cynicism": rng.choices(_dials().CYNICISM, weights=(2, 3, 6) if skeptical else (4, 5, 3), k=1)[0],
+        "brutally_honest": skeptical and rng.random() < 0.55,
+        "human_mode": rng.random() < 0.82,
+        "mix_chitchat": mix[0],
+        "mix_behavioural": mix[1],
+        "mix_technical": mix[2],
+    }
+
+
+def run_rng(spec: dict, salt: str) -> random.Random:
+    """A per-run stream keyed on the spec's own content: `--seed` reproduces a seeded history exactly,
+    which the module-level `random` used to break (same specs, different grades every run)."""
+    return random.Random(f"{salt}|{spec['role']}|{spec['level']}|{spec['when'].isoformat()}|{spec['strength']:.3f}")
 
 
 def person(c: dict) -> dict:
-    return {"role": c["role"], "level": c["level"], "topic": c["topic"], "opening": c["opening"], "answers": list(c["answers"]), "strength": 0.8}
+    return {
+        "role": c["role"],
+        "level": c["level"],
+        "topic": c["topic"],
+        "opening": c["opening"],
+        "answers": list(c["answers"]),
+        "strength": 0.8,
+    }
 
 
 def planned_questions(spec: dict) -> int:
     return spec.get("mix_chitchat", 0) + 1 + spec.get("mix_behavioural", 2) + spec.get("mix_technical", 4)
 
 
+# Strength -> the classes a run's turns are drawn from, plus the WEIGHTS inside the band. The weights
+# are what put the WHOLE grade ladder (rating.GRADES) on the seeded pages: each band's weighted mean
+# lands in one grade's range (roughly S, A, B, C, D, F top to bottom), so the bands are tuned to their
+# mean and not pulled toward the middle. A brilliant answer stays rare at every strength, as the rubric
+# says it should be.
+MOVE_BANDS: tuple[tuple[float, tuple[tuple[str, int], ...]], ...] = (
+    (0.90, (("brilliant", 4), ("great", 4), ("good", 2))),
+    (0.78, (("great", 3), ("good", 4), ("book", 2))),
+    (0.62, (("good", 4), ("book", 3), ("inaccuracy", 2))),
+    (0.42, (("book", 3), ("inaccuracy", 4), ("mistake", 1))),
+    (0.22, (("inaccuracy", 3), ("mistake", 3), ("book", 1))),
+    (0.00, (("mistake", 4), ("blunder", 3), ("inaccuracy", 1))),
+)
+
+
 def turn_classes(spec: dict, turns: int) -> list[str]:
-    rng = random.Random(f"{spec['role']}{spec['when']}{random.random()}")
+    rng = run_rng(spec, "moves")
     rating = app_modules()[1]
-    cuts = (0.9, 0.78, 0.62, 0.42, 0.22, 0.1)
-    bands = [["brilliant", "great", "good"], ["great", "good", "book"], ["good", "book", "inaccuracy"], ["book", "inaccuracy", "mistake"], ["inaccuracy", "mistake"], ["mistake"]]
-    band = next((b for floor, b in zip(cuts, bands, strict=True) if spec["strength"] >= floor), bands[-1])
-    classes = [rng.choice(band) for _ in range(turns)]
+    band = next(classes for floor, classes in MOVE_BANDS if spec["strength"] >= floor)
+    classes = rng.choices([c for c, _ in band], weights=[w for _, w in band], k=turns)
     if spec.get("fail_at") is not None:
         classes = classes[: spec["fail_at"] + 1]
         classes[spec["fail_at"]] = "mistake"
@@ -264,7 +379,7 @@ def turn_classes(spec: dict, turns: int) -> list[str]:
 
 
 def scores_for(spec: dict, classes: list[str]) -> dict:
-    rng = random.Random(f"scores{spec['role']}{spec['when']}{random.random()}")
+    rng = run_rng(spec, "scores")
     llm = app_modules()[0]
     base = 4 + spec["strength"] * 5.5
     if spec.get("fail_at") is not None:
@@ -279,7 +394,14 @@ def scores_for(spec: dict, classes: list[str]) -> dict:
     return out or {"clarity": float(min(10, max(1, round(base, 1))))}
 
 
-DECISIONS_BY_GRADE = {"S": "hire", "A": "lean_hire", "B": "lean_hire", "C": "lean_reject", "D": "lean_reject", "F": "reject"}
+DECISIONS_BY_GRADE = {
+    "S": "hire",
+    "A": "lean_hire",
+    "B": "lean_hire",
+    "C": "lean_reject",
+    "D": "lean_reject",
+    "F": "reject",
+}
 VERDICTS = {
     "S": "An unusually strong run: the answers came with concrete numbers, named trade-offs and a clear account of what the candidate themselves decided. Nothing in the transcript reads as rehearsed, and the ops answers show judgement rather than recall.",
     "A": "A strong interview with real evidence behind it - specific systems, specific failures, and a clear sense of what the candidate owned. The weaker spots are partly in the answers and partly in how narrow the questioning got.",
@@ -325,6 +447,7 @@ def build_sql(specs: list[dict], owner: str) -> str:
             stmts.append(_messages_sql(spec, turns, classes, iv_id))
         if spec["status"] == "completed":
             stmts.append(_feedback_sql(spec, classes, iv_id))
+            stmts.append(_offer_sql(spec, classes, iv_id))
     return "\n".join(stmts)
 
 
@@ -365,11 +488,18 @@ def question(spec: dict, n: int) -> str:
     return plan[min(n, len(plan) - 1)]
 
 
+def decision_for(spec: dict, grade: str) -> str:
+    """The hire/reject call a seeded run carries. Shared by the feedback and the offer so the letter and
+    the review cannot disagree about the same run (a letter on a rejection is exactly the contradiction
+    the app refuses to write)."""
+    return "reject" if spec.get("hardcore") else DECISIONS_BY_GRADE.get(grade)
+
+
 def _feedback_sql(spec: dict, classes: list[str], iv_id: str) -> str:
     rating = app_modules()[1]
     acc = rating.accuracy(classes)
     grade = rating.grade(acc, failed=spec.get("fail_at") is not None)
-    decision = "reject" if spec.get("hardcore") else DECISIONS_BY_GRADE.get(grade)
+    decision = decision_for(spec, grade)
     scores = scores_for(spec, classes)
     certainty = min(40 + 8 * len(classes), int(45 + spec["strength"] * 45))
     if spec.get("fail_at") is not None:
@@ -383,6 +513,29 @@ def _feedback_sql(spec: dict, classes: list[str], iv_id: str) -> str:
     return (
         "INSERT INTO feedback (interview_id, scores, verdict, tips, decision, certainty, accuracy, created_at) VALUES ("
         f"{q_(iv_id)}, {q_(json.dumps(scores))}::jsonb, {q_(verdict)}, {q_(json.dumps(tips))}::jsonb, {q_(decision)}, {certainty}, {acc if acc is not None else 'NULL'}, {q_(at.isoformat())});\n"
+    )
+
+
+def _offer_sql(spec: dict, classes: list[str], iv_id: str) -> str:
+    """The same price the app would quote for these scores: app/offer.py is the rate card and
+    model.HIRING_DECISIONS is the gate for both, so a seeded letter and a real one priced off the same
+    review cannot disagree - including by existing at all on a run the review turned down."""
+    from app.models import HIRING_DECISIONS
+
+    if spec["status"] != "completed":
+        return ""
+    rating = app_modules()[1]
+    accuracy = rating.accuracy(classes)
+    if decision_for(spec, rating.grade(accuracy, failed=spec.get("fail_at") is not None)) not in HIRING_DECISIONS:
+        return ""
+    priced = _offer().terms(spec["role"], spec["level"], scores_for(spec, classes), accuracy)
+    if priced is None:
+        return ""
+    at = spec["when"] + timedelta(minutes=len(classes) * 3 + 2)
+    return (
+        "INSERT INTO offers (interview_id, title, band, base_salary, signing_bonus, equity, performance, benefits, created_at) VALUES ("
+        f"{q_(iv_id)}, {q_(priced.title)}, {q_(priced.band)}, {priced.base_salary}, {priced.signing_bonus}, {priced.equity}, {priced.performance}, "
+        f"{q_(json.dumps(priced.benefits))}::jsonb, {q_(at.isoformat())});\n"
     )
 
 
@@ -427,17 +580,21 @@ def run_sql(sql: str) -> str:
 
 
 def show_results(owner: str) -> None:
+    scope = f"i.owner_id = $seed${owner}$seed$"
+    print(run_sql(f"SELECT i.status, count(*) AS runs, count(f.accuracy) AS graded, count(i.failed_turn) AS failed FROM interviews i LEFT JOIN feedback f ON f.interview_id = i.id WHERE {scope} GROUP BY i.status ORDER BY 1;").strip())
+    # The offer spread is the point of the seeding: if this prints one band, the pages it feeds are flat.
     print(
         run_sql(
-            "SELECT i.status, count(*) AS runs, count(f.accuracy) AS graded, count(i.failed_turn) AS failed "
-            f"FROM interviews i LEFT JOIN feedback f ON f.interview_id = i.id WHERE i.owner_id = $seed${owner}$seed$ GROUP BY i.status ORDER BY 1;"
+            "SELECT count(*) AS offers, min(base_salary) AS low, round(avg(base_salary)) AS avg, max(base_salary) AS high, "
+            "count(DISTINCT band) AS bands, round(avg(jsonb_array_length(benefits)), 1) AS benefits, count(DISTINCT performance / 25) AS tiers "
+            f"FROM offers o JOIN interviews i ON i.id = o.interview_id WHERE {scope};"
         ).strip()
     )
 
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--runs", type=int, default=24)
+    ap.add_argument("--runs", type=int, default=40)
     ap.add_argument("--seed", type=int, default=None)
     ap.add_argument("--wipe", action="store_true")
     ap.add_argument("--owner", default="dev-user")
