@@ -21,7 +21,7 @@ ships, delete the section that predicted it — don't add a "shipped" note besid
 
 ## Guardrails
 
-- **Config:** prod Secrets are created by Terraform from Infisical and consumed with `envFrom`, so **secret keys ARE the env-var names** (uppercase) — a lowercase key is a var the app never reads, and one malformed key blocks the pod. Never `kubectl apply` a secret, never commit one. Rotation = Infisical change + re-apply + rollout restart.
+- **Config:** secret keys ARE the env-var names (uppercase) — a lowercase key is a var the app never reads, and one malformed key blocks the pod. Runbook: `README.md` § Deployment.
 - **`CORSMiddleware` is off unless `CORS_ALLOW_ORIGINS` lists exact origins** — the SPA is same-origin through the `/api` proxy.
 - **Rate budget is per client, so load-time reads must stay bounded.** A view that fans out one read per row spends that client's whole minute on one page load (the dashboard used to; it is now one list + one aggregate). `GET /interviews` is the remaining unbounded read (all-time, no pagination).
 - **LLM prompt injection:** the system prompt marks the candidate's role/topic, their attached resume (`<resume>`, contact-stripped and sliced to `llm.RESUME_PROMPT_CHARS`, the one string that could close the fence defanged) and their turns as data (`llm.INJECTION_GUARD`), the grader prompt marks the transcript untrusted, turns are capped at 8000 chars, and the model gets no tools. Residual risk accepted for a non-agent model.

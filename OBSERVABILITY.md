@@ -23,7 +23,7 @@ Labels are `namespace/pod/container/app` plus the external `cluster`/`app`.
 
 | Area | Where | What |
 | --- | --- | --- |
-| Collector | `gitops/apps/maxterview/base/alloy.yaml` | One **Deployment**, not a DaemonSet: `discovery.kubernetes` → `loki.source.kubernetes` goes through the Kubernetes API, so no hostPath, no node filesystem, no privileged container — just a namespaced Role for pods list/watch and pods/log get. |
+| Collector | `gitops/apps/maxterview/base/alloy.yaml` | One **Deployment**, not a DaemonSet: `discovery.kubernetes` → `loki.source.kubernetes` goes through the Kubernetes API, so no hostPath, no node filesystem, no privileged container. |
 | Discovery scope | same | `namespaces { own_namespace = true }`. Discovery lists cluster-wide by default and the namespaced Role forbids that: the first deploy produced a 403 and zero targets. Here the Role *is* the scope. |
 | Target filter | same | `drop` on `__meta_kubernetes_pod_phase =~ "Succeeded|Failed"` — a finished Job pod has no live stream and API tailing re-opens it in a hot loop. Drop, not keep-on-Running, so a missing label can never silently drop every target. |
 | Probe noise | `frontend/nginx.conf` | `map $http_user_agent` plus `access_log ... if=`: the kube-probe fetching `/` every 10s was 17,283 of 17,756 lines a day, 97% of the entire pipeline. Dropped in nginx for the same reason the backend skips `/api/health`, so the line never leaves the node. |
@@ -50,7 +50,7 @@ telemetry is on.
 | Metrics | same | `http.server.request.duration` and `llm.client.call.duration`. Bucket boundaries are pinned in the SDK, not left to its defaults. The translated Prometheus names are `http_server_request_duration_seconds` and `llm_client_call_duration_seconds`; the panels and the two metric rules are written against those. |
 | Cardinality | `logs.py::_route`, plus the label set | The route label is the matched template, never the raw path, so a scanner sweeping URLs cannot mint a series per URL. Labels stay `route`, `method`, `status`, `model`, `stage`, `outcome`; never `interview_id` or `user_sub`. |
 | Correlation | `logs.py` binds `trace_id` and `span_id` into the log context | That is the whole Grafana-side wiring: the Loki datasource already carries the derived-field regex, and Tempo already points at logs, metrics and profiles. |
-| Collector | `gitops/apps/maxterview/base/alloy.yaml` | One `otelcol.receiver.otlp` (HTTP, ClusterIP Service, unauthenticated inside the namespace: the same trust boundary the log tailing already relies on), one batch processor, one `otelcol.exporter.otlphttp` at the Grafana Cloud OTLP gateway, which routes by signal. |
+| Collector | `gitops/apps/maxterview/base/alloy.yaml` | One collector for both signals. The OTLP receiver is unauthenticated inside the namespace, the same trust boundary the log tailing already relies on; the single exporter holds the only write credential. |
 | Ordering | same | An unset `OTLP_URL` has to fail the pod's startup rather than leave a silently empty endpoint, so Terraform carries all four secret keys before this revision syncs, and the config hash above is what rolls the pod onto them. |
 
 ## Alerts and the dashboard, across both pipelines

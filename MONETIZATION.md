@@ -1,10 +1,9 @@
 # MONETIZATION — payment & billing
 
-**Shipped (M10).** Quota backend + **PayMongo** (PHP-only, ₱499, Maya first payment), replacing the
-raw-Stripe implementation on 2026-09-12. **The shipping rail is `BILLING_MODE=period`** — one payment
-buys 30 days — because PayMongo enables Subscriptions only by hand (§4); provider-managed recurring
-stays implemented and dormant behind that one env var. Decisions: PLAN D10 (owner-scoping is a hard
-rule).
+**Shipped (M10).** Quota backend + **PayMongo** (PHP-only, ₱499, Maya first payment). **The shipping rail
+is `BILLING_MODE=period`** — one payment buys 30 days — because PayMongo enables Subscriptions only by
+hand (§4); provider-managed recurring stays implemented and dormant behind that one env var.
+Decisions: PLAN D10 (owner-scoping is a hard rule).
 
 ## 0. Limits & model (env-configurable, not hardcoded)
 
@@ -41,12 +40,8 @@ rule).
 - **Daily global chat-turn cap** on `POST /interviews/{id}/chat/stream`: check
   `turns_used(today) < limit` against `turn_usage`, then upsert +1. Over → **`402`**, which may
   happen mid-interview once the owner burns today's credits across ALL their interviews.
-- **BYOK swaps the cap, it does not waive it** (2026-09-14): with a saved provider key the turns run
-  on the owner's account, so the tier cap is replaced by the flat `BYOK_CHAT_TURNS` ceiling
-  (default 1000/day) and the turn is still metered. Both halves are load-bearing: `byok` is
-  self-asserted, so an unmetered waiver is a free ride on whoever's GPU the `base_url` names.
-  `GET /usage` returns `byok: true`; the tier label is unchanged — BYOK is not an upgrade, it is a
-  different payer.
+- **BYOK swaps the cap, it does not waive it**: contract and rationale are owned by `BYOK.md`
+  (Quota) — one owner, because `billing.py`, `byok.py` and the settings panel all cite it.
 - **Overage → lockout:** block new turns only. **Never delete, truncate, or hide existing user
   data** — reads stay fully available. Hard rule.
 - **No cache-aside** for the counters (DB-backed, per-user, low-frequency). `tier` is cached in the
