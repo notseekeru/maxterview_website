@@ -12,6 +12,8 @@ from opentelemetry import metrics, trace
 from opentelemetry.sdk.metrics import MeterProvider
 from opentelemetry.sdk.metrics.export import InMemoryMetricReader
 from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 
 from app import telemetry
 from app.main import app
@@ -100,13 +102,18 @@ def test_throttled_requests_still_reach_the_access_log(monkeypatch):
 def test_the_access_line_carries_the_trace_id():
     """The join between the two tiers: an id from the request's span lands in the log JSON, in the
     exact shape the Loki datasource's derived field matches, which is what makes it a link. A
-    provider with no processor records spans and exports nothing, so this needs no collector."""
-    trace.set_tracer_provider(TracerProvider())
+    provider writing to memory needs no collector; spans still flow, they are just not shipped.
+    """
+    exporter = InMemorySpanExporter()
+    provider = TracerProvider()
+    provider.add_span_processor(SimpleSpanProcessor(exporter))
+    trace.set_tracer_provider(provider)
     handler, lines, raw = _capture_json()
     root = logging.getLogger()
     root.addHandler(handler)
     try:
         with TestClient(app) as client:
+            assert client.get("/api/health").status_code == 200
             assert client.get("/api/absent").status_code == 404
     finally:
         root.removeHandler(handler)
@@ -121,6 +128,13 @@ def test_the_access_line_carries_the_trace_id():
     line = next(text for text in raw if "http.request" in text)
     match = derived_field.search(line)
     assert match and match.group(1) == access["trace_id"]
+
+    # One span, the 404: the probe path is skipped for spans exactly as it is for the line and the
+    # sample, or the trace list fills with 1ms health checks and no real trace is findable.
+    spans = exporter.get_finished_spans()
+    assert [s.name for s in spans] == ["GET unmatched"]
+    assert spans[0].attributes["http.route"] == "unmatched"
+    assert spans[0].attributes["http.response.status_code"] == 404
 
 
 def test_unmatched_paths_and_the_probe_never_become_a_metric_label():

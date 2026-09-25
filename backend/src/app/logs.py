@@ -103,7 +103,9 @@ class RequestContextMiddleware:
                 MutableHeaders(scope=message)["X-Request-ID"] = request_id
             await send(message)
 
-        with telemetry.span("http.server", **{"http.request.method": scope["method"]}) as current:
+        # The probe path gets no line, no sample and no span: all three would be measurements of the
+        # kubelet asking whether the pod is alive.
+        with telemetry.span("http.server", record=scope["path"] != SKIP_PATH, **{"http.request.method": scope["method"]}) as current:
             context = current.get_span_context()
             if context.is_valid:
                 # On the log line as well as the span: the Loki datasource's derived field turns a

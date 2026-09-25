@@ -20,6 +20,7 @@ from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
+from opentelemetry.trace import INVALID_SPAN_CONTEXT, NonRecordingSpan
 
 ENDPOINT = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "").rstrip("/")
 APP_ENV = os.getenv("APP_ENV", "development")
@@ -47,7 +48,14 @@ def _set(values: dict) -> dict:
 
 
 @contextmanager
-def span(name: str, **attributes):
+def span(name: str, *, record: bool = True, **attributes):
+    """`record=False` yields a span nobody reads (the probe path, which would otherwise be 8,640
+    traces a day of a 1ms health check, burying every real trace in the search list). Call sites keep
+    one shape: a non-recording span accepts the same attributes and updates and exports nothing."""
+    if not record:
+        with trace.use_span(NonRecordingSpan(INVALID_SPAN_CONTEXT), end_on_exit=False):
+            yield NonRecordingSpan(INVALID_SPAN_CONTEXT)
+        return
     with trace.get_tracer("maxterview").start_as_current_span(name) as current:
         for key, value in _set(attributes).items():
             current.set_attribute(key, value)
