@@ -1,15 +1,4 @@
 #!/usr/bin/env python3
-"""End-to-end LLM smoke test: one real interview through create -> stream -> finish -> feedback.
-
-    scripts/llm-smoke.py                     # dev stack on http://localhost:8000 (see make test-llm)
-    scripts/llm-smoke.py http://host:8000    # another stack
-    scripts/llm-smoke.py --token "$(cat /tmp/clerk-session.jwt)"   # target with CLERK_ENABLED=true
-
-The checks run INSIDE the backend container (`uv run python -u -`), so FEEDBACK_DIMS comes from
-app.llm rather than a copy that drifts. The host side needs docker only; this file is stdlib-only
-and dependencies-free, like the rest of scripts/.
-"""
-
 from __future__ import annotations
 
 import argparse

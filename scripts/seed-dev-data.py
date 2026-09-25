@@ -195,14 +195,8 @@ TECH_ROLES = frozenset(
     }
 )
 
-# Engineers 2x: the audience is engineers, and the non-engineering personas exist so the role axis on
-# the analytics pages is more than one column.
 ROLE_WEIGHT = 2.0
 
-# (weight, low, high) the run's strength is drawn from: a practice history is mostly average with a few
-# rough runs and a few that went well. This is the load-bearing distribution - strength decides the
-# move classes, the dimension scores, the grade AND the offer - so it is what puts every grade band
-# (S..F) and both ends of the salary ladder on the seeded pages.
 STRENGTH_MIX: tuple[tuple[float, float, float], ...] = (
     (0.12, 0.05, 0.30),
     (0.30, 0.30, 0.55),
@@ -210,7 +204,6 @@ STRENGTH_MIX: tuple[tuple[float, float, float], ...] = (
     (0.20, 0.80, 1.00),
 )
 
-# Target level, weighted like real practice: mid and senior dominate, the tails are rare.
 LEVEL_WEIGHTS: tuple[tuple[str, int], ...] = (
     ("any", 4),
     ("intern", 3),
@@ -232,13 +225,6 @@ WEAK_OPENING = "I don't have my resume with me right now but I can summarize - I
 
 
 def build_specs(rng: random.Random, n: int = 40) -> list[dict]:
-    """A plausible practice history: `n` runs over the last `HISTORY_DAYS` days.
-
-    Every axis is drawn rather than fixed - role, target level, strength, dials, outcome, archive -
-    because the seeded pages are the only place these distributions are visible before real users
-    exist. Two self-checks ride the first call: the class vocabulary must cover every candidate, and the
-    level weights must cover every level the app accepts.
-    """
     weights = role_weights()
     assert len(weights) == len(CANDIDATES) and len({c["role"] for c in CANDIDATES}) == len(CANDIDATES)
     assert {slug for slug, _ in LEVEL_WEIGHTS} == set(_levels().LEVELS), "a level with no weight never gets seeded"
@@ -252,9 +238,6 @@ def build_specs(rng: random.Random, n: int = 40) -> list[dict]:
         status = rng.choices(("completed", "in_progress", "pending"), weights=(78, 14, 8), k=1)[0]
         spec = {
             **person(c),
-            # The target level is what the candidate dialled in, NOT the persona's own seniority:
-            # practising above or below your level is the point of the product, and it is the only way
-            # the level comparison gets rows for levels no persona has.
             "level": rng.choices(levels_, weights=level_weights, k=1)[0],
             "when": when,
             "status": status,
@@ -287,12 +270,6 @@ def draw_strength(rng: random.Random) -> float:
 
 
 def practice_when(rng: random.Random, count: int) -> list[datetime]:
-    """`count` run timestamps over the last `HISTORY_DAYS`, oldest first.
-
-    Weighted toward recent days (a practice history that is still being written) and away from
-    weekends, with a forced run on each of the last few days so the streak tile has something real
-    under it. Uniform days would leave the trend flat and the streak at whatever the dice said.
-    """
     now = datetime.now(UTC)
     offsets = list(range(HISTORY_DAYS))
     weights = [(0.35 + 0.65 * (1 - off / (HISTORY_DAYS - 1)) ** 2) * (WEEKEND_WEIGHT if (now - timedelta(days=off)).weekday() >= 5 else 1.0) for off in offsets]
@@ -310,11 +287,6 @@ def practice_when(rng: random.Random, count: int) -> list[datetime]:
 
 
 def dials(rng: random.Random) -> dict:
-    """The create knobs, drawn from the app's own vocabulary (app/dials.py).
-
-    Correlated on purpose: how people set up a hard run is not independent - skeptical comes with
-    brutally honest - and the mix is any combination with at least one question in it.
-    """
     mix = [rng.randrange(_dials().MIX_MAX + 1) for _ in range(3)]
     if not any(mix):
         mix[rng.randrange(3)] = 2
@@ -350,12 +322,6 @@ def person(c: dict) -> dict:
 def planned_questions(spec: dict) -> int:
     return spec.get("mix_chitchat", 0) + 1 + spec.get("mix_behavioural", 2) + spec.get("mix_technical", 4)
 
-
-# Strength -> the classes a run's turns are drawn from, plus the WEIGHTS inside the band. The weights
-# are what put the WHOLE grade ladder (rating.GRADES) on the seeded pages: each band's weighted mean
-# lands in one grade's range (roughly S, A, B, C, D, F top to bottom), so the bands are tuned to their
-# mean and not pulled toward the middle. A brilliant answer stays rare at every strength, as the rubric
-# says it should be.
 MOVE_BANDS: tuple[tuple[float, tuple[tuple[str, int], ...]], ...] = (
     (0.90, (("brilliant", 4), ("great", 4), ("good", 2))),
     (0.78, (("great", 3), ("good", 4), ("book", 2))),
@@ -454,8 +420,6 @@ def build_sql(specs: list[dict], owner: str) -> str:
 def _messages_sql(spec: dict, turns: int, classes: list[str], iv_id: str) -> str:
     rows: list[str] = []
     t = spec["when"]
-    # Seeded runs carry the same note a real annotator writes (the stub vocabulary in rating.py), or
-    # the dashboard, history and e2e would show the pre-comment review on every seeded run.
     notes = app_modules()[1].STUB_MOVE_NOTES
     for n in range(turns):
         at = t + timedelta(minutes=n * 3)
@@ -517,9 +481,6 @@ def _feedback_sql(spec: dict, classes: list[str], iv_id: str) -> str:
 
 
 def _offer_sql(spec: dict, classes: list[str], iv_id: str) -> str:
-    """The same price the app would quote for these scores: app/offer.py is the rate card and
-    model.HIRING_DECISIONS is the gate for both, so a seeded letter and a real one priced off the same
-    review cannot disagree - including by existing at all on a run the review turned down."""
     from app.models import HIRING_DECISIONS
 
     if spec["status"] != "completed":
@@ -552,11 +513,6 @@ def compose() -> list[str]:
 
 
 def relaunch_in_backend() -> None:
-    """Compute in the backend container (which has the app modules but no docker CLI), run psql here.
-
-    The container is fed this file on stdin and returns the SQL on stdout; the host is the side that
-    owns the docker socket, so it is the one that runs psql.
-    """
     argv = sys.argv[1:]
     src = Path(__file__).read_text()
     cmd = [*compose(), "exec", "-T", "-e", "SEED_IN_BACKEND=1", "backend", "uv", "run", "python", "-", "--sql", *[a for a in argv if a not in ("--wipe",)]]
