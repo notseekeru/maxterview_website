@@ -1,8 +1,7 @@
 # PLAN — decisions & open milestones
 
 The stable contract: read at session start. As-built (architecture, endpoints, commands) lives in
-`README.md; billing in `MONETIZATION.md`; BYOK in `BYOK.md`; ops in
-`OBSERVABILITY.md`.
+`README.md`; billing in `MONETIZATION.md`; BYOK in `BYOK.md`; ops in `OBSERVABILITY.md`.
 
 **Change policy:** edit only when a decision, milestone, or guardrail changes. When a milestone
 ships, delete the section that predicted it — don't add a "shipped" note beside it.

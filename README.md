@@ -1,12 +1,13 @@
 # maxterview
 
 [![License](https://img.shields.io/badge/license-MIT-lightgrey)](LICENSE)
-[![CI](https://github.com/notseekeru/portfolio_website/actions/workflows/ci-pipeline.yml/badge.svg)](https://github.com/notseekeru/maxterview_website/actions/workflows/ci-pipeline.yml)
-[![CD](https://github.com/notseekeru/portfolio_website/actions/workflows/cd-pipeline.yml/badge.svg)](https://github.com/notseekeru/maxterview_website/actions/workflows/cd-pipeline.yml)
+[![CI](https://github.com/notseekeru/maxterview_website/actions/workflows/ci-pipeline.yml/badge.svg)](https://github.com/notseekeru/maxterview_website/actions/workflows/ci-pipeline.yml)
+[![CD](https://github.com/notseekeru/maxterview_website/actions/workflows/cd-pipeline.yml/badge.svg)](https://github.com/notseekeru/maxterview_website/actions/workflows/cd-pipeline.yml)
 
 **AI mock-interview coach** — practice interviews with an LLM that asks questions, annotates every
 answer like a chess engine would (brilliant → blunder), and scores the run: accuracy, letter grade,
-hire/reject call, tips. **MVP is text-based; voice is a later phase.**
+hire/reject call, tips. **The transcript is the graded artifact; voice is I/O on top of it
+(`VOICE.md`).**
 
 Stack: **FastAPI** (backend) + **React + TypeScript + Vite** (SPA) + **PostgreSQL 18**, run with
 Docker Compose. Frontend: Tailwind 4 + shadcn/ui + react-router.
@@ -17,7 +18,7 @@ Docs:
 - `MONETIZATION.md` — billing spec (quotas + PayMongo period top-up, shipped)
 - `BYOK.md` — per-owner LLM provider keys (settings panel → `/settings/system`)
 - `OBSERVABILITY.md` — what telemetry ships, and what is deliberately parked
-- `VOICE.md` — M16 voice: Cloudflare free tier, browser fallback, no cost (not started)
+- `VOICE.md` — M16 voice: Cloudflare free tier, one engine, TTS + STT shipped; camera window open
 
 ---
 
@@ -127,7 +128,8 @@ make prod-build / prod-up / prod-logs / prod-down  (prod-style)
 
 CI (`.github/workflows/ci-pipeline.yml`) runs backend (ruff + format + pytest vs Postgres service)
 and frontend (biome + typecheck + build + audit), plus a **Trivy 0.74 filesystem scan** of the backend
-(`.trivyignore.yaml` dated-ignore policy, `--ignore-unfixed`, HIGH/CRITICAL gate, no open exceptions).
+(`backend/.trivyignore.yaml` dated-ignore policy, `--ignore-unfixed`, HIGH/CRITICAL gate, no open
+exceptions).
 The frontend relies on the CD image scan instead, as it ships only a static bundle. CD runs on
 successful CI on `main`: build both prod images → Trivy-image-scan → smoke-test → push to GHCR →
 bump the pinned tags in the `gitops` repo. **Renovate** opens weekly grouped PRs for frontend npm,

@@ -3,7 +3,8 @@
 **Shipped (M10).** Quota backend + **PayMongo** (PHP-only, ₱499, Maya first payment), replacing the
 raw-Stripe implementation on 2026-09-12. **The shipping rail is `BILLING_MODE=period`** — one payment
 buys 30 days — because PayMongo enables Subscriptions only by hand (§4); provider-managed recurring
-stays implemented and dormant behind that one env var. Decisions: PLAN D10 (and D4 for owner-scoping).
+stays implemented and dormant behind that one env var. Decisions: PLAN D10 (owner-scoping is a hard
+rule).
 
 ## 0. Limits & model (env-configurable, not hardcoded)
 
@@ -23,7 +24,7 @@ stays implemented and dormant behind that one env var. Decisions: PLAN D10 (and 
 - Limits are env-overridable (`backend/.env.example`). The **`dev` tier** is for developers only and
   never persists in `subscriptions`; it is what the no-Clerk fallback identity resolves to.
 - **Feedback is not feature-gated** — same quality across tiers. The turn cap is the cost lever.
-- Billing is **one payment at a time**, single-user (D4): period mode sells 30 days and does not
+- Billing is **one payment at a time**, single-user: period mode sells 30 days and does not
   auto-renew. PayMongo bills in PHP only; we handle tax (no merchant-of-record).
 
 ## 1. The `tier` claim & its source of truth
@@ -92,7 +93,7 @@ prefix (`curl localhost:8000/api/billing/checkout`).
 **Register the prod webhook** (the endpoint is not self-service):
 
 ```bash
-scripts/payments.sh --register-webhook --url=https://maxterview.seekeru.tech/api/billing/webhook
+./.pi/skills/paymongo-operator/scripts/payments.sh --register-webhook --url=https://maxterview.seekeru.tech/api/billing/webhook
 # then set its secret + the API key in Infisical (TF_VAR_MAXTERVIEW_PAYMONGO_*), then apply
 ```
 
