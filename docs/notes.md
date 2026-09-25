@@ -1,0 +1,58 @@
+> To AI reading this, do not implement. This is just notes of the user, strictly ignore this unless prompted to.
+
+# MILESTONE
+
+- resume ai reviewer
+- add some evals for ai quality
+- add caching like redis for a lil bit of scalability
+- make a job queue maybe for not losing some works eg when you retry and go to another page it loses the retry and u have to try again the retry
+- jev for detecting failure for hardcode?
+
+# FEATURES
+
+- add metrics in readme for hr stuff via from grafana
+- feat: ai resume editor latex to display and edit kind alike overleaf?
+
+# FIX
+
+- fix: the interciew opening should be llm generated, asking for resume or background. then default one chitchat of tell me about yourself
+- fix: make the price attractice like maybe 99 pesos per month and update all docs and all paymongo infra
+- fix: dont say premium to users like explicitly just upgrade or something to get use strategies do research on this with data, ask question if uncertain like we use like physicological and marketing tactics, eg like percentage off those online shopping tactics
+
+- grill the plan and architecture and code maintainability/readability. it matters to me when i skim code
+
+# REFACTOR
+
+- refactor: design ui signals for maximazing visual appeal
+- refactor: how about we make development vars put into development env of infisical? but that would be creating a dependency to use internet just to fill the vars? but what if we boot strap and injected to .env so it works offline?
+
+# INFRA
+
+## LLM upgrade path (from the architecture audit)
+
+### Tier 1 - do these
+
+- **Eval harness.** stored interviews are a ready-made golden corpus. Freeze ~15 as fixtures,
+  assert invariants (decision present, certainty in band, scores in range, classes valid, no
+  self-contradiction like `reject` + all-floor scores + certainty 0), run before/after every prompt
+  edit. Highest-leverage item here, and it is a script rather than a system. Today prompt changes
+  ship unmeasured - including the injection guard.
+- **Provider fallback chain.** primary -> secondary -> stub, so a 429/503/EOL id degrades instead of
+  failing the turn or leaving Complete unscored. We hit all three in one day (429 burst, 503 under
+  load, 410 end-of-life). `LLMConfig` is OpenAI-compatible everywhere, so this is a loop and a retry
+  budget, not a rewrite.
+- **Cheap lane for the mechanical hops.** Judge, moves and grader are classification, not writing.
+  `LLM_GRADER_*` already routes two; the hardcore judge rides the same config and sits on the
+  critical path (serialized before every hardcore reply). Config-only change.
+
+### Tier 2 - when the rail costs money or traffic is real
+
+- **Cache-aware prompt layout.** Move the volatile phase directive AFTER the transcript so system +
+  transcript becomes a stable prefix. Worthless on NIM today (reports no cached tokens; repeat TTFT
+  2.87s -> 0.89s, n=1), decisive on any provider that meters cached input.
+- **Collapse grader -> formatter into one strict-schema call** for models that hold JSON. Takes
+  Complete from 3 requests to 1 and deletes a hop that only exists because weak models drift.
+- **Complete as a background job.** It is ~19s of held connection for zero user-facing reason (the
+  grader alone is ~17.7s of it); queue it and let the review page poll.
+- **Resume retrieval instead of re-sending 8k chars** every turn - pull only the sections the
+  question touches. ~10x input reduction on resume-attached runs.
