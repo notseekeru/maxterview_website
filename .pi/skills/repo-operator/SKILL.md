@@ -16,7 +16,8 @@ description: >-
 
 You are operating a real app: FastAPI backend + React (Vite) frontend + Postgres, with **Clerk**
 auth and **PayMongo** billing. This is the whole-console playbook an AI loads to act — not to
-narrate. Everything here is real infra you can actually reach from this repo.
+narrate. Everything here is real infra you can actually reach from this repo, with one exception:
+the cluster, see below.
 
 ## Key facts (from the repo)
 
@@ -28,6 +29,13 @@ narrate. Everything here is real infra you can actually reach from this repo.
 - **Config**: Clerk/PayMongo/LLM live in git-ignored `backend/.env` (backend reads it via compose).
   Frontend `VITE_CLERK_PUBLISHABLE_KEY` lives in `frontend/.env` (git-ignored). Root `.env` is
   infra-only (POSTGRES_*, ports, APP_ENV).
+- **No cluster access from this workspace.** The k3s kubeconfig (and therefore `kubectl`, `argo`,
+  Helm) lives on another machine, and `~/.kube` here has only caches. Do not plan a step that reads
+  pod logs, a rollout, a Secret or an image tag: hand the user the command instead. Prod is still
+  verifiable from here, from the other end of the pipe, via the **grafana-operator** skill: Loki for
+  what the pods logged, Prometheus and Tempo for what they exported. All three are reachable through
+  the datasource proxy with no cluster. A frontend redeploy, for instance, shows up as the frontend's
+  kube-probe log lines disappearing.
 - **No Clerk key enabled ⇒ the frontend falls into "no-Clerk dev mode"** (`clerkEnabled=false`),
   which lets you drive the whole auth-gated UI against the backend's `DEV_USER`. This is the fastest
   way to reproduce most UI/behaviour issues WITHOUT any Clerk/PayMongo credentials.
