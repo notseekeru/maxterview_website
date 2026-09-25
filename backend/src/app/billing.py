@@ -7,7 +7,7 @@ Simple tier model: Free / Premium / dev(-only). Backend-authoritative.
   stale. Default `"free"`. A cancelled subscription keeps its already-paid period (MONETIZATION
   §6: access to the end of the paid period, no refunds) — `past_due`/`unpaid` revoke immediately.
 - **`dev` tier**: only for the no-Clerk dev-fallback identity (`CLERK_ENABLED=false`, i.e. the
-  fixed `DEV_USER`). `main.py`'s D2 guard refuses to boot with `CLERK_ENABLED=false` outside
+  fixed `DEV_USER`). `main.py`'s boot guard refuses to boot with `CLERK_ENABLED=false` outside
   development/test, so `dev` can never leak to production. Never persisted in `subscriptions`.
 - **Quotas**: a single daily chat-turn credits per owner is the only METERED gate — free = 30,
   premium = 250, dev = 500 (across ALL the owner's interviews in one UTC day). No

@@ -222,7 +222,7 @@ def test_interview_lifecycle_owner_scoped(client):
     r = c.post("/api/interviews", json={"role": "Software Engineer", "topic": "system design"})
     assert r.status_code == 201
     interview = r.json()
-    assert interview["owner_id"] == "dev-user"  # D4: scoped to the current dev user
+    assert interview["owner_id"] == "dev-user"  # scoped to the current dev user
     assert interview["status"] == "pending"
     iid = interview["id"]
 
@@ -308,7 +308,7 @@ def test_interview_lifecycle_owner_scoped(client):
 
     # foreign user sees nothing (different owner scopes everything out)
     r = c.get(f"/api/interviews/{iid}")
-    assert r.status_code in (200, 404)  # DEV_USER owns it, so 200; foreign-user path is D4-safe
+    assert r.status_code in (200, 404)  # DEV_USER owns it, so 200; foreign-user path is owner-safe
 
     r = c.delete(f"/api/interviews/{iid}")
     assert r.status_code == 204

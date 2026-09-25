@@ -31,7 +31,7 @@ Grade = Literal[*rating.GRADES]
 
 
 class ClerkUser(BaseModel):
-    """Authenticated identity — `sub` is the Clerk user id, scopes every query (D4).
+    """Authenticated identity — `sub` is the Clerk user id, scopes every query.
 
     `tier` is the monetization seam (D10): free/premium; `dev` applies for the
     no-Clerk dev-fallback identity. Resolved by `billing.resolve_tier`."""

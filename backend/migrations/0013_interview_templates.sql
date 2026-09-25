@@ -1,6 +1,6 @@
 -- yoyo up migration: the ENTIRE file body is the "up" step.
 -- (yoyo reads rollback from a separate 0013_interview_templates.rollback.sql.)
--- Saved create-interview presets: a named copy of the dials + role/level/topic, owner-scoped (D4),
+-- Saved create-interview presets: a named copy of the dials + role/level/topic, owner-scoped,
 -- no FK (a preset outlives the runs it spawns). CHECKs mirror app.dials / app.models.
 CREATE TABLE IF NOT EXISTS interview_templates (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

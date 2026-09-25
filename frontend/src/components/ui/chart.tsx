@@ -19,7 +19,7 @@ type TooltipNameType = number | string;
 export const DRAW_MS = 350;
 
 // AI HERE: /analytics mounts five recharts trees, and several landing in one commit measured as a
-// ~0.5s main-thread block (notes.md § PERF). Deferred charts queue at mount and are released in DOM
+// ~0.5s main-thread block (measured). Deferred charts queue at mount and are released in DOM
 // order, 250ms apart, one slot open at a time. Ceiling: this spreads the mounts, it does not make any
 // of them cheaper, and the gap is a constant rather than a frame-budget measurement.
 const GAP_MS = 250;

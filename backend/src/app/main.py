@@ -1117,7 +1117,7 @@ async def billing_webhook(request: Request) -> PlainTextResponse:
 
 
 # `stripe listen` has no PayMongo equivalent, and requiring a tunnel for local webhooks is friction
-# we do not want. Same guard shape as the no-Clerk fallback (D2): unreachable wherever the app
+# we do not want. Same guard shape as the no-Clerk fallback: unreachable wherever the app
 # boots with APP_ENV=production.
 @api.post("/billing/webhook/simulate")
 async def billing_webhook_simulate(event: dict) -> PlainTextResponse:

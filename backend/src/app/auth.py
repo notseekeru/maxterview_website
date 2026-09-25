@@ -10,7 +10,7 @@ from fastapi import HTTPException, Request, status
 
 from app.models import ClerkUser
 
-# Single source of truth for auth config — main.py imports CLERK_ENABLED for the D2 boot guard.
+# Single source of truth for auth config — main.py imports CLERK_ENABLED for the boot guard.
 CLERK_ENABLED = os.getenv("CLERK_ENABLED", "false").lower() == "true"
 CLERK_DOMAIN = os.getenv("CLERK_DOMAIN", "")
 CLERK_JWKS_URL = os.getenv("CLERK_JWKS_URL", "")

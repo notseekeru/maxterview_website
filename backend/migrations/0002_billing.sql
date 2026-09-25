@@ -5,7 +5,7 @@
 -- subscriptions — source of tier entitlement (mirrors Clerk/Stripe billing state).
 CREATE TABLE IF NOT EXISTS subscriptions (
     id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    owner_id            TEXT        NOT NULL UNIQUE,          -- Clerk sub (D4)
+    owner_id            TEXT        NOT NULL UNIQUE,          -- Clerk sub
     stripe_id           TEXT        NOT NULL DEFAULT '',
     plan                TEXT        NOT NULL DEFAULT 'free' CHECK (plan IN ('free', 'premium')),
     status              TEXT        NOT NULL DEFAULT 'active', -- active | past_due | canceled
