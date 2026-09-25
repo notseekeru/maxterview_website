@@ -109,7 +109,9 @@ def load(name, values):
 
 
 def install(args, app):
-    values = {"PROJECT": args.project, "APP": app, "DATASOURCE": args.datasource,
+    # The Alloy pod carries app=<project>-alloy, and it is the only place a dropped export is visible.
+    values = {"PROJECT": args.project, "APP": app, "ALLOY_APP": f"{args.project}-alloy",
+              "DATASOURCE": args.datasource,
               "DS_PROM": args.prometheus_datasource, "DS_TRACES": args.traces_datasource,
               "RECEIVER": args.receiver}
     rules = load("rules/alerting.json", values)

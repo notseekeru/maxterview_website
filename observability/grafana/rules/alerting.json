@@ -332,6 +332,87 @@
       "notification_settings": {
         "receiver": "{{RECEIVER}}"
       }
+    },
+    {
+      "title": "{{PROJECT}}: telemetry export failing",
+      "condition": "C",
+      "data": [
+        {
+          "refId": "A",
+          "queryType": "range",
+          "relativeTimeRange": {
+            "from": 900,
+            "to": 0
+          },
+          "datasourceUid": "{{DATASOURCE}}",
+          "model": {
+            "editorMode": "code",
+            "expr": "sum(count_over_time({app=\"{{ALLOY_APP}}\"} |= \"Exporting failed\" [15m]))",
+            "intervalMs": 1000,
+            "maxDataPoints": 43200,
+            "queryType": "range",
+            "refId": "A"
+          }
+        },
+        {
+          "refId": "B",
+          "queryType": "",
+          "relativeTimeRange": {
+            "from": 900,
+            "to": 0
+          },
+          "datasourceUid": "__expr__",
+          "model": {
+            "expression": "A",
+            "intervalMs": 1000,
+            "maxDataPoints": 43200,
+            "reducer": "last",
+            "refId": "B",
+            "type": "reduce"
+          }
+        },
+        {
+          "refId": "C",
+          "queryType": "",
+          "relativeTimeRange": {
+            "from": 900,
+            "to": 0
+          },
+          "datasourceUid": "__expr__",
+          "model": {
+            "conditions": [
+              {
+                "evaluator": {
+                  "type": "gt",
+                  "params": [
+                    2
+                  ]
+                }
+              }
+            ],
+            "expression": "B",
+            "intervalMs": 1000,
+            "maxDataPoints": 43200,
+            "refId": "C",
+            "type": "threshold"
+          }
+        }
+      ],
+      "noDataState": "OK",
+      "execErrState": "Error",
+      "for": "5m",
+      "keep_firing_for": "0s",
+      "annotations": {
+        "description": "More than 2 dropped OTLP batches in 15 minutes from Alloy. Traces and metrics are being discarded, so the latency panels and the two metric alerts are reading stale or empty data. Alloy's own log line carries the HTTP status: 401 means the write token's scopes.",
+        "summary": "{{PROJECT}}: telemetry export failing"
+      },
+      "labels": {
+        "severity": "warning"
+      },
+      "isPaused": false,
+      "notification_settings": {
+        "receiver": "{{RECEIVER}}"
+      }
     }
   ]
 }
