@@ -183,8 +183,8 @@ from the flake devShell; needs pi running inside `nix develop`). Use ref-based `
   → 200 means DEV_USER (hermetic); 401 means real-Clerk (not hermetic).
 - **Real-Clerk headless sign-in:** use the `paymongo-operator` skill → `@clerk/testing/playwright`
   (`clerkSetup` + `clerk.signIn`) with a throwaway minted user, then render the auth-gated route.
-  Real Maya first payment still needs real keys and a human at the wallet step — see
-  `references/maya-browser-checkout.md`; do NOT loop-automate that handoff (and use
+  A real QR Ph payment still needs real keys and a human at the wallet step — see
+  `references/qrph-checkout.md`; do NOT loop-automate that handoff (and use
   `webhook-driver.sh --simulate` when you only need the entitlement assertion).
 
 Never hand-roll a brand-new browser harness when the committed runner / clerk skill cover it.
@@ -230,5 +230,5 @@ don't farm, never `git add -A` blindly, never push unprompted).
 - ZERO TOUCH on secrets: presence-check only; never print/commit/log a key. Paste-steps always stay
   manual for the human.
 - Never run against `sk_live_`/`whsec_live_`. Live key presence is a red flag: stop and surface it.
-- Browser/automation never completes a real Maya payment; a human finishes the wallet step.
+- Browser/automation never completes a live QR Ph payment; a human finishes the wallet step.
 - This repo's own rules: atomic commits, no command that risks uncommitted data, security first.

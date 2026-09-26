@@ -2,8 +2,9 @@
 # payments.sh — operator helper for the one-time payment path (BILLING_MODE=period, the launch mode).
 #
 #   --list-payments [--limit=N]                recent payments (id, amount, status, fee)
-#   --create-period [--amount=9900] [--desc=]  create + attach a Maya Payment Intent (the sequence
-#                                              `start_period_purchase` runs) and print the redirect URL
+#   --create-period [--amount=9900] [--desc=]  create + attach a QR Ph Payment Intent (the sequence
+#                                              `start_period_purchase` runs) and print the code's id,
+#                                              expiry and (test mode) the test_url that pays it
 #   --refund --payment-id=pay_x [--amount=N]   refund a paid payment (needs --admin-destroy)
 #   --list-webhooks                            registered endpoints
 #   --register-webhook --url=https://…         register an endpoint for the period-mode events
@@ -69,19 +70,30 @@ case "$MODE" in
     ;;
   create-period)
     echo "== creating a one-time intent for ₱$((AMOUNT / 100)) =="
-    intent=$(_post /v1/payment_intents "$(printf '{"data":{"attributes":{"amount":%s,"currency":"PHP","payment_method_allowed":["paymaya","card"],"capture_type":"automatic","description":"%s"}}}' "$AMOUNT" "$DESC")")
+    intent=$(_post /v1/payment_intents "$(printf '{"data":{"attributes":{"amount":%s,"currency":"PHP","payment_method_allowed":["qrph"],"capture_type":"automatic","description":"%s"}}}' "$AMOUNT" "$DESC")")
     intent_id=$(printf '%s' "$intent" | grep -o '"id": *"[^"]*"' | head -1 | sed -E 's/.*"([^"]*)"/\1/')
     client_key=$(printf '%s' "$intent" | grep -o '"client_key": *"[^"]*"' | head -1 | sed -E 's/.*"([^"]*)"/\1/')
-    pm=$(_post /v1/payment_methods '{"data":{"attributes":{"type":"paymaya"}}}')
+    pm=$(_post /v1/payment_methods '{"data":{"attributes":{"type":"qrph"}}}')
     pm_id=$(printf '%s' "$pm" | grep -o '"id": *"[^"]*"' | head -1 | sed -E 's/.*"([^"]*)"/\1/')
-    echo "  intent: $intent_id  (payable only through the redirect below)"
+    echo "  intent: $intent_id  (payable only through the QR below)"
     # The client_key form is the one a real run against this account accepted (backend
-    # `_redirect_for_intent` sends it first and never had to fall back), so there is no second shape
+    # `_payable_intent` sends it first and never had to fall back), so there is no second shape
     # to hedge here.
     attach=$(_post "/v1/payment_intents/$intent_id/attach" "$(printf '{"data":{"attributes":{"payment_method":"%s","return_url":"%s/dashboard?upgrade=pending","client_key":"%s"}}}' "$pm_id" "${FRONTEND_BASE_URL:-http://localhost:5173}" "$client_key")")
-    url=$(printf '%s' "$attach" | grep -o '"url": *"[^"]*"' | head -1 | sed -E 's/.*"([^"]*)"/\1/')
-    [ -n "$url" ] || { echo "  FAILED: no redirect URL"; exit 5; }
-    echo "  redirect: $url"
+    printf '%s' "$attach" | grep -qE '"(url|image_url)"' || { echo "  FAILED: nothing payable came back"; exit 5; }
+    # The image is a ~14 KB base64 data URI, so print what a human acts on instead of the artifact:
+    # QR Ph answers `next_action.code` and never a redirect, and test mode adds the `test_url` that
+    # completes the payment with no wallet at all.
+    if command -v node >/dev/null 2>&1; then
+      printf '%s' "$attach" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{
+        const a=((JSON.parse(s).data||{}).attributes||{}).next_action||{};
+        if(a.redirect)return console.log("  redirect: "+a.redirect.url);
+        const c=a.code||{};
+        console.log(`  qr: ${c.id}  expires ${c.expires_at}  ${c.amount} centavos`);
+        if(c.test_url)console.log("  test_url (pays it without a wallet): "+c.test_url)})'
+    else
+      printf '%s' "$attach" | grep -o '"expires_at": *"[^"]*"' | head -1 | sed -E 's/.*"([^"]*)"/  qr expires: \1/'
+    fi
     echo "  next: pay it in a browser, then  webhook-driver.sh --event=payment.paid --intent=$intent_id"
     ;;
   refund)

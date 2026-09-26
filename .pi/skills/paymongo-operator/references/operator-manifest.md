@@ -53,8 +53,8 @@ Base: `https://api.paymongo.com`, header `Authorization: Basic base64("$PAYMONGO
 | Customers | `POST /v1/customers`, `GET /v1/customers`, `DELETE /v1/customers/{id}` | `default_device` is **required** on create (we send `"email"`); email is **unique per customer** — reuse the id stored in `subscriptions.provider_customer_id`; never create a second one for the same owner. |
 | Subscriptions | `POST /v1/subscriptions`, `GET /v1/subscriptions/{id}`, `DELETE /v1/subscriptions/{id}` | Create generates the **first invoice immediately** (24h to pay it or it self-cancels to `incomplete_cancelled`). `DELETE` is immediate — but our `cancel_subscription` keeps the paid period entitled until `current_period_end`. |
 | Subscription invoices | `GET /subscriptions/invoices?resource_id=subs_…`, `POST /v1/subscriptions/invoices/{id}/pay` | The invoice carries `payment_intent.{id,status}` — the first invoice's intent is what the Maya payment attaches to. |
-| Payment intents | `GET /v1/payment_intents/{id}`, `POST /v1/payment_intents/{id}/attach` | Attach with `payment_method` + `client_key` + `return_url`; the response's `next_action.redirect.url` is the customer-facing redirect. |
-| Payment methods | `POST /v1/payment_methods` | Only `{type: "paymaya"}` here — no card data ever reaches this repo (vaulting would need PayMongo.js + PCI scope). |
+| Payment intents | `GET /v1/payment_intents/{id}`, `POST /v1/payment_intents/{id}/attach` | Attach with `payment_method` + `client_key` + `return_url`. `next_action` is per method: `redirect.url` for Maya/e-wallets, `code.{image_url,expires_at}` for `qrph` (30 min, no redirect). `GET` is how the app judges a pending row. |
+| Payment methods | `POST /v1/payment_methods` | Only `{type: "qrph"}` here; no card data ever reaches this repo (vaulting would need PayMongo.js + PCI scope). |
 | Webhooks | dashboard (Developers → Webhooks) or `POST /v1/webhooks` | One endpoint for `/api/billing/webhook`; the signature key is that endpoint's secret, not the API key. There is **no events API and no CLI**, so replay/`--simulate` is how you re-deliver. |
 
 **Account-level prerequisites (not self-service):** email support@paymongo.com to enable
@@ -79,8 +79,9 @@ retry cannot buy twice); `payment.failed` writes nothing. **Subscription mode (d
   default 300 s, logged when it rejects) and fails closed when `PAYMONGO_WEBHOOK_SECRET` is unset.
   `/api/billing/webhook` is rate-limit exempt on purpose. Deleting a customer makes any vaulted card
   unusable.
-- Maya's hosted page is a real redirect, not an embeddable widget; there is no test-card number to
-  type and the account's own Maya means must be used to complete it.
+- QR Ph is not a redirect: the customer-facing artifact is `next_action.code.image_url`, a base64
+  PNG the app renders itself. Test mode adds `code.test_url`, the only way to complete one without a
+  wallet.
 
 ---
 

@@ -1,6 +1,6 @@
 # MONETIZATION — payment & billing
 
-**Shipped (M10).** Quota backend + **PayMongo** (PHP-only, ₱99, Maya first payment). **The shipping rail
+**Shipped (M10).** Quota backend + **PayMongo** (PHP-only, ₱99, one-time payment). **The shipping rail
 is `BILLING_MODE=period`** — one payment buys 30 days — because PayMongo enables Subscriptions only by
 hand (§4); provider-managed recurring stays implemented and dormant behind that one env var.
 Decisions: PLAN D10 (owner-scoping is a hard rule).
@@ -63,15 +63,18 @@ prefix (`curl localhost:8000/api/billing/checkout`).
   otherwise Clerk's Backend API (`CLERK_SECRET_KEY`). Clerk's default session token carries **no**
   `email` claim, so without the lookup every checkout is a **409** before any provider call.
   - **`period` (default, launch)** — creates a Customer (PayMongo now **requires `default_device`**;
-    we send `email`), a one-time Payment Intent for `PREMIUM_PRICE_CENTAVOS`, attaches a `paymaya`
-    PaymentMethod, and returns the Maya URL. The row is written `premium/incomplete` **before** the
-    redirect, holding the intent id in `provider_subscription_id` — the column the webhook resolves
+    we send `email`), a one-time Payment Intent for `PREMIUM_PRICE_CENTAVOS`, attaches a `qrph`
+    PaymentMethod and answers **`{"qr": {image_url, expires_at}}`** (a redirect method answers
+    `{"url": …}`). The row is written `premium/incomplete` **before** that artifact reaches the
+    browser, holding the intent id in `provider_subscription_id` — the column the webhook resolves
     an owner from, so **no migration**. Needs no account capability; nothing renews, so the user
     buys again.
   - **`subscription` (dormant)** — subscription + first-invoice Payment Intent → Maya; later cycles
     are charged by PayMongo from the vaulted method.
-  - **409s instead of a second charge** while a paid period is live, or while a first payment is
-    pending inside PayMongo's 24h window (`payments._resubscribe_block`).
+  - **409s instead of a second charge** while a paid period is live, and while a pending payment is
+    still payable: period mode asks the provider about the stored intent (`payments._pending_block`,
+    so the window is the code's own 30 minutes) and subscription mode uses PayMongo's 24h
+    first-payment window (`payments._resubscribe_block`).
 - **`POST /billing/cancel`** — PayMongo has **no billing portal**, so cancelling is ours: in
   subscription mode `DELETE` the subscription; in period mode there is nothing scheduled to stop.
   Either way the row goes `cancelled` and the paid period keeps serving (§5).
@@ -129,14 +132,38 @@ billing portal — we own cancel.
 
 **Period mode is the launch rail (2026-09-15).** Every subscription-path call 403s with
 `merchant_invalid_state: no subscription payment methods are configured for this organization` —
-including `POST /v1/subscriptions/plans`, so even plan creation is blocked. A one-time Payment Intent
+including `POST /v1/subscriptions/plans`, so even plan creation is blocked, and the same 403 answers
+in **live** mode (not just test). Read literally, the detail says the capability is missing because no
+payment methods are configured for subscriptions, so it is downstream of the rejected e-wallets below.
+A one-time Payment Intent
 needs no account capability, so `BILLING_MODE=period` turns money into the **same** entitlement
 (`current_period_end`) with zero changes to `billing.py`, the quota model, `/usage`, the schema or the
 DB. Accepted: no auto-renew (the billing page states the expiry; `PAYMONGO_PLAN_ID` is no longer
-needed to launch), and live card acceptance still needs a registered business type — **Maya works on
-an individual account**. Revisit if support ever enables Subscriptions: `BILLING_MODE=subscription`,
+needed to launch). Revisit if support ever enables Subscriptions: `BILLING_MODE=subscription`,
 nothing else. (Support email: support@paymongo.com; Fully Verified needs DTI + BIR 2303 for a PH sole
 proprietorship.)
+
+**Method availability is per ACCOUNT, and the live account is narrow (measured 2026-09-26).**
+`POST /v1/payment_methods` in live mode answers `payment_method_not_allowed` for `paymaya`, `gcash`,
+`grab_pay`, `billease` and "not configured yet" for `shopee_pay`; `qrph` succeeds and `card` is
+enabled (it only demands card details, i.e. a PCI-scoped form we deliberately do not have). Test mode
+allows `paymaya`, which is why every rehearsal passes: **check `PERIOD_METHODS` against the live key
+before a release, never in test mode**. The earlier claim that "Maya works on an individual account"
+was wrong for live mode.
+
+**The launch rail is QR Ph, drawn in the page (2026-09-26).** Support states the account is an
+**Individual with QR Ph already active**, and that Maya needs Settings → Business Information
+(business name, TIN, business address, industry), a Payment Methods request and a support request
+before Subscriptions does — i.e. a registered entity. So `PERIOD_METHODS = ("qrph",)`: create the
+one-time intent, attach it, and answer the browser `{"qr": {image_url, expires_at}}`, which
+`QrCheckout.tsx` renders with a countdown to the provider's own deadline (30 min). QR Ph has no
+return URL, so the modal polls `/usage` instead. Two knock-ons worth keeping: the pending row is now
+released by the **provider's own intent status** rather than the 24h subscription window (an
+abandoned code cannot lock the retry out for a day, and an intent already `succeeded` is credited
+rather than sold again), and an expired code just means the next checkout creates a fresh intent.
+Cards stay out of scope: enabled on the account, but they need both KYB and a PCI-scoped card form.
+Rehearsal: `.pi/skills/paymongo-operator/scripts/payments.sh --create-period` — test mode prints the
+`test_url` that completes the payment without a wallet.
 
 **Global/USD later.** PayMongo is PHP-only and PH-rail-only, so USD pricing needs a merchant-of-record
 (Paddle / Lemon Squeezy / Polar: they remit VAT and pay out to an unregistered PH individual — the only
@@ -161,6 +188,7 @@ a second module, not a rewrite.
 
 Header tier label (`UsageBadge`), lockout/upsell notice (`UpgradeNotice` on 402), and a
 billing/plan page (`/settings/billing`) with Free vs Premium cards, current-plan summary, an
-Upgrade CTA, and in-app **Cancel**. The Maya return URL lands on `/dashboard?upgrade=pending`, which
-`UpgradePendingNotice` turns into a poll → confirm → hard-navigate flow, because the return URL alone
-is not proof of payment.
+Upgrade CTA, and in-app **Cancel**. QR Ph has no return URL: `QrCheckout` draws the code beside a
+countdown and polls `/usage` until the webhook flips the tier. A redirect rail would land on
+`/dashboard?upgrade=pending`, where `UpgradePendingNotice` runs the same poll, because a return URL
+alone is not proof of payment.

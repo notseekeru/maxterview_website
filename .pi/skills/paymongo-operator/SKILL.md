@@ -31,7 +31,7 @@ real subscription lifecycle end-to-end.
 | Keys present | You can do | You cannot do |
 | --- | --- | --- |
 | none (`backend/.env` empty) | Full dev proof: `/api/billing/webhook/simulate` (dev/test only) drives `subscriptions` → `resolve_tier` → `/api/usage`. Works offline, no tunnel, no keys. | Touch PayMongo at all. |
-| `PAYMONGO_SECRET_KEY` (test) | **Everything the launch mode needs**: Customer, one-time Payment Intent, Maya redirect, webhooks, refunds — `payments.sh`. | Take real money (live keys need a Fully Verified account). **Subscriptions** — the account-level `Subscriptions` capability is off, so `POST /v1/subscriptions` and even `POST /v1/subscriptions/plans` return **403 `merchant_invalid_state`** ("no subscription payment methods are configured for this organization"). |
+| `PAYMONGO_SECRET_KEY` (test) | **Everything the launch mode needs**: Customer, one-time Payment Intent, QR Ph code, webhooks, refunds — `payments.sh`. | Take real money (live keys need a Fully Verified account). **Subscriptions** — the account-level `Subscriptions` capability is off, so `POST /v1/subscriptions` and even `POST /v1/subscriptions/plans` return **403 `merchant_invalid_state`** ("no subscription payment methods are configured for this organization"). |
 | live keys | Real ₱99 billing. | — |
 
 **Two PayMongo account-level features are NOT self-service**: **Subscriptions** and **Card Vaulting** —
@@ -40,9 +40,20 @@ self-service flow is available" (docs: Account capabilities). This is why the pr
 `BILLING_MODE=period` (one-time payment → 30 days of premium) and not provider-managed recurring.
 The 403 above is the gate, not a code bug — do not debug the client first.
 
-Live-mode reach is also narrower than it looks: on an **individual** account only **Maya, GrabPay and
-ShopeePay** can be requested; **Cards need a registered business type**. Period mode therefore assumes
-Maya (`PERIOD_METHODS`), which is exactly the rail `payments.sh --create-period` attaches.
+Live-mode reach is per ACCOUNT and the docs' entitlement table does not match a real one. Measured
+2026-09-26 against this account's live key: `POST /v1/payment_methods` refuses `paymaya`, `gcash`,
+`grab_pay` and `billease` with `payment_method_not_allowed`, and `shopee_pay` with "not configured
+yet"; **`qrph` succeeds and `card` is enabled** (it only asks for card details, i.e. a PCI-scoped form
+plus KYB we do not have). Test mode allows `paymaya`, so a test-mode pass proves nothing about a rail:
+probe `POST /v1/payment_methods` with the live key before shipping any `PERIOD_METHODS` change.
+
+`PERIOD_METHODS = ("qrph",)` is what ships, and QR Ph's attach answers
+**`next_action.type = "consume_qr"`** with `next_action.code`: `image_url` (a base64 PNG data URI),
+`amount`, `expires_at` (30 min) — **no `redirect`**, so a client that only reads a redirect URL has
+nothing to render. The app answers `{"qr": …}` and `QrCheckout.tsx` draws it. Support confirmed the
+account is an Individual with QR Ph active and that Maya and cards are gated behind KYB (business
+name, TIN, business address, industry) — before that, the e-wallets and hosted checkout sessions stay
+unavailable.
 
 ---
 
@@ -106,15 +117,17 @@ To exercise the **real** HMAC path (`Paymongo-Signature`, not the simulate short
 
 1. **App-side start** — `POST /api/billing/checkout` as the signed-in user. It creates the Customer
    (note: `POST /v1/customers` now **requires `default_device`**, `"email"` here), a one-time
-   Payment Intent for `PREMIUM_PRICE_CENTAVOS`, then attaches a `paymaya` PaymentMethod and returns
-   the Maya URL. The `subscriptions` row is written as `premium/incomplete` **before** the redirect,
-   holding the intent id in `provider_subscription_id` (no migration; that is the column the webhook
-   resolves an owner from).
-   A **409** here means a paid period is live or a first payment is pending in the 24h window —
-   deliberate (a second payment is a second charge). Don't clear the row to "fix" it.
-2. **Pay on Maya**, then the browser returns to `/dashboard?upgrade=pending` (`UpgradePendingNotice`
-   polls `/api/usage`; in no-Clerk dev mode it can never flip because `resolve_tier` short-circuits
-   to `dev` — assert on the row instead).
+   Payment Intent for `PREMIUM_PRICE_CENTAVOS`, then attaches a `qrph` PaymentMethod and answers
+   `{"qr": {image_url, expires_at}}`. The `subscriptions` row is written as `premium/incomplete`
+   **before** the QR reaches the browser, holding the intent id in `provider_subscription_id` (no
+   migration; that is the column the webhook resolves an owner from).
+   A **409** here is the server's own detail: a paid period is already live, or a code is still
+   scannable ("A payment is already pending — N min left"). Deliberate — a second payment is a second
+   charge. Don't clear the row to "fix" it: the gate asks PayMongo for the stored intent and clears
+   itself once the code expires, and credits the period if that intent already reads `succeeded`.
+2. **Scan the code** in any wallet or bank app; the modal polls `/api/usage` and reloads on `premium`
+   (in no-Clerk dev mode it can never flip because `resolve_tier` short-circuits to `dev` — assert on
+   the row instead). In test mode `next_action.code.test_url` completes the payment with no wallet.
 3. **Webhook** — `payment.paid` (the ONLY subscribable type here; the API rejects
    `payment_intent.succeeded` as `parameter_invalid`) sets
    `plan=premium, status=active, current_period_end = now() + PREMIUM_PERIOD_DAYS`. It is a
@@ -127,7 +140,8 @@ To exercise the **real** HMAC path (`Paymongo-Signature`, not the simulate short
    the row `cancelled` (the paid time still serves) and the UI shows the expiry instead of a button.
 
 Agent shortcut for the provider half: `payments.sh --create-period` does step 1 straight at PayMongo
-and prints the Maya URL, then `webhook-driver.sh --event=payment.paid --intent=pi_x` does step 3.
+and prints the QR's id/expiry plus (test mode) the `test_url` that pays it, then
+`webhook-driver.sh --event=payment.paid --intent=pi_x` does step 3.
 
 ### Subscription mode — blocked until support enables it
 
@@ -148,7 +162,7 @@ and prints the Maya URL, then `webhook-driver.sh --event=payment.paid --intent=p
 6. **Cancel** — `POST /api/billing/cancel` (PayMongo has no billing portal); the paid period keeps
    serving until `current_period_end`.
 
-Full guided run, including the browser leg: `references/maya-browser-checkout.md`.
+Full guided run, including the browser leg: `references/qrph-checkout.md`.
 
 ---
 
@@ -194,7 +208,7 @@ curl -sS -X POST localhost:8000/api/billing/webhook -H "Paymongo-Signature: t=$t
 | `need-keys.sh` | Key liveness; paste-me template; refuses live keys. |
 | `clerk-mint.sh` | Mint/refresh a Clerk user + testing session so a browser can sign in headlessly. |
 | `paymongo-stub.sh` | Read/create a throwaway plan or customer on the real test account (`--create-plan`, `--create-customer`); `--drop` needs `--admin-destroy`. |
-| `payments.sh` | The one-time (period-mode) rail: `--list-payments`, `--create-period` (real intent + Maya URL), `--refund --payment-id=pay_x --admin-destroy`, `--list-webhooks`, `--register-webhook --url=https://…`. Never echoes the webhook secret. |
+| `payments.sh` | The one-time (period-mode) rail: `--list-payments`, `--create-period` (real intent + QR Ph code), `--refund --payment-id=pay_x --admin-destroy`, `--list-webhooks`, `--register-webhook --url=https://…`. Never echoes the webhook secret. |
 | `webhook-driver.sh` | Craft a PayMongo event and deliver it: `--simulate` (dev endpoint) or signed to `/api/billing/webhook`. Handles `subscription.*`, `subscription.invoice.*`, `payment.*` (`--intent=pi_x`) and `payment_intent.succeeded`. Destructive types need `--admin-destroy`. |
 | `debug-state.sh` | Read-only state dump: `/api/health`, `/api/usage`, newest `subscriptions` rows. |
 
@@ -224,4 +238,4 @@ ships the endpoint **and** exposes subscriptions through it.
 ## 10. References
 
 - `references/operator-manifest.md` — endpoint + read/write/guard catalog (Clerk + PayMongo).
-- `references/maya-browser-checkout.md` — the browser leg that completes the real Maya payment.
+- `references/qrph-checkout.md` — the browser leg that completes a real QR Ph payment.
