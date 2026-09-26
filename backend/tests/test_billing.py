@@ -271,7 +271,12 @@ def test_resubscribe_blocked_while_the_first_payment_is_pending():
 
 async def test_pending_qr_resumes_instead_of_refusing(monkeypatch):
     """The row holds the one live intent, so a second Upgrade press must hand back the SAME QR: closing
-    the popup (or reloading) used to strand the buyer behind a 409 until the code died."""
+    the popup (or reloading) used to strand the buyer behind a 409 until the code died.
+
+    `_period_configure` matters here: without a key on the box this 503s at the config guard before it
+    ever reaches the resume path (CI caught exactly that).
+    """
+    _period_configure(monkeypatch)
     qr = {"qr": {"image_url": "data:image/png;base64,AAAA", "expires_at": (datetime.now(UTC) + timedelta(minutes=20)).isoformat()}}
     calls: list[str] = []
 
