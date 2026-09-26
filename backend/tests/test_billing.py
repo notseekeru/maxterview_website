@@ -570,8 +570,10 @@ async def test_start_upgrade_dispatches_on_mode(monkeypatch):
     assert seen == ["period", "subscription"]
 
 
-async def test_start_period_purchase_records_the_intent_before_the_redirect(monkeypatch):
-    """The webhook resolves the owner from the stored intent id, so the row must exist first."""
+async def test_start_period_purchase_records_the_intent_once_a_link_exists(monkeypatch):
+    """The row must exist before the browser can open the link (the webhook resolves the owner from
+    it) but only once the provider produced a PAYABLE one: live mode refuses whole method types, and
+    a row for an unpayable intent locks the owner out for FIRST_PAYMENT_WINDOW_H."""
     _period_configure(monkeypatch)
     order: list[tuple] = []
 
@@ -606,7 +608,7 @@ async def test_start_period_purchase_records_the_intent_before_the_redirect(monk
 
     insert = next(i for i, e in enumerate(order) if e[0] == "db" and "INSERT INTO subscriptions" in e[1])
     attach = next(i for i, e in enumerate(order) if e[0] == "api" and str(e[2]).endswith("/attach"))
-    assert insert < attach, "the row must exist before the user leaves for Maya"
+    assert attach < insert, "no row until the link is payable; still written before the browser sees it"
     row_args = order[insert][2]
     assert row_args[3] == "pi_new"  # provider_subscription_id holds the intent id in period mode
     assert row_args[5:7] == ("premium", "incomplete")

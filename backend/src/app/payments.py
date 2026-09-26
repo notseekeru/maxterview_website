@@ -178,8 +178,8 @@ async def _redirect_for_intent(intent_id: str) -> str:
 async def start_period_purchase(user: ClerkUser) -> str:
     """One-time ₱99 buys PREMIUM_PERIOD_DAYS of premium; returns the Maya redirect URL.
 
-    The row is written BEFORE the redirect (the customer may never come back, and the webhook needs a
-    row to resolve an owner from).
+    The row is written once a PAYABLE link exists and before that link reaches the browser (the
+    customer may never come back, and the webhook needs a row to resolve an owner from).
     """
     _require_period_config()
     email = await _require_email(user)
@@ -210,8 +210,12 @@ async def start_period_purchase(user: ClerkUser) -> str:
     # (PayMongo's `payment.paid` carries `payment_intent_id`), so period mode needs no migration.
     # AI HERE: one handle per owner, one period per payment; stacked renewals or refunds would want a
     # ledger keyed by provider id.
+    # Row AFTER the payable link, still before the browser can open it. A method the account refuses
+    # (`payment_method_not_allowed`) leaves an intent nobody can pay, and a row for it would lock the
+    # owner out of retrying for FIRST_PAYMENT_WINDOW_H.
+    url = await _redirect_for_intent(intent_id)
     await _upsert(user.sub, customer_id, intent_id, "", "premium", "incomplete", None)
-    return await _redirect_for_intent(intent_id)
+    return url
 
 
 async def start_upgrade(user: ClerkUser) -> str:
