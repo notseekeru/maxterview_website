@@ -3,7 +3,7 @@
 Two rails into the SAME entitlement (a paid period on the `subscriptions` row); `BILLING_MODE` picks
 one and `billing.resolve_tier` is identical for both:
 
-- `period` (default) — one-time Payment Intent → Maya redirect → `payment.paid` extends
+- `period` (default) — one-time Payment Intent → **QR Ph** (`qrph`) → `payment.paid` extends
   `current_period_end`. Needs no account capability, so this is the mode that ships (MONETIZATION §4).
 - `subscription` — provider-managed recurring; needs Subscriptions + Card Vaulting enabled by support.
 
@@ -44,9 +44,13 @@ PROVIDER = "paymongo"
 BILLING_MODE = os.getenv("BILLING_MODE", "period")
 PREMIUM_PRICE_CENTAVOS = int(os.getenv("PREMIUM_PRICE_CENTAVOS", "9900"))  # ₱99
 PREMIUM_PERIOD_DAYS = int(os.getenv("PREMIUM_PERIOD_DAYS", "30"))
-# Maya alone works on an individual account (Cards need a registered business type); card stays
-# listed for business accounts.
-PERIOD_METHODS = ("paymaya", "card")
+# QR Ph is the only rail this account can take money on. Measured against the LIVE account
+# 2026-09-26: `POST /v1/payment_methods` refuses paymaya/gcash/grab_pay/billease with
+# `payment_method_not_allowed`, `shopee_pay` is "not configured yet", and `card` is enabled but is a
+# PCI-scoped card form plus KYB (business name, TIN, address) we do not have. QR Ph is active on an
+# Individual account and every PH wallet and bank app scans it. Test mode allows the others, so a
+# test-mode pass proves nothing: probe the live key before changing this.
+PERIOD_METHODS = ("qrph",)
 
 # Replay window for `Paymongo-Signature` (docs call this optional; it is cheap on a money endpoint).
 # Env-overridable because a rejected fresh-or-not judgement call here means a paying customer is left
@@ -57,9 +61,21 @@ SIGNATURE_TOLERANCE_S = int(os.getenv("PAYMONGO_SIGNATURE_TOLERANCE_S", "300"))
 # statuses stay `premium` so `past_due`/`unpaid` can recover on a later invoice.paid.
 TERMINAL_STATUSES = ("cancelled", "incomplete_cancelled")
 
-# Mirrors PayMongo's own first-payment window: an `incomplete` subscription self-cancels 24h after
-# its first invoice, so past that point a fresh subscription is the correct retry.
+# SUBSCRIPTION mode only: mirrors PayMongo's own first-payment window (an `incomplete` subscription
+# self-cancels 24h after its first invoice). Period mode cannot use it — a QR Ph code lives 30
+# minutes, so a 24h lock would outlive the thing it is waiting on (`_pending_block`).
 FIRST_PAYMENT_WINDOW_H = 24
+
+# Intent statuses that mean "no money can arrive on this one". Anything else fails CLOSED: the cost
+# of blocking is minutes (the QR expires on its own), the cost of selling a second purchase is a
+# second charge.
+DEAD_INTENT_STATUSES = ("expired", "canceled", "cancelled", "failed")
+
+# Fallback deadline, used only when the intent carries none of its own. Measured 2026-09-26: PayMongo
+# never ages an abandoned intent out — an 11-day-old one still reads `awaiting_next_action` — so the
+# window has to come from the artifact, and a QR Ph code dies 30 minutes after it is drawn
+# (`next_action.code.expires_at`). A redirect method would need its own number here.
+QR_TTL_MIN = 30
 
 
 def _resubscribe_block(row: dict | None, now: datetime | None = None) -> str:
@@ -74,7 +90,8 @@ def _resubscribe_block(row: dict | None, now: datetime | None = None) -> str:
     now = now or datetime.now(UTC)
     if row.get("status") == "incomplete":
         # Checked before the period branch: an incomplete subscription has no period yet, and while
-        # the Maya link is alive a second subscription is a second charge for the same first month.
+        # the first-payment link is alive a second subscription is a second charge for the same
+        # first month. Subscription mode only — period mode goes through `_pending_block`.
         started = row.get("updated_at")
         if started is None or (now - started).total_seconds() < FIRST_PAYMENT_WINDOW_H * 3600:
             return "A first payment is already pending — finish it, or retry after it expires (24h)"
@@ -133,6 +150,7 @@ async def start_subscription(user: ClerkUser) -> str:
     PayMongo has no hosted "subscribe" page: the first invoice's Payment Intent must be attached
     to a PaymentMethod. Maya is the only redirect-capable method PayMongo supports for
     subscriptions, so the first payment is a redirect and every later cycle is charged by PayMongo.
+    Dormant: this account's capability 403s, and Maya itself is not enabled for it.
     """
     _require_config()
     email = await _require_email(user)
@@ -152,13 +170,17 @@ async def start_subscription(user: ClerkUser) -> str:
     # webhook that follows needs a row to resolve the owner from.
     await _upsert(user.sub, customer_id, subs_id, PLAN_ID, "premium", "incomplete", None)
 
-    return await _redirect_for_intent(await _first_invoice_intent(subs_id))
+    return (await _payable_intent(await _first_invoice_intent(subs_id), "paymaya"))["url"]
 
 
-async def _redirect_for_intent(intent_id: str) -> str:
-    """Attach a Maya PaymentMethod and return the hosted redirect URL (no redirect exists before
-    the attach — PayMongo has no "pay this" page for an unattached intent)."""
-    method = await _api("POST", "/v1/payment_methods", json={"data": {"attributes": {"type": "paymaya"}}})
+async def _payable_intent(intent_id: str, method_type: str) -> dict:
+    """Attach a PaymentMethod and return what the BROWSER needs to pay this intent.
+
+    Nothing is payable before the attach (PayMongo has no "pay this" page for an unattached intent),
+    and what comes back is decided by the method: `{"url": …}` for a redirect method, `{"qr": …}`
+    for a QR one, whose only hand-off is the image itself.
+    """
+    method = await _api("POST", "/v1/payment_methods", json={"data": {"attributes": {"type": method_type}}})
     # AI HERE: one extra GET for `client_key` so the attach body satisfies both the secret-key and
     # the public-key flow. Drop it once a sandbox attach proves the key is unnecessary.
     intent = await _api("GET", f"/v1/payment_intents/{intent_id}")
@@ -169,22 +191,29 @@ async def _redirect_for_intent(intent_id: str) -> str:
         [{**body, "client_key": intent["data"]["attributes"]["client_key"]}, body],
         lambda attrs: _api("POST", f"/v1/payment_intents/{intent_id}/attach", json={"data": {"attributes": attrs}}),
     )
-    url = ((attach.get("data", {}).get("attributes", {}).get("next_action") or {}).get("redirect") or {}).get("url")
-    if not url:
-        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Payment provider returned no redirect URL")
-    return url
+    action = ((attach.get("data") or {}).get("attributes") or {}).get("next_action") or {}
+    url = (action.get("redirect") or {}).get("url")
+    if url:
+        return {"url": url}
+    code = action.get("code") or {}
+    if code.get("image_url"):
+        # `consume_qr`: the QR carries the amount, is single-use, and `expires_at` is the provider's
+        # own deadline (30 min). The frontend counts down to it and stops offering the scan.
+        return {"qr": {"image_url": code["image_url"], "expires_at": code.get("expires_at") or ""}}
+    raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Payment provider returned nothing payable")
 
 
-async def start_period_purchase(user: ClerkUser) -> str:
-    """One-time ₱99 buys PREMIUM_PERIOD_DAYS of premium; returns the Maya redirect URL.
+async def start_period_purchase(user: ClerkUser) -> dict:
+    """One-time ₱99 buys PREMIUM_PERIOD_DAYS of premium; returns the QR the browser must render.
 
-    The row is written once a PAYABLE link exists and before that link reaches the browser (the
-    customer may never come back, and the webhook needs a row to resolve an owner from).
+    The row is written once a PAYABLE artifact exists and before it reaches the browser (the webhook
+    needs a row to resolve an owner from, and the page may be closed without paying).
     """
     _require_period_config()
     email = await _require_email(user)
-    existing = await fetchrow("SELECT plan, status, current_period_end, updated_at FROM subscriptions WHERE owner_id = $1", user.sub)
-    block = _resubscribe_block(existing)
+    existing = await fetchrow("SELECT owner_id, plan, status, current_period_end, updated_at, provider_subscription_id FROM subscriptions WHERE owner_id = $1", user.sub)
+    # A pending row is judged by the provider (the QR's own life); every other row by the stored period.
+    block = await _pending_block(existing) if (existing or {}).get("status") == "incomplete" else _resubscribe_block(existing)
     if block:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=block)
 
@@ -210,18 +239,19 @@ async def start_period_purchase(user: ClerkUser) -> str:
     # (PayMongo's `payment.paid` carries `payment_intent_id`), so period mode needs no migration.
     # AI HERE: one handle per owner, one period per payment; stacked renewals or refunds would want a
     # ledger keyed by provider id.
-    # Row AFTER the payable link, still before the browser can open it. A method the account refuses
-    # (`payment_method_not_allowed`) leaves an intent nobody can pay, and a row for it would lock the
-    # owner out of retrying for FIRST_PAYMENT_WINDOW_H.
-    url = await _redirect_for_intent(intent_id)
+    # Row AFTER the payable artifact, still before the browser can show it. A method the account
+    # refuses (`payment_method_not_allowed`) would leave an intent nobody can pay, and a row for it
+    # would block the owner's retry.
+    payable = await _payable_intent(intent_id, PERIOD_METHODS[0])
     await _upsert(user.sub, customer_id, intent_id, "", "premium", "incomplete", None)
-    return url
+    return payable
 
 
-async def start_upgrade(user: ClerkUser) -> str:
-    """Upgrade URL for the configured mode — the routes stay mode-blind."""
+async def start_upgrade(user: ClerkUser) -> dict:
+    """What `POST /billing/checkout` answers with: `{"url": …}` (follow it) or `{"qr": …}` (render
+    it). The routes stay mode-blind."""
     if BILLING_MODE == "subscription":
-        return await start_subscription(user)
+        return {"url": await start_subscription(user)}
     return await start_period_purchase(user)
 
 
@@ -378,20 +408,63 @@ async def _on_payment(etype: str, resource: dict, attrs: dict) -> None:
         # An intent we never issued: ack it, write nothing.
         log.info("paymongo.webhook.unknown_payment_intent", payment_intent_id=intent_id, event_type=etype)
         return
-    # Compare-and-set on the pending row: a replayed or duplicated delivery must not buy two periods.
+    if not await _credit_period(owner, intent_id):
+        # Already credited (replay), or the row moved on to a newer intent.
+        log.info("paymongo.webhook.payment_not_credited", payment_intent_id=intent_id, event_type=etype)
+
+
+async def _credit_period(owner_id: str, intent_id: str) -> bool:
+    """Extend the paid period if this intent is STILL the owner's pending one — compare-and-set, so a
+    replayed webhook delivery and the checkout retry path cannot buy two periods for one payment.
+    """
     row = await fetchrow(
         """
         UPDATE subscriptions SET plan = 'premium', status = 'active', current_period_end = $3, updated_at = now()
         WHERE owner_id = $1 AND provider_subscription_id = $2 AND status = 'incomplete'
         RETURNING id
         """,
-        owner,
+        owner_id,
         intent_id,
         datetime.now(UTC) + timedelta(days=PREMIUM_PERIOD_DAYS),
     )
-    if not row:
-        # Already credited (replay), or the row moved on to a newer intent.
-        log.info("paymongo.webhook.payment_not_credited", payment_intent_id=intent_id, event_type=etype)
+    return bool(row)
+
+
+async def _pending_block(row: dict) -> str:
+    """Why a still-`incomplete` period-mode row blocks a NEW purchase ('' = it is dead, start fresh).
+
+    The pending row is keyed by owner, so there is exactly one live intent per owner and the
+    PROVIDER's view of it is the only window that matches the rail: a QR Ph code dies 30 minutes
+    after it is drawn, where `FIRST_PAYMENT_WINDOW_H` is PayMongo's subscription rule and would lock
+    an abandoner out for a day. The intent's own `expires_at` is exact; the fallback ceiling exists
+    because a status alone would never free the row (PayMongo leaves abandoned intents
+    `awaiting_next_action` forever, so a status-only gate is a permanent lockout).
+    """
+    intent_id = row.get("provider_subscription_id") or ""
+    intent_status, expires_at = await _intent_state(intent_id)
+    if intent_status == "succeeded":
+        # Money arrived but no delivery credited it. Credit it here through the same compare-and-set
+        # the webhook uses (a late delivery then no-ops) instead of selling a second period.
+        await _credit_period(row["owner_id"], intent_id)
+        return "Payment already received — refresh to see your premium"
+    now = datetime.now(UTC)
+    deadline = expires_at or (row.get("updated_at") or now) + timedelta(minutes=QR_TTL_MIN)
+    if intent_status in DEAD_INTENT_STATUSES or deadline <= now:
+        return ""
+    return f"A payment is already pending — {max(1, int((deadline - now).total_seconds() // 60))} min left"
+
+
+async def _intent_state(intent_id: str) -> tuple[str, datetime | None]:
+    """(status, when its QR dies) from the provider. ("", None) when it cannot be read, which
+    `_pending_block` treats as still alive: minutes of friction beat an uncredited second charge."""
+    if not intent_id:
+        return "", None
+    try:
+        data = (await _api("GET", f"/v1/payment_intents/{intent_id}")).get("data") or {}
+    except HTTPException:
+        return "", None
+    attrs = data.get("attributes") or {}
+    return attrs.get("status") or "", _period_end(((attrs.get("next_action") or {}).get("code") or {}).get("expires_at"))
 
 
 async def _on_subscription(attrs: dict) -> None:
@@ -484,17 +557,24 @@ async def _upsert(owner_id: str, customer_id: str, subs_id: str, plan_id: str, p
     )
 
 
+def _aware(value: datetime) -> datetime:
+    return value if value.tzinfo else value.replace(tzinfo=UTC)
+
+
 def _period_end(value) -> datetime | None:
-    """`next_billing_schedule` is a YYYY-MM-DD date; asyncpg needs tz-aware for timestamptz."""
+    """`next_billing_schedule` is a YYYY-MM-DD date and `next_action.code.expires_at` a full ISO
+    stamp; both land in a timestamptz column, so asyncpg needs them tz-aware."""
     if not value:
         return None
     if isinstance(value, datetime):
-        return value if value.tzinfo else value.replace(tzinfo=UTC)
+        return _aware(value)
     if isinstance(value, date):
         return datetime(value.year, value.month, value.day, tzinfo=UTC)
     if isinstance(value, (int, float)):
         return datetime.fromtimestamp(value, tz=UTC)
-    try:
-        return datetime.strptime(value, "%Y-%m-%d").replace(tzinfo=UTC)
-    except (TypeError, ValueError):
-        return None
+    for parse in (datetime.fromisoformat, lambda v: datetime.strptime(v, "%Y-%m-%d")):
+        try:
+            return _aware(parse(value))
+        except (TypeError, ValueError):
+            pass
+    return None

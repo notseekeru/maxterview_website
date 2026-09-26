@@ -1096,8 +1096,8 @@ async def test_llm_provider(user: CurrentUser) -> dict:
 
 @api.post("/billing/checkout")
 async def billing_checkout(user: CurrentUser) -> dict:
-    """Start the premium upgrade; returns the provider's hosted payment URL (a Maya redirect)."""
-    return {"url": await payments.start_upgrade(user)}
+    """Start the premium upgrade: `{"url": …}` to follow, or `{"qr": …}` to render in the page."""
+    return await payments.start_upgrade(user)
 
 
 @api.post("/billing/cancel", response_model=dict)

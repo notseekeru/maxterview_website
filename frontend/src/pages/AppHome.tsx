@@ -56,7 +56,7 @@ export function AppHome() {
                 </Button>
             }
         >
-            {/* The Maya return_url lands here (?upgrade=pending); it renders nothing otherwise. */}
+            {/* A redirect rail's return_url lands here (?upgrade=pending); the QR leg never leaves the page. */}
             <UpgradePendingNotice />
 
             {showForm && <CreateInterviewForm onCreated={onCreated} variant="featured" />}

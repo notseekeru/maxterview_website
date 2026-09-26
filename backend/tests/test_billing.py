@@ -8,7 +8,7 @@ tests (`test_api.py`), which create real interviews through the `client` fixture
 import hashlib
 import hmac
 import time
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 
 import pytest
 from fastapi import HTTPException
@@ -267,6 +267,42 @@ def test_resubscribe_blocked_while_the_first_payment_is_pending():
     # Past 24h PayMongo has self-cancelled it, so a fresh subscription is the correct retry.
     stale = _row(plan="premium", status="incomplete", current_period_end=None, updated_at=datetime(2026, 9, 11, 6, tzinfo=UTC))
     assert payments._resubscribe_block(stale, NOW) == ""
+
+
+async def test_pending_qr_is_judged_by_its_own_deadline(monkeypatch):
+    """A QR Ph code dies 30 min after it is drawn, so the subscription rule (24h) would outlive the
+    thing it waits on and lock an abandoner out for a day."""
+    row = _row(owner_id="u", status="incomplete", current_period_end=None, provider_subscription_id="pi_x")
+
+    async def _intent(status, expires_at=None):
+        async def _api(_method, _path, **_kw):
+            return {"data": {"attributes": {"status": status, "next_action": {"code": {"expires_at": expires_at}}}}}
+
+        monkeypatch.setattr(payments, "_api", _api)
+
+    await _intent("awaiting_next_action", (datetime.now(UTC) + timedelta(minutes=12)).isoformat())
+    assert "min left" in await payments._pending_block(row)  # a scannable code is not a second purchase
+
+    await _intent("awaiting_next_action", (datetime.now(UTC) - timedelta(minutes=1)).isoformat())
+    assert await payments._pending_block(row) == ""  # unscannable -> the retry is not held for 24h
+
+    # PayMongo leaves an abandoned intent `awaiting_next_action` forever (measured on an 11-day-old
+    # one), so a status-only gate would lock the owner out permanently: the fallback ceiling is what
+    # frees a row whose intent reports no deadline of its own.
+    await _intent("awaiting_next_action", None)
+    assert "min left" in await payments._pending_block(_row(owner_id="u", status="incomplete", provider_subscription_id="pi_x", updated_at=datetime.now(UTC)))
+    assert await payments._pending_block(_row(owner_id="u", status="incomplete", provider_subscription_id="pi_x", updated_at=datetime.now(UTC) - timedelta(hours=2))) == ""
+
+    credited: list[tuple] = []
+
+    async def fake_fetchrow(_q, *args, **_kw):
+        credited.append(args)
+        return {"id": "row"}
+
+    monkeypatch.setattr(payments, "fetchrow", fake_fetchrow)
+    await _intent("succeeded")  # paid, webhook never arrived: credit it, do not sell a second period
+    assert "already received" in await payments._pending_block(row)
+    assert credited
 
 
 async def test_invoice_paid_recovers_subscription_via_subscription_id(monkeypatch):
@@ -571,9 +607,9 @@ async def test_start_upgrade_dispatches_on_mode(monkeypatch):
 
 
 async def test_start_period_purchase_records_the_intent_once_a_link_exists(monkeypatch):
-    """The row must exist before the browser can open the link (the webhook resolves the owner from
-    it) but only once the provider produced a PAYABLE one: live mode refuses whole method types, and
-    a row for an unpayable intent locks the owner out for FIRST_PAYMENT_WINDOW_H."""
+    """The row must exist before the browser can show the QR (the webhook resolves the owner from it)
+    but only once the provider produced a PAYABLE artifact: live mode refuses whole method types, and
+    a row for an unpayable intent blocks the owner's retry."""
     _period_configure(monkeypatch)
     order: list[tuple] = []
 
@@ -604,7 +640,7 @@ async def test_start_period_purchase_records_the_intent_once_a_link_exists(monke
 
     monkeypatch.setattr(payments, "fetchrow", fake_fetchrow)
     monkeypatch.setattr(payments, "_api", _api)
-    assert await payments.start_period_purchase(_buyer()) == "https://paymaya.test/x"
+    assert await payments.start_period_purchase(_buyer()) == {"url": "https://paymaya.test/x"}
 
     insert = next(i for i, e in enumerate(order) if e[0] == "db" and "INSERT INTO subscriptions" in e[1])
     attach = next(i for i, e in enumerate(order) if e[0] == "api" and str(e[2]).endswith("/attach"))
@@ -644,8 +680,37 @@ async def test_checkout_uses_the_clerk_lookup_when_the_token_has_no_email(monkey
     monkeypatch.setattr(payments.auth, "user_email", fake_user_email)
     monkeypatch.setattr(payments, "fetchrow", fake_fetchrow)
     monkeypatch.setattr(payments, "_api", _api)
-    assert await payments.start_period_purchase(ClerkUser(sub="u", email=None, name="A")) == "https://paymaya.test/x"
+    assert await payments.start_period_purchase(ClerkUser(sub="u", email=None, name="A")) == {"url": "https://paymaya.test/x"}
     assert looked_up == ["u"]
+
+
+async def test_start_period_purchase_hands_back_the_qr_the_rail_uses(monkeypatch):
+    """QR Ph answers the attach with `consume_qr` and NO redirect, so a redirect-only client 502s on
+    the one rail this account can take money on."""
+    _period_configure(monkeypatch)
+
+    async def fake_fetchrow(_q, *_a, **_k):
+        return None  # no stored row, no stored customer
+
+    async def _api(_method, path, **kwargs):
+        if path == "/v1/customers":
+            return {"data": {"id": "cus_1"}}
+        if path == "/v1/payment_intents":
+            return {"data": {"id": "pi_qr"}}
+        if path == "/v1/payment_methods":
+            assert kwargs["json"]["data"]["attributes"]["type"] == "qrph"
+            return {"data": {"id": "pm_1"}}
+        if path == "/v1/payment_intents/pi_qr":
+            return {"data": {"attributes": {"client_key": "pi_qr_client"}}}
+        if path == "/v1/payment_intents/pi_qr/attach":
+            code = {"image_url": "data:image/png;base64,AAAA", "expires_at": "2026-09-26T04:03:57.145658523Z"}
+            return {"data": {"attributes": {"next_action": {"type": "consume_qr", "code": code}}}}
+        raise AssertionError(path)
+
+    monkeypatch.setattr(payments, "fetchrow", fake_fetchrow)
+    monkeypatch.setattr(payments, "_api", _api)
+    payable = await payments.start_period_purchase(_buyer())
+    assert payable["qr"]["image_url"].startswith("data:image/png;base64,")
 
 
 async def test_start_period_purchase_needs_an_email_and_a_free_slot(monkeypatch):

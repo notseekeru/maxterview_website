@@ -532,12 +532,15 @@ export async function getUsage(): Promise<Usage> {
     return data;
 }
 
-// Both hit our billing surface: /billing/checkout returns a URL we must follow (PayMongo's Maya page
-// — no hosted upgrade page exists), and with no provider portal, stopping a renewal is our endpoint.
-// Which mode is live is the server's decision (`GET /usage`).
-export async function startUpgrade(): Promise<string> {
-    const { data } = await api.post<{ url: string }>("/billing/checkout");
-    return data.url;
+// Both hit our billing surface: /billing/checkout answers with whatever makes the payment payable —
+// a QR to render (QR Ph, this account's only live rail) or a provider URL to follow — and with no
+// provider portal, stopping a renewal is our endpoint. Which mode is live is the server's decision
+// (`GET /usage`).
+export type Checkout = { url?: string; qr?: { image_url: string; expires_at: string } };
+
+export async function startUpgrade(): Promise<Checkout> {
+    const { data } = await api.post<Checkout>("/billing/checkout");
+    return data;
 }
 
 export async function cancelUpgrade(): Promise<void> {

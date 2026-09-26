@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
 
+import { useQrCheckout } from "@/components/QrCheckout";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { getUsage, startUpgrade, turnsToday, type Usage } from "@/lib/api";
+import { getUsage, turnsToday, type Usage } from "@/lib/api";
 import { clerkEnabled } from "@/lib/config";
 
 // Quota-status badge (GET /usage, MONETIZATION §3).
@@ -58,21 +59,7 @@ export function UsageBadge() {
 
 // Lockout / upsell notice with an "Upgrade" CTA when quota is exhausted.
 export function UpgradeNotice({ reason }: { reason: string }) {
-    const [busy, setBusy] = useState(false);
-    const [error, setError] = useState(false);
-
-    async function upgrade() {
-        setBusy(true);
-        setError(false);
-        try {
-            const url = await startUpgrade();
-            window.location.assign(url);
-        } catch {
-            setError(true);
-        } finally {
-            setBusy(false);
-        }
-    }
+    const { start, busy, error, modal } = useQrCheckout();
 
     return (
         <div className="flex flex-col items-start gap-3 rounded-lg border border-dashed bg-muted/50 p-4 text-sm">
@@ -81,15 +68,16 @@ export function UpgradeNotice({ reason }: { reason: string }) {
                 <p className="w-full max-w-sm text-muted-foreground">You can’t start another interview or send more turns right now. This round {reason}. Upgrade to premium for unlimited interviews and chats.</p>
             </div>
             <div className="flex items-center gap-3">
-                <Button size="sm" onClick={() => void upgrade()} disabled={busy}>
-                    {busy ? "Opening Maya…" : "Upgrade to Premium"}
+                <Button size="sm" onClick={() => void start()} disabled={busy}>
+                    {busy ? "Starting…" : "Upgrade to Premium"}
                 </Button>
                 {/* No provider portal exists; plan management (incl. cancel) lives on the billing page. */}
                 <a href="/settings/billing" className="text-xs text-muted-foreground underline underline-offset-2">
                     Manage billing
                 </a>
             </div>
-            {error && <p className="text-xs text-destructive">Payment is unavailable right now. Try again in a moment.</p>}
+            {error && <p className="text-xs text-destructive">{error}</p>}
+            {modal}
         </div>
     );
 }

@@ -186,7 +186,7 @@ export function Landing() {
                         })}
                     </div>
                     {/* Must stay true in both billing modes. */}
-                    <p className="text-xs text-muted-foreground">Prices in PHP, charged through PayMongo (Maya). You keep Premium until the end of the period you paid for.</p>
+                    <p className="text-xs text-muted-foreground">Prices in PHP, charged through PayMongo. Pay by QR (GCash, Maya, or your bank app). You keep Premium until the end of the period you paid for.</p>
                 </section>
 
                 <section aria-label="Frequently asked questions" className="space-y-3">

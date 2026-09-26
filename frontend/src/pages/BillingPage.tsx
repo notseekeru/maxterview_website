@@ -1,16 +1,18 @@
 import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
 import { Page } from "@/components/PagePrimitives";
+import { useQrCheckout } from "@/components/QrCheckout";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
-import { apiDetail, cancelUpgrade, chatTurns, getUsage, startUpgrade, turnsToday, type Usage } from "@/lib/api";
+import { apiDetail, cancelUpgrade, chatTurns, getUsage, turnsToday, type Usage } from "@/lib/api";
 import { clerkEnabled } from "@/lib/config";
 import { PLANS, TIER_NAME } from "@/lib/plans";
 
 // /settings/billing. Free vs Premium cards + current-plan summary. The upgrade CTA posts to
-// /billing/checkout, which answers with PayMongo's Maya page; PayMongo has no billing portal, so our
-// own copy has to carry the billing terms. GET /usage reports which mode is live:
+// /billing/checkout, which answers with a QR Ph code to scan (this account's only live rail; Maya and
+// cards need KYB). PayMongo has no billing portal, so our own copy has to carry the billing terms.
+// GET /usage reports which mode is live:
 //   `period`       one-time top-up — nothing renews itself, so show the expiry and offer no cancel
 //   `subscription` provider-managed recurring — cancel is ours, access runs to the period end
 // `dev` (no-Clerk-only) gets a read-only summary and no upgrade path.
@@ -86,10 +88,13 @@ function Summary({ usage, failed, loading }: { usage: Usage | null; failed: bool
 }
 
 function PlanCard({ tier, usage }: { tier: "free" | "premium"; usage: Usage | null }) {
-    const [busy, setBusy] = useState(false);
-    // The server's own `detail` (a 409 explains what to do, e.g. "Add an email to your account"),
-    // never a generic failure: a refusal read as an outage is how this shipped broken once.
-    const [ctaError, setCtaError] = useState<string | null>(null);
+    const { start, busy, error: checkoutError, modal } = useQrCheckout();
+    const [cancelling, setCancelling] = useState(false);
+    // The server's own `detail` (a 409 explains what to do, e.g. "Add an email to your account", or
+    // that a code is still live), never a generic failure: a refusal read as an outage is how this
+    // shipped broken once.
+    const [cancelError, setCancelError] = useState<string | null>(null);
+    const ctaError = checkoutError ?? cancelError;
     const plan = PLANS[tier];
     const isPremium = tier === "premium";
     const isCurrent = !!usage && usage.tier === tier;
@@ -101,30 +106,18 @@ function PlanCard({ tier, usage }: { tier: "free" | "premium"; usage: Usage | nu
     // tier they are not on, where no live number exists to show.
     const today = isCurrent && usage ? turnsToday(usage) : null;
 
-    // PayMongo's Maya page is a real redirect we must follow.
-    const go = async (open: () => Promise<string>) => {
-        setBusy(true);
-        setCtaError(null);
-        try {
-            window.location.assign(await open());
-        } catch (e) {
-            setCtaError(apiDetail(e, "Payment is unavailable right now. Try again in a moment."));
-            setBusy(false);
-        }
-    };
-
     // Cancelling is our own endpoint (no provider portal), so confirm first: the user keeps the
     // period they already paid for.
     const stop = async () => {
         if (!window.confirm("Cancel Premium? You keep access until the end of the period you already paid for.")) return;
-        setBusy(true);
-        setCtaError(null);
+        setCancelling(true);
+        setCancelError(null);
         try {
             await cancelUpgrade();
             window.location.reload();
         } catch (e) {
-            setCtaError(apiDetail(e, "Couldn’t cancel just now. Try again in a moment."));
-            setBusy(false);
+            setCancelError(apiDetail(e, "Couldn’t cancel just now. Try again in a moment."));
+            setCancelling(false);
         }
     };
 
@@ -141,8 +134,8 @@ function PlanCard({ tier, usage }: { tier: "free" | "premium"; usage: Usage | nu
         cta = periodMode ? (
             paidThrough
         ) : (
-            <Button className="w-full" variant="outline" onClick={() => void stop()} disabled={busy || !usage}>
-                {busy ? "Cancelling…" : "Cancel subscription"}
+            <Button className="w-full" variant="outline" onClick={() => void stop()} disabled={cancelling || !usage}>
+                {cancelling ? "Cancelling…" : "Cancel subscription"}
             </Button>
         );
     } else if (isCurrent) {
@@ -163,14 +156,14 @@ function PlanCard({ tier, usage }: { tier: "free" | "premium"; usage: Usage | nu
         cta = periodMode ? (
             paidThrough
         ) : (
-            <Button className="w-full" variant="outline" onClick={() => void stop()} disabled={busy || !usage}>
-                {busy ? "Cancelling…" : "Cancel Premium"}
+            <Button className="w-full" variant="outline" onClick={() => void stop()} disabled={cancelling || !usage}>
+                {cancelling ? "Cancelling…" : "Cancel Premium"}
             </Button>
         );
     } else {
         cta = (
-            <Button className="w-full" onClick={() => void go(startUpgrade)} disabled={busy || !usage}>
-                {busy ? "Opening Maya…" : `Upgrade · ${plan.monthly}`}
+            <Button className="w-full" onClick={() => void start()} disabled={busy || !usage}>
+                {busy ? "Starting…" : `Upgrade · ${plan.monthly}`}
             </Button>
         );
     }
@@ -198,6 +191,7 @@ function PlanCard({ tier, usage }: { tier: "free" | "premium"; usage: Usage | nu
                 {/* The one billing term period mode must state: nothing renews. */}
                 {isPremium && periodMode && onPremium && <p className="text-xs text-muted-foreground">No auto-renew — premium ends {until ?? "at the end of the period you paid for"}. Buy again when it does.</p>}
                 {ctaError && <p className="text-xs text-destructive">{ctaError}</p>}
+                {modal}
             </CardFooter>
         </Card>
     );
