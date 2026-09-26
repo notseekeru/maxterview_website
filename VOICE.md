@@ -1,11 +1,11 @@
-# VOICE: M16 (audio + camera)
+# VOICE (audio + camera)
 
 Settled 2026-09-22, narrowed the same day: the interviewer speaks, the applicant speaks, and Cloudflare
 Workers AI carries both on its free daily allocation. There is no second engine. The browser's own
 voices and recognition were built, then removed: a stock TTS voice sounds like a screen reader, and an
 interviewer that talks like one destroys the illusion the feature exists to create (V1). The camera is
-an optional self-view with no processing. `PLAN.md` M16 is what is left of the milestone (the camera);
-this file owns the decisions and the build order.
+an optional self-view with no processing. `PLAN.md` M19 owns the camera window; this file owns the
+decisions and the build order.
 
 **The rule:** voice is I/O around what already exists. The applicant's speech becomes text, the text
 goes through `POST /interviews/{id}/chat/stream` exactly as typed text does today, and the
@@ -90,7 +90,7 @@ The microphone never opens while the interviewer is speaking.
 
 ## Step 3: the camera window
 
-Not built, and deferred (`PLAN.md` M16): the voice half above is what shipped.
+Not built (`PLAN.md` M19).
 
 One local video element, mirrored, off by default, optional, nothing recorded, nothing analyzed,
 nothing uploaded, no cost. It exists so that practice feels like being on camera.

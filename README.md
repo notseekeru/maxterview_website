@@ -18,7 +18,7 @@ Docs:
 - `MONETIZATION.md` — billing spec (quotas + PayMongo period top-up, shipped)
 - `BYOK.md` — per-owner LLM provider keys (settings panel → `/settings/system`)
 - `OBSERVABILITY.md` — what telemetry ships, and what is deliberately parked
-- `VOICE.md` — voice: Cloudflare free tier, one engine, TTS + STT shipped and live in prod; the camera window is deferred
+- `VOICE.md` — voice: Cloudflare free tier, one engine, TTS + STT shipped and live in prod
 
 ---
 
