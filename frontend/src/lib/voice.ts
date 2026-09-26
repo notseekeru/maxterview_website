@@ -1,4 +1,4 @@
-/** Voice I/O around the turn that already exists (VOICE.md, M16).
+/** Voice I/O around the turn that already exists (VOICE.md).
  *
  * The applicant's speech becomes text in the answer box, the interviewer's reply is read aloud, and
  * the transcript stays the graded artifact: nothing in here touches the dials, the question arc, the

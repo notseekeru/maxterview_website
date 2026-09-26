@@ -641,7 +641,7 @@ async def delete_resume(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Resume not found")
 
 
-# Voice (M16): Workers AI is the only engine, and it is optional infrastructure.
+# Voice: Workers AI is the only engine, and it is optional infrastructure.
 
 
 @api.get("/voice", response_model=VoiceCapability)

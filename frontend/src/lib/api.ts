@@ -593,7 +593,7 @@ export async function testLLMProvider(): Promise<{ ok: boolean; detail: string }
 // candidate never types past it and meets a raw 422.
 export const MAX_TURN_CHARS = 8000;
 
-// Voice (VOICE.md M16). The only engine is Workers AI via the backend.
+// Voice (VOICE.md). The only engine is Workers AI via the backend.
 
 /** What this server can do, so the chat surface gates its controls on the truth rather than on a
  *  button that 503s. One engine means one boolean pair, not a preference. */
