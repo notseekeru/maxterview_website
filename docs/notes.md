@@ -10,13 +10,13 @@
 
 # FEATURES
 
+- alerting for payment process
 - add metrics in readme for hr stuff via from grafana
 - feat: ai resume editor latex to display and edit kind alike overleaf?
 
 # FIX
 
 - fix: the interciew opening should be llm generated, asking for resume or background. then default one chitchat of tell me about yourself
-- fix: make the price attractice like maybe 99 pesos per month and update all docs and all paymongo infra
 - fix: dont say premium to users like explicitly just upgrade or something to get use strategies do research on this with data, ask question if uncertain like we use like physicological and marketing tactics, eg like percentage off those online shopping tactics
 
 - grill the plan and architecture and code maintainability/readability. it matters to me when i skim code
@@ -56,3 +56,17 @@
   grader alone is ~17.7s of it); queue it and let the review page poll.
 - **Resume retrieval instead of re-sending 8k chars** every turn - pull only the sections the
   question touches. ~10x input reduction on resume-attached runs.
+
+# BILLING (keys do not fix these)
+
+- fix: no early renewal. `payments._resubscribe_block` answers 409 while a paid period is live, so
+  nobody can extend before lapse; with no auto-renew, every 30 days is a fresh opt-in.
+- feat: expiry reminder before the period ends. The stack has no email surface at all (no SMTP or
+  Resend dep), so every lapse is silent.
+- fix: refund/dispute revocation. A refunded payment keeps entitlement to period end, while
+  MONETIZATION §5 asks for immediate downgrade on dispute. Only an `AI HERE` note today
+  (`payments.py:213`).
+- feat: receipts/invoices to the customer. Same missing email surface.
+- feat: payment alerting (the FEATURES line). Nothing in `observability/grafana` watches the events
+  already emitted: `paymongo.webhook_signature.mismatch|stale`, `paymongo.webhook.payment_not_credited`,
+  `paymongo.request_failed`.
