@@ -306,22 +306,35 @@ async def _ensure_customer(user: ClerkUser, email: str) -> str:
     if existing and (row or {}).get("provider") == PROVIDER:
         return existing
     name = (user.name or "").strip().split(" ", 1)
-    customer = await _api(
-        "POST",
-        "/v1/customers",
-        json={
-            "data": {
-                "attributes": {
-                    "first_name": name[0] or "Maxterview",
-                    "last_name": name[1] if len(name) > 1 else "Member",
-                    "email": email,
-                    # Required by PayMongo; the upgrade path already refuses to start without an
-                    # email, so `email` is the only honest value.
-                    "default_device": "email",
+    try:
+        customer = await _api(
+            "POST",
+            "/v1/customers",
+            json={
+                "data": {
+                    "attributes": {
+                        "first_name": name[0] or "Maxterview",
+                        "last_name": name[1] if len(name) > 1 else "Member",
+                        "email": email,
+                        # Required by PayMongo; the upgrade path already refuses to start without an
+                        # email, so `email` is the only honest value.
+                        "default_device": "email",
+                    }
                 }
-            }
-        },
-    )
+            },
+        )
+    except HTTPException:
+        # PayMongo refuses a second customer for one email (measured: 422 "A customer with this email
+        # already exists"), which is reachable whenever the row holding the first id is gone — a
+        # restore, a cleanup, a swapped provider. Reuse it: the email IS the key PayMongo holds, so
+        # re-raising would wedge that address on checkout for good. Its list endpoint REQUIRES an
+        # email or phone filter (400 without one), so this is an exact lookup, not a scan.
+        found = (await _api("GET", "/v1/customers", params={"email": email, "limit": 100})).get("data") or []
+        match = next((c["id"] for c in found if ((c.get("attributes") or {}).get("email") or "").lower() == email.lower()), "")
+        if not match:
+            raise
+        log.info("paymongo.customer_reused", owner_id=user.sub)
+        return match
     return customer["data"]["id"]
 
 

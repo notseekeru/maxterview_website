@@ -344,6 +344,38 @@ async def test_ensure_customer_reuses_only_this_providers_id(monkeypatch):
     assert await payments._ensure_customer(user, "a@b.co") == "cus_pm"
 
 
+async def test_customer_conflict_reuses_the_one_paymongo_already_holds(monkeypatch):
+    """The row is the only place the customer id lives, so a lost row turns the next checkout into
+    PayMongo's 422 "A customer with this email already exists". Re-raising would wedge that address
+    on checkout for good; the email is the key PayMongo holds, so reuse it."""
+    calls = []
+
+    async def fake_fetchrow(_q, *_a, **_k):
+        return None  # row gone: nothing to reuse
+
+    async def _api(method, path, **kwargs):
+        calls.append((method, path, kwargs.get("params")))
+        if method == "POST":
+            raise HTTPException(status_code=502, detail="Payment provider error")
+        return {"data": [{"id": "cus_old", "attributes": {"email": "payer@example.com"}}]}
+
+    monkeypatch.setattr(payments, "fetchrow", fake_fetchrow)
+    monkeypatch.setattr(payments, "_api", _api)
+    user = ClerkUser(sub="u1", email="payer@example.com", name="A B")
+    assert await payments._ensure_customer(user, "payer@example.com") == "cus_old"
+    assert calls[1] == ("GET", "/v1/customers", {"email": "payer@example.com", "limit": 100})
+
+    # A lookup that finds nothing must not invent an id: the original failure stands.
+    async def _empty(method, _p, **_k):
+        if method == "POST":
+            raise HTTPException(status_code=502, detail="Payment provider error")
+        return {"data": []}
+
+    monkeypatch.setattr(payments, "_api", _empty)
+    with pytest.raises(HTTPException):
+        await payments._ensure_customer(user, "payer@example.com")
+
+
 async def test_invoice_payment_failed_marks_past_due(monkeypatch):
     calls = _capture(monkeypatch)
     await payments.handle_webhook_event(_invoice_event("subscription.invoice.payment_failed", status="open"))
