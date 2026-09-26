@@ -50,8 +50,9 @@ the cluster, see below.
   rail is `BILLING_MODE=period` (one payment buys 30 days; no `PAYMONGO_PLAN_ID` needed). When
   `PAYMONGO_SECRET_KEY` is unset, `/api/billing/checkout` returns 503 (`/api/billing/cancel` still works —
   period mode only flips the row); the dev-only `/api/billing/webhook/simulate` still proves the
-  entitlement path. **Prod's `PAYMONGO_*` keys are declared by Terraform but empty**, so billing is dark
-  there until the two Infisical values land.
+  entitlement path. **Prod's `PAYMONGO_SECRET_KEY`/`_WEBHOOK_SECRET` are populated in Infisical**
+  (terraform `infra/k3s`; its ADR records prod's pair as live-mode), so the period rail is live there.
+  Remaining proof: one real ₱99 payment (PLAN.md).
 
 ## Built-in companion skills (load on demand, don't duplicate)
 
