@@ -115,7 +115,8 @@ To exercise the **real** HMAC path (`Paymongo-Signature`, not the simulate short
 2. **Pay on Maya**, then the browser returns to `/dashboard?upgrade=pending` (`UpgradePendingNotice`
    polls `/api/usage`; in no-Clerk dev mode it can never flip because `resolve_tier` short-circuits
    to `dev` — assert on the row instead).
-3. **Webhook** — `payment.paid` (or `payment_intent.succeeded`; register both) sets
+3. **Webhook** — `payment.paid` (the ONLY subscribable type here; the API rejects
+   `payment_intent.succeeded` as `parameter_invalid`) sets
    `plan=premium, status=active, current_period_end = now() + PREMIUM_PERIOD_DAYS`. It is a
    **compare-and-set on `provider_subscription_id = <intent id> AND status = 'incomplete'`**, so a
    replay, the sibling event type, or a PayMongo retry cannot buy a second period

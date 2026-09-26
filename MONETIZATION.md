@@ -59,6 +59,9 @@ the mode is a payment rail, not an entitlement model. Paths below are relative t
 prefix (`curl localhost:8000/api/billing/checkout`).
 
 - **`POST /billing/checkout`** — **mode-blind**: `payments.start_upgrade` dispatches on `BILLING_MODE`.
+  The customer's email comes from `auth.user_email`: the JWT claim if the instance puts one there,
+  otherwise Clerk's Backend API (`CLERK_SECRET_KEY`). Clerk's default session token carries **no**
+  `email` claim, so without the lookup every checkout is a **409** before any provider call.
   - **`period` (default, launch)** — creates a Customer (PayMongo now **requires `default_device`**;
     we send `email`), a one-time Payment Intent for `PREMIUM_PRICE_CENTAVOS`, attaches a `paymaya`
     PaymentMethod, and returns the Maya URL. The row is written `premium/incomplete` **before** the
@@ -92,11 +95,12 @@ prefix (`curl localhost:8000/api/billing/checkout`).
 # then set its secret + the API key in Infisical (TF_VAR_MAXTERVIEW_PAYMONGO_*), then apply
 ```
 
-**Event → entitlement map.** Period mode: `payment.paid` / `payment_intent.succeeded` set
+**Event → entitlement map.** Period mode: `payment.paid` (the only type the API accepts for that
+endpoint — `payment_intent.succeeded` is rejected as `parameter_invalid`, so the handler's second
+accepted type only ever arrives via `/webhook/simulate`) sets
 `plan=premium, status=active, current_period_end = now() + PREMIUM_PERIOD_DAYS` as a
 **compare-and-set** on `provider_subscription_id = <intent id> AND status = 'incomplete'`, so a
-replay, the sibling event type (both are registered — either may be the only one a method emits) or a
-PayMongo retry cannot buy a second period; a refused write logs
+replay, the sibling event type or a PayMongo retry cannot buy a second period; a refused write logs
 `paymongo.webhook.payment_not_credited`. `payment.failed` writes nothing. Subscription mode:
 `subscription.activated|updated` upserts `plan`/`status`/`current_period_end`
 (`cancelled`/`incomplete_cancelled` → `free`); `invoice.paid` sets `active` but only from
