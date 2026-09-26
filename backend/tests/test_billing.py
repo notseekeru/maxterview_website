@@ -298,14 +298,14 @@ async def test_ensure_customer_reuses_only_this_providers_id(monkeypatch):
         return {"provider": "stripe", "provider_customer_id": "cus_from_stripe"}
 
     monkeypatch.setattr(payments, "fetchrow", _stale)
-    assert await payments._ensure_customer(user) == "cus_new"
+    assert await payments._ensure_customer(user, "a@b.co") == "cus_new"
     assert seen["path"] == "/v1/customers"
 
     async def _mine(_q, _sub):
         return {"provider": "paymongo", "provider_customer_id": "cus_pm"}
 
     monkeypatch.setattr(payments, "fetchrow", _mine)
-    assert await payments._ensure_customer(user) == "cus_pm"
+    assert await payments._ensure_customer(user, "a@b.co") == "cus_pm"
 
 
 async def test_invoice_payment_failed_marks_past_due(monkeypatch):
@@ -610,6 +610,40 @@ async def test_start_period_purchase_records_the_intent_before_the_redirect(monk
     row_args = order[insert][2]
     assert row_args[3] == "pi_new"  # provider_subscription_id holds the intent id in period mode
     assert row_args[5:7] == ("premium", "incomplete")
+
+
+async def test_checkout_uses_the_clerk_lookup_when_the_token_has_no_email(monkeypatch):
+    """The session token carries no `email` claim (auth.user_email), so the Backend API lookup is
+    the only source for the address PayMongo keys a customer by."""
+    _period_configure(monkeypatch)
+    looked_up: list[str] = []
+
+    async def fake_user_email(user):
+        looked_up.append(user.sub)
+        return "payer@example.com"
+
+    async def fake_fetchrow(_q, *_a, **_k):
+        return None  # no stored row, no stored customer
+
+    async def _api(method, path, **kwargs):
+        if path == "/v1/customers":
+            assert kwargs["json"]["data"]["attributes"]["email"] == "payer@example.com"
+            return {"data": {"id": "cus_1"}}
+        if path == "/v1/payment_intents":
+            return {"data": {"id": "pi_1"}}
+        if path == "/v1/payment_methods":
+            return {"data": {"id": "pm_1"}}
+        if path == "/v1/payment_intents/pi_1":
+            return {"data": {"attributes": {"client_key": "pi_1_client"}}}
+        if path == "/v1/payment_intents/pi_1/attach":
+            return {"data": {"attributes": {"next_action": {"redirect": {"url": "https://paymaya.test/x"}}}}}
+        raise AssertionError(path)
+
+    monkeypatch.setattr(payments.auth, "user_email", fake_user_email)
+    monkeypatch.setattr(payments, "fetchrow", fake_fetchrow)
+    monkeypatch.setattr(payments, "_api", _api)
+    assert await payments.start_period_purchase(ClerkUser(sub="u", email=None, name="A")) == "https://paymaya.test/x"
+    assert looked_up == ["u"]
 
 
 async def test_start_period_purchase_needs_an_email_and_a_free_slot(monkeypatch):

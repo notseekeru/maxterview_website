@@ -146,3 +146,20 @@ def test_verify_aud_gate_on(keypair):
         assert exc.value.status_code == 401
     finally:
         auth.CLERK_AUDIENCE = ""
+
+
+async def test_user_email_uses_the_claim_when_the_token_carries_one():
+    """Zero network: a token with the claim never reaches the Backend API (no key is set here)."""
+    assert await auth.user_email(SimpleNamespace(sub="user_123", email="claim@example.com")) == "claim@example.com"
+
+
+async def test_user_email_is_none_without_a_claim_or_a_secret_key():
+    """The no-address outcome billing turns into its 409, not an exception."""
+    assert await auth.user_email(SimpleNamespace(sub="user_123", email=None)) is None
+
+
+def test_primary_email_prefers_the_flagged_address_and_survives_a_stale_flag():
+    addrs = [{"id": "id_1", "email_address": "a@example.com"}, {"id": "id_2", "email_address": "b@example.com"}]
+    assert auth._primary_email({"email_addresses": addrs, "primary_email_address_id": "id_2"}) == "b@example.com"
+    assert auth._primary_email({"email_addresses": addrs, "primary_email_address_id": "gone"}) == "a@example.com"
+    assert auth._primary_email({}) is None

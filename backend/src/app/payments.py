@@ -27,6 +27,7 @@ import httpx
 import structlog
 from fastapi import HTTPException, status
 
+from app import auth
 from app.db import fetchrow
 from app.models import ClerkUser
 
@@ -134,15 +135,13 @@ async def start_subscription(user: ClerkUser) -> str:
     subscriptions, so the first payment is a redirect and every later cycle is charged by PayMongo.
     """
     _require_config()
-    # PayMongo keys customers by a unique email; the Clerk `sub` claim is not an email.
-    if "@" not in (user.email or ""):
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Add an email to your account before upgrading")
+    email = await _require_email(user)
     existing = await fetchrow("SELECT plan, status, current_period_end, updated_at FROM subscriptions WHERE owner_id = $1", user.sub)
     block = _resubscribe_block(existing)
     if block:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=block)
 
-    customer_id = await _ensure_customer(user)
+    customer_id = await _ensure_customer(user, email)
     sub = await _api(
         "POST",
         "/v1/subscriptions",
@@ -183,14 +182,13 @@ async def start_period_purchase(user: ClerkUser) -> str:
     row to resolve an owner from).
     """
     _require_period_config()
-    if "@" not in (user.email or ""):
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Add an email to your account before upgrading")
+    email = await _require_email(user)
     existing = await fetchrow("SELECT plan, status, current_period_end, updated_at FROM subscriptions WHERE owner_id = $1", user.sub)
     block = _resubscribe_block(existing)
     if block:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=block)
 
-    customer_id = await _ensure_customer(user)
+    customer_id = await _ensure_customer(user, email)
     intent = await _api(
         "POST",
         "/v1/payment_intents",
@@ -256,7 +254,16 @@ async def cancel_subscription(user: ClerkUser) -> None:
     )
 
 
-async def _ensure_customer(user: ClerkUser) -> str:
+async def _require_email(user: ClerkUser) -> str:
+    """The address PayMongo keys a customer by. The session token has no `email` claim, so this is
+    usually a Backend API lookup — see auth.user_email. No address means no customer, hence 409."""
+    email = await auth.user_email(user)
+    if "@" not in (email or ""):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Add an email to your account before upgrading")
+    return email
+
+
+async def _ensure_customer(user: ClerkUser, email: str) -> str:
     """Reuse the owner's PayMongo customer, creating it on first upgrade."""
     row = await fetchrow("SELECT provider, provider_customer_id FROM subscriptions WHERE owner_id = $1", user.sub)
     existing = (row or {}).get("provider_customer_id") or ""
@@ -273,7 +280,7 @@ async def _ensure_customer(user: ClerkUser) -> str:
                 "attributes": {
                     "first_name": name[0] or "Maxterview",
                     "last_name": name[1] if len(name) > 1 else "Member",
-                    "email": user.email,
+                    "email": email,
                     # Required by PayMongo; the upgrade path already refuses to start without an
                     # email, so `email` is the only honest value.
                     "default_device": "email",

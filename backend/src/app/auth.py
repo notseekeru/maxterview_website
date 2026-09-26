@@ -4,17 +4,26 @@ import time
 
 import httpx
 import jwt
+import structlog
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from fastapi import HTTPException, Request, status
 
 from app.models import ClerkUser
 
+log = structlog.get_logger(__name__)
+
 # Single source of truth for auth config — main.py imports CLERK_ENABLED for the boot guard.
 CLERK_ENABLED = os.getenv("CLERK_ENABLED", "false").lower() == "true"
 CLERK_DOMAIN = os.getenv("CLERK_DOMAIN", "")
 CLERK_JWKS_URL = os.getenv("CLERK_JWKS_URL", "")
 CLERK_AUDIENCE = os.getenv("CLERK_AUDIENCE", "")
+# Backend API credential, needed only for the user lookup below (billing needs an email address,
+# which the session token does not carry). Empty = claim-only, exactly the old behaviour.
+CLERK_SECRET_KEY = os.getenv("CLERK_SECRET_KEY", "")
+# The Backend API has its OWN host: CLERK_DOMAIN is the frontend/JWKS instance and answers 404 for
+# /v1/users (verified). Overridable for a non-US Clerk host.
+CLERK_API_BASE = os.getenv("CLERK_API_BASE", "https://api.clerk.com")
 
 # Clerk stamps `iat` from ITS clock and PyJWT rejects `iat > now` outright, so an app a fraction of a
 # second behind 401s a brand-new session's FIRST request (verified live 2026-09-12: fresh session
@@ -23,6 +32,10 @@ JWT_LEEWAY_S = 10
 
 # Fixed identity used only when CLERK_ENABLED=false (dev/test only — main.py guard enforces).
 DEV_USER = ClerkUser(sub="dev-user", email="dev@example.com", name="Dev User")
+
+# Clerk Backend API lookups: {sub: (expires_at, email)}; TTL 1h, same reasoning as the JWKS cache.
+_USER_EMAIL_TTL_S = 3600
+_user_email_cache: dict[str, tuple[float, str]] = {}
 
 # JWKS cache: {keys, fetched_at}; TTL 1h; on `kid`-miss re-fetch once (key rotation).
 _JWKS_CACHE_TTL_S = 3600
@@ -103,6 +116,47 @@ def verify_jwt(token: str, jwks: dict) -> ClerkUser:
 
 def _unauthorized() -> HTTPException:
     return HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
+
+
+async def user_email(user: ClerkUser) -> str | None:
+    """The user's primary email: the JWT claim when present, else Clerk's Backend API.
+
+    Clerk's DEFAULT session token carries no `email` claim (verified: exp, fva, iat, iss, nbf, sid,
+    sts, sub, v), so relying on the claim refuses every real user. Cached per process because the
+    caller (billing) wants it once per purchase, not once per request.
+
+    None means "no address available" — a Clerk outage must not 500 a route that merely wants one.
+    """
+    if user.email:
+        return user.email
+    if not (CLERK_SECRET_KEY and CLERK_DOMAIN):
+        return None
+    cached = _user_email_cache.get(user.sub)
+    if cached and cached[0] > time.time():
+        return cached[1]
+    try:
+        async with httpx.AsyncClient(base_url=CLERK_API_BASE, timeout=10) as client:
+            res = await client.get(f"/v1/users/{user.sub}", headers={"Authorization": f"Bearer {CLERK_SECRET_KEY}"})
+        res.raise_for_status()
+        email = _primary_email(res.json())
+    except (httpx.HTTPError, ValueError) as exc:
+        log.warning("clerk.user_lookup_failed", sub=user.sub, reason=type(exc).__name__)
+        return None
+    if email:
+        # AI HERE: one entry per user who reaches checkout, never evicted. A cap or a shared cache
+        # only matters if this lookup moves off the purchase path.
+        _user_email_cache[user.sub] = (time.time() + _USER_EMAIL_TTL_S, email)
+    return email
+
+
+def _primary_email(body: dict) -> str | None:
+    addresses = body.get("email_addresses") or []
+    primary = body.get("primary_email_address_id")
+    for addr in addresses:
+        if addr.get("id") == primary and addr.get("email_address"):
+            return addr["email_address"]
+    # No primary flag, or it points nowhere: any address beats refusing a paying customer.
+    return next((a["email_address"] for a in addresses if a.get("email_address")), None)
 
 
 def _extract_token(request: Request) -> str | None:
