@@ -4,7 +4,7 @@ import { Page } from "@/components/PagePrimitives";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
-import { cancelUpgrade, chatTurns, getUsage, startUpgrade, turnsToday, type Usage } from "@/lib/api";
+import { apiDetail, cancelUpgrade, chatTurns, getUsage, startUpgrade, turnsToday, type Usage } from "@/lib/api";
 import { clerkEnabled } from "@/lib/config";
 import { PLANS, TIER_NAME } from "@/lib/plans";
 
@@ -87,7 +87,9 @@ function Summary({ usage, failed, loading }: { usage: Usage | null; failed: bool
 
 function PlanCard({ tier, usage }: { tier: "free" | "premium"; usage: Usage | null }) {
     const [busy, setBusy] = useState(false);
-    const [ctaError, setCtaError] = useState(false);
+    // The server's own `detail` (a 409 explains what to do, e.g. "Add an email to your account"),
+    // never a generic failure: a refusal read as an outage is how this shipped broken once.
+    const [ctaError, setCtaError] = useState<string | null>(null);
     const plan = PLANS[tier];
     const isPremium = tier === "premium";
     const isCurrent = !!usage && usage.tier === tier;
@@ -102,11 +104,11 @@ function PlanCard({ tier, usage }: { tier: "free" | "premium"; usage: Usage | nu
     // PayMongo's Maya page is a real redirect we must follow.
     const go = async (open: () => Promise<string>) => {
         setBusy(true);
-        setCtaError(false);
+        setCtaError(null);
         try {
             window.location.assign(await open());
-        } catch {
-            setCtaError(true);
+        } catch (e) {
+            setCtaError(apiDetail(e, "Payment is unavailable right now. Try again in a moment."));
             setBusy(false);
         }
     };
@@ -116,12 +118,12 @@ function PlanCard({ tier, usage }: { tier: "free" | "premium"; usage: Usage | nu
     const stop = async () => {
         if (!window.confirm("Cancel Premium? You keep access until the end of the period you already paid for.")) return;
         setBusy(true);
-        setCtaError(false);
+        setCtaError(null);
         try {
             await cancelUpgrade();
             window.location.reload();
-        } catch {
-            setCtaError(true);
+        } catch (e) {
+            setCtaError(apiDetail(e, "Couldn’t cancel just now. Try again in a moment."));
             setBusy(false);
         }
     };
@@ -195,7 +197,7 @@ function PlanCard({ tier, usage }: { tier: "free" | "premium"; usage: Usage | nu
                 {cta}
                 {/* The one billing term period mode must state: nothing renews. */}
                 {isPremium && periodMode && onPremium && <p className="text-xs text-muted-foreground">No auto-renew — premium ends {until ?? "at the end of the period you paid for"}. Buy again when it does.</p>}
-                {ctaError && <p className="text-xs text-destructive">Payment is unavailable right now. Try again in a moment.</p>}
+                {ctaError && <p className="text-xs text-destructive">{ctaError}</p>}
             </CardFooter>
         </Card>
     );
