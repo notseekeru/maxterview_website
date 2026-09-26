@@ -14,11 +14,11 @@ Docker Compose. Frontend: Tailwind 4 + shadcn/ui + react-router.
 
 Docs:
 
-- `PLAN.md` — binding decisions and open milestones (M14–M18)
+- `PLAN.md` — binding decisions and open milestones
 - `MONETIZATION.md` — billing spec (quotas + PayMongo period top-up, shipped)
 - `BYOK.md` — per-owner LLM provider keys (settings panel → `/settings/system`)
 - `OBSERVABILITY.md` — what telemetry ships, and what is deliberately parked
-- `VOICE.md` — M16 voice: Cloudflare free tier, one engine, TTS + STT shipped; camera window open
+- `VOICE.md` — voice: Cloudflare free tier, one engine, TTS + STT shipped and live in prod; the camera window is deferred
 
 ---
 
