@@ -269,29 +269,56 @@ def test_resubscribe_blocked_while_the_first_payment_is_pending():
     assert payments._resubscribe_block(stale, NOW) == ""
 
 
+async def test_pending_qr_resumes_instead_of_refusing(monkeypatch):
+    """The row holds the one live intent, so a second Upgrade press must hand back the SAME QR: closing
+    the popup (or reloading) used to strand the buyer behind a 409 until the code died."""
+    qr = {"qr": {"image_url": "data:image/png;base64,AAAA", "expires_at": (datetime.now(UTC) + timedelta(minutes=20)).isoformat()}}
+    calls: list[str] = []
+
+    async def fake_fetchrow(_q, *_a, **_k):
+        return _row(owner_id="u", status="incomplete", current_period_end=None, provider_subscription_id="pi_x")
+
+    async def _api(method, path, **_kw):
+        calls.append(f"{method} {path}")
+        attributes = {"status": "awaiting_next_action", "next_action": {"type": "consume_qr", "code": qr["qr"]}}
+        return {"data": {"attributes": attributes}}
+
+    monkeypatch.setattr(payments, "fetchrow", fake_fetchrow)
+    monkeypatch.setattr(payments, "_api", _api)
+    user = ClerkUser(sub="u", email="a@b.co", name="A B")
+    assert await payments.start_period_purchase(user) == qr
+    # Exactly one READ: no customer, no payment method, no new intent, so no second charge.
+    assert calls == ["GET /v1/payment_intents/pi_x"]
+
+
 async def test_pending_qr_is_judged_by_its_own_deadline(monkeypatch):
     """A QR Ph code dies 30 min after it is drawn, so the subscription rule (24h) would outlive the
     thing it waits on and lock an abandoner out for a day."""
     row = _row(owner_id="u", status="incomplete", current_period_end=None, provider_subscription_id="pi_x")
 
-    async def _intent(status, expires_at=None):
+    async def _intent(status, expires_at=None, code=None):
         async def _api(_method, _path, **_kw):
-            return {"data": {"attributes": {"status": status, "next_action": {"code": {"expires_at": expires_at}}}}}
+            return {"data": {"attributes": {"status": status, "next_action": {"code": {"expires_at": expires_at, **(code or {})}}}}}
 
         monkeypatch.setattr(payments, "_api", _api)
 
     await _intent("awaiting_next_action", (datetime.now(UTC) + timedelta(minutes=12)).isoformat())
-    assert "min left" in await payments._pending_block(row)  # a scannable code is not a second purchase
+    assert "min left" in (await payments._resume_or_block(row))[1]  # no artifact -> nothing to re-show
 
     await _intent("awaiting_next_action", (datetime.now(UTC) - timedelta(minutes=1)).isoformat())
-    assert await payments._pending_block(row) == ""  # unscannable -> the retry is not held for 24h
+    assert (await payments._resume_or_block(row)) == ({}, "")  # unscannable -> the retry is not held
+
+    await _intent("processing", (datetime.now(UTC) + timedelta(minutes=10)).isoformat())
+    assert "processed" in (await payments._resume_or_block(row))[1]  # mid-payment: no second scan
 
     # PayMongo leaves an abandoned intent `awaiting_next_action` forever (measured on an 11-day-old
     # one), so a status-only gate would lock the owner out permanently: the fallback ceiling is what
     # frees a row whose intent reports no deadline of its own.
     await _intent("awaiting_next_action", None)
-    assert "min left" in await payments._pending_block(_row(owner_id="u", status="incomplete", provider_subscription_id="pi_x", updated_at=datetime.now(UTC)))
-    assert await payments._pending_block(_row(owner_id="u", status="incomplete", provider_subscription_id="pi_x", updated_at=datetime.now(UTC) - timedelta(hours=2))) == ""
+    fresh = _row(owner_id="u", status="incomplete", provider_subscription_id="pi_x", updated_at=datetime.now(UTC))
+    assert "min left" in (await payments._resume_or_block(fresh))[1]
+    stale = _row(owner_id="u", status="incomplete", provider_subscription_id="pi_x", updated_at=datetime.now(UTC) - timedelta(hours=2))
+    assert (await payments._resume_or_block(stale)) == ({}, "")
 
     credited: list[tuple] = []
 
@@ -301,7 +328,7 @@ async def test_pending_qr_is_judged_by_its_own_deadline(monkeypatch):
 
     monkeypatch.setattr(payments, "fetchrow", fake_fetchrow)
     await _intent("succeeded")  # paid, webhook never arrived: credit it, do not sell a second period
-    assert "already received" in await payments._pending_block(row)
+    assert "already received" in (await payments._resume_or_block(row))[1]
     assert credited
 
 

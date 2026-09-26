@@ -31,9 +31,10 @@ chromium resolved from `/nix/store` exactly as the `hermetic-e2e` skill document
   Upgrade → `POST /api/billing/checkout`.
 - Expect the QR modal: an `<img>` whose `src` is a `data:image/png;base64,…` URI, the wallet line, and
   a countdown to `expires_at` (30 min, the provider's own deadline).
-- A 409 here is the server's own `detail` and it is the whole gate: "Add an email to your account",
-  "Your subscription already covers the current period", or "A payment is already pending — N min
-  left". The last one only clears when the provider says the code is dead.
+- Pressing Upgrade again re-serves the SAME code while it is payable, so a closed popup or a reload
+  costs nothing.
+- A 409 here is the server's own `detail`: "Add an email to your account", "Your subscription already
+  covers the current period", "Payment already received", or "Your payment is being processed".
 
 ### 2. Complete the payment
 

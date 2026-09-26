@@ -71,10 +71,12 @@ prefix (`curl localhost:8000/api/billing/checkout`).
     buys again.
   - **`subscription` (dormant)** — subscription + first-invoice Payment Intent → Maya; later cycles
     are charged by PayMongo from the vaulted method.
-  - **409s instead of a second charge** while a paid period is live, and while a pending payment is
-    still payable: period mode asks the provider about the stored intent (`payments._pending_block`,
-    so the window is the code's own 30 minutes) and subscription mode uses PayMongo's 24h
-    first-payment window (`payments._resubscribe_block`).
+  - **A second purchase is never a second charge.** A live paid period is refused outright, and a
+    pending payment that is STILL payable is served again instead of refused: period mode asks the
+    provider about the stored intent (`payments._resume_or_block`), because closing the popup or
+    reloading must not strand the buyer for the code's whole life. A dead code frees the row, an
+    intent already `succeeded` is credited, and one being processed is refused for that moment.
+    Subscription mode keeps PayMongo's 24h first-payment window (`payments._resubscribe_block`).
 - **`POST /billing/cancel`** — PayMongo has **no billing portal**, so cancelling is ours: in
   subscription mode `DELETE` the subscription; in period mode there is nothing scheduled to stop.
   Either way the row goes `cancelled` and the paid period keeps serving (§5).

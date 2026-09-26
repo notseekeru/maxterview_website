@@ -121,10 +121,11 @@ To exercise the **real** HMAC path (`Paymongo-Signature`, not the simulate short
    `{"qr": {image_url, expires_at}}`. The `subscriptions` row is written as `premium/incomplete`
    **before** the QR reaches the browser, holding the intent id in `provider_subscription_id` (no
    migration; that is the column the webhook resolves an owner from).
-   A **409** here is the server's own detail: a paid period is already live, or a code is still
-   scannable ("A payment is already pending — N min left"). Deliberate — a second payment is a second
-   charge. Don't clear the row to "fix" it: the gate asks PayMongo for the stored intent and clears
-   itself once the code expires, and credits the period if that intent already reads `succeeded`.
+   Pressing Upgrade again **re-serves the same code** while it is still payable (the row holds the one
+   live intent, so `_resume_or_block` asks PayMongo and hands the artifact back): a closed popup or a
+   reload costs the buyer nothing. A **409** here therefore means a paid period is already live, the
+   intent reads `succeeded` (that path credits it instead of selling again), or a payment is being
+   processed right now. Do not clear the row to "fix" a 409: a dead code frees it on its own.
 2. **Scan the code** in any wallet or bank app; the modal polls `/api/usage` and reloads on `premium`
    (in no-Clerk dev mode it can never flip because `resolve_tier` short-circuits to `dev` — assert on
    the row instead). In test mode `next_action.code.test_url` completes the payment with no wallet.

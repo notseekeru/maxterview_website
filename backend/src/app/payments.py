@@ -192,15 +192,23 @@ async def _payable_intent(intent_id: str, method_type: str) -> dict:
         lambda attrs: _api("POST", f"/v1/payment_intents/{intent_id}/attach", json={"data": {"attributes": attrs}}),
     )
     action = ((attach.get("data") or {}).get("attributes") or {}).get("next_action") or {}
+    artifact = _artifact(action)
+    if not artifact:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Payment provider returned nothing payable")
+    return artifact
+
+
+def _artifact(action: dict) -> dict:
+    """`next_action` -> what the browser needs to pay: `{"url": …}` for a redirect method, or
+    `{"qr": …}` for a QR one, whose only hand-off is the image itself (`consume_qr`; the code carries
+    the amount, is single-use, and `expires_at` is the provider's own deadline). {} if nothing yet."""
     url = (action.get("redirect") or {}).get("url")
     if url:
         return {"url": url}
     code = action.get("code") or {}
     if code.get("image_url"):
-        # `consume_qr`: the QR carries the amount, is single-use, and `expires_at` is the provider's
-        # own deadline (30 min). The frontend counts down to it and stops offering the scan.
         return {"qr": {"image_url": code["image_url"], "expires_at": code.get("expires_at") or ""}}
-    raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Payment provider returned nothing payable")
+    return {}
 
 
 async def start_period_purchase(user: ClerkUser) -> dict:
@@ -212,8 +220,14 @@ async def start_period_purchase(user: ClerkUser) -> dict:
     _require_period_config()
     email = await _require_email(user)
     existing = await fetchrow("SELECT owner_id, plan, status, current_period_end, updated_at, provider_subscription_id FROM subscriptions WHERE owner_id = $1", user.sub)
-    # A pending row is judged by the provider (the QR's own life); every other row by the stored period.
-    block = await _pending_block(existing) if (existing or {}).get("status") == "incomplete" else _resubscribe_block(existing)
+    if (existing or {}).get("status") == "incomplete":
+        # A pending row is judged by the provider, and a code that is STILL payable is handed back as
+        # it is: closing the popup, reloading, or coming back later must not strand the payment.
+        resumed, block = await _resume_or_block(existing)
+        if resumed:
+            return resumed
+    else:
+        block = _resubscribe_block(existing)
     if block:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=block)
 
@@ -443,41 +457,49 @@ async def _credit_period(owner_id: str, intent_id: str) -> bool:
     return bool(row)
 
 
-async def _pending_block(row: dict) -> str:
-    """Why a still-`incomplete` period-mode row blocks a NEW purchase ('' = it is dead, start fresh).
+async def _resume_or_block(row: dict) -> tuple[dict, str]:
+    """What a still-`incomplete` period-mode row means for a new checkout.
 
-    The pending row is keyed by owner, so there is exactly one live intent per owner and the
-    PROVIDER's view of it is the only window that matches the rail: a QR Ph code dies 30 minutes
-    after it is drawn, where `FIRST_PAYMENT_WINDOW_H` is PayMongo's subscription rule and would lock
-    an abandoner out for a day. The intent's own `expires_at` is exact; the fallback ceiling exists
-    because a status alone would never free the row (PayMongo leaves abandoned intents
-    `awaiting_next_action` forever, so a status-only gate is a permanent lockout).
+    Three outcomes: `(artifact, "")` when the SAME payment is still payable (the popup was closed, the
+    page reloaded, the buyer came back), `({}, message)` when it must not be started again, and
+    `({}, "")` when the code is dead and a fresh intent is correct.
+
+    Handing the artifact back beats refusing on purpose: the row holds the one live intent for this
+    owner, so a refusal would lock the buyer out for the code's whole life after a stray click. The
+    intent's own `expires_at` is the deadline, and the fallback ceiling exists because a status alone
+    would never free the row (PayMongo leaves abandoned intents `awaiting_next_action` forever).
     """
     intent_id = row.get("provider_subscription_id") or ""
-    intent_status, expires_at = await _intent_state(intent_id)
+    intent_status, expires_at, artifact = await _intent_view(intent_id)
     if intent_status == "succeeded":
         # Money arrived but no delivery credited it. Credit it here through the same compare-and-set
         # the webhook uses (a late delivery then no-ops) instead of selling a second period.
         await _credit_period(row["owner_id"], intent_id)
-        return "Payment already received — refresh to see your premium"
+        return {}, "Payment already received — refresh to see your premium"
     now = datetime.now(UTC)
     deadline = expires_at or (row.get("updated_at") or now) + timedelta(minutes=QR_TTL_MIN)
     if intent_status in DEAD_INTENT_STATUSES or deadline <= now:
-        return ""
-    return f"A payment is already pending — {max(1, int((deadline - now).total_seconds() // 60))} min left"
+        return {}, ""
+    if intent_status == "processing":
+        # The wallet is mid-payment. Re-showing the code here would invite a second scan.
+        return {}, "Your payment is being processed — one moment"
+    if artifact:
+        return artifact, ""
+    left = max(1, int((deadline - now).total_seconds() // 60))
+    return {}, f"A payment is already pending — {left} min left"
 
 
-async def _intent_state(intent_id: str) -> tuple[str, datetime | None]:
-    """(status, when its QR dies) from the provider. ("", None) when it cannot be read, which
-    `_pending_block` treats as still alive: minutes of friction beat an uncredited second charge."""
+async def _intent_view(intent_id: str) -> tuple[str, datetime | None, dict]:
+    """(status, deadline, payable artifact) from the provider. `("", None, {})` when it cannot be
+    read, which callers treat as still alive: minutes of friction beat an uncredited second charge."""
     if not intent_id:
-        return "", None
+        return "", None, {}
     try:
         data = (await _api("GET", f"/v1/payment_intents/{intent_id}")).get("data") or {}
     except HTTPException:
-        return "", None
+        return "", None, {}
     attrs = data.get("attributes") or {}
-    return attrs.get("status") or "", _period_end(((attrs.get("next_action") or {}).get("code") or {}).get("expires_at"))
+    return attrs.get("status") or "", _period_end(((attrs.get("next_action") or {}).get("code") or {}).get("expires_at")), _artifact(attrs.get("next_action") or {})
 
 
 async def _on_subscription(attrs: dict) -> None:
