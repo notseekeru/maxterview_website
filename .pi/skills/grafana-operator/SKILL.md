@@ -42,7 +42,7 @@ URL=https://sturdypoplar3317.grafana.net
 | Folder, Grafana's own | `afys5ycv6iv40b` — holds the 11 built-in Cloud dashboards, never touch |
 | Rule group | `maxterview-logs`, interval 60s, 5 rules (2 Prometheus: 5xx, model failures; 3 Loki: tracebacks, browser errors, and dropped OTLP batches from the Alloy stream) |
 | Dashboard | `maxterview-logs` (uid = same slug), 7 panels (3 Loki, 3 Prometheus, 1 traces) |
-| Rule uids | `cfys2cemal24ga`, `efys2cf010ykgc`, `afys2cfcxi2v4e`, `afystat9eb1tsb` |
+| Rule uids | backend 5xx `cfys2cemal24ga`, llm failures `efys2cf010ykgc`, backend tracebacks `afys2cfcxi2v4e`, browser errors `afystat9eb1tsb`, telemetry export failing `cfz9q0s3wfncwb` |
 | Contact point | `slack-maxterview` (uid `dfys2agrrsr9ce`, type slack; webhook is a secret in Infisical) |
 | Root notification policy | receiver `slack-maxterview`, `group_by = [grafana_folder, alertname]`, `provenance: api` |
 | Loki datasource | `grafanacloud-logs` (also `grafanacloud-prom`, `-traces`, `-profiles`) |
