@@ -63,7 +63,7 @@ TERMINAL_STATUSES = ("cancelled", "incomplete_cancelled")
 
 # SUBSCRIPTION mode only: mirrors PayMongo's own first-payment window (an `incomplete` subscription
 # self-cancels 24h after its first invoice). Period mode cannot use it — a QR Ph code lives 30
-# minutes, so a 24h lock would outlive the thing it is waiting on (`_pending_block`).
+# minutes, so a 24h lock would outlive the thing it is waiting on (`_resume_or_block`).
 FIRST_PAYMENT_WINDOW_H = 24
 
 # Intent statuses that mean "no money can arrive on this one". Anything else fails CLOSED: the cost
@@ -91,7 +91,7 @@ def _resubscribe_block(row: dict | None, now: datetime | None = None) -> str:
     if row.get("status") == "incomplete":
         # Checked before the period branch: an incomplete subscription has no period yet, and while
         # the first-payment link is alive a second subscription is a second charge for the same
-        # first month. Subscription mode only — period mode goes through `_pending_block`.
+        # first month. Subscription mode only — period mode goes through `_resume_or_block`.
         started = row.get("updated_at")
         if started is None or (now - started).total_seconds() < FIRST_PAYMENT_WINDOW_H * 3600:
             return "A first payment is already pending — finish it, or retry after it expires (24h)"
