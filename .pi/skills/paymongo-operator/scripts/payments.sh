@@ -2,7 +2,7 @@
 # payments.sh — operator helper for the one-time payment path (BILLING_MODE=period, the launch mode).
 #
 #   --list-payments [--limit=N]                recent payments (id, amount, status, fee)
-#   --create-period [--amount=49900] [--desc=] create + attach a Maya Payment Intent (the sequence
+#   --create-period [--amount=9900] [--desc=]  create + attach a Maya Payment Intent (the sequence
 #                                              `start_period_purchase` runs) and print the redirect URL
 #   --refund --payment-id=pay_x [--amount=N]   refund a paid payment (needs --admin-destroy)
 #   --list-webhooks                            registered endpoints
@@ -19,7 +19,7 @@ _ENGINE_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 API="https://api.paymongo.com"
 ADMINDESTROY=0
 MODE=""
-AMOUNT=49900
+AMOUNT=9900
 LIMIT=10
 DESC="Maxterview Premium (30 days)"
 URL=""
@@ -106,5 +106,5 @@ case "$MODE" in
           else grep -o '"id": *"[^"]*"' | head -1; fi; }
     echo "  secret: copy it from the Dashboard into backend/.env as PAYMONGO_WEBHOOK_SECRET (not echoed here)"
     ;;
-  *) echo "usage: payments.sh --list-payments [--limit=N] | --create-period [--amount=49900] | --refund --payment-id=pay_x --admin-destroy | --list-webhooks | --register-webhook --url=https://…"; exit 2 ;;
+  *) echo "usage: payments.sh --list-payments [--limit=N] | --create-period [--amount=9900] | --refund --payment-id=pay_x --admin-destroy | --list-webhooks | --register-webhook --url=https://…"; exit 2 ;;
 esac

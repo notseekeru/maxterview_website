@@ -32,7 +32,7 @@ real subscription lifecycle end-to-end.
 | --- | --- | --- |
 | none (`backend/.env` empty) | Full dev proof: `/api/billing/webhook/simulate` (dev/test only) drives `subscriptions` → `resolve_tier` → `/api/usage`. Works offline, no tunnel, no keys. | Touch PayMongo at all. |
 | `PAYMONGO_SECRET_KEY` (test) | **Everything the launch mode needs**: Customer, one-time Payment Intent, Maya redirect, webhooks, refunds — `payments.sh`. | Take real money (live keys need a Fully Verified account). **Subscriptions** — the account-level `Subscriptions` capability is off, so `POST /v1/subscriptions` and even `POST /v1/subscriptions/plans` return **403 `merchant_invalid_state`** ("no subscription payment methods are configured for this organization"). |
-| live keys | Real ₱499 billing. | — |
+| live keys | Real ₱99 billing. | — |
 
 **Two PayMongo account-level features are NOT self-service**: **Subscriptions** and **Card Vaulting** —
 both need `support@paymongo.com`, and "All subscription activations are manually requested — no
@@ -131,7 +131,7 @@ and prints the Maya URL, then `webhook-driver.sh --event=payment.paid --intent=p
 ### Subscription mode — blocked until support enables it
 
 1. **Plan** — once per price. `POST /v1/subscriptions/plans` with
-   `{name, amount: 49900, currency: "PHP", interval: "month", interval_count: 1}` → `plan_…` →
+   `{name, amount: 9900, currency: "PHP", interval: "month", interval_count: 1}` → `plan_…` →
    put it in `PAYMONGO_PLAN_ID`. (`scripts/paymongo-stub.sh --create-plan`)
 2. **App-side start** — `POST /api/billing/checkout` with `BILLING_MODE=subscription`. Creates the
    Customer, the Subscription (`incomplete`), then attaches a `paymaya` PaymentMethod to the

@@ -91,7 +91,7 @@ you only need the vars for the features you actually use. Check which are set (n
 | UI/API with no auth at all (fast dev)      | _(nothing)_                                                         | —                                                      | default works (`CLERK_ENABLED=false` → `DEV_USER`)                                                                   |
 | Real Clerk sign-in + JWT auth              | `CLERK_ENABLED=true`, `CLERK_DOMAIN`, `CLERK_JWKS_URL`              | `frontend/.env` `VITE_CLERK_PUBLISHABLE_KEY=pk_test_…` | `make up`, visit `/sign-in`                                                                                          |
 | Headless Clerk ops (mint users/sessions)   | `CLERK_SECRET_KEY=sk_test_…`                                        | —                                                      | `docker exec -e CLERK_SECRET_KEY="$CLERK_SECRET_KEY" maxterview_frontend_dev sh -c 'cd /tmp && npx clerk api users'` |
-| PayMongo ₱499 → premium row (30 days)      | `PAYMONGO_SECRET_KEY` (`sk_test_…`), `PAYMONGO_WEBHOOK_SECRET`      | —                                                      | upgrade in the UI → Maya page; dev instead: POST `/api/billing/webhook/simulate` (no tunnel, no keys)                |
+| PayMongo ₱99 → premium row (30 days)       | `PAYMONGO_SECRET_KEY` (`sk_test_…`), `PAYMONGO_WEBHOOK_SECRET`      | —                                                      | upgrade in the UI → Maya page; dev instead: POST `/api/billing/webhook/simulate` (no tunnel, no keys)                |
 | Real AI interviewer chat + auto-feedback   | `LLM_BASE_URL`, `LLM_MODEL`, `LLM_API_KEY`                          | —                                                      | empty → deterministic STUB (model-free tests/dev)                                                                    |
 | BYOK (own provider key)                    | `BYOK_ENCRYPTION_KEY`                                               | —                                                      | `BYOK.md`                                                                                                            |
 | Observability (logs, metrics, traces)      | `OTEL_EXPORTER_OTLP_ENDPOINT` (empty = logs only, no SDK)           | prod: Loki + Tempo + Prometheus, wired in gitops       | `make logs` in dev; prod is `OBSERVABILITY.md`                                                                       |
@@ -149,7 +149,7 @@ Operator notes:
   **the secret keys ARE the app's env-var names** (uppercase). Never `kubectl apply` a secret, never
   commit one; rotation is an Infisical change + `make apply` + a rollout restart. Live-mode
   `PAYMONGO_*` and the `payment.paid` webhook secret are applied — a signed live-format delivery
-  answers `200 ok`, an unsigned one `400`. The remaining item is one real ₱499 payment.
+  answers `200 ok`, an unsigned one `400`. The remaining item is one real ₱99 payment.
 - **Database:** Neon, **direct host** (not `-pooler`) with `?sslmode=require`. The direct host needs
   no code change — the backend is one long-running pod holding ~10 pooled connections; Neon's pooler
   only matters when many short-lived instances share a DB, and `app/db.py` auto-detects a `-pooler`

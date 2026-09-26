@@ -65,7 +65,7 @@ if [ -n "$missing" ]; then
     cat <<'EOF'
 CLERK_SECRET_KEY=<sk_test_... from Clerk dashboard: https://dashboard.clerk.com/apps/.../keys>
 PAYMONGO_SECRET_KEY=<sk_test_... from https://dashboard.paymongo.com/developers>
-PAYMONGO_PLAN_ID=<plan_... of the ₱499/mo premium plan; create with paymongo-stub.sh --create-plan>
+PAYMONGO_PLAN_ID=<plan_... of the ₱99/mo premium plan; create with paymongo-stub.sh --create-plan>
 # optional:
 CLERK_FRONTEND_API=<your-instance>.clerk.accounts        # from your Clerk instance, browser-auth only
 CLERK_PUBLISHABLE_KEY_PREVIEW=pk_test_...               # the one frontend/.env uses, browser-auth only

@@ -30,7 +30,7 @@ async def _async_none(*_args, **_kwargs):
 
 def test_quota_defaults():
     assert _quota("free", "chat_turns") == 30
-    assert _quota("premium", "chat_turns") == 250
+    assert _quota("premium", "chat_turns") == 100
     assert _quota("dev", "chat_turns") == 500
 
 
@@ -72,13 +72,13 @@ async def test_chat_turns_used_defaults_zero_when_no_row(monkeypatch):
 
 
 async def test_chat_turn_remaining_uses_global_counter(monkeypatch):
-    # Used 7 across all interviews today -> free(30) has 23 left; premium(250) has 243.
+    # Used 7 across all interviews today -> free(30) has 23 left; premium(100) has 93.
     async def _fake(q, owner, day):
         return {"turns": 7}
 
     monkeypatch.setattr(billing, "fetchrow", _fake)
     assert await billing.chat_turn_remaining("free", "o") == 23
-    assert await billing.chat_turn_remaining("premium", "o") == 243
+    assert await billing.chat_turn_remaining("premium", "o") == 93
     assert await billing.chat_turn_remaining("dev", "o") == 493
     assert await billing.chat_turn_remaining(None, "o") == billing.BYOK_CHAT_TURNS - 7  # BYOK ceiling
 
@@ -156,7 +156,7 @@ def _invoice_event(etype: str, *, status: str = "paid") -> dict:
                 "type": "invoice",
                 "attributes": {
                     "id": "inv_123",
-                    "amount": 49900,
+                    "amount": 9900,
                     "currency": "PHP",
                     "resource_id": "subs_123",
                     "status": status,
@@ -334,12 +334,12 @@ async def test_unknown_event_type_is_ignored(monkeypatch):
 def _payment_event(*, etype: str = "payment.paid", intent_id: str = "pi_1") -> dict:
     """`payment.paid` carries the intent it charged; a `payment_intent` event IS the intent."""
     if etype.startswith("payment_intent"):
-        resource = {"id": intent_id, "type": "payment_intent", "attributes": {"id": intent_id, "amount": 49900, "status": "succeeded"}}
+        resource = {"id": intent_id, "type": "payment_intent", "attributes": {"id": intent_id, "amount": 9900, "status": "succeeded"}}
     else:
         resource = {
             "id": "pay_1",
             "type": "payment",
-            "attributes": {"id": "pay_1", "amount": 49900, "status": "paid", "payment_intent_id": intent_id},
+            "attributes": {"id": "pay_1", "amount": 9900, "status": "paid", "payment_intent_id": intent_id},
         }
     return {"data": {"type": etype, "livemode": False, "data": resource}}
 

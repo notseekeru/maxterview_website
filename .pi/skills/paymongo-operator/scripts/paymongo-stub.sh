@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 # paymongo-stub.sh — operator helper: read/create a throwaway PayMongo TEST object (plan/customer).
 #
-#   --create-plan [--amount=49900] [--interval=month] [--name=...]   create the ₱499/mo premium plan
+#   --create-plan [--amount=9900] [--interval=month] [--name=...]   create the ₱99/mo premium plan
 #   --list-plans                                                     list plans (id + amount + interval)
 #   --create-customer --email=x@y [--first=..] [--last=..]           create a customer
 #   --list-customers                                                 list customers (id + email)
 #   --drop-customer --id=cus_x                                       delete a customer (--admin-destroy)
 #
 # Reads (never prints): PAYMONGO_SECRET_KEY. Live keys are refused. Amounts are in CENTAVOS
-# (49900 = ₱499). Plan ids belong in backend/.env as PAYMONGO_PLAN_ID.
+# (9900 = ₱99). Plan ids belong in backend/.env as PAYMONGO_PLAN_ID.
 set -euo pipefail
 _ENGINE_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=/dev/null
@@ -17,7 +17,7 @@ _ENGINE_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 API="https://api.paymongo.com"
 ADMINDESTROY=0
 MODE=""
-AMOUNT=49900
+AMOUNT=9900
 INTERVAL="month"
 PLAN_NAME="Premium monthly"
 EMAIL=""

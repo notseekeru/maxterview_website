@@ -1,6 +1,6 @@
 # MONETIZATION — payment & billing
 
-**Shipped (M10).** Quota backend + **PayMongo** (PHP-only, ₱499, Maya first payment). **The shipping rail
+**Shipped (M10).** Quota backend + **PayMongo** (PHP-only, ₱99, Maya first payment). **The shipping rail
 is `BILLING_MODE=period`** — one payment buys 30 days — because PayMongo enables Subscriptions only by
 hand (§4); provider-managed recurring stays implemented and dormant behind that one env var.
 Decisions: PLAN D10 (owner-scoping is a hard rule).
@@ -11,8 +11,8 @@ Decisions: PLAN D10 (owner-scoping is a hard rule).
 | ----------------------------------------- | -------------------------- | ------------------------------------ | -------------------------- |
 | Interviews (creation)                     | **unlimited**              | **unlimited**                        | **unlimited**              |
 | Resumes kept                              | **1** (`FREE_RESUMES`)     | **5** (`PREMIUM_RESUMES`)            | **5** (`DEV_RESUMES`)      |
-| Price                                     | ₱0                         | **₱499 / 30 days** (one payment)     | ₱0                         |
-| Chat turns / day (GLOBAL, all interviews) | **30** (`FREE_CHAT_TURNS`) | **250** (`PREMIUM_CHAT_TURNS`)       | **500** (`DEV_CHAT_TURNS`) |
+| Price                                     | ₱0                         | **₱99 / 30 days** (one payment)      | ₱0                         |
+| Chat turns / day (GLOBAL, all interviews) | **30** (`FREE_CHAT_TURNS`) | **100** (`PREMIUM_CHAT_TURNS`)       | **500** (`DEV_CHAT_TURNS`) |
 
 - The gate is a **global daily credit per owner** spanning ALL their interviews in one UTC day, reset
   at 00:00 UTC. No per-interview cap, no daily-interview cap, no free trial. Count **turns, not
@@ -113,8 +113,8 @@ customer and overwrite the live row (logged as `paymongo.webhook.unknown_subscri
 
 **Xendit — rejected.** Its PH rate card adds a ₱11 Processing Fee per transaction **attempt** (failed
 charges and refunds included) on top of method fees, plus a **USD 50/month minimum** whenever the
-monthly invoice is under USD 50. At ₱499/cycle the per-cycle fee is ~₱28, so the floor only stops
-biting near ~100 paying subscribers — but at 20 subs it would take roughly a quarter of revenue. It
+monthly invoice is under USD 50. At ₱99/cycle the ₱11 processing fee alone is 11% of revenue, and the
+floor needs ~₱2,900/month of billing (≈30 subscribers) to clear. It
 also requires a registered entity and authenticates webhooks with a static `x-callback-token`
 instead of an HMAC over the raw body.
 

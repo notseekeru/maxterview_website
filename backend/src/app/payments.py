@@ -41,7 +41,7 @@ PROVIDER = "paymongo"
 
 # `period` = one-time payment buys PREMIUM_PERIOD_DAYS; `subscription` = provider-managed recurring.
 BILLING_MODE = os.getenv("BILLING_MODE", "period")
-PREMIUM_PRICE_CENTAVOS = int(os.getenv("PREMIUM_PRICE_CENTAVOS", "49900"))  # ₱499
+PREMIUM_PRICE_CENTAVOS = int(os.getenv("PREMIUM_PRICE_CENTAVOS", "9900"))  # ₱99
 PREMIUM_PERIOD_DAYS = int(os.getenv("PREMIUM_PERIOD_DAYS", "30"))
 # Maya alone works on an individual account (Cards need a registered business type); card stays
 # listed for business accounts.
@@ -177,7 +177,7 @@ async def _redirect_for_intent(intent_id: str) -> str:
 
 
 async def start_period_purchase(user: ClerkUser) -> str:
-    """One-time ₱499 buys PREMIUM_PERIOD_DAYS of premium; returns the Maya redirect URL.
+    """One-time ₱99 buys PREMIUM_PERIOD_DAYS of premium; returns the Maya redirect URL.
 
     The row is written BEFORE the redirect (the customer may never come back, and the webhook needs a
     row to resolve an owner from).

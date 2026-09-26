@@ -33,7 +33,7 @@ export function BillingPage() {
 // same numbers. Turn caps are env-overridable server-side, so wherever the caller's own tier is
 // known the LIVE number from GET /usage wins over the marketing default.
 // PayMongo subscriptions are PHP-only, so the price is stated in pesos (app/billing plans are
-// created with amount=49900).
+// created with amount=9900).
 
 function useUsage() {
     const [usage, setUsage] = useState<Usage | null>(null);

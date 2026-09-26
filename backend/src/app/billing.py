@@ -10,7 +10,7 @@ Simple tier model: Free / Premium / dev(-only). Backend-authoritative.
   fixed `DEV_USER`). `main.py`'s boot guard refuses to boot with `CLERK_ENABLED=false` outside
   development/test, so `dev` can never leak to production. Never persisted in `subscriptions`.
 - **Quotas**: a single daily chat-turn credits per owner is the only METERED gate — free = 30,
-  premium = 250, dev = 500 (across ALL the owner's interviews in one UTC day). No
+  premium = 100, dev = 500 (across ALL the owner's interviews in one UTC day). No
   per-interview cap and no token metering (decisions 2026-08-23 / this change). An owner on their
   own provider (BYOK) trades the tier cap for the flat, higher `BYOK_CHAT_TURNS` ceiling: the cap
   is never WAIVED, and every turn is metered either way (see `chat_turn_limit`).
@@ -32,7 +32,7 @@ from app.models import ClerkUser
 # --- tier limits (env-overridable; MONETIZATION.md §0) ---
 # Daily GLOBAL chat-turn credits PER OWNER, across all interviews in one UTC day.
 FREE_CHAT_TURNS = int(os.getenv("FREE_CHAT_TURNS", "30"))
-PREMIUM_CHAT_TURNS = int(os.getenv("PREMIUM_CHAT_TURNS", "250"))
+PREMIUM_CHAT_TURNS = int(os.getenv("PREMIUM_CHAT_TURNS", "100"))
 DEV_CHAT_TURNS = int(os.getenv("DEV_CHAT_TURNS", "500"))  # dev > premium
 # BYOK: the owner's own provider pays, so the TIER cap is not the gate - this flat ceiling is. A
 # waived cap would make the self-asserted `byok` flag a free ride on whoever's GPU `base_url` names

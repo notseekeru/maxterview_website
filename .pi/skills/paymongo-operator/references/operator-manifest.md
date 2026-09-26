@@ -45,11 +45,11 @@ Base: pass header `Authorization: Bearer $CLERK_SECRET_KEY`. All params JSON, ho
 
 Base: `https://api.paymongo.com`, header `Authorization: Basic base64("$PAYMONGO_SECRET_KEY:")`
 (note the **empty password**), JSON bodies (`application/json`). Amounts are **centavos**
-(49900 = ₱499). PHP is the only subscription currency.
+(9900 = ₱99). PHP is the only subscription currency.
 
 | Resource | Endpoints | Notes / guardrail |
 |---|---|---|
-| Plans | `POST /v1/subscriptions/plans`, `GET /v1/subscriptions/plans` | **Subscription mode only** (blocked today): create the ₱499/mo premium plan once (`scripts/paymongo-stub.sh --create-plan`); the id goes in `PAYMONGO_PLAN_ID`. Period mode needs no plan. |
+| Plans | `POST /v1/subscriptions/plans`, `GET /v1/subscriptions/plans` | **Subscription mode only** (blocked today): create the ₱99/mo premium plan once (`scripts/paymongo-stub.sh --create-plan`); the id goes in `PAYMONGO_PLAN_ID`. Period mode needs no plan. |
 | Customers | `POST /v1/customers`, `GET /v1/customers`, `DELETE /v1/customers/{id}` | `default_device` is **required** on create (we send `"email"`); email is **unique per customer** — reuse the id stored in `subscriptions.provider_customer_id`; never create a second one for the same owner. |
 | Subscriptions | `POST /v1/subscriptions`, `GET /v1/subscriptions/{id}`, `DELETE /v1/subscriptions/{id}` | Create generates the **first invoice immediately** (24h to pay it or it self-cancels to `incomplete_cancelled`). `DELETE` is immediate — but our `cancel_subscription` keeps the paid period entitled until `current_period_end`. |
 | Subscription invoices | `GET /subscriptions/invoices?resource_id=subs_…`, `POST /v1/subscriptions/invoices/{id}/pay` | The invoice carries `payment_intent.{id,status}` — the first invoice's intent is what the Maya payment attaches to. |

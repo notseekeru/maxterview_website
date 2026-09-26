@@ -33,7 +33,7 @@ SUBSCRIPTION="subs_demo"
 STATUS="active"
 PLAN="plan_demo"
 NEXT_BILLING="2026-10-14"
-AMOUNT=49900
+AMOUNT=9900
 # Period mode stores the Payment Intent id in `provider_subscription_id`, so `paid` events must name
 # an intent that a real pending row holds (see payments.sh --create-period).
 INTENT="pi_demo"
