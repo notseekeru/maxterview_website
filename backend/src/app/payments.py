@@ -542,6 +542,10 @@ async def _credit_period(owner_id: str, intent_id: str) -> bool:
         intent_id,
         datetime.now(UTC) + timedelta(days=PREMIUM_PERIOD_DAYS),
     )
+    if row:
+        # The only durable record that money bought a period: the webhook and the checkout resume
+        # path both land here, and neither the tier read nor the credit write leaves another trace.
+        log.info("paymongo.payment.credited", owner_id=owner_id, payment_intent_id=intent_id)
     return bool(row)
 
 
