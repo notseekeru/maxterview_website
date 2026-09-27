@@ -31,8 +31,8 @@ real subscription lifecycle end-to-end.
 | Keys present | You can do | You cannot do |
 | --- | --- | --- |
 | none (`backend/.env` empty) | Full dev proof: `/api/billing/webhook/simulate` (dev/test only) drives `subscriptions` → `resolve_tier` → `/api/usage`. Works offline, no tunnel, no keys. | Touch PayMongo at all. |
-| `PAYMONGO_SECRET_KEY` (test) | **Everything the launch mode needs**: Customer, one-time Payment Intent, QR Ph code, webhooks, refunds — `payments.sh`. | Real money (that is the live key; no KYB needed for QR Ph). **Subscriptions** — the account-level `Subscriptions` capability is off, so `POST /v1/subscriptions` and even `POST /v1/subscriptions/plans` return **403 `merchant_invalid_state`** ("no subscription payment methods are configured for this organization"). |
-| live keys | Real ₱99 billing over QR Ph. Verified end to end 2026-09-27. | Refunds: dashboard only (these scripts refuse live keys), and only from a funded balance. |
+| `PAYMONGO_SECRET_KEY` (test) | **Everything the launch mode needs**: Customer, one-time Payment Intent, QR Ph code, webhooks — `payments.sh`. | Real money (that is the live key; no KYB needed for QR Ph). **Refunds** — `POST /v1/refunds` answers `parameter_invalid: Refunds are not allowed for payments with source type qrph`, so a refund exists only as a dashboard action. **Subscriptions** — the account-level `Subscriptions` capability is off, so `POST /v1/subscriptions` and even `POST /v1/subscriptions/plans` return **403 `merchant_invalid_state`** ("no subscription payment methods are configured for this organization"). |
+| live keys | Real ₱99 billing over QR Ph. Verified end to end 2026-09-27. | Refunds: dashboard only (these scripts refuse live keys), and only from a funded balance; the app revokes on the `payment.refunded` that dashboard refund emits. |
 
 **Two PayMongo account-level features are NOT self-service**: **Subscriptions** and **Card Vaulting** —
 both need `support@paymongo.com`, and "All subscription activations are manually requested — no
@@ -129,8 +129,8 @@ To exercise the **real** HMAC path (`Paymongo-Signature`, not the simulate short
 2. **Scan the code** in any wallet or bank app; the modal polls `/api/usage` and reloads on `premium`
    (in no-Clerk dev mode it can never flip because `resolve_tier` short-circuits to `dev` — assert on
    the row instead). In test mode `next_action.code.test_url` completes the payment with no wallet.
-3. **Webhook** — `payment.paid` (the ONLY subscribable type here; the API rejects
-   `payment_intent.succeeded` as `parameter_invalid`) sets
+3. **Webhook** — `payment.paid` (the event period mode emits; the API rejects
+   `payment_intent.succeeded` as `parameter_invalid` on this account) sets
    `plan=premium, status=active, current_period_end = now() + PREMIUM_PERIOD_DAYS`. It is a
    **compare-and-set on `provider_subscription_id = <intent id> AND status = 'incomplete'`**, so a
    replay, the sibling event type, or a PayMongo retry cannot buy a second period
@@ -139,6 +139,12 @@ To exercise the **real** HMAC path (`Paymongo-Signature`, not the simulate short
    `current_period_end`. `billing.resolve_tier` then reads `premium` wherever Clerk is on.
 5. **No cancel to offer** — nothing is scheduled provider-side, so `/api/billing/cancel` only marks
    the row `cancelled` (the paid time still serves) and the UI shows the expiry instead of a button.
+6. **Revoke** — a dashboard refund emits `payment.refunded`, which flips the row to `free/refunded` at
+   once (the paid period stops serving, `MONETIZATION §5`); `payment.refund.updated` is status churn and
+   revokes only once the refund reads `succeeded`, so a held refund keeps the time. Drive it with
+   `webhook-driver.sh --event=payment.refunded --intent=pi_x --admin-destroy`. A **chargeback has no
+   event here** (`dispute.*` refuses registration, `GET /v1/disputes` is `access_denied`): revoke it by
+   hand — `revoke.sh --intent=pi_x --status=disputed --admin-destroy`.
 
 Agent shortcut for the provider half: `payments.sh --create-period` does step 1 straight at PayMongo
 and prints the QR's id/expiry plus (test mode) the `test_url` that pays it, then
@@ -189,7 +195,14 @@ curl -sS -X POST localhost:8000/api/billing/webhook -H "Paymongo-Signature: t=$t
   versa). Registering live means a raw `POST /v1/webhooks` with the `sk_live_` key (this skill's scripts
   refuse live keys on purpose) or the dashboard.
 - **Event types are account-scoped.** `payment_intent.succeeded` is rejected in live mode with
-  `parameter_invalid: … is an invalid event type`; register `payment.paid` (the event period mode emits).
+  `parameter_invalid: … is an invalid event type`; register `payment.paid` (the event period mode emits)
+  plus `payment.refunded` and `payment.refund.updated` (what revokes premium). Measured 2026-09-27:
+  those two refund names register, while the docs' newer `refund.succeeded` and every `dispute.*` name
+  are refused the same way, and `GET /v1/disputes` answers `access_denied` — the docs catalog runs
+  ahead of the account, so probe a name before adding it.
+- **Re-registering a URL UPDATES it in place** (`PUT /v1/webhooks/{id}`, checked 2026-09-27): a second
+  `POST` for the same URL would register a duplicate endpoint and deliver every event twice.
+  `--register-webhook` does this for you, and the endpoint keeps its signing secret either way.
 - **The signing secret is `whsk_…` (29 chars) and exact.** `--register-webhook` deliberately never prints
   it; when you script the registration, store the byte-exact value — a trailing newline from a heredoc or
   `jq -r > file` silently breaks every signature (`paymongo.webhook_signature` mismatches, money credited
@@ -209,15 +222,17 @@ curl -sS -X POST localhost:8000/api/billing/webhook -H "Paymongo-Signature: t=$t
 | `need-keys.sh` | Key liveness; paste-me template; refuses live keys. |
 | `clerk-mint.sh` | Mint/refresh a Clerk user + testing session so a browser can sign in headlessly. |
 | `paymongo-stub.sh` | Read/create a throwaway plan or customer on the real test account (`--create-plan`, `--create-customer`); `--drop` needs `--admin-destroy`. |
-| `payments.sh` | The one-time (period-mode) rail: `--list-payments`, `--create-period` (real intent + QR Ph code), `--refund --payment-id=pay_x --admin-destroy`, `--list-webhooks`, `--register-webhook --url=https://…`. Never echoes the webhook secret. |
-| `webhook-driver.sh` | Craft a PayMongo event and deliver it: `--simulate` (dev endpoint) or signed to `/api/billing/webhook`. Handles `subscription.*`, `subscription.invoice.*`, `payment.*` (`--intent=pi_x`) and `payment_intent.succeeded`. Destructive types need `--admin-destroy`. |
+| `payments.sh` | The one-time (period-mode) rail: `--list-payments`, `--create-period` (real intent + QR Ph code), `--refund --payment-id=pay_x --admin-destroy` (refused for QR Ph: dashboard only), `--list-webhooks`, `--register-webhook --url=https://…` (creates, or updates the endpoint already at that URL). Never echoes the webhook secret. |
+| `webhook-driver.sh` | Craft a PayMongo event and deliver it: `--simulate` (dev endpoint) or signed to `/api/billing/webhook`. Handles `subscription.*`, `subscription.invoice.*`, `payment.*` (`--intent=pi_x`), `payment_intent.succeeded`, and the refunds (`payment.refunded` payment-shaped, `payment.refund.updated` as the thin refund resource with `--refund`/`--payment-id`/`--status`). Destructive types need `--admin-destroy`. |
+| `revoke.sh` | End one owner's premium in the DATABASE (`--owner`/`--intent`/`--customer`, `--status=disputed|refunded`): the chargeback path, which has no event and no API on this account. Needs `DATABASE_URL`/`PSQL_DSN` and `--admin-destroy`; prints the row before and after. |
 | `debug-state.sh` | Read-only state dump: `/api/health`, `/api/usage`, newest `subscriptions` rows. |
 
 ## 8. Zero-touch + guardrails
 
 - **Never print, cat, or echo a key.** Only `set`/`missing`/`live` status.
 - **Refuse live keys** (`*_live_*`) in every script; `debug-state.sh` never runs destructive SQL.
-- **`--admin-destroy` gate** on anything that drops provider state or ends a subscription.
+- **`--admin-destroy` gate** on anything that drops provider state, ends a subscription, or revokes
+  entitlement (`revoke.sh` is write-only and always gated).
 - Ask before mutating persistent sandbox state unless the user asked for exactly that.
 - Report a paymongo.com support dependency plainly instead of pretending a 400 is a code bug.
 

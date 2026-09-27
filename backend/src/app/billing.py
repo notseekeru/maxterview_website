@@ -5,7 +5,9 @@ Simple tier model: Free / Premium / dev(-only). Backend-authoritative.
 - **Entitlement (`tier`)**: source of truth is `ClerkUser.tier` (JWT claim), merged with any
   active `premium` row in the `subscriptions` table so billing can elevate even when the JWT is
   stale. Default `"free"`. A cancelled subscription keeps its already-paid period (MONETIZATION
-  §6: access to the end of the paid period, no refunds) — `past_due`/`unpaid` revoke immediately.
+  §5: access to the end of the paid period) — `past_due`/`unpaid` revoke immediately, and so do the
+  statuses `payments._revoke`/`revoke.sh` write for a refund or a chargeback (`refunded`,
+  `disputed`).
 - **`dev` tier**: only for the no-Clerk dev-fallback identity (`CLERK_ENABLED=false`, i.e. the
   fixed `DEV_USER`). `main.py`'s boot guard refuses to boot with `CLERK_ENABLED=false` outside
   development/test, so `dev` can never leak to production. Never persisted in `subscriptions`.

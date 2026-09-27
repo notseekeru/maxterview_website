@@ -13,6 +13,9 @@
 #   webhook-driver.sh --event=subscription.activated --customer=cus_1 --subscription=subs_1
 #   webhook-driver.sh --event=subscription.updated --status=past_due --subscription=subs_1
 #   webhook-driver.sh --event=payment.paid --intent=pi_x          (period mode: buys 30 days)
+#   webhook-driver.sh --event=payment.refunded --intent=pi_x --admin-destroy      (revokes it)
+#   webhook-driver.sh --event=payment.refund.updated --refund=ref_x --payment-id=pay_x \
+#     --status=succeeded --admin-destroy                                          (thin payload)
 #   webhook-driver.sh --simulate --event=payment_intent.succeeded --intent=pi_x
 #
 # Reads (never prints): PAYMONGO_WEBHOOK_SECRET. Backend root from BACKEND_URL (default
@@ -38,6 +41,7 @@ AMOUNT=9900
 # an intent that a real pending row holds (see payments.sh --create-period).
 INTENT="pi_demo"
 PAYMENT_ID="pay_demo"
+REFUND_ID="ref_demo"
 
 for a in "$@"; do
   case "$a" in
@@ -51,13 +55,14 @@ for a in "$@"; do
     --next-billing=*) NEXT_BILLING="${a#--next-billing=}" ;;
     --intent=*) INTENT="${a#--intent=}" ;;
     --payment-id=*) PAYMENT_ID="${a#--payment-id=}" ;;
+    --refund=*) REFUND_ID="${a#--refund=}" ;;
     *) echo "unexpected arg: $a"; exit 2 ;;
   esac
 done
 
 # Ending or downgrading entitlement is destructive to test state.
 _destructive() {
-  [ "$STATUS" = "cancelled" ] || [ "$STATUS" = "incomplete_cancelled" ] || [ "$EVENT" = "subscription.invoice.payment_failed" ]
+  [ "$STATUS" = "cancelled" ] || [ "$STATUS" = "incomplete_cancelled" ] || [ "$EVENT" = "subscription.invoice.payment_failed" ] || [ "${EVENT#payment.refund}" != "$EVENT" ]
 }
 if _destructive && [ "$ADMINDESTROY" != 1 ]; then
   echo "refused: '$EVENT' (status=$STATUS) ends or downgrades entitlement; add --admin-destroy"
@@ -68,8 +73,9 @@ case "$EVENT" in
   subscription.activated|subscription.updated|subscription.past_due|subscription.unpaid|\
   subscription.invoice.created|subscription.invoice.finalized|subscription.invoice.updated|\
   subscription.invoice.paid|subscription.invoice.payment_failed|\
-  payment.paid|payment.failed|payment_intent.succeeded) ;;
-  "") echo "usage: webhook-driver.sh --event=<type> [--simulate] [--subscription=subs_x] [--customer=cus_x] [--intent=pi_x] [--status=active|past_due|cancelled] [--admin-destroy]"; exit 2 ;;
+  payment.paid|payment.failed|payment_intent.succeeded|\
+  payment.refunded|payment.refund.updated) ;;
+  "") echo "usage: webhook-driver.sh --event=<type> [--simulate] [--subscription=subs_x] [--customer=cus_x] [--intent=pi_x] [--payment-id=pay_x] [--refund=ref_x] [--status=active|past_due|cancelled|succeeded|pending] [--admin-destroy]"; exit 2 ;;
   *) echo "refused: unsupported event '$EVENT' (see usage for the handled set)"; exit 2 ;;
 esac
 
@@ -86,6 +92,21 @@ elif [ "$EVENT" = "payment_intent.succeeded" ]; then
   RESOURCE="payment_intent"
   RESOURCE_ID="$INTENT"
   ATTRS=$(printf '{"id":"%s","amount":%s,"currency":"PHP","status":"succeeded"}' "$INTENT" "$AMOUNT")
+elif [ "$EVENT" = "payment.refunded" ]; then
+  # Payment-shaped: the refund is the payment's own state, so the intent to revoke rides on it.
+  RESOURCE="payment"
+  RESOURCE_ID="$PAYMENT_ID"
+  ATTRS=$(printf '{"id":"%s","amount":%s,"currency":"PHP","status":"refunded","payment_intent_id":"%s"}' \
+    "$PAYMENT_ID" "$AMOUNT" "$INTENT")
+elif [ "$EVENT" = "payment.refund.updated" ]; then
+  # Refund-shaped (the thin payload PayMongo's docs show): the refund's OWN status plus a payment id
+  # the handler reads the intent back from. `--status` defaults to the settled state here, because
+  # `active` is a subscription word and a pending refund deliberately revokes nothing.
+  [ "$STATUS" = "active" ] && STATUS="succeeded"
+  RESOURCE="refund"
+  RESOURCE_ID="$REFUND_ID"
+  ATTRS=$(printf '{"id":"%s","amount":%s,"currency":"PHP","status":"%s","payment_id":"%s"}' \
+    "$REFUND_ID" "$AMOUNT" "$STATUS" "$PAYMENT_ID")
 elif [ "${EVENT#payment.}" != "$EVENT" ]; then
   RESOURCE="payment"
   RESOURCE_ID="$PAYMENT_ID"

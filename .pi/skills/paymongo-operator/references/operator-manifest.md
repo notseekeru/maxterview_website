@@ -65,15 +65,22 @@ A 400 on `POST /v1/subscriptions` with a valid test key usually means the first.
 **period mode (shipping)** — `payment.paid` / `payment_intent.succeeded` → `premium`/`active` with
 `current_period_end = now() + PREMIUM_PERIOD_DAYS`, as a compare-and-set on
 `provider_subscription_id = <intent id> AND status = 'incomplete'` (so a replay, the sibling event or a
-retry cannot buy twice); `payment.failed` writes nothing. **Subscription mode (dormant)** —
+retry cannot buy twice); `payment.failed` writes nothing. **Refund (revokes)** — `payment.refunded`, or
+`payment.refund.updated` once the refund reads `succeeded`, resolves the owner from the payload (intent,
+or payment read back for it) and writes `free`/`refunded`, so the paid period stops serving; an event
+it cannot attribute is logged and writes nothing. Only these two refund names register on this account
+(the docs' `refund.succeeded` and every `dispute.*` are `parameter_invalid`), and QR Ph cannot be
+refunded through the API at all — a refund is a dashboard action whose only signal is that event.
+**Subscription mode (dormant)** —
 `subscription.activated|updated` → upsert `plan`/`status`/`current_period_end`; `invoice.paid` →
 `active` (recovers `past_due`); `invoice.payment_failed` → `past_due`; draft/open invoice churn
 (`invoice.created|finalized|updated`) is ignored. Envelope parsing tolerates both PayMongo shapes
 (`data.attributes.*` and `data.*`).
 
 **Guardrails**
-- `DELETE` on a customer/subscription/plan, `--drop-customer`, and any event that downgrades
-  (`subscription.updated --status=cancelled`, `invoice.payment_failed`) → require `--admin-destroy`.
+- `DELETE` on a customer/subscription/plan, `--drop-customer`, `revoke.sh` (always), and any event that
+  downgrades (`subscription.updated --status=cancelled`, `invoice.payment_failed`, `payment.refunded`)
+  → require `--admin-destroy`.
 - Delivery is authenticated by HMAC of `"{t}.{raw_body}"` with the endpoint secret (`te` for test,
   `li` for live slots); the handler also enforces a replay window (`PAYMONGO_SIGNATURE_TOLERANCE_S`,
   default 300 s, logged when it rejects) and fails closed when `PAYMONGO_WEBHOOK_SECRET` is unset.

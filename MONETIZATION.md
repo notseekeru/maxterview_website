@@ -93,20 +93,27 @@ prefix (`curl localhost:8000/api/billing/checkout`).
   `PREMIUM_PRICE_CENTAVOS`, `PREMIUM_PERIOD_DAYS`; `PAYMONGO_PLAN_ID` in subscription mode only
   (optional: `PAYMONGO_SIGNATURE_TOLERANCE_S`).
 
-**Register the prod webhook** (the endpoint is not self-service):
+**Register the prod webhook** (the endpoint is not self-service). The script subscribes
+`payment.paid` plus both refund types, and an endpoint that already exists for that URL is **updated
+in place** (`PUT`), which is how a deployment that only had `payment.paid` picks up refund
+revocation:
 
 ```bash
 ./.pi/skills/paymongo-operator/scripts/payments.sh --register-webhook --url=https://maxterview.seekeru.tech/api/billing/webhook
 # then set its secret + the API key in Infisical (TF_VAR_MAXTERVIEW_PAYMONGO_*), then apply
 ```
 
-**Event → entitlement map.** Period mode: `payment.paid` (the only type the API accepts for that
-endpoint — `payment_intent.succeeded` is rejected as `parameter_invalid`, so the handler's second
-accepted type only ever arrives via `/webhook/simulate`) sets
+**Event → entitlement map.** Period mode: `payment.paid` (the API accepts `payment_intent.succeeded`
+only on accounts that emit it — this one refuses to register it as `parameter_invalid`, so the
+handler's second accepted type only ever arrives via `/webhook/simulate`) sets
 `plan=premium, status=active, current_period_end = now() + PREMIUM_PERIOD_DAYS` as a
 **compare-and-set** on `provider_subscription_id = <intent id> AND status = 'incomplete'`, so a
 replay, the sibling event type or a PayMongo retry cannot buy a second period; a refused write logs
-`paymongo.webhook.payment_not_credited`. `payment.failed` writes nothing. Subscription mode:
+`paymongo.webhook.payment_not_credited`. `payment.failed` writes nothing. **Refunds revoke:**
+`payment.refunded` (or `payment.refund.updated` once the refund reads `succeeded`) resolves the owner
+through whatever the payload carries — intent, or payment read back for it — and flips the row to
+`free`/`refunded`; an event it cannot attribute is logged (`paymongo.webhook.unattributable_refund`)
+and writes nothing (§5). Subscription mode:
 `subscription.activated|updated` upserts `plan`/`status`/`current_period_end`
 (`cancelled`/`incomplete_cancelled` → `free`); `invoice.paid` sets `active` but only from
 `past_due`/`unpaid`/`incomplete` — it deliberately does **not** resurrect a cancelled or 24h-expired
@@ -183,21 +190,29 @@ a second module, not a rewrite.
 
 - **Cancellation → access till end of the current paid period, no refunds.**
 - **Refund: 3-day voluntary window** (2026-08-16); after 3 days, none voluntarily.
-- **Refunds are an operator action, and they do NOT revoke.** The app never calls the refunds API: the
-  merchant refunds from the PayMongo dashboard, which needs a funded PayMongo balance (a refund right
-  after a payment is held while settlement is still scheduled — verified 2026-09-27 with a ₱0.00
-  balance). Nothing registers a refund event, so a refunded payment keeps serving until
-  `current_period_end`; revoking would need the refund event type plus a write path. Until then, a
-  refunded customer stays premium, so treat a refund as a manual downgrade too.
+- **A refund revokes immediately.** The app never calls the refunds API — a QR Ph payment cannot be
+  refunded through it at all (`Refunds are not allowed for payments with source type qrph`, verified
+  2026-09-27), so the merchant refunds from the PayMongo dashboard, which needs a funded balance (a
+  refund right after a payment is held while settlement is still scheduled). That refund emits
+  `payment.refunded`, and the write ends premium on the spot: status `refunded`, absent from
+  `billing.ENTITLED_STATUSES`. `payment.refund.updated` is status churn, so it revokes only once the
+  refund reads `succeeded` — a held or failed refund keeps serving. A refund that never produced an
+  event is revoked with `revoke.sh`.
 - **Period mode has no renewal, so nothing "fails":** the period lapses at `current_period_end` and
   `resolve_tier` downgrades on the next read. `/billing/cancel` only marks the row `cancelled`, keeping
   the paid time.
-- **Chargebacks/disputes still apply to one-time payments:** on a dispute, downgrade immediately and
-  respond via PayMongo's dispute flow.
+- **Chargebacks/disputes apply to one-time payments, and this account has no dispute signal:**
+  `dispute.created|resolved` are refused at webhook registration as invalid event types and
+  `GET /v1/disputes` answers `access_denied` (2026-09-27), so a dispute is seen in the PayMongo
+  dashboard and revoked by hand — `revoke.sh --intent=pi_… --status=disputed --admin-destroy` — then
+  answered through PayMongo's dispute flow. Both revocation statuses are dead ends for entitlement,
+  not bans: the next purchase overwrites the row.
 - **Failed renewal / card declined: immediate downgrade, no grace.**
 - **Stale-JWT holes:** on downgrade, consult the server-side `subscriptions` row (recommended —
-  `resolve_tier` already does). On upgrade, Clerk must force a JWT refresh so "I paid and it didn't
-  unlock" doesn't become a support ticket.
+  `resolve_tier` already does, and no session token carries a `tier` claim today: `auth.verify_jwt`
+  never sets one, so a revocation lands on the NEXT request; wiring that claim would reintroduce the
+  staleness). On upgrade, Clerk must force a JWT refresh so "I paid and it didn't unlock" doesn't
+  become a support ticket.
 
 ## 6. Frontend
 

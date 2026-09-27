@@ -71,6 +71,21 @@ FIRST_PAYMENT_WINDOW_H = 24
 # second charge.
 DEAD_INTENT_STATUSES = ("expired", "canceled", "cancelled", "failed")
 
+# The refund events this account will register. Measured 2026-09-27 against the test key: these two
+# are accepted, while the newer catalog names (`refund.succeeded`, and every `dispute.*`) are refused
+# with `parameter_invalid: … is an invalid event type`, and `GET /v1/disputes` answers
+# `access_denied`. QR Ph cannot be refunded through the API at all (`Refunds are not allowed for
+# payments with source type qrph`), so a dashboard refund is only ever visible as one of these.
+REFUND_EVENTS = ("payment.refunded", "payment.refund.updated")
+# A refund settles asynchronously (PayMongo holds one while the balance is short), so only the settled
+# state revokes: a pending or failed refund must leave the paid period serving.
+REFUND_SETTLED = "succeeded"
+# Row status written by `_revoke`. Deliberately absent from `billing.ENTITLED_STATUSES`, which is
+# what makes the downgrade take effect on the next read with no scheduled job. Disputes write
+# `'disputed'` the same way, but through `revoke.sh`: this account has no dispute event to read
+# (measured 2026-09-27), so there is no code path to take.
+REVOKED_REFUND = "refunded"
+
 # Fallback deadline, used only when the intent carries none of its own. Measured 2026-09-26: PayMongo
 # never ages an abandoned intent out — an 11-day-old one still reads `awaiting_next_action` — so the
 # window has to come from the artifact, and a QR Ph code dies 30 minutes after it is drawn
@@ -250,10 +265,10 @@ async def start_period_purchase(user: ClerkUser) -> dict:
     )
     intent_id = intent["data"]["id"]
     # `provider_subscription_id` holds the intent id: that is the column `_owner_for` resolves from
-    # (PayMongo's `payment.paid` carries `payment_intent_id`), so period mode needs no migration.
-    # AI HERE: one handle per owner, one period per payment; stacked renewals or refunds would want a
-    # ledger keyed by provider id. A refund is also not a webhook we handle (none is registered), so
-    # refunding does not revoke: the period keeps serving until `current_period_end` (MONETIZATION §5).
+    # (PayMongo's `payment.paid` carries `payment_intent_id`, and a refund reaches it through
+    # `_intent_of_payment`), so period mode needs no migration.
+    # AI HERE: one handle per owner, one period per payment; stacked renewals would want a ledger
+    # keyed by provider id. Revocation itself needs none (`_revoke` writes the row in place).
     # Row AFTER the payable artifact, still before the browser can show it. A method the account
     # refuses (`payment_method_not_allowed`) would leave an intent nobody can pay, and a row for it
     # would block the owner's retry.
@@ -413,6 +428,12 @@ async def handle_webhook_event(event: dict) -> None:
         await _on_subscription(attrs)
     elif resource.get("type") == "invoice":
         await _on_invoice(etype, attrs)
+    elif etype in REFUND_EVENTS or resource.get("type") == "refund":
+        # Keyed on the resource as well as the name: PayMongo's docs already carry `refund.succeeded`
+        # (unregistrable here today), and a refund resource that never settled writes nothing.
+        # Before the payment branch: `payment.refunded` may embed the payment itself, which
+        # `_on_payment` would ignore (it only credits `*.paid`).
+        await _on_refund(etype, resource, attrs)
     elif resource.get("type") in ("payment", "payment_intent"):
         await _on_payment(etype, resource, attrs)
     # invoice.created/finalized/updated are draft/open churn: no entitlement change, no write.
@@ -439,6 +460,72 @@ async def _on_payment(etype: str, resource: dict, attrs: dict) -> None:
     if not await _credit_period(owner, intent_id):
         # Already credited (replay), or the row moved on to a newer intent.
         log.info("paymongo.webhook.payment_not_credited", payment_intent_id=intent_id, event_type=etype)
+
+
+async def _on_refund(etype: str, resource: dict, attrs: dict) -> None:
+    """A refunded payment ENDS premium now, not at `current_period_end` (MONETIZATION §5).
+
+    `payment.refunded` is the settled state by name; `payment.refund.updated` is status churn, so it
+    has to prove it settled. The payload shape is unverified (no QR Ph payment can be refunded
+    through the API, so no test run can produce one) — hence the id hunt: intent from the payload,
+    else the refund read back for its status and its payment, else the payment read back for its
+    intent. Failing to attribute one is logged loudly rather than guessed at: revoking the wrong
+    owner is worse than a refund that needs the operator.
+    """
+    refund_id = resource.get("id") if resource.get("type") == "refund" else ""
+    refund = attrs if refund_id else {}
+    if refund_id and not refund.get("status"):
+        refund = await _get_attributes(f"/v1/refunds/{refund_id}")
+    # A status is only ever read off a REFUND resource: a payment's own `status` is `paid` (or
+    # `refunded`), never the refund's state, so reading it there would compare the wrong words.
+    status = refund.get("status") or (REFUND_SETTLED if etype == "payment.refunded" else "")
+    if status != REFUND_SETTLED:
+        log.info("paymongo.webhook.refund_not_settled", event_type=etype, status=status, refund_id=refund_id)
+        return
+    payment_id = attrs.get("payment_id") or refund.get("payment_id") or ""
+    intent_id = attrs.get("payment_intent_id") or (await _intent_of_payment(payment_id) if payment_id else "")
+    owner = await _owner_for(subscription_id=intent_id) if intent_id else None
+    if not owner:
+        log.warning(
+            "paymongo.webhook.unattributable_refund",
+            event_type=etype,
+            refund_id=refund_id,
+            payment_id=payment_id,
+            payment_intent_id=intent_id,
+        )
+        return
+    await _revoke(owner, REVOKED_REFUND, etype)
+
+
+async def _get_attributes(path: str) -> dict:
+    """Resource attributes from the provider, `{}` when it cannot be read. A webhook that cannot
+    afford this call must still be answered, or PayMongo retries into a handler that will fail the
+    same way."""
+    try:
+        return ((await _api("GET", path)).get("data") or {}).get("attributes") or {}
+    except HTTPException:
+        return {}
+
+
+async def _intent_of_payment(payment_id: str) -> str:
+    """The intent a payment was charged against — the only provider id the `subscriptions` row holds.
+    Verified 2026-09-27: a payment resource carries `payment_intent_id`."""
+    return (await _get_attributes(f"/v1/payments/{payment_id}")).get("payment_intent_id") or ""
+
+
+async def _revoke(owner_id: str, status_str: str, event_type: str) -> None:
+    """Money back (`refunded`), or charged back (`disputed`) when the operator revokes one -> the paid
+    period ends now.
+
+    Only `premium` rows are touched: a lapsed one has nothing to take away, and a row already revoked
+    stays as the operator left it. A later purchase overwrites both columns, so this is not a ban.
+    """
+    row = await fetchrow(
+        "UPDATE subscriptions SET plan = 'free', status = $2, updated_at = now() WHERE owner_id = $1 AND plan = 'premium' RETURNING id",
+        owner_id,
+        status_str,
+    )
+    log.info("paymongo.webhook.revoke", owner_id=owner_id, status=status_str, event_type=event_type, revoked=bool(row))
 
 
 async def _credit_period(owner_id: str, intent_id: str) -> bool:

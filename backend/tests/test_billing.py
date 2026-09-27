@@ -499,6 +499,88 @@ async def test_payment_events_that_cannot_credit_write_nothing(monkeypatch):
     assert not any("UPDATE subscriptions" in q for q, _ in calls)
 
 
+# --- a refunded payment loses premium now (MONETIZATION §5) ---
+#
+# `payment.refunded` / `payment.refund.updated` are the only refund events this account will register
+# (measured 2026-09-27: `refund.succeeded` is `invalid event type`, `GET /v1/disputes` is
+# `access_denied`, and `POST /v1/refunds` refuses a QR Ph payment outright, so a dashboard refund is
+# the only refund there is). PayMongo's own docs show the thin payload, so the payload shape is
+# unverified and both shapes are pinned here.
+
+
+def _refunded_payment_event(intent_id: str = "pi_1") -> dict:
+    """`payment.refunded` embedding the payment, the shape `payment.paid` already arrives in."""
+    resource = {"id": "pay_1", "type": "payment", "attributes": {"id": "pay_1", "status": "refunded", "payment_intent_id": intent_id}}
+    return {"data": {"type": "payment.refunded", "livemode": False, "data": resource}}
+
+
+def _refund_resource_event(etype: str = "payment.refunded", **attrs) -> dict:
+    resource = {"id": "ref_1", "type": "refund", "attributes": {"id": "ref_1", **attrs}}
+    return {"data": {"type": etype, "livemode": False, "data": resource}}
+
+
+async def test_payment_refunded_revokes_the_paid_period(monkeypatch):
+    calls = _capture(monkeypatch)
+    await payments.handle_webhook_event(_refunded_payment_event())
+
+    update, args = next((q, a) for q, a in calls if "UPDATE subscriptions" in q)
+    assert args == ("paying-user", "refunded")
+    assert "plan = 'free'" in update
+    assert "refunded" not in billing.ENTITLED_STATUSES  # what makes the read downgrade
+
+
+async def test_thin_refund_event_resolves_through_the_provider(monkeypatch):
+    """The refund may name only itself, so the chain is refund -> payment -> intent (the only id the
+    `subscriptions` row holds)."""
+    calls = _capture(monkeypatch)
+    seen: list[str] = []
+
+    async def _api(_method, path, **_kw):
+        seen.append(path)
+        if path.startswith("/v1/refunds/"):
+            return {"data": {"attributes": {"status": "succeeded", "payment_id": "pay_1"}}}
+        return {"data": {"attributes": {"payment_intent_id": "pi_1"}}}
+
+    monkeypatch.setattr(payments, "_api", _api)
+    await payments.handle_webhook_event(_refund_resource_event())
+    assert seen == ["/v1/refunds/ref_1", "/v1/payments/pay_1"]
+    assert any("UPDATE subscriptions" in q for q, _ in calls)
+    # The docs' newer name for the same settled refund (unregistrable here today) must revoke too:
+    # dispatch keys on the refund RESOURCE, not only on the two names this account accepts.
+    await payments.handle_webhook_event(_refund_resource_event("refund.succeeded", status="succeeded", payment_id="pay_1"))
+    assert seen[-1] == "/v1/payments/pay_1"
+
+
+async def test_unsettled_refund_writes_nothing(monkeypatch):
+    """`updated` is status churn and PayMongo HOLDS a refund while the balance is short: revoking on
+    either takes the period from someone whose money we still have."""
+    calls = _capture(monkeypatch)
+
+    async def _api(_method, _path, **_kw):
+        return {"data": {"attributes": {"status": "pending"}}}
+
+    monkeypatch.setattr(payments, "_api", _api)
+    await payments.handle_webhook_event(_refund_resource_event("payment.refund.updated", status="pending"))
+    await payments.handle_webhook_event(_refund_resource_event("payment.refund.updated"))  # read back: pending
+    # A payment resource's own `status` is `paid`/`refunded`, never the refund's state.
+    await payments.handle_webhook_event({"data": {"type": "payment.refund.updated", "livemode": False, "data": {"id": "pay_1", "type": "payment", "attributes": {"status": "paid", "payment_intent_id": "pi_1"}}}})
+    assert not any("UPDATE subscriptions" in q for q, _ in calls)
+
+
+async def test_unattributable_refund_writes_nothing(monkeypatch):
+    """Settled, but no id that reaches an owner: logged, never guessed — a refund applied to the
+    wrong owner downgrades a paying customer."""
+    calls = _capture(monkeypatch, owner=None)
+
+    async def _api(_method, _path, **_kw):
+        return {"data": {"attributes": {"status": "succeeded"}}}
+
+    monkeypatch.setattr(payments, "_api", _api)
+    await payments.handle_webhook_event(_refund_resource_event(status="succeeded"))
+    await payments.handle_webhook_event(_refund_resource_event(status="succeeded", payment_id="pay_unknown"))
+    assert not any("UPDATE subscriptions" in q for q, _ in calls)
+
+
 # --- Paymongo-Signature (HMAC-SHA256 of "{t}.{raw_body}") ---
 
 SECRET = "whsec_test"

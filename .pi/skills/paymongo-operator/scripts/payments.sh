@@ -27,12 +27,15 @@ LIMIT=10
 DESC="Maxterview Premium (30 days)"
 URL=""
 PAYMENT_ID=""
-# `payment.paid` is the event period mode emits and the only one this account accepts: live-mode
-# registration REJECTS `payment_intent.succeeded` ("invalid event type", verified 2026-09-17) and
-# `payment.failed` was never registered. The app still accepts `payment_intent.succeeded` for
-# accounts that do emit it, and its period write is a compare-and-set, so a duplicate or sibling
-# delivery cannot buy two periods.
-EVENTS='["payment.paid"]'
+# `payment.paid` is what period mode emits; the two refund types are what REVOKES premium
+# (`payments._on_refund`). Every name here was registered against the test account before it was
+# added: live-mode registration REJECTS `payment_intent.succeeded` ("invalid event type", verified
+# 2026-09-17), and so does the docs' newer `refund.succeeded` together with every `dispute.*` name
+# (verified 2026-09-27, while `GET /v1/disputes` answers `access_denied` — a dispute is revoked by
+# hand with revoke.sh). `payment.failed` was never registered. The app still accepts
+# `payment_intent.succeeded` for accounts that do emit it, and its period write is a compare-and-set,
+# so a duplicate or sibling delivery cannot buy two periods.
+EVENTS='["payment.paid","payment.refunded","payment.refund.updated"]'
 
 for a in "$@"; do
   case "$a" in
@@ -53,6 +56,17 @@ AUTH="Authorization: Basic $(printf '%s:' "$PAYMONGO_SECRET_KEY" | base64 | tr -
 
 _get() { curl -fsS -H "$AUTH" "$API$1"; }
 _post() { curl -fsS -H "$AUTH" -H 'Content-Type: application/json' -X POST "$API$1" -d "$2"; }
+_put() { curl -fsS -H "$AUTH" -H 'Content-Type: application/json' -X PUT "$API$1" -d "$2"; }
+
+# The webhook response carries a signing secret: print everything BUT that (zero-touch).
+_hook_summary() {
+  if command -v node >/dev/null 2>&1; then
+    node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const j=JSON.parse(s);const a=(j.data||{}).attributes||{};
+      console.log("  id:",(j.data||{}).id,"status:",a.status,"events:",(a.events||[]).join(","))})'
+  else
+    grep -o '"id": *"[^"]*"' | head -1
+  fi
+}
 
 # node when present (structured), else a grep of ids — the stub script's convention.
 _rows() {
@@ -110,15 +124,24 @@ case "$MODE" in
     ;;
   register-webhook)
     [ -n "$URL" ] || { echo "refused: --url=https://… required (PayMongo must reach it)"; exit 2; }
-    echo "== registering $URL =="
-    # The response carries a signing secret. It is NOT printed (zero-touch): read it from
-    # Dashboard → Developers → Webhooks and put it in backend/.env as PAYMONGO_WEBHOOK_SECRET.
-    _post /v1/webhooks "$(printf '{"data":{"attributes":{"url":"%s","events":%s}}}' "$URL" "$EVENTS")" \
-      | { if command -v node >/dev/null 2>&1; then
-            node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const a=(JSON.parse(s).data||{}).attributes||{};
-              console.log("  id:",JSON.parse(s).data?.id,"status:",a.status,"events:",(a.events||[]).join(","))})'
-          else grep -o '"id": *"[^"]*"' | head -1; fi; }
-    echo "  secret: copy it from the Dashboard into backend/.env as PAYMONGO_WEBHOOK_SECRET (not echoed here)"
+    # A URL that already has an endpoint is UPDATED in place (PUT, verified 2026-09-27): POSTing a
+    # second endpoint for the same URL would deliver every event twice, and PUT keeps the endpoint's
+    # signing secret, so the app's PAYMONGO_WEBHOOK_SECRET keeps verifying.
+    hook_id=""
+    if command -v node >/dev/null 2>&1; then
+      hook_id="$(_get /v1/webhooks | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const m=((JSON.parse(s).data)||[]).find(r=>((r.attributes||{}).url||"")===process.argv[1]);process.stdout.write(m?m.id:"")})' "$URL")"
+    fi
+    body=$(printf '{"data":{"attributes":{"url":"%s","events":%s}}}' "$URL" "$EVENTS")
+    if [ -n "$hook_id" ]; then
+      echo "== updating $hook_id ($URL) =="
+      _put "/v1/webhooks/$hook_id" "$body" | _hook_summary
+    else
+      echo "== registering $URL =="
+      # The response carries a signing secret. It is NOT printed (zero-touch): read it from
+      # Dashboard → Developers → Webhooks and put it in backend/.env as PAYMONGO_WEBHOOK_SECRET.
+      _post /v1/webhooks "$body" | _hook_summary
+      echo "  secret: copy it from the Dashboard into backend/.env as PAYMONGO_WEBHOOK_SECRET (not echoed here)"
+    fi
     ;;
   *) echo "usage: payments.sh --list-payments [--limit=N] | --create-period [--amount=9900] | --refund --payment-id=pay_x --admin-destroy | --list-webhooks | --register-webhook --url=https://…"; exit 2 ;;
 esac
