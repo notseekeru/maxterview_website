@@ -1,13 +1,16 @@
 #!/usr/bin/env python3
 """Portable Grafana observability kit: one folder, one alert rule group, one dashboard.
 
-  ./bootstrap.py <project> [app-label] [--datasource UID] [--prometheus-datasource UID] [--traces-datasource UID] [--receiver NAME] [--url URL] [--dry-run] [--delete]
+  ./bootstrap.py <project> [app-label] [--datasource UID] [--prometheus-datasource UID] [--traces-datasource UID] [--receiver NAME] [--url URL] [--payments] [--dry-run] [--delete]
 
 Creates folder `<project>`, rule group `<project>-logs` and dashboard `<project>-logs`. The group holds
-four rules: 5xx and model failures counted from the OTLP metrics, error-level tracebacks and browser
+five rules: 5xx and model failures counted from the OTLP metrics, error-level tracebacks and browser
 errors read from the logs. The dashboard covers all three signals, so a project that only ships logs
 still gets a usable board and two dead panels.
 `app-label` defaults to `<project>-backend`.
+`--payments` appends `rules/alerting.payments.json` to the same group: five rules over the PayMongo
+events an app logs as `event="paymongo.*"`. Off by default, because a project that never emits those
+rows gets rules that neither fire nor complain.
 Reruns converge by uid: the live rule group is read
 first and its rule uids are merged back, so alert state, silences and resolved/unresolved
 progression survive.
@@ -115,6 +118,8 @@ def install(args, app):
               "DS_PROM": args.prometheus_datasource, "DS_TRACES": args.traces_datasource,
               "RECEIVER": args.receiver}
     rules = load("rules/alerting.json", values)
+    if args.payments:
+        rules["rules"] += load("rules/alerting.payments.json", values)["rules"]
     dashboard = load("dashboards/logs.json", values)
     group = f"{args.project}-logs"
 
@@ -196,6 +201,9 @@ def main():
                         help=f"contact point set on each rule, so the global notification tree stays "
                              f"untouched (default {DEFAULT_RECEIVER})")
     parser.add_argument("--url", default=os.environ.get("GRAFANA_URL") or DEFAULT_URL)
+    parser.add_argument("--payments", action="store_true",
+                        help="add the PayMongo rules (rules/alerting.payments.json) to the group; they "
+                             "read event=\"paymongo.*\" rows only this project's app emits")
     parser.add_argument("--dry-run", action="store_true", help="print the payloads, send nothing")
     parser.add_argument("--delete", action="store_true",
                         help="delete the folder with forceDeleteRules=true, which takes its rules and "

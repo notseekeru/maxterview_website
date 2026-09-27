@@ -1,0 +1,409 @@
+{
+  "rules": [
+    {
+      "title": "{{PROJECT}}: payment credited",
+      "condition": "C",
+      "data": [
+        {
+          "refId": "A",
+          "queryType": "range",
+          "relativeTimeRange": {
+            "from": 3600,
+            "to": 0
+          },
+          "datasourceUid": "{{DATASOURCE}}",
+          "model": {
+            "editorMode": "code",
+            "expr": "sum(count_over_time({app=\"{{APP}}\"} | json | event=\"paymongo.payment.credited\" [1h]))",
+            "intervalMs": 1000,
+            "maxDataPoints": 43200,
+            "queryType": "range",
+            "refId": "A"
+          }
+        },
+        {
+          "refId": "B",
+          "queryType": "",
+          "relativeTimeRange": {
+            "from": 3600,
+            "to": 0
+          },
+          "datasourceUid": "__expr__",
+          "model": {
+            "expression": "A",
+            "intervalMs": 1000,
+            "maxDataPoints": 43200,
+            "reducer": "last",
+            "refId": "B",
+            "type": "reduce"
+          }
+        },
+        {
+          "refId": "C",
+          "queryType": "",
+          "relativeTimeRange": {
+            "from": 3600,
+            "to": 0
+          },
+          "datasourceUid": "__expr__",
+          "model": {
+            "conditions": [
+              {
+                "evaluator": {
+                  "type": "gt",
+                  "params": [
+                    0
+                  ]
+                }
+              }
+            ],
+            "expression": "B",
+            "intervalMs": 1000,
+            "maxDataPoints": 43200,
+            "refId": "C",
+            "type": "threshold"
+          }
+        }
+      ],
+      "noDataState": "OK",
+      "execErrState": "Error",
+      "for": "0s",
+      "keep_firing_for": "0s",
+      "annotations": {
+        "description": "A payment bought a period; `owner_id` and `payment_intent_id` are on the line. The write comes from one compare-and-set, so a replayed delivery of the same intent does not raise it twice. A settled payment that never reaches this rule is the reconciliation to chase: `paymongo.webhook.payment_not_credited` is NOT that signal, a duplicate delivery logs it every time.",
+        "summary": "{{PROJECT}}: payment credited"
+      },
+      "labels": {
+        "severity": "info"
+      },
+      "isPaused": false,
+      "notification_settings": {
+        "receiver": "{{RECEIVER}}"
+      }
+    },
+    {
+      "title": "{{PROJECT}}: payment provider failing",
+      "condition": "C",
+      "data": [
+        {
+          "refId": "A",
+          "queryType": "range",
+          "relativeTimeRange": {
+            "from": 900,
+            "to": 0
+          },
+          "datasourceUid": "{{DATASOURCE}}",
+          "model": {
+            "editorMode": "code",
+            "expr": "sum(count_over_time({app=\"{{APP}}\"} | json | event=\"paymongo.request_failed\" [15m]))",
+            "intervalMs": 1000,
+            "maxDataPoints": 43200,
+            "queryType": "range",
+            "refId": "A"
+          }
+        },
+        {
+          "refId": "B",
+          "queryType": "",
+          "relativeTimeRange": {
+            "from": 900,
+            "to": 0
+          },
+          "datasourceUid": "__expr__",
+          "model": {
+            "expression": "A",
+            "intervalMs": 1000,
+            "maxDataPoints": 43200,
+            "reducer": "last",
+            "refId": "B",
+            "type": "reduce"
+          }
+        },
+        {
+          "refId": "C",
+          "queryType": "",
+          "relativeTimeRange": {
+            "from": 900,
+            "to": 0
+          },
+          "datasourceUid": "__expr__",
+          "model": {
+            "conditions": [
+              {
+                "evaluator": {
+                  "type": "gt",
+                  "params": [
+                    2
+                  ]
+                }
+              }
+            ],
+            "expression": "B",
+            "intervalMs": 1000,
+            "maxDataPoints": 43200,
+            "refId": "C",
+            "type": "threshold"
+          }
+        }
+      ],
+      "noDataState": "OK",
+      "execErrState": "Error",
+      "for": "1m",
+      "keep_firing_for": "0s",
+      "annotations": {
+        "description": "More than 2 refused calls to PayMongo in 15 minutes: minting an intent, attaching a method, reading a status or a customer. `path`, `status` and the provider's `body` are on the line, and only the last 500 characters of it. 400 `payment_method_not_allowed` is a mode mismatch rather than an outage: live refuses the e-wallets and only QR Ph is attachable.",
+        "summary": "{{PROJECT}}: payment provider failing"
+      },
+      "labels": {
+        "severity": "warning"
+      },
+      "isPaused": false,
+      "notification_settings": {
+        "receiver": "{{RECEIVER}}"
+      }
+    },
+    {
+      "title": "{{PROJECT}}: payment webhook rejected",
+      "condition": "C",
+      "data": [
+        {
+          "refId": "A",
+          "queryType": "range",
+          "relativeTimeRange": {
+            "from": 900,
+            "to": 0
+          },
+          "datasourceUid": "{{DATASOURCE}}",
+          "model": {
+            "editorMode": "code",
+            "expr": "sum(count_over_time({app=\"{{APP}}\"} | json | event=~\"paymongo[.]webhook_signature[.][a-z]+\" [15m]))",
+            "intervalMs": 1000,
+            "maxDataPoints": 43200,
+            "queryType": "range",
+            "refId": "A"
+          }
+        },
+        {
+          "refId": "B",
+          "queryType": "",
+          "relativeTimeRange": {
+            "from": 900,
+            "to": 0
+          },
+          "datasourceUid": "__expr__",
+          "model": {
+            "expression": "A",
+            "intervalMs": 1000,
+            "maxDataPoints": 43200,
+            "reducer": "last",
+            "refId": "B",
+            "type": "reduce"
+          }
+        },
+        {
+          "refId": "C",
+          "queryType": "",
+          "relativeTimeRange": {
+            "from": 900,
+            "to": 0
+          },
+          "datasourceUid": "__expr__",
+          "model": {
+            "conditions": [
+              {
+                "evaluator": {
+                  "type": "gt",
+                  "params": [
+                    2
+                  ]
+                }
+              }
+            ],
+            "expression": "B",
+            "intervalMs": 1000,
+            "maxDataPoints": 43200,
+            "refId": "C",
+            "type": "threshold"
+          }
+        }
+      ],
+      "noDataState": "OK",
+      "execErrState": "Error",
+      "for": "1m",
+      "keep_firing_for": "0s",
+      "annotations": {
+        "description": "More than 2 deliveries refused by `verify_signature` in 15 minutes. The event on the line names the reason: `malformed` is a header missing its timestamp or signature slot, `mismatch` is the wrong secret or a forger (`livemode_slot` says which slot the provider did send), `stale` is a real event outside the 300s tolerance, which is a genuine delivery dropped. Premium is only ever written from a delivery that verifies, so this is money arriving with nothing credited behind it.",
+        "summary": "{{PROJECT}}: payment webhook rejected"
+      },
+      "labels": {
+        "severity": "critical"
+      },
+      "isPaused": false,
+      "notification_settings": {
+        "receiver": "{{RECEIVER}}"
+      }
+    },
+    {
+      "title": "{{PROJECT}}: money unattributable",
+      "condition": "C",
+      "data": [
+        {
+          "refId": "A",
+          "queryType": "range",
+          "relativeTimeRange": {
+            "from": 1800,
+            "to": 0
+          },
+          "datasourceUid": "{{DATASOURCE}}",
+          "model": {
+            "editorMode": "code",
+            "expr": "sum(count_over_time({app=\"{{APP}}\"} | json | event=~\"paymongo[.]webhook[.](payment_without_intent|unattributable_refund)\" [30m]))",
+            "intervalMs": 1000,
+            "maxDataPoints": 43200,
+            "queryType": "range",
+            "refId": "A"
+          }
+        },
+        {
+          "refId": "B",
+          "queryType": "",
+          "relativeTimeRange": {
+            "from": 1800,
+            "to": 0
+          },
+          "datasourceUid": "__expr__",
+          "model": {
+            "expression": "A",
+            "intervalMs": 1000,
+            "maxDataPoints": 43200,
+            "reducer": "last",
+            "refId": "B",
+            "type": "reduce"
+          }
+        },
+        {
+          "refId": "C",
+          "queryType": "",
+          "relativeTimeRange": {
+            "from": 1800,
+            "to": 0
+          },
+          "datasourceUid": "__expr__",
+          "model": {
+            "conditions": [
+              {
+                "evaluator": {
+                  "type": "gt",
+                  "params": [
+                    0
+                  ]
+                }
+              }
+            ],
+            "expression": "B",
+            "intervalMs": 1000,
+            "maxDataPoints": 43200,
+            "refId": "C",
+            "type": "threshold"
+          }
+        }
+      ],
+      "noDataState": "OK",
+      "execErrState": "Error",
+      "for": "0s",
+      "keep_firing_for": "0s",
+      "annotations": {
+        "description": "Money that reached no owner: a paid event carrying no intent id at all, or a settled refund whose ids chain back to no row (`payment_id`, `refund_id` and `payment_intent_id` are on the line). Either premium is still serving on money that came back, or a payment bought nothing. Never normal, so it fires on the first one: reconcile it by hand, the handler refuses to guess an owner (MONETIZATION §5).",
+        "summary": "{{PROJECT}}: money unattributable"
+      },
+      "labels": {
+        "severity": "critical"
+      },
+      "isPaused": false,
+      "notification_settings": {
+        "receiver": "{{RECEIVER}}"
+      }
+    },
+    {
+      "title": "{{PROJECT}}: money back",
+      "condition": "C",
+      "data": [
+        {
+          "refId": "A",
+          "queryType": "range",
+          "relativeTimeRange": {
+            "from": 3600,
+            "to": 0
+          },
+          "datasourceUid": "{{DATASOURCE}}",
+          "model": {
+            "editorMode": "code",
+            "expr": "sum(count_over_time({app=\"{{APP}}\"} | json | event=\"paymongo.webhook.revoke\" [1h]))",
+            "intervalMs": 1000,
+            "maxDataPoints": 43200,
+            "queryType": "range",
+            "refId": "A"
+          }
+        },
+        {
+          "refId": "B",
+          "queryType": "",
+          "relativeTimeRange": {
+            "from": 3600,
+            "to": 0
+          },
+          "datasourceUid": "__expr__",
+          "model": {
+            "expression": "A",
+            "intervalMs": 1000,
+            "maxDataPoints": 43200,
+            "reducer": "last",
+            "refId": "B",
+            "type": "reduce"
+          }
+        },
+        {
+          "refId": "C",
+          "queryType": "",
+          "relativeTimeRange": {
+            "from": 3600,
+            "to": 0
+          },
+          "datasourceUid": "__expr__",
+          "model": {
+            "conditions": [
+              {
+                "evaluator": {
+                  "type": "gt",
+                  "params": [
+                    0
+                  ]
+                }
+              }
+            ],
+            "expression": "B",
+            "intervalMs": 1000,
+            "maxDataPoints": 43200,
+            "refId": "C",
+            "type": "threshold"
+          }
+        }
+      ],
+      "noDataState": "OK",
+      "execErrState": "Error",
+      "for": "0s",
+      "keep_firing_for": "0s",
+      "annotations": {
+        "description": "A refund or a chargeback ended a paid period now, by design (MONETIZATION §5): `status` on the line is `refunded` or `disputed`, and `event_type` says which delivery carried it. `revoked: false` means the event found no premium row to take, so nothing changed. Only a provider delivery reaches this rule: a hand revocation (`revoke.sh`) writes the row itself and is silent here.",
+        "summary": "{{PROJECT}}: money back"
+      },
+      "labels": {
+        "severity": "warning"
+      },
+      "isPaused": false,
+      "notification_settings": {
+        "receiver": "{{RECEIVER}}"
+      }
+    }
+  ]
+}
