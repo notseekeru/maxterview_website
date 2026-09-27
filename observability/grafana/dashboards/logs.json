@@ -369,38 +369,6 @@
       "title": "LLM latency and failures by stage",
       "type": "timeseries",
       "description": "`cancelled` is the browser closing the stream; `error` is the provider failing."
-    },
-    {
-      "datasource": {
-        "type": "tempo",
-        "uid": "${DS_TRACES}"
-      },
-      "description": "Any log line carrying a trace_id links straight to its trace.",
-      "fieldConfig": {
-        "defaults": {},
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 11,
-        "w": 24,
-        "x": 0,
-        "y": 25
-      },
-      "id": 7,
-      "options": {},
-      "targets": [
-        {
-          "datasource": {
-            "type": "tempo",
-            "uid": "${DS_TRACES}"
-          },
-          "query": "{ resource.service.name = \"$app\" }",
-          "queryType": "traceql",
-          "refId": "A"
-        }
-      ],
-      "title": "Recent traces",
-      "type": "traces"
     }
   ],
   "refresh": "1m",
@@ -448,19 +416,6 @@
         "query": "prometheus",
         "refresh": 0,
         "type": "datasource"
-      },
-      {
-        "current": {
-          "selected": true,
-          "text": "{{DS_TRACES}}",
-          "value": "{{DS_TRACES}}"
-        },
-        "hide": 0,
-        "label": "Tempo",
-        "name": "DS_TRACES",
-        "query": "tempo",
-        "refresh": 0,
-        "type": "datasource"
       }
     ]
   },
@@ -469,6 +424,6 @@
     "to": "now"
   },
   "timezone": "browser",
-  "title": "{{PROJECT}}: logs, metrics & traces",
+  "title": "{{PROJECT}}: logs & metrics",
   "uid": "{{PROJECT}}-logs"
 }

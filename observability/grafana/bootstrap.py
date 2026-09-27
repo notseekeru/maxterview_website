@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """Portable Grafana observability kit: one folder, one alert rule group, one dashboard.
 
-  ./bootstrap.py <project> [app-label] [--datasource UID] [--prometheus-datasource UID] [--traces-datasource UID] [--receiver NAME] [--url URL] [--payments] [--dry-run] [--delete]
+  ./bootstrap.py <project> [app-label] [--datasource UID] [--prometheus-datasource UID] [--receiver NAME] [--url URL] [--payments] [--dry-run] [--delete]
 
 Creates folder `<project>`, rule group `<project>-logs` and dashboard `<project>-logs`. The group holds
 five rules: 5xx and model failures counted from the OTLP metrics, error-level tracebacks and browser
-errors read from the logs. The dashboard covers all three signals, so a project that only ships logs
-still gets a usable board and two dead panels.
+errors read from the logs. The dashboard covers logs and both metric groups, so a project that only
+ships logs still gets a usable board with three dead metric panels.
 `app-label` defaults to `<project>-backend`.
 `--payments` appends `rules/alerting.payments.json` to the same group: five rules over the PayMongo
 events an app logs as `event="paymongo.*"`. Off by default, because a project that never emits those
@@ -50,7 +50,6 @@ HERE = Path(__file__).resolve().parent
 DEFAULT_URL = "https://sturdypoplar3317.grafana.net"
 DEFAULT_DATASOURCE = "grafanacloud-logs"
 DEFAULT_PROMETHEUS_DATASOURCE = "grafanacloud-prom"
-DEFAULT_TRACES_DATASOURCE = "grafanacloud-traces"
 DEFAULT_RECEIVER = "slack-maxterview"
 
 
@@ -115,7 +114,7 @@ def install(args, app):
     # The Alloy pod carries app=<project>-alloy, and it is the only place a dropped export is visible.
     values = {"PROJECT": args.project, "APP": app, "ALLOY_APP": f"{args.project}-alloy",
               "DATASOURCE": args.datasource,
-              "DS_PROM": args.prometheus_datasource, "DS_TRACES": args.traces_datasource,
+              "DS_PROM": args.prometheus_datasource,
               "RECEIVER": args.receiver}
     rules = load("rules/alerting.json", values)
     if args.payments:
@@ -197,9 +196,6 @@ def main():
     parser.add_argument("--prometheus-datasource", default=DEFAULT_PROMETHEUS_DATASOURCE,
                         help=f"Prometheus datasource uid for the metric panels and rules "
                              f"(default {DEFAULT_PROMETHEUS_DATASOURCE}, shared by the stack)")
-    parser.add_argument("--traces-datasource", default=DEFAULT_TRACES_DATASOURCE,
-                        help=f"Tempo datasource uid for the trace panel "
-                             f"(default {DEFAULT_TRACES_DATASOURCE}, shared by the stack)")
     parser.add_argument("--receiver", default=DEFAULT_RECEIVER,
                         help=f"contact point set on each rule, so the global notification tree stays "
                              f"untouched (default {DEFAULT_RECEIVER})")
