@@ -112,6 +112,12 @@ curl -s -H "Authorization: Bearer $TOKEN" "$URL/api/datasources/proxy/uid/grafan
   `parse error ... invalid char escape` for the whole query, and the doubled form needs four
   backslashes inside a JSON rule file, so `[.]` is what the payment rules ship. Same alternation
   shape measured: 3 rows.
+- `| json` on `{app="maxterview-backend"}` **400s the whole query** when the window holds a line
+  Alloy wrote instead of a log line (`unable to retrieve container logs for containerd://…`, 4 in 2
+days), because that line is not JSON: `pipeline error: 'JSONParserErr' … Value looks like object`.
+  A filter after `| json` suppresses it (`| json | level="error"`, `| json | event="…"` all fine, so
+  every alert rule is immune), but a bare `| json` with no filter needs `| __error__=""`; that is why
+  the log-volume panel carries it.
 - `.*` immediately before a `|`-alternation in a **label** regex silently matches nothing here:
   `event=~"llm.*(unavailable|failed|transport_error)"` → 0 rows where
   `event=~"llm[a-z._]*(unavailable|failed|transport_error)"` → all 6, and `level=~".*(error|warning)"`
