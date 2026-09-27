@@ -193,11 +193,16 @@ a second module, not a rewrite.
 - **A refund revokes immediately.** The app never calls the refunds API — a QR Ph payment cannot be
   refunded through it at all (`Refunds are not allowed for payments with source type qrph`, verified
   2026-09-27), so the merchant refunds from the PayMongo dashboard, which needs a funded balance (a
-  refund right after a payment is held while settlement is still scheduled). That refund emits
-  `payment.refunded`, and the write ends premium on the spot: status `refunded`, absent from
+  refund right after a payment is held while settlement is still scheduled). That refund should arrive
+  as `payment.refunded`, and the write ends premium on the spot: status `refunded`, absent from
   `billing.ENTITLED_STATUSES`. `payment.refund.updated` is status churn, so it revokes only once the
   refund reads `succeeded` — a held or failed refund keeps serving. A refund that never produced an
   event is revoked with `revoke.sh`.
+  **Unobserved:** no QR Ph payment can be refunded through the API, so no test run can produce this
+  event — the name comes from the account's accepted registration list and the payload shape from the
+  docs. The handler therefore takes the intent from the payload, or reads the refund/payment back for
+  it, and the first real refund shows up as either `paymongo.webhook.revoke` or
+  `paymongo.webhook.unattributable_refund` in the logs.
 - **Period mode has no renewal, so nothing "fails":** the period lapses at `current_period_end` and
   `resolve_tier` downgrades on the next read. `/billing/cancel` only marks the row `cancelled`, keeping
   the paid time.

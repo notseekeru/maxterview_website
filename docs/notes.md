@@ -63,10 +63,8 @@
   nobody can extend before lapse; with no auto-renew, every 30 days is a fresh opt-in.
 - feat: expiry reminder before the period ends. The stack has no email surface at all (no SMTP or
   Resend dep), so every lapse is silent.
-- fix: refund/dispute revocation. A refunded payment keeps entitlement to period end, while
-  MONETIZATION §5 asks for immediate downgrade on dispute. Only an `AI HERE` note today
-  (`payments.py:213`).
 - feat: receipts/invoices to the customer. Same missing email surface.
 - feat: payment alerting (the FEATURES line). Nothing in `observability/grafana` watches the events
   already emitted: `paymongo.webhook_signature.mismatch|stale`, `paymongo.webhook.payment_not_credited`,
-  `paymongo.request_failed`.
+  `paymongo.request_failed`, and the revocation path (`paymongo.webhook.revoke`,
+  `paymongo.webhook.unattributable_refund` — a refund nobody could attribute is money still serving).

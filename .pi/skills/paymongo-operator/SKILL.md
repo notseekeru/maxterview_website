@@ -32,7 +32,7 @@ real subscription lifecycle end-to-end.
 | --- | --- | --- |
 | none (`backend/.env` empty) | Full dev proof: `/api/billing/webhook/simulate` (dev/test only) drives `subscriptions` → `resolve_tier` → `/api/usage`. Works offline, no tunnel, no keys. | Touch PayMongo at all. |
 | `PAYMONGO_SECRET_KEY` (test) | **Everything the launch mode needs**: Customer, one-time Payment Intent, QR Ph code, webhooks — `payments.sh`. | Real money (that is the live key; no KYB needed for QR Ph). **Refunds** — `POST /v1/refunds` answers `parameter_invalid: Refunds are not allowed for payments with source type qrph`, so a refund exists only as a dashboard action. **Subscriptions** — the account-level `Subscriptions` capability is off, so `POST /v1/subscriptions` and even `POST /v1/subscriptions/plans` return **403 `merchant_invalid_state`** ("no subscription payment methods are configured for this organization"). |
-| live keys | Real ₱99 billing over QR Ph. Verified end to end 2026-09-27. | Refunds: dashboard only (these scripts refuse live keys), and only from a funded balance; the app revokes on the `payment.refunded` that dashboard refund emits. |
+| live keys | Real ₱99 billing over QR Ph. Verified end to end 2026-09-27. | Refunds: dashboard only (these scripts refuse live keys), and only from a funded balance; the app revokes on the refund event that follows (unobserved so far — MONETIZATION §5). |
 
 **Two PayMongo account-level features are NOT self-service**: **Subscriptions** and **Card Vaulting** —
 both need `support@paymongo.com`, and "All subscription activations are manually requested — no
@@ -139,7 +139,7 @@ To exercise the **real** HMAC path (`Paymongo-Signature`, not the simulate short
    `current_period_end`. `billing.resolve_tier` then reads `premium` wherever Clerk is on.
 5. **No cancel to offer** — nothing is scheduled provider-side, so `/api/billing/cancel` only marks
    the row `cancelled` (the paid time still serves) and the UI shows the expiry instead of a button.
-6. **Revoke** — a dashboard refund emits `payment.refunded`, which flips the row to `free/refunded` at
+6. **Revoke** — the dashboard refund's `payment.refunded` flips the row to `free/refunded` at
    once (the paid period stops serving, `MONETIZATION §5`); `payment.refund.updated` is status churn and
    revokes only once the refund reads `succeeded`, so a held refund keeps the time. Drive it with
    `webhook-driver.sh --event=payment.refunded --intent=pi_x --admin-destroy`. A **chargeback has no
