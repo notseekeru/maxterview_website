@@ -580,6 +580,15 @@ async def test_unattributable_refund_writes_nothing(monkeypatch):
     await payments.handle_webhook_event(_refund_resource_event(status="succeeded", payment_id="pay_unknown"))
     assert not any("UPDATE subscriptions" in q for q, _ in calls)
 
+    async def _provider_down(*_a, **_kw):
+        raise HTTPException(status_code=502, detail="Payment provider error")
+
+    # A provider outage during the read-back must still ACK the delivery: a 500 here is a retry storm
+    # into a handler that fails the same way, and the write it skips is the operator's `revoke.sh`.
+    monkeypatch.setattr(payments, "_api", _provider_down)
+    await payments.handle_webhook_event(_refund_resource_event("payment.refund.updated", payment_id="pay_1"))
+    assert not any("UPDATE subscriptions" in q for q, _ in calls)
+
 
 # --- Paymongo-Signature (HMAC-SHA256 of "{t}.{raw_body}") ---
 
