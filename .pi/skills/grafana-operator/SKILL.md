@@ -40,9 +40,9 @@ URL=https://sturdypoplar3317.grafana.net
 | --- | --- |
 | Folder, project | `maxterview` — rule group + dashboard |
 | Folder, Grafana's own | `afys5ycv6iv40b` — holds the 11 built-in Cloud dashboards, never touch |
-| Rule group | `maxterview-logs`, interval 60s, 5 rules (2 Prometheus: 5xx, model failures; 3 Loki: tracebacks, browser errors, and dropped OTLP batches from the Alloy stream) |
+| Rule group | `maxterview-logs`, interval 60s, 10 rules: the 5 kit rules (2 Prometheus: 5xx, model failures; 3 Loki: tracebacks, browser errors, dropped OTLP batches from the Alloy stream) plus the 5 payment rules `--payments` appends |
 | Dashboard | `maxterview-logs` (uid = same slug), 7 panels (3 Loki, 3 Prometheus, 1 traces) |
-| Rule uids | backend 5xx `cfys2cemal24ga`, llm failures `efys2cf010ykgc`, backend tracebacks `afys2cfcxi2v4e`, browser errors `afystat9eb1tsb`, telemetry export failing `cfz9q0s3wfncwb` |
+| Rule uids | backend 5xx `cfys2cemal24ga`, llm failures `efys2cf010ykgc`, backend tracebacks `afys2cfcxi2v4e`, browser errors `afystat9eb1tsb`, telemetry export failing `cfz9q0s3wfncwb`; payments: credited `cfziwcmzvmupsf`, provider failing `cfziwcmzy4r28c`, webhook rejected `efziwcn00mneob`, unattributable `afziwcn034jr4f`, money back `dfziwcn05mg3kb` |
 | Contact point | `slack-maxterview` (uid `dfys2agrrsr9ce`, type slack; webhook is a secret in Infisical) |
 | Root notification policy | receiver `slack-maxterview`, `group_by = [grafana_folder, alertname]`, `provenance: api` |
 | Loki datasource | `grafanacloud-logs` (also `grafanacloud-prom`, `-traces`, `-profiles`) |
@@ -99,6 +99,11 @@ curl -s -H "Authorization: Bearer $TOKEN" "$URL/api/datasources/proxy/uid/grafan
 
 - `status` is a number: `| json | status >= 400` matches (34 rows/24h), so the comparison in the rules
   and panels is live, not lexically dead.
+- A regex metachar in a label filter has to be folded: `event=~"paymongo[.]webhook_signature[.][a-z]+"`
+  → 1 row/30d, the one real mismatch. The obvious single-backslash escape is a 400
+  `parse error ... invalid char escape` for the whole query, and the doubled form needs four
+  backslashes inside a JSON rule file, so `[.]` is what the payment rules ship. Same alternation
+  shape measured: 3 rows.
 - `.*` immediately before a `|`-alternation in a **label** regex silently matches nothing here:
   `event=~"llm.*(unavailable|failed|transport_error)"` → 0 rows where
   `event=~"llm[a-z._]*(unavailable|failed|transport_error)"` → all 6, and `level=~".*(error|warning)"`
@@ -154,7 +159,7 @@ rule-**group** operation (no interval, no atomic multi-rule PUT), so group-shape
 ## The kit (a new project gets its own folder + rules + dashboard)
 
 ```sh
-cd observability/grafana && ./bootstrap.py <project> [app-label] [--dry-run] [--delete]
+cd observability/grafana && ./bootstrap.py <project> [app-label] [--payments] [--dry-run] [--delete]
 ```
 
 `cp -r observability/grafana <new-repo>/observability/grafana` is the whole install step; `cp -r` and
