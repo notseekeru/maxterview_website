@@ -6,10 +6,15 @@
 #                                              `start_period_purchase` runs) and print the code's id,
 #                                              expiry and (test mode) the test_url that pays it
 #   --refund --payment-id=pay_x [--amount=N]   refund a paid payment (needs --admin-destroy).
+#                                              REFUSED for QR Ph: the shipping rail has no API refund
+#                                              (`Refunds are not allowed for payments with source type
+#                                              qrph`), so a refund is a Dashboard action and revoking
+#                                              is the `payment.refunded` event's job (`_on_refund`).
 #                                              PayMongo HOLDS the refund while the balance is short:
 #                                              right after a payment, settlement is still scheduled.
 #   --list-webhooks                            registered endpoints
-#   --register-webhook --url=https://…         register an endpoint for the period-mode events
+#   --register-webhook --url=https://…         register the period-mode endpoint (payment.paid +
+#                                              both refund types), or UPDATE it when it exists
 #
 # Reads (never prints): PAYMONGO_SECRET_KEY. Live keys are refused. Amounts are in CENTAVOS.
 # Delivering an event INTO the app is webhook-driver.sh's job:
@@ -28,13 +33,13 @@ DESC="Maxterview Premium (30 days)"
 URL=""
 PAYMENT_ID=""
 # `payment.paid` is what period mode emits; the two refund types are what REVOKES premium
-# (`payments._on_refund`). Every name here was registered against the test account before it was
-# added: live-mode registration REJECTS `payment_intent.succeeded` ("invalid event type", verified
-# 2026-09-17), and so does the docs' newer `refund.succeeded` together with every `dispute.*` name
-# (verified 2026-09-27, while `GET /v1/disputes` answers `access_denied` — a dispute is revoked by
-# hand with revoke.sh). `payment.failed` was never registered. The app still accepts
-# `payment_intent.succeeded` for accounts that do emit it, and its period write is a compare-and-set,
-# so a duplicate or sibling delivery cannot buy two periods.
+# (`payments._on_refund`). Every name here passed an event-validation attempt against the test account:
+# the refund pair was accepted while the probe URL was rejected (a separate field), and registration
+# REJECTS `payment_intent.succeeded` ("invalid event type", 2026-09-17) along with the docs' newer
+# `refund.succeeded` and every `dispute.*` name (2026-09-27, while `GET /v1/disputes` answers
+# `access_denied` — a dispute is revoked by hand with revoke.sh). `payment.failed` was never registered.
+# The app still accepts `payment_intent.succeeded` for accounts that do emit it, and its period write is
+# a compare-and-set, so a duplicate or sibling delivery cannot buy two periods.
 EVENTS='["payment.paid","payment.refunded","payment.refund.updated"]'
 
 for a in "$@"; do
@@ -56,13 +61,26 @@ AUTH="Authorization: Basic $(printf '%s:' "$PAYMONGO_SECRET_KEY" | base64 | tr -
 
 _get() { curl -fsS -H "$AUTH" "$API$1"; }
 _post() { curl -fsS -H "$AUTH" -H 'Content-Type: application/json' -X POST "$API$1" -d "$2"; }
-_put() { curl -fsS -H "$AUTH" -H 'Content-Type: application/json' -X PUT "$API$1" -d "$2"; }
+# POST/PUT without `-f`: a refused money call must PRINT the provider's reason, not exit silently.
+_post_report() { curl -sS -H "$AUTH" -H 'Content-Type: application/json' -X POST "$API$1" -d "$2"; }
+_put_report() { curl -sS -H "$AUTH" -H 'Content-Type: application/json' -X PUT "$API$1" -d "$2"; }
+
+# The provider's own words for a refusal: the errors array, never the whole body (a webhook response
+# carries the endpoint's signing secret).
+_errors() {
+  if command -v node >/dev/null 2>&1; then
+    node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{let j={};try{j=JSON.parse(s)}catch(e){}
+      process.stdout.write(((j.errors||[]).map(e=>e.code+": "+e.detail).join(" | "))||("unparseable response: "+s.slice(0,200)))})'
+  else
+    head -c 200
+  fi
+}
 
 # The webhook response carries a signing secret: print everything BUT that (zero-touch).
 _hook_summary() {
   if command -v node >/dev/null 2>&1; then
-    node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const j=JSON.parse(s);const a=(j.data||{}).attributes||{};
-      console.log("  id:",(j.data||{}).id,"status:",a.status,"events:",(a.events||[]).join(","))})'
+    node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{let j={};try{j=JSON.parse(s)}catch(e){return}
+      const a=(j.data||{}).attributes||{};console.log("  id:",(j.data||{}).id,"status:",a.status,"events:",(a.events||[]).join(","))})'
   else
     grep -o '"id": *"[^"]*"' | head -1
   fi
@@ -116,7 +134,11 @@ case "$MODE" in
     [ -n "$PAYMENT_ID" ] || { echo "refused: --payment-id=pay_x required"; exit 2; }
     if [ "$ADMINDESTROY" != 1 ]; then echo "refused: --refund moves real test money; add --admin-destroy"; exit 3; fi
     echo "== refunding ${AMOUNT} centavos of $PAYMENT_ID =="
-    _post /v1/refunds "$(printf '{"data":{"attributes":{"amount":%s,"payment_id":"%s","reason":"requested_by_customer"}}}' "$AMOUNT" "$PAYMENT_ID")" | _rows
+    res=$(_post_report /v1/refunds "$(printf '{"data":{"attributes":{"amount":%s,"payment_id":"%s","reason":"requested_by_customer"}}}' "$AMOUNT" "$PAYMENT_ID")")
+    case "$res" in
+      *'"errors"'*) echo "  refused: $(printf '%s' "$res" | _errors)"; exit 5 ;;
+    esac
+    printf '%s' "$res" | _rows
     ;;
   list-webhooks)
     echo "== webhook endpoints =="
@@ -134,14 +156,18 @@ case "$MODE" in
     body=$(printf '{"data":{"attributes":{"url":"%s","events":%s}}}' "$URL" "$EVENTS")
     if [ -n "$hook_id" ]; then
       echo "== updating $hook_id ($URL) =="
-      _put "/v1/webhooks/$hook_id" "$body" | _hook_summary
+      res=$(_put_report "/v1/webhooks/$hook_id" "$body")
     else
       echo "== registering $URL =="
-      # The response carries a signing secret. It is NOT printed (zero-touch): read it from
+      # The successful response carries a signing secret. It is NOT printed (zero-touch): read it from
       # Dashboard → Developers → Webhooks and put it in backend/.env as PAYMONGO_WEBHOOK_SECRET.
-      _post /v1/webhooks "$body" | _hook_summary
-      echo "  secret: copy it from the Dashboard into backend/.env as PAYMONGO_WEBHOOK_SECRET (not echoed here)"
+      res=$(_post_report /v1/webhooks "$body")
     fi
+    case "$res" in
+      *'"errors"'*) echo "  refused: $(printf '%s' "$res" | _errors)"; exit 5 ;;
+    esac
+    printf '%s' "$res" | _hook_summary
+    [ -n "$hook_id" ] || echo "  secret: copy it from the Dashboard into backend/.env as PAYMONGO_WEBHOOK_SECRET (not echoed here)"
     ;;
   *) echo "usage: payments.sh --list-payments [--limit=N] | --create-period [--amount=9900] | --refund --payment-id=pay_x --admin-destroy | --list-webhooks | --register-webhook --url=https://…"; exit 2 ;;
 esac
