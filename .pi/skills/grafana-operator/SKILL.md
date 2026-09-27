@@ -51,10 +51,17 @@ Datasources belong to the **stack** and are shared by every project on it. There
 datasource and none should be created: a project is isolated by folder + the `app` label on logs and
 `service_name` on metrics (the app sets it from `telemetry.py`).
 
-The two Prometheus rules and three dashboard panels only have data while the app exports OTLP
-(`OTEL_EXPORTER_OTLP_ENDPOINT` set). No data means NoData, `noDataState: OK`, and a board that looks
-calm: check `sum(http_server_request_duration_seconds_count{service_name="maxterview-backend"})`
-before believing a quiet latency panel.
+The two Prometheus rules and three dashboard panels read the app's OTLP export through the in-cluster
+Alloy. A window with no batches is **data loss, not quiet**: measured 2026-09-25, 103 dropped batches
+in one hour, every one `lookup ... server misbehaving` (CoreDNS SERVFAIL), and the gap in traces and
+metrics is permanent. That is what the dropped-batch rule watches.
+
+A bare instant selector reads **empty for any app idle more than 5 minutes** (Prometheus staleness),
+which is how this pipeline looked dead on 2026-09-27 while the same day held 14,202 samples. Check
+through a lookback:
+`sum(increase(http_server_request_duration_seconds_count{service_name="maxterview-backend"}[24h]))`.
+Both metric rules read NoData as OK, so they catch a burst of 5xx while traffic flows and cannot
+notice an outage.
 
 ## Verb semantics (each one measured; guessing moves other people's rules)
 
