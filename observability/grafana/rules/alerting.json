@@ -403,7 +403,7 @@
       "for": "5m",
       "keep_firing_for": "0s",
       "annotations": {
-        "description": "More than 2 dropped OTLP batches in 15 minutes from Alloy. Traces and metrics are being discarded, so the latency panels and the two metric alerts are reading stale or empty data. Alloy's own log line carries the HTTP status: 401 means the write token's scopes.",
+        "description": "More than 2 dropped OTLP batches in 15 minutes from Alloy, so traces and metric samples for that window are gone and a batch burst is how a DNS hiccup looks: 103 failures in one hour on 2026-09-25. The cause is on Alloy's own line, either an HTTP status (401 = the gateway wants its own basic-auth user, not the Loki one) or `lookup ... server misbehaving`, a CoreDNS SERVFAIL that lasts as long as the cluster resolver does. Nothing else reports either: the receiver accepts, the exporter drops, and the panels go quiet.",
         "summary": "{{PROJECT}}: telemetry export failing"
       },
       "labels": {

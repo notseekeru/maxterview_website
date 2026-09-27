@@ -172,14 +172,17 @@ def install(args, app):
              "field names never fires and never complains — a "
              "quiet stack and a dead rule look identical. Fix the label or the field names, then rerun.")
 
-    # Not a failure: the first sample lands 60s after the first request, so an install that precedes
-    # the deploy reports zero. It is printed because a metric rule with a mistyped service_name is
-    # indistinguishable from a quiet stack.
+    # Not a failure: an install that precedes the deploy reports zero. It is printed because a metric
+    # rule with a mistyped service_name is indistinguishable from a quiet stack. A 24h lookback, never
+    # a bare `sum(...)`: Prometheus marks a sample stale after 5m, so an instant selector reads empty
+    # for any app idle longer than that and says nothing about whether the pipeline works.
     series = api(args.url, tok, "/api/datasources/proxy/uid/"
                  + urllib.parse.quote(args.prometheus_datasource)
                  + "/api/v1/query?"
-                 + urllib.parse.urlencode({"query": f'sum(http_server_request_duration_seconds_count{{service_name="{app}"}})'}))
-    print(f"metric check: service_name={app} -> {len(series['data']['result'])} series so far")
+                 + urllib.parse.urlencode({"query": f'sum(increase(http_server_request_duration_seconds_count{{service_name="{app}"}}[24h]))'}))
+    rows = series["data"]["result"]
+    print(f"metric check: service_name={app} -> {rows[0]['value'][1] if rows else 0} requests in the "
+          "last 24h (0 = no OTLP export, or no traffic)")
     print("installed; rules report health=unknown until their first evaluation (~1 minute)")
 
 
