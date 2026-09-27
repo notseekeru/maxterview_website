@@ -39,7 +39,7 @@ URL=https://sturdypoplar3317.grafana.net
 | Object | uid / name |
 | --- | --- |
 | Folder, project | `maxterview` — rule group + dashboard |
-| Folder, Grafana's own | `afys5ycv6iv40b` — holds the 11 built-in Cloud dashboards, never touch |
+| Folder, Grafana's own | `afys5ycv6iv40b` — the 11 Cloud dashboards, all `provisioned: true` with `provisionedExternalId: dashboard.json`, so they are the stack's whole board set beside `maxterview-logs`; leave them |
 | Rule group | `maxterview-logs`, interval 60s, 10 rules: the 5 kit rules (2 Prometheus: 5xx, model failures; 3 Loki: tracebacks, browser errors, dropped OTLP batches from the Alloy stream) plus the 5 payment rules `--payments` appends |
 | Dashboard | `maxterview-logs` (uid = same slug), 7 panels (3 Loki, 3 Prometheus, 1 traces) |
 | Rule uids | backend 5xx `cfys2cemal24ga`, llm failures `efys2cf010ykgc`, backend tracebacks `afys2cfcxi2v4e`, browser errors `afystat9eb1tsb`, telemetry export failing `cfz9q0s3wfncwb`; payments: credited `cfziwcmzvmupsf`, provider failing `cfziwcmzy4r28c`, webhook rejected `efziwcn00mneob`, unattributable `afziwcn034jr4f`, money back `dfziwcn05mg3kb` |
@@ -73,6 +73,7 @@ notice an outage.
 | `PUT /api/v1/provisioning/folder/<f>/rule-groups/<g>` | the upsert — 200 whether it created or updated |
 | `POST` to that same path | **404**, it serves GET/PUT/DELETE only |
 | `POST /api/dashboards/db` | `{"dashboard": {...}, "folderUid": "<f>", "overwrite": true}`; dashboards round-trip **byte-identical** apart from `id`/`version` |
+| `DELETE /api/dashboards/uid/<uid>` | 200 unless the board is Cloud-provisioned, which answers **400 `provisioned dashboard cannot be deleted`** although its own `meta.canDelete` reads `true`; a non-provisioned board (the unfiled Insight ones) deletes fine |
 
 Rule `uid` is a **global primary key, not per-folder**. Omitting uids from a group PUT regenerates
 all of them (losing alert state, silences, resolved/unresolved history); echoing another folder's
