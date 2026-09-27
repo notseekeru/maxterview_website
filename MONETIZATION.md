@@ -167,6 +167,13 @@ Cards stay out of scope: enabled on the account, but they need both KYB and a PC
 Rehearsal: `.pi/skills/paymongo-operator/scripts/payments.sh --create-period` — test mode prints the
 `test_url` that completes the payment without a wallet.
 
+**Verified live 2026-09-27.** One real ₱99 QR Ph payment on that Individual account, end to end: the
+live key accepted `qrph`, the intent was created and attached, prod logged the PayMongo calls as 200,
+`POST /api/billing/webhook` answered `200` (a bad signature would be 400), and the tier flipped to
+premium for 30 days with `premium_until` set. So no KYB is needed to take money: "live keys need a
+Fully Verified account" was wrong for this rail, and DTI + BIR 2303 only unlock the e-wallets, cards
+and Subscriptions.
+
 **Global/USD later.** PayMongo is PHP-only and PH-rail-only, so USD pricing needs a merchant-of-record
 (Paddle / Lemon Squeezy / Polar: they remit VAT and pay out to an unregistered PH individual — the only
 option before DTI/BIR exists). The seam is `payments.py` plus the `subscriptions.provider*` columns:
@@ -176,6 +183,12 @@ a second module, not a rewrite.
 
 - **Cancellation → access till end of the current paid period, no refunds.**
 - **Refund: 3-day voluntary window** (2026-08-16); after 3 days, none voluntarily.
+- **Refunds are an operator action, and they do NOT revoke.** The app never calls the refunds API: the
+  merchant refunds from the PayMongo dashboard, which needs a funded PayMongo balance (a refund right
+  after a payment is held while settlement is still scheduled — verified 2026-09-27 with a ₱0.00
+  balance). Nothing registers a refund event, so a refunded payment keeps serving until
+  `current_period_end`; revoking would need the refund event type plus a write path. Until then, a
+  refunded customer stays premium, so treat a refund as a manual downgrade too.
 - **Period mode has no renewal, so nothing "fails":** the period lapses at `current_period_end` and
   `resolve_tier` downgrades on the next read. `/billing/cancel` only marks the row `cancelled`, keeping
   the paid time.

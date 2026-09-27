@@ -31,8 +31,8 @@ real subscription lifecycle end-to-end.
 | Keys present | You can do | You cannot do |
 | --- | --- | --- |
 | none (`backend/.env` empty) | Full dev proof: `/api/billing/webhook/simulate` (dev/test only) drives `subscriptions` → `resolve_tier` → `/api/usage`. Works offline, no tunnel, no keys. | Touch PayMongo at all. |
-| `PAYMONGO_SECRET_KEY` (test) | **Everything the launch mode needs**: Customer, one-time Payment Intent, QR Ph code, webhooks, refunds — `payments.sh`. | Take real money (live keys need a Fully Verified account). **Subscriptions** — the account-level `Subscriptions` capability is off, so `POST /v1/subscriptions` and even `POST /v1/subscriptions/plans` return **403 `merchant_invalid_state`** ("no subscription payment methods are configured for this organization"). |
-| live keys | Real ₱99 billing. | — |
+| `PAYMONGO_SECRET_KEY` (test) | **Everything the launch mode needs**: Customer, one-time Payment Intent, QR Ph code, webhooks, refunds — `payments.sh`. | Real money (that is the live key; no KYB needed for QR Ph). **Subscriptions** — the account-level `Subscriptions` capability is off, so `POST /v1/subscriptions` and even `POST /v1/subscriptions/plans` return **403 `merchant_invalid_state`** ("no subscription payment methods are configured for this organization"). |
+| live keys | Real ₱99 billing over QR Ph. Verified end to end 2026-09-27. | Refunds: dashboard only (these scripts refuse live keys), and only from a funded balance. |
 
 **Two PayMongo account-level features are NOT self-service**: **Subscriptions** and **Card Vaulting** —
 both need `support@paymongo.com`, and "All subscription activations are manually requested — no

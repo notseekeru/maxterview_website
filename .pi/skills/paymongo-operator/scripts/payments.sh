@@ -5,7 +5,9 @@
 #   --create-period [--amount=9900] [--desc=]  create + attach a QR Ph Payment Intent (the sequence
 #                                              `start_period_purchase` runs) and print the code's id,
 #                                              expiry and (test mode) the test_url that pays it
-#   --refund --payment-id=pay_x [--amount=N]   refund a paid payment (needs --admin-destroy)
+#   --refund --payment-id=pay_x [--amount=N]   refund a paid payment (needs --admin-destroy).
+#                                              PayMongo HOLDS the refund while the balance is short:
+#                                              right after a payment, settlement is still scheduled.
 #   --list-webhooks                            registered endpoints
 #   --register-webhook --url=https://…         register an endpoint for the period-mode events
 #

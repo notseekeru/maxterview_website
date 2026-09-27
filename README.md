@@ -149,7 +149,7 @@ Operator notes:
   **the secret keys ARE the app's env-var names** (uppercase). Never `kubectl apply` a secret, never
   commit one; rotation is an Infisical change + `make apply` + a rollout restart. Live-mode
   `PAYMONGO_*` and the `payment.paid` webhook secret are applied — a signed live-format delivery
-  answers `200 ok`, an unsigned one `400`. The remaining item is one real ₱99 payment.
+  answers `200 ok`, an unsigned one `400`. First real ₱99 QR Ph payment: 2026-09-27 (MONETIZATION §4).
 - **Database:** Neon, **direct host** (not `-pooler`) with `?sslmode=require`. The direct host needs
   no code change — the backend is one long-running pod holding ~10 pooled connections; Neon's pooler
   only matters when many short-lived instances share a DB, and `app/db.py` auto-detects a `-pooler`

@@ -252,7 +252,8 @@ async def start_period_purchase(user: ClerkUser) -> dict:
     # `provider_subscription_id` holds the intent id: that is the column `_owner_for` resolves from
     # (PayMongo's `payment.paid` carries `payment_intent_id`), so period mode needs no migration.
     # AI HERE: one handle per owner, one period per payment; stacked renewals or refunds would want a
-    # ledger keyed by provider id.
+    # ledger keyed by provider id. A refund is also not a webhook we handle (none is registered), so
+    # refunding does not revoke: the period keeps serving until `current_period_end` (MONETIZATION §5).
     # Row AFTER the payable artifact, still before the browser can show it. A method the account
     # refuses (`payment_method_not_allowed`) would leave an intent nobody can pay, and a row for it
     # would block the owner's retry.
