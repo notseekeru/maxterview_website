@@ -43,7 +43,7 @@
             "type": "loki",
             "uid": "${DS_LOKI}"
           },
-          "expr": "sum by (level) (count_over_time({app=\"$app\"} | json [$__auto]))",
+          "expr": "sum by (level) (count_over_time({app=\"$app\"} | json | __error__=\"\" [$__auto]))",
           "queryType": "range",
           "refId": "A"
         }
