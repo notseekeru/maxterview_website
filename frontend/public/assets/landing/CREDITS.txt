@@ -1,9 +1,9 @@
 Landing-page media. Photos are Unsplash stock (Unsplash License: free commercial use, no
-attribution required — credited here for provenance). The hero recording is our own screen capture.
+attribution required; credited here for provenance). The hero recording is our own screen capture.
 Re-fetch a photo crop with ?w=<width>&q=85&fm=jpg on the `photo-…` URL. Photos are committed as
 grayscale 1600/800-wide or 240px-square crops; the video is re-encoded, not the raw capture.
 
-Subject rule: one person at a screen, or an empty desk — never a candidate facing an interviewer.
+Subject rule: one person at a screen, or an empty desk. Never a candidate facing an interviewer.
 Those photos read as a human-led interview, which is the opposite of what this product is.
 
 demo-hero.mp4                                 screen recording of a practice run, 8x speed
