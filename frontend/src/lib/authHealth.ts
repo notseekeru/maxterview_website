@@ -31,7 +31,7 @@ export function frontendAuthProblem(): string | null {
         return `VITE_CLERK_PUBLISHABLE_KEY must be a Clerk publishable key starting pk_ (got “${clerkKey.slice(0, 12)}…”). A secret from another slot (Clerk/PayMongo sk_/whsec_) looks pasted here. Clerk is disabled until this is fixed.`;
     }
     if (isLiveKeyOnNonProdOrigin()) {
-        return "VITE_CLERK_PUBLISHABLE_KEY is a production (pk_live_) key. Clerk only accepts it on its HTTPS production origin — on localhost it will reject every login with an Origin/domain error. Use a pk_test_ key from the Clerk dashboard’s Development instance for local dev.";
+        return "VITE_CLERK_PUBLISHABLE_KEY is a production (pk_live_) key. Clerk only accepts it on its HTTPS production origin, so on localhost it will reject every login with an Origin/domain error. Use a pk_test_ key from the Clerk dashboard’s Development instance for local dev.";
     }
     return null;
 }

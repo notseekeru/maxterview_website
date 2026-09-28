@@ -534,7 +534,7 @@ def _resume_cap_error(tier: str, cap: int) -> HTTPException:
     """402 when the CAP is what free-ness costs you — the UI already turns 402 into its upgrade notice
     — and 409 when a paid owner simply hit the ceiling (nothing to sell them)."""
     if tier == "free":
-        return HTTPException(status_code=status.HTTP_402_PAYMENT_REQUIRED, detail=f"The free plan includes {cap} resume. Delete it to import another, or upgrade to premium for {billing.PREMIUM_RESUMES}.")
+        return HTTPException(status_code=status.HTTP_402_PAYMENT_REQUIRED, detail=f"The free plan includes {cap} resume. Delete it to import another, or upgrade to Pro for {billing.PREMIUM_RESUMES}.")
     return HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"You already have {cap} resumes, the maximum. Delete one to import another.")
 
 
@@ -1177,7 +1177,7 @@ async def chat_stream(
     if await billing.chat_turn_remaining(tier, user.sub) == 0:
         raise HTTPException(
             status_code=status.HTTP_402_PAYMENT_REQUIRED,
-            detail=(f"Daily chat-turn limit reached ({billing.BYOK_CHAT_TURNS} turns/day on your own provider). Try again after midnight UTC." if config.byok else "Daily chat-turn credits reached. Try again after midnight UTC, or upgrade to premium."),
+            detail=(f"Daily chat-turn limit reached ({billing.BYOK_CHAT_TURNS} turns/day on your own provider). Try again after midnight UTC." if config.byok else "Daily chat-turn credits reached. Try again after midnight UTC, or upgrade to Pro."),
         )
 
     await billing.bump_chat_turn(user.sub)

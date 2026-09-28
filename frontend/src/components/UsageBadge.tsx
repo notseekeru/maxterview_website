@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { getUsage, turnsToday, type Usage } from "@/lib/api";
 import { clerkEnabled } from "@/lib/config";
+import { PLANS } from "@/lib/plans";
 
 // Quota-status badge (GET /usage, MONETIZATION §3).
 export function UsageBadge() {
@@ -30,7 +31,7 @@ export function UsageBadge() {
     // `dev` is only reachable in no-Clerk mode (resolve_tier grants it solely to the
     // DEV_USER identity).
     const isDev = usage.tier === "dev";
-    const tierBadge = usage.tier === "premium" ? <Badge>Premium</Badge> : isDev ? <Badge variant="outline">DEV</Badge> : <Badge variant="outline">Free</Badge>;
+    const tierBadge = usage.tier === "premium" ? <Badge>Pro</Badge> : isDev ? <Badge variant="outline">DEV</Badge> : <Badge variant="outline">Free</Badge>;
     // The cap is a hard gate (402 mid-interview, no warning), so the remaining count belongs in
     // the shell rather than only on the billing page.
     const today = turnsToday(usage);
@@ -57,23 +58,36 @@ export function UsageBadge() {
     );
 }
 
-// Lockout / upsell notice with an "Upgrade" CTA when quota is exhausted.
-export function UpgradeNotice({ reason }: { reason: string }) {
+// Lockout notice for a 402 on the daily turn cap. Tier-aware on purpose: "Free limit reached, upgrade"
+// is a lie to someone who already paid, so the copy resolves the caller's own tier first.
+export function UpgradeNotice() {
     const { start, busy, error, modal } = useQrCheckout();
+    const [usage, setUsage] = useState<Usage | null>(null);
+
+    useEffect(() => {
+        getUsage()
+            .then(setUsage)
+            .catch(() => {});
+    }, []);
+
+    const paid = usage?.tier === "premium" || usage?.byok === true;
+    const body = !usage ? "Daily turn limit reached. Turns come back at 00:00 UTC." : paid ? "Every turn in today's allowance is spent. It comes back at 00:00 UTC." : `Free gives you ${PLANS.free.turns} turns a day. Pro gives you ${PLANS.premium.turns}, plus ${PLANS.premium.resumes} resume slots.`;
 
     return (
         <div className="flex flex-col items-start gap-3 rounded-lg border border-dashed bg-muted/50 p-4 text-sm">
             <div className="space-y-1">
-                <p className="font-medium">Free limit reached</p>
-                <p className="w-full max-w-sm text-muted-foreground">You can’t start another interview or send more turns right now. This round {reason}. Upgrade to premium for unlimited interviews and chats.</p>
+                <p className="font-medium">Out of turns for today</p>
+                <p className="w-full max-w-sm text-muted-foreground">{body}</p>
             </div>
             <div className="flex items-center gap-3">
-                <Button size="sm" onClick={() => void start()} disabled={busy}>
-                    {busy ? "Starting…" : "Upgrade to Premium"}
-                </Button>
+                {!paid && (
+                    <Button size="sm" onClick={() => void start()} disabled={busy || !usage}>
+                        {busy ? "Starting…" : "Upgrade to Pro"}
+                    </Button>
+                )}
                 {/* No provider portal exists; plan management (incl. cancel) lives on the billing page. */}
                 <a href="/settings/billing" className="text-xs text-muted-foreground underline underline-offset-2">
-                    Manage billing
+                    See plans
                 </a>
             </div>
             {error && <p className="text-xs text-destructive">{error}</p>}

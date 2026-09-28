@@ -12,7 +12,7 @@ Decisions: PLAN D10 (owner-scoping is a hard rule).
 | Interviews (creation)                     | **unlimited**              | **unlimited**                        | **unlimited**              |
 | Resumes kept                              | **1** (`FREE_RESUMES`)     | **5** (`PREMIUM_RESUMES`)            | **5** (`DEV_RESUMES`)      |
 | Price                                     | ₱0                         | **₱99 / 30 days** (one payment)      | ₱0                         |
-| Chat turns / day (GLOBAL, all interviews) | **30** (`FREE_CHAT_TURNS`) | **100** (`PREMIUM_CHAT_TURNS`)       | **500** (`DEV_CHAT_TURNS`) |
+| Chat turns / day (GLOBAL, all interviews) | **10** (`FREE_CHAT_TURNS`) | **100** (`PREMIUM_CHAT_TURNS`)       | **500** (`DEV_CHAT_TURNS`) |
 
 - The gate is a **global daily credit per owner** spanning ALL their interviews in one UTC day, reset
   at 00:00 UTC. No per-interview cap, no daily-interview cap, no free trial. Count **turns, not
@@ -28,7 +28,9 @@ Decisions: PLAN D10 (owner-scoping is a hard rule).
 
 ## 1. The `tier` claim & its source of truth
 
-- **Entitlement** ∈ `{"free", "premium"}` (+ `"dev"` for the no-Clerk fallback). Runtime source of
+- **Entitlement** ∈ `{"free", "premium"}` (+ `"dev"` for the no-Clerk fallback). `premium` is the
+  internal value only (DB column, JWT claim, PayMongo plan name); user-facing copy calls that tier
+  **Pro** (`frontend/src/lib/plans.ts`). Runtime source of
   truth is `ClerkUser.tier` (JWT claim) **merged with an active `premium` row in `subscriptions`**,
   so billing can elevate even when the JWT is stale — `billing.py::resolve_tier`.
 - **Consumption is NOT in the JWT**: the daily global turn counter is read from `turn_usage`,
@@ -222,7 +224,7 @@ a second module, not a rewrite.
 ## 6. Frontend
 
 Header tier label (`UsageBadge`), lockout/upsell notice (`UpgradeNotice` on 402), and a
-billing/plan page (`/settings/billing`) with Free vs Premium cards, current-plan summary, an
+billing/plan page (`/settings/billing`) with Free vs Pro cards, current-plan summary, an
 Upgrade CTA, and in-app **Cancel**. QR Ph has no return URL: `QrCheckout` draws the code beside a
 countdown and polls `/usage` until the webhook flips the tier. A redirect rail would land on
 `/dashboard?upgrade=pending`, where `UpgradePendingNotice` runs the same poll, because a return URL

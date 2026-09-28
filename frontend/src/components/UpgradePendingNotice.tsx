@@ -69,8 +69,8 @@ export function UpgradePendingNotice() {
     if (tier === "premium") {
         return (
             <div className="flex items-center gap-3 rounded-md border border-dashed p-3 text-sm">
-                <Badge>Premium</Badge>
-                <span>Payment confirmed — your plan is now Premium. Loading your dashboard…</span>
+                <Badge>Pro</Badge>
+                <span>Payment confirmed. Your plan is now Pro. Loading your dashboard…</span>
             </div>
         );
     }
@@ -85,8 +85,8 @@ export function UpgradePendingNotice() {
             </div>
             <p className="max-w-xl text-muted-foreground">
                 {givenUp
-                    ? "This is taking longer than usual. If the provider showed a successful payment, it will still land here — no need to pay again. If you cancelled or it failed, you have not been charged."
-                    : "This usually takes a few seconds. You will not be charged twice by waiting — do not start another payment."}
+                    ? "This is taking longer than usual. If the provider showed a successful payment, it will still land here, so there is no need to pay again. If you cancelled or it failed, you have not been charged."
+                    : "This usually takes a few seconds. Waiting will not charge you twice, so do not start another payment."}
             </p>
             <Button size="sm" variant="outline" onClick={() => void check()} disabled={cooling}>
                 Check again

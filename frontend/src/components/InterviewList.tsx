@@ -103,7 +103,7 @@ export function InterviewList({ interviews, loading, error, onRefresh, onOpen, o
                 {error && <p className="text-sm text-destructive">{error}</p>}
                 {scoreError && <p className="text-sm text-destructive">{scoreError}</p>}
                 {loading && <Skeleton className="h-16" />}
-                {!loading && visible.length === 0 && !error && <p className="text-sm text-muted-foreground">{archived.length > 0 ? "No active runs — everything is in Archived." : "No interviews yet. Create one to begin."}</p>}
+                {!loading && visible.length === 0 && !error && <p className="text-sm text-muted-foreground">{archived.length > 0 ? "No active runs. Everything is in Archived." : "No interviews yet. Create one to begin."}</p>}
                 {visible.map((i) => (
                     <div key={i.id} className="flex items-center justify-between gap-3 rounded-md border p-3">
                         <div className="min-w-0">
@@ -165,7 +165,7 @@ export function InterviewList({ interviews, loading, error, onRefresh, onOpen, o
                 row is one click from Archive, and a misfire there costs the run and its review. */}
             <Modal open={pendingDelete !== null} onClose={() => setPendingDelete(null)} title="Delete this run?">
                 <p>
-                    <span className="font-medium">{pendingDelete?.role}</span> and its transcript, review and scores are removed for good. This cannot be undone — archive it instead if you only want it out of the way.
+                    <span className="font-medium">{pendingDelete?.role}</span> and its transcript, review and scores are removed for good. This cannot be undone. Archive it instead if you only want it out of the way.
                 </p>
                 <div className="flex justify-end gap-2">
                     <Button variant="outline" size="sm" onClick={() => setPendingDelete(null)} disabled={deleting}>

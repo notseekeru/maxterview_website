@@ -20,9 +20,9 @@ function toneClass(decision: Decision): string {
 
 /** Certainty bands. Keeps 41% from reading like 89% without inventing a second score. */
 function certaintyBand(pct: number): string {
-    if (pct < 34) return "Low — the transcript leaves a lot unanswered.";
-    if (pct < 67) return "Moderate — real evidence, with gaps.";
-    return "High — backed by concrete, role-specific answers.";
+    if (pct < 34) return "Low: the transcript leaves a lot unanswered.";
+    if (pct < 67) return "Moderate: real evidence, with gaps.";
+    return "High: backed by concrete, role-specific answers.";
 }
 
 export function DecisionVerdict({ decision, certainty, className }: { decision: Decision; certainty?: number | null; className?: string }) {

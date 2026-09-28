@@ -114,7 +114,7 @@ export function LLMProviderCard() {
             <CardHeader className="flex-row items-start justify-between space-y-0">
                 <div>
                     <CardTitle>Interview engine (BYOK)</CardTitle>
-                    <CardDescription className="mt-1">Bring your own key: any OpenAI-compatible provider — used for your interviews, scoring and feedback. A keyless self-hosted endpoint needs no key at all; a saved key is stored encrypted and never shown again.</CardDescription>
+                    <CardDescription className="mt-1">Bring your own key: any OpenAI-compatible provider, used for your interviews, scoring and feedback. A keyless self-hosted endpoint needs no key at all; a saved key is stored encrypted and never shown again.</CardDescription>
                 </div>
                 {status && <Badge variant={status.byok ? "default" : "outline"}>{status.byok ? "Your key" : "System default"}</Badge>}
             </CardHeader>

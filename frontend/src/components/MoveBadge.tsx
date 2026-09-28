@@ -10,7 +10,7 @@ export function MoveBadge({ moveClass }: { moveClass: string }) {
     const meta = moveClassMeta(moveClass);
     const name = meta?.label ?? moveClass;
     return (
-        <span title={meta ? `${name} — ${meta.hint}` : `Unlabelled move class: ${moveClass}`} role="img" aria-label={name} className={cn(BADGE, meta?.tone ?? "border-dashed border-border text-muted-foreground")}>
+        <span title={meta ? `${name}: ${meta.hint}` : `Unlabelled move class: ${moveClass}`} role="img" aria-label={name} className={cn(BADGE, meta?.tone ?? "border-dashed border-border text-muted-foreground")}>
             <span aria-hidden>{meta?.glyph ?? "•"}</span>
         </span>
     );

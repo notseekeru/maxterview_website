@@ -29,9 +29,9 @@ export function AccountSettingsPage() {
                         <CardTitle>Plan</CardTitle>
                         <CardDescription className="mt-1">
                             {usage?.tier === "dev"
-                                ? "Dev mode — no Clerk key; runs against the backend DEV_USER."
+                                ? "Dev mode: no Clerk key, runs against the backend DEV_USER."
                                 : usage?.byok
-                                  ? "Your own provider key pays for the turns, so the daily chat-turn limit does not apply."
+                                  ? `Your own provider key pays for these turns, so ${chatTurns(usage)} a day is the ceiling instead of your plan cap.`
                                   : `You are on ${tierLabel}. ${usage ? (today ? `${today.remaining} of ${today.limit} daily chat turns left today (all interviews); resets 00:00 UTC.` : `Daily chat turns (all interviews): ${chatTurns(usage)}.`) : ""}`}
                         </CardDescription>
                     </div>
@@ -40,7 +40,7 @@ export function AccountSettingsPage() {
                 <CardFooter className="flex flex-row flex-wrap items-center gap-3">
                     {usage?.tier !== "premium" && usage?.tier !== "dev" && (
                         <Button asChild size="sm">
-                            <Link to="/settings/billing">Upgrade to Premium</Link>
+                            <Link to="/settings/billing">Upgrade to Pro</Link>
                         </Button>
                     )}
                     {usage?.tier === "premium" && (
@@ -48,9 +48,6 @@ export function AccountSettingsPage() {
                             <Link to="/settings/billing">Manage billing</Link>
                         </Button>
                     )}
-                    <Button asChild variant="ghost" size="sm">
-                        <Link to="/settings/billing">See plans</Link>
-                    </Button>
                     <Button asChild variant="ghost" size="sm">
                         <Link to="/settings/system">Bring your own key</Link>
                     </Button>

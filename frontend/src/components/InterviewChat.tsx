@@ -18,10 +18,10 @@ interface Props {
     onExit: () => void;
 }
 
-const STREAM_FAILED = "The interviewer couldn't answer just now — the model was unreachable. Your turn wasn't saved, so send it again in a moment.";
+const STREAM_FAILED = "The interviewer couldn't answer just now: the model was unreachable. Your turn wasn't saved, so send it again in a moment.";
 // The connection died before any frame arrived, so the server never got to name the provider (it does
 // that in llm.unreachable_detail). Same advice either way: the panel that fixes it is the same one.
-const CONNECTION_LOST = "Connection lost while streaming — the model never answered. If this repeats, test your provider in Settings > Interview engine (BYOK).";
+const CONNECTION_LOST = "Connection lost while streaming. The model never answered. If this repeats, test your provider in Settings > Interview engine (BYOK).";
 
 // The header reads as a state of the interview, not as the wire value behind it (the API and the DB
 // keep `completed`, which is the status the list, analytics and feedback endpoints filter on).
@@ -452,7 +452,7 @@ export function InterviewChat({ interviewId, onExit }: Props) {
                         </div>
                     )}
                     {error && <p className="my-1 self-center rounded-2xl border border-destructive/40 bg-destructive/10 px-3 py-1.5 text-center text-xs text-destructive">{error}</p>}
-                    {quotaLocked && <UpgradeNotice reason="your free chat turns ran out." />}
+                    {quotaLocked && <UpgradeNotice />}
                     {interviewOver && (
                         <div role="status" className={cn("my-1 self-center rounded-2xl border px-3.5 py-2 text-center text-xs", hardcoreFailed ? "border-destructive bg-destructive/10 text-destructive" : "bg-muted/50 text-muted-foreground")}>
                             {hardcoreFailed ? (

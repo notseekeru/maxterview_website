@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { apiDetail, createResume, deleteResume, extractResume, getResume, getUsage, httpStatus, listResumes, type Resume as ResumeRecord, type ResumeSummary, updateResume } from "@/lib/api";
+import { PLANS } from "@/lib/plans";
 import { cn } from "@/lib/utils";
 
 interface Draft {
@@ -74,7 +75,7 @@ export function ResumePage() {
     function pick(file: File | undefined) {
         if (!file || busy) return;
         if (!/\.pdf$/i.test(file.name) && file.type !== "application/pdf") {
-            setError("That isn't a PDF — drop a PDF, or paste it instead.");
+            setError("That isn't a PDF. Drop a PDF, or paste it instead.");
             setNotice(null);
             setCapped(false);
             return;
@@ -95,7 +96,7 @@ export function ResumePage() {
             setPasting(true);
             setImporting(false);
             setRestore(null);
-            setNotice(got.truncated ? `Read the first ${got.pages} pages — check the text and edit anything missing. Not saved yet.` : "Read the PDF — check the text, then Save. Not saved yet.");
+            setNotice(got.truncated ? `Read the first ${got.pages} pages. Check the text and fix anything missing. Not saved yet.` : "Read the PDF. Check the text, then Save. Not saved yet.");
         } catch (e) {
             fail(e, "Could not import that PDF.");
         } finally {
@@ -269,7 +270,7 @@ export function ResumePage() {
                             {limit !== null && (
                                 <span className="text-xs text-muted-foreground">
                                     {rows.length} of {limit}
-                                    {limit === 1 && " — premium keeps 5"}
+                                    {limit === 1 && ` · ${PLANS.premium.name} keeps ${PLANS.premium.resumes}`}
                                 </span>
                             )}
                         </div>
@@ -307,7 +308,7 @@ export function ResumePage() {
                                     Resume text
                                 </label>
                                 <Textarea id="resume-text" value={draft.text} onChange={(e) => setDraft((d) => ({ ...d, text: e.target.value }))} placeholder="Paste your resume here…" className="min-h-[28rem] font-mono text-xs leading-5" />
-                                <p className="text-xs text-muted-foreground">{draft.text.length.toLocaleString()} characters — the first 8,000 are used per interview.</p>
+                                <p className="text-xs text-muted-foreground">{draft.text.length.toLocaleString()} characters. The first 8,000 are used per interview.</p>
                             </div>
                         </CardContent>
                         <div className="flex items-center gap-2 px-6 pb-6">

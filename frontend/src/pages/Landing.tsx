@@ -53,21 +53,22 @@ export function Landing() {
 
     const features = [
         { title: "AI interviewer", body: "A simulated coach that asks real questions, one at a time, and reacts to your answers." },
-        { title: "Feedback + review", body: "Every answer is graded like a chess engine would grade a move — brilliant through blunder — and the run ends in an accuracy score, a letter grade, a hire/reject call and tips you can act on." },
-        { title: "Progress that persists", body: "Every interview is saved — replay the transcript with its annotations, watch your accuracy trend, improve over time." },
+        { title: "Feedback on every answer", body: "Each answer is graded like a chess engine grades a move, brilliant through blunder. Every run ends in an accuracy score, a letter grade, a hire or reject call, and fixes you can act on." },
+        { title: "Progress that persists", body: "Every interview is saved. Replay the transcript with its annotations, watch your accuracy trend, and improve over time." },
     ];
 
     const steps = [
-        { title: "Set the interview", body: "Pick the role, level and company size. Add a topic, or dial how cynical and brutally honest the interviewer should be.", img: "/assets/landing/step-1-setup.jpg" },
-        { title: "Answer in the chat", body: "One question at a time — chitchat, then behavioural, then technical, until the arc is spent.", img: "/assets/landing/step-2-answer.jpg" },
+        { title: "Set the interview", body: "Pick the role, level and company size. Add a topic, or dial how cynical and how brutally honest the interviewer should be.", img: "/assets/landing/step-1-setup.jpg" },
+        { title: "Answer in the chat", body: "One question at a time: chitchat, then behavioral, then technical, until the arc is spent.", img: "/assets/landing/step-2-answer.jpg" },
         { title: "Get reviewed", body: "Each answer is annotated on its own, plus whether this run would convert and how much evidence backs that.", img: "/assets/landing/step-3-review.jpg" },
     ];
 
     const faq = [
-        { q: "Is it free?", a: `Yes. The free plan includes ${PLANS.free.turns} chat turns a day across all your interviews and full feedback on every run. Premium adds a bigger daily allowance for ${PLANS.premium.monthly}.` },
+        { q: "Is it free?", a: `Yes. Free includes ${PLANS.free.turns} chat turns a day across all your interviews and full feedback on every run. ${PLANS.premium.name} adds ${PLANS.premium.turns} turns a day for ${PLANS.premium.price} per ${PLANS.premium.term}.` },
         { q: "What happens when I run out of turns?", a: "The interview pauses, nothing is deleted and your history stays readable. The counter resets at 00:00 UTC, or you can upgrade for more turns." },
+        { q: "Which roles and levels does it cover?", a: "Any role you can name, from intern to staff, across behavioral, technical and case rounds. Save a setup as a preset and replay it whenever you want." },
         { q: "Do you train on my answers?", a: "No. Your transcripts are stored so you can revisit them and are sent to the interview model only to generate your questions and feedback." },
-        { q: "Can I use my own model?", a: "Yes — bring an OpenAI-compatible key (OpenAI, DeepSeek, OpenRouter, a local model) in settings, and your turns run on your own account." },
+        { q: "Can I use my own model?", a: "Yes. Bring an OpenAI-compatible key (OpenAI, DeepSeek, OpenRouter, a local model) in settings and your turns run on your own account." },
     ];
 
     return (
@@ -108,8 +109,8 @@ export function Landing() {
                     <div aria-hidden className="absolute inset-0 -z-10 bg-gradient-to-b from-black/80 via-black/85 to-black/70 lg:hidden" />
                     <div aria-hidden className="absolute inset-0 -z-10 hidden bg-gradient-to-r from-black/95 from-0% via-black/85 via-70% to-black/25 lg:block" />
                     <div className="flex max-w-2xl flex-col gap-6 px-6 py-14 text-white sm:px-10 sm:py-20">
-                        <h1 className="text-4xl font-semibold leading-tight tracking-tight sm:text-5xl">Practice interviews with an AI coach that gives real feedback.</h1>
-                        <p className="text-lg text-white/80">Answer questions one at a time, get every answer annotated like a chess engine annotates moves, and track your accuracy across every practice run.</p>
+                        <h1 className="text-4xl font-semibold leading-tight tracking-tight sm:text-5xl">AI mock interview practice, with real feedback on every answer.</h1>
+                        <p className="text-lg text-white/80">Answer behavioral and technical questions one at a time, get every answer annotated like a chess engine annotates moves, and track your accuracy across every run.</p>
                         <div className="flex flex-wrap items-center gap-3">
                             <Button size="lg" className="bg-white text-black hover:bg-white/90" asChild>
                                 <Link to="/sign-up">Start practicing free</Link>
@@ -130,7 +131,7 @@ export function Landing() {
                                 </li>
                             ))}
                         </ul>
-                        <p className="text-sm text-white/70">No credit card · {PLANS.free.turns} free turns a day · Cancel anytime</p>
+                        <p className="text-sm text-white/70">No credit card · {PLANS.free.turns} free turns a day</p>
                     </div>
                 </section>
 
@@ -168,25 +169,30 @@ export function Landing() {
                                 <div key={id} className="flex flex-col gap-3 rounded-lg border p-5">
                                     <div className="flex items-baseline justify-between gap-2">
                                         <h3 className="font-medium">{plan.name}</h3>
-                                        <span className="text-lg font-semibold">{plan.monthly}</span>
+                                        <span className="text-lg font-semibold">
+                                            {plan.price}
+                                            {plan.term && <span className="text-sm font-normal text-muted-foreground"> / {plan.term}</span>}
+                                        </span>
                                     </div>
-                                    <p className="text-sm text-muted-foreground">
-                                        {plan.turns} chat turns per day · {plan.pitch}
-                                    </p>
                                     <ul className="space-y-1.5 text-sm text-muted-foreground">
-                                        <li>Unlimited interviews — no interview cap</li>
-                                        <li>Full answer-by-answer review and hire/reject verdict</li>
-                                        <li>Bring your own model key if you prefer</li>
+                                        <li>
+                                            {plan.turns} chat turns a day
+                                            {id === "premium" && ` (${plan.turns / PLANS.free.turns}x the free plan)`}
+                                        </li>
+                                        <li>
+                                            {plan.resumes} resume {plan.resumes === 1 ? "slot" : "slots"}
+                                        </li>
+                                        <li>Unlimited interviews, full review on every run</li>
                                     </ul>
                                     <Button asChild variant={id === "premium" ? "default" : "outline"} className="mt-auto">
-                                        <Link to={id === "premium" ? "/settings/billing" : "/sign-up"}>{id === "premium" ? `Upgrade · ${plan.monthly}` : "Start free"}</Link>
+                                        <Link to={id === "premium" ? "/settings/billing" : "/sign-up"}>{id === "premium" ? `Upgrade to ${plan.name}` : "Start free"}</Link>
                                     </Button>
                                 </div>
                             );
                         })}
                     </div>
                     {/* Must stay true in both billing modes. */}
-                    <p className="text-xs text-muted-foreground">Prices in PHP, charged through PayMongo. Pay by QR (GCash, Maya, or your bank app). You keep Premium until the end of the period you paid for.</p>
+                    <p className="text-xs text-muted-foreground">Prices in PHP, paid by QR through PayMongo (GCash, Maya, or any bank app). One payment covers {PLANS.premium.term}, no auto-renew.</p>
                 </section>
 
                 <section aria-label="Frequently asked questions" className="space-y-3">
@@ -230,7 +236,7 @@ export function Landing() {
             <footer className="mx-auto flex w-full max-w-5xl flex-col gap-4 px-6 pb-10 text-sm text-muted-foreground">
                 <div aria-hidden className="h-px w-full shrink-0 bg-border" />
                 <div className="flex flex-wrap items-center justify-between gap-3">
-                    <span>maxterview — AI mock-interview coach.</span>
+                    <span>maxterview, AI mock-interview coach.</span>
                     <div className="flex items-center gap-4">
                         <Link to="/sign-in" className="underline underline-offset-2 hover:text-foreground">
                             Sign in

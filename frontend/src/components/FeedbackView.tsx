@@ -28,7 +28,7 @@ export function FeedbackView({ feedback, messages = [], offer, onAnnotate, annot
     return (
         <Card className={failed ? "border-destructive" : undefined}>
             <CardHeader>
-                <CardTitle>{failed ? "Review — failed" : "Review"}</CardTitle>
+                <CardTitle>{failed ? "Review failed" : "Review"}</CardTitle>
                 <CardDescription>Every answer you gave is annotated in the transcript below</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -62,7 +62,7 @@ export function FeedbackView({ feedback, messages = [], offer, onAnnotate, annot
                     </div>
                 ) : (
                     <div className="space-y-2 rounded-lg border border-dashed p-3">
-                        <p className="text-xs text-muted-foreground">No answer-by-answer review for this run — the annotator couldn't classify the transcript, so there is no accuracy to report. The hiring call below is unaffected.</p>
+                        <p className="text-xs text-muted-foreground">No answer-by-answer review for this run. The annotator couldn't classify the transcript, so there is no accuracy to report. The hiring call below is unaffected.</p>
                         {/* The annotator hop is a model call and can come back empty while the verdict
                             and tips land; the dashboard has the only other retry. */}
                         {onAnnotate && (

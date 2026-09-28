@@ -33,7 +33,7 @@ from app.models import ClerkUser
 
 # --- tier limits (env-overridable; MONETIZATION.md §0) ---
 # Daily GLOBAL chat-turn credits PER OWNER, across all interviews in one UTC day.
-FREE_CHAT_TURNS = int(os.getenv("FREE_CHAT_TURNS", "30"))
+FREE_CHAT_TURNS = int(os.getenv("FREE_CHAT_TURNS", "10"))
 PREMIUM_CHAT_TURNS = int(os.getenv("PREMIUM_CHAT_TURNS", "100"))
 DEV_CHAT_TURNS = int(os.getenv("DEV_CHAT_TURNS", "500"))  # dev > premium
 # BYOK: the owner's own provider pays, so the TIER cap is not the gate - this flat ceiling is. A

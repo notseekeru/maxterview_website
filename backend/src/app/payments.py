@@ -109,7 +109,7 @@ def _resubscribe_block(row: dict | None, now: datetime | None = None) -> str:
         # first month. Subscription mode only — period mode goes through `_resume_or_block`.
         started = row.get("updated_at")
         if started is None or (now - started).total_seconds() < FIRST_PAYMENT_WINDOW_H * 3600:
-            return "A first payment is already pending — finish it, or retry after it expires (24h)"
+            return "A first payment is already pending. Finish it, or retry after it expires (24h)"
         return ""
     period_end = row.get("current_period_end")
     if row.get("plan") == "premium" and (period_end is None or period_end > now):
@@ -567,18 +567,18 @@ async def _resume_or_block(row: dict) -> tuple[dict, str]:
         # Money arrived but no delivery credited it. Credit it here through the same compare-and-set
         # the webhook uses (a late delivery then no-ops) instead of selling a second period.
         await _credit_period(row["owner_id"], intent_id)
-        return {}, "Payment already received — refresh to see your premium"
+        return {}, "Payment already received. Refresh to see your Pro access"
     now = datetime.now(UTC)
     deadline = expires_at or (row.get("updated_at") or now) + timedelta(minutes=QR_TTL_MIN)
     if intent_status in DEAD_INTENT_STATUSES or deadline <= now:
         return {}, ""
     if intent_status == "processing":
         # The wallet is mid-payment. Re-showing the code here would invite a second scan.
-        return {}, "Your payment is being processed — one moment"
+        return {}, "Your payment is being processed. One moment"
     if artifact:
         return artifact, ""
     left = max(1, int((deadline - now).total_seconds() // 60))
-    return {}, f"A payment is already pending — {left} min left"
+    return {}, f"A payment is already pending, {left} min left"
 
 
 async def _intent_view(intent_id: str) -> tuple[str, datetime | None, dict]:

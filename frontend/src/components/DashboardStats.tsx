@@ -45,7 +45,7 @@ export function DashboardStats({ loading, dims, stats, statsError }: Props) {
                     <CardTitle>Performance stats</CardTitle>
                 </CardHeader>
                 <CardContent>
-                    <p className="text-sm text-muted-foreground">No interviews yet — complete one to see your accuracy history and secondary breakdown.</p>
+                    <p className="text-sm text-muted-foreground">No interviews yet. Complete one to see your accuracy history and secondary breakdown.</p>
                 </CardContent>
             </Card>
         );
@@ -58,10 +58,10 @@ export function DashboardStats({ loading, dims, stats, statsError }: Props) {
                 <Stat label="Finished" value={String(dims.completed)} />
                 {/* A run can be permanently unrated; say so, or the average silently covers fewer runs
                     than "Finished" claims. */}
-                <Stat label="Avg accuracy" value={dims.rated ? `${Math.round(dims.avgAccuracy)}%` : "—"} hint={dims.rated && dims.rated < dims.completed ? `from ${dims.rated} of ${dims.completed} rated` : undefined} />
+                <Stat label="Avg accuracy" value={dims.rated ? `${Math.round(dims.avgAccuracy)}%` : "n/a"} hint={dims.rated && dims.rated < dims.completed ? `from ${dims.rated} of ${dims.completed} rated` : undefined} />
                 {/* Hire rate is over DECIDED runs only (same denominator honesty as Avg accuracy),
                     with mean certainty because 3 of 3 at 45% is not 3 of 3 at 95%. */}
-                <Stat label="Hire rate" value={dims.decided === 0 ? "—" : `${Math.round((dims.hiring / dims.decided) * 100)}%`} hint={dims.decided === 0 ? "no decided runs yet" : `${dims.hiring} of ${dims.decided} decided${dims.avgCertainty === null ? "" : ` · ${dims.avgCertainty}% mean certainty`}`} />
+                <Stat label="Hire rate" value={dims.decided === 0 ? "n/a" : `${Math.round((dims.hiring / dims.decided) * 100)}%`} hint={dims.decided === 0 ? "no decided runs yet" : `${dims.hiring} of ${dims.decided} decided${dims.avgCertainty === null ? "" : ` · ${dims.avgCertainty}% mean certainty`}`} />
             </div>
             <div className="grid gap-4 lg:grid-cols-2">
                 <AccuracyTrend data={dims.accuracyTrend} />

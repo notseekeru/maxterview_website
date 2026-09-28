@@ -84,7 +84,7 @@ export function AnalyticsPage() {
         return <Notice>{error ?? "Could not load your analytics."}</Notice>;
     }
     if (data.runs.length === 0) {
-        return <Notice>No interviews yet — complete one and this page fills in with your accuracy history, move breakdown, dial comparisons and the offer each graded run earned.</Notice>;
+        return <Notice>No interviews yet. Complete one and this page fills in with your accuracy history, move breakdown, dial comparisons and the offer each graded run earned.</Notice>;
     }
 
     return (
@@ -135,8 +135,8 @@ function SummaryRow({ data }: { data: Analytics }) {
     return (
         <div className="grid grid-cols-2 gap-4 lg:grid-cols-5">
             <Stat label="Interviews" value={String(data.runs.length)} hint={`${data.runs.filter((r) => r.status === "completed").length} finished · ${data.runs.filter((r) => r.status !== "completed").length} open`} />
-            <Stat label="Avg accuracy" value={avg === null ? "—" : `${Math.round(avg)}%`} hint={scored.length === 0 ? "nothing scored yet" : `across ${scored.length} scored runs`} />
-            <Stat label="Hire rate" value={decided.length === 0 ? "—" : `${Math.round((hiring.length / decided.length) * 100)}%`} hint={decided.length === 0 ? "no decided runs" : `${hiring.length} of ${decided.length} decided`} />
+            <Stat label="Avg accuracy" value={avg === null ? "n/a" : `${Math.round(avg)}%`} hint={scored.length === 0 ? "nothing scored yet" : `across ${scored.length} scored runs`} />
+            <Stat label="Hire rate" value={decided.length === 0 ? "n/a" : `${Math.round((hiring.length / decided.length) * 100)}%`} hint={decided.length === 0 ? "no decided runs" : `${hiring.length} of ${decided.length} decided`} />
             <Stat label="Answers given" value={String(data.total_turns)} hint={classed === 0 ? "none classed yet" : `${classed} classed by the reviewer`} />
             <Stat label="Streak" value={`${data.streak_days}d`} hint={data.hardcore_failures > 0 ? `${data.hardcore_failures} hardcore failure${data.hardcore_failures === 1 ? "" : "s"}` : "consecutive practice days"} />
         </div>
@@ -498,12 +498,12 @@ function DialRow({ row }: { row: AnalyticsDial }) {
                 {/* Bar = accuracy only; the two percentages (accuracy, then hire rate) sit beside it. */}
                 <div className="h-1.5 grow overflow-hidden rounded-full bg-muted">
                     {/* No bar at all when nothing was scored: a 0%-wide fill is indistinguishable from
-                        a genuine 0% score, which is the reading "— acc" exists to avoid. */}
+                        a genuine 0% score, which is the reading "n/a acc" exists to avoid. */}
                     {row.avg_accuracy != null && <div className="h-full rounded-full bg-[var(--chart-1)]" style={{ width: `${row.avg_accuracy}%` }} />}
                 </div>
                 <span className="w-24 shrink-0 text-right text-xs tabular-nums text-muted-foreground">
-                    {row.avg_accuracy === null || row.avg_accuracy === undefined ? "— acc" : `${Math.round(row.avg_accuracy)}% acc`}
-                    {row.hire_rate === null || row.hire_rate === undefined ? " · —" : ` · ${row.hire_rate}% hire`}
+                    {row.avg_accuracy === null || row.avg_accuracy === undefined ? "n/a acc" : `${Math.round(row.avg_accuracy)}% acc`}
+                    {row.hire_rate === null || row.hire_rate === undefined ? " · n/a" : ` · ${row.hire_rate}% hire`}
                 </span>
             </div>
         </div>
@@ -572,14 +572,14 @@ function RunLog({ runs }: { runs: AnalyticsRun[] }) {
                                         {run.status !== "completed" && <span className="shrink-0 rounded border border-dashed px-1 text-xs text-muted-foreground">{run.status === "pending" ? "not started" : "in progress"}</span>}
                                     </span>
                                 </td>
-                                <td className="px-3 py-2 text-muted-foreground">{run.level === "any" ? "—" : run.level}</td>
+                                <td className="px-3 py-2 text-muted-foreground">{run.level === "any" ? "n/a" : run.level}</td>
                                 <td className="px-3 py-2 tabular-nums text-muted-foreground">{run.created_at.slice(0, 10)}</td>
-                                <td className="px-3 py-2 text-right tabular-nums">{run.accuracy == null ? "—" : `${run.accuracy}%`}</td>
+                                <td className="px-3 py-2 text-right tabular-nums">{run.accuracy == null ? "n/a" : `${run.accuracy}%`}</td>
                                 <td className="px-3 py-2">
                                     {/* The grade chip is the same tone vocabulary the review page uses. */}
-                                    <span className={cn("inline-flex min-w-[1.5rem] justify-center rounded border px-1 text-xs font-medium", gradeTone(run.grade))}>{run.grade ?? "—"}</span>
+                                    <span className={cn("inline-flex min-w-[1.5rem] justify-center rounded border px-1 text-xs font-medium", gradeTone(run.grade))}>{run.grade ?? "n/a"}</span>
                                 </td>
-                                <td className="px-3 py-2 text-muted-foreground">{run.decision ? decisionLabel(run.decision) : "—"}</td>
+                                <td className="px-3 py-2 text-muted-foreground">{run.decision ? decisionLabel(run.decision) : "n/a"}</td>
                                 <td className="px-3 py-2 text-muted-foreground">{dialSummary(run) || <span className="opacity-60">defaults</span>}</td>
                                 <td className="px-3 py-2">
                                     <AnswerMix run={run} />

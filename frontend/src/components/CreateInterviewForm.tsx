@@ -3,11 +3,10 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Slider } from "@/components/ui/slider";
-import { apiDetail, createInterview, createTemplate, deleteTemplate, type InterviewDials, type InterviewTemplate, isQuotaError, listResumes, listTemplates, type ResumeSummary, type TemplateInput, updateTemplate } from "@/lib/api";
+import { apiDetail, createInterview, createTemplate, deleteTemplate, type InterviewDials, type InterviewTemplate, listResumes, listTemplates, type ResumeSummary, type TemplateInput, updateTemplate } from "@/lib/api";
 import { COMPANY_SIZES, CYNICISM, companySizeLabel, DIAL_FIELDS, LEVELS, MIX_FIELDS, MIX_MAX, mixCountLabel, ROLE_PRESETS } from "@/lib/interviewOptions";
 import { cn } from "@/lib/utils";
 import { RowMenu } from "./RowMenu";
-import { UpgradeNotice } from "./UsageBadge";
 
 const LAST_TEMPLATE_KEY = "maxterview:last-template";
 
@@ -35,7 +34,6 @@ export function CreateInterviewForm({ onCreated, variant = "compact", className 
     const [mix, setMix] = useState({ mix_chitchat: 0, mix_behavioural: 2, mix_technical: MIX_MAX });
     const [error, setError] = useState<string | null>(null);
     const [busy, setBusy] = useState(false);
-    const [quotaLocked, setQuotaLocked] = useState(false);
     // null = still loading or the fetch failed; the preset row hides either way.
     const [templates, setTemplates] = useState<InterviewTemplate[] | null>(null);
     // Same contract as templates: absent/empty hides the row rather than showing an empty picker.
@@ -156,7 +154,7 @@ export function CreateInterviewForm({ onCreated, variant = "compact", className 
         // the browser's `required` only guards the real form submit, and "Start interview" is the
         // only button that runs it. Say which field instead of letting the 422 read as "could not save".
         if (!role.trim()) {
-            setTemplateError("Pick a role (or type one) first — a preset has to be replayable.");
+            setTemplateError("Pick a role or type one first: a preset has to be replayable.");
             return false;
         }
         setTemplateError(null);
@@ -204,9 +202,10 @@ export function CreateInterviewForm({ onCreated, variant = "compact", className 
         try {
             const interview = await createInterview(fieldsFromForm());
             onCreated(interview.id);
-        } catch (e) {
-            if (isQuotaError(e)) setQuotaLocked(true);
-            else setError("Failed to create interview. Is the backend running?");
+        } catch {
+            // POST /interviews has no quota gate (MONETIZATION §2): the two 402s are the resume cap
+            // and the daily chat-turn cap, so a failure here is the backend, not the plan.
+            setError("Failed to create interview. Is the backend running?");
             setBusy(false);
         }
     }
@@ -343,7 +342,7 @@ export function CreateInterviewForm({ onCreated, variant = "compact", className 
                                 </button>
                             )}
                         </div>
-                        <Input id="role" value={role} onChange={(e) => setRole(e.target.value)} maxLength={200} placeholder="e.g. Software Engineer — or pick a preset above" required />
+                        <Input id="role" value={role} onChange={(e) => setRole(e.target.value)} maxLength={200} placeholder="e.g. Software Engineer, or pick a preset above" required />
                     </div>
 
                     <DialSlider id="level" label="Level" value={level} values={LEVELS.map((l) => l.value)} labels={LEVELS.map((l) => l.label)} onChange={setLevel} hint={level === "any" ? "AI adapts to you" : undefined} />
@@ -391,10 +390,9 @@ export function CreateInterviewForm({ onCreated, variant = "compact", className 
                         <Toggle id="human_mode" checked={humanMode} onChange={setHumanMode} label="Human mode" hint="contractions and plain words, no AI or corporate phrasing" />
                     </div>
 
-                    {(error || quotaLocked) && (
+                    {error && (
                         <div className={cn("space-y-2", featured && "sm:col-span-2")}>
-                            {error && <p className="text-sm text-destructive">{error}</p>}
-                            {quotaLocked && <UpgradeNotice reason="your free daily interview quota ran out." />}
+                            <p className="text-sm text-destructive">{error}</p>
                         </div>
                     )}
                 </CardContent>
