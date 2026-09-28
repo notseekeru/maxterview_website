@@ -22,8 +22,6 @@ export function OffersSection({ board }: { board: OffersAnalytics }) {
     return (
         <div className="space-y-4">
             <OfferTiles board={board} />
-            {/* Only the two panels that come out the same height stay side by side (both fixed at h-80);
-                everything else is full width, so no panel sits in a column taller than its content. */}
             <div className="grid items-start gap-4 xl:grid-cols-2">
                 <OfferTrend board={board} />
                 <BandPosition groups={board.by_tier} />

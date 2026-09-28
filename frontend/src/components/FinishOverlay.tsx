@@ -4,19 +4,12 @@ import { Spinner } from "@/components/ui/spinner";
 import { ALL_DIMS } from "@/lib/dimensions";
 import { cn } from "@/lib/utils";
 
-// The three model passes behind Finish, in the order the backend runs them (grader, formatter,
-// annotator). SCRIPTED, not measured: the endpoint answers once, at the end, so there is no progress
-// upgrade path is stage events on the response stream.
 const STAGES = [
     { afterMs: 0, label: "Reading your transcript" },
     { afterMs: 7000, label: `Scoring ${ALL_DIMS.length} dimensions` },
     { afterMs: 18000, label: "Annotating your answers" },
 ];
 
-/** Covers the screen while a run is being finished. Dismissing cancels nothing: the request keeps
- *  running and the review lands in the transcript when it returns. Mounted for the whole wait and
- *  hidden, not unmounted, when dismissed, so reopening it shows the real clock and stage. `title`
- *  differs between the two paths into it: finishing a run, and rebuilding a finished run's review. */
 export function FinishOverlay({ open, title, done, onDismiss }: { open: boolean; title: string; done: boolean; onDismiss: () => void }) {
     const [elapsedMs, setElapsedMs] = useState(0);
     const titleId = useId();
