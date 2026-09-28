@@ -9,7 +9,7 @@
              Keep the default title in sync with TAGLINE in src/hooks/useDocumentTitle.ts — the
              hook overwrites this one as soon as React mounts. -->
         <title>AI Mock Interview Practice with Instant Feedback | maxterview</title>
-        <meta name="description" content="Practice interviews with an AI coach: answer questions one at a time, every answer graded like a chess move, a hire/reject verdict and tips. Free to start." />
+        <meta name="description" content="Run AI mock interview practice for your role: behavioral and technical questions, every answer graded, a hire or reject verdict and fixes. Free, no card." />
         <meta name="robots" content="index, follow, max-image-preview:large" />
         <!-- theme-color tracks the default theme (dark); explicit light users live with a dark
              browser chrome rather than the OS-conditioned pair guessing wrong either way. -->
@@ -22,12 +22,12 @@
         <meta property="og:type" content="website" />
         <meta property="og:site_name" content="maxterview" />
         <meta property="og:title" content="AI Mock Interview Practice with Instant Feedback" />
-        <meta property="og:description" content="Answer questions one at a time, get every answer graded like a chess engine annotates moves, and track your accuracy across practice runs." />
+        <meta property="og:description" content="Answer behavioral and technical questions one at a time. Every answer is graded, every run ends in a hire or reject verdict, and your accuracy trends over time." />
         <meta property="og:url" content="https://maxterview.seekeru.tech/" />
         <meta property="og:image" content="https://maxterview.seekeru.tech/og.png" />
         <meta property="og:image:width" content="1200" />
         <meta property="og:image:height" content="630" />
-        <meta property="og:image:alt" content="maxterview — practice interviews with an AI coach that gives real feedback" />
+        <meta property="og:image:alt" content="maxterview: practice interviews with an AI coach that gives real feedback" />
         <meta name="twitter:card" content="summary_large_image" />
         <meta name="twitter:image" content="https://maxterview.seekeru.tech/og.png" />
         <!-- Structured data, static so it needs no JS. FAQPage is deliberately absent: the FAQ
@@ -56,10 +56,21 @@
                         "applicationCategory": "BusinessApplication",
                         "operatingSystem": "Web",
                         "url": "https://maxterview.seekeru.tech/",
-                        "description": "AI mock-interview coach: practice questions one at a time, get every answer graded like a chess move, a hire/reject verdict and an accuracy trend.",
+                        "description": "AI mock-interview coach: practice behavioral and technical questions one at a time, get every answer graded, a hire or reject verdict and an accuracy trend.",
                         "offers": [
                             { "@type": "Offer", "name": "Free", "price": "0", "priceCurrency": "PHP" },
-                            { "@type": "Offer", "name": "Premium (monthly)", "price": "99", "priceCurrency": "PHP" }
+                            {
+                                "@type": "Offer",
+                                "name": "Pro",
+                                "price": "99",
+                                "priceCurrency": "PHP",
+                                "priceSpecification": {
+                                    "@type": "UnitPriceSpecification",
+                                    "price": "99",
+                                    "priceCurrency": "PHP",
+                                    "billingDuration": { "@type": "QuantitativeValue", "value": 30, "unitCode": "DAY" }
+                                }
+                            }
                         ]
                     }
                 ]
