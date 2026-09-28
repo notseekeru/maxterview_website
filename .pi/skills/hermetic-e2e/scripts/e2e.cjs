@@ -122,8 +122,9 @@ async function resumeLeg(page, createdIds) {
   }
   console.log(`  \u2713 PDF dropped -> extracted ${text.length} chars, saved as "${stem}"`);
 
-  // Attach it from the create form and check the thread the attach produces: OPENING_HAS_RESUME is
-  // chosen from `resume_id` only, so its copy is the UI's proof that the FK landed.
+  // Attach it from the create form and check the thread the attach produces. The opener is a MODEL
+  // turn now (no UI copy to match on and none to keep in step), so the attach itself is proved through
+  // the API: `resume_id` is the row the interviewer's prompt is built from.
   await page.goto(BASE + "/dashboard", { waitUntil: "domcontentloaded" });
   await openNewInterviewForm(page);
   if ((await chip().count()) === 0) {
@@ -137,8 +138,14 @@ async function resumeLeg(page, createdIds) {
   await page.waitForURL(/\/interviews\/[0-9a-f-]+/, { timeout: 15000 });
   const m = page.url().match(/\/interviews\/([0-9a-f-]+)/);
   if (m) createdIds.push(m[1]);
-  await page.getByText(/I've read your resume/).waitFor({ state: "visible", timeout: 20000 });
-  console.log("  \u2713 attached resume -> thread opens resume-aware", page.url().replace(BASE, ""));
+  // The opener is streamed after /start, so an empty transcript here means the generation failed.
+  await page.getByRole("log").getByText(/[A-Za-z]{4,}/).first().waitFor({ state: "visible", timeout: 20000 });
+  const attached = await page.evaluate(async (id) => (await fetch(`/api/interviews/${id}`, { credentials: "include" })).json(), m ? m[1] : "");
+  if (!attached.resume_id) {
+    console.log("  \u2717 the created interview carries no resume_id (the attach never reached the row)");
+    return;
+  }
+  console.log(`  \u2713 attached resume -> generated opener in the thread (resume_id ${attached.resume_id})`, page.url().replace(BASE, ""));
 
   // Delete the imported row so reruns stay inside the tier's cap. The row MUST be there after a
   // successful import, so its absence after the reload is a real failure (not a paint race).

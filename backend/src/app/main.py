@@ -3,6 +3,7 @@ import json
 import os
 import time
 from collections import Counter
+from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from statistics import fmean, median
 from typing import Annotated
@@ -282,9 +283,11 @@ async def finish_interview(
     config: LLMConfigDep,
 ) -> dict:
     # EXISTS guard in the same UPDATE (not a pre-check) so a foreign id still 404s, no extra
-    # round trip, and nothing can slip a turn in between. Mirrors _has_transcript().
+    # round trip, and nothing can slip a turn in between. Mirrors _has_transcript(): the row it wants
+    # is a CANDIDATE one, because the generated opener is an assistant row and a run holding nothing
+    # but interviewer turns has nothing to grade.
     row = await fetchrow(
-        "UPDATE interviews SET status = 'completed', updated_at = now() WHERE id = $1 AND owner_id = $2 AND status = 'in_progress' AND EXISTS (SELECT 1 FROM messages m WHERE m.interview_id = interviews.id AND m.role <> 'system') RETURNING " + INTERVIEW_COLS,
+        "UPDATE interviews SET status = 'completed', updated_at = now() WHERE id = $1 AND owner_id = $2 AND status = 'in_progress' AND EXISTS (SELECT 1 FROM messages m WHERE m.interview_id = interviews.id AND m.role = 'user') RETURNING " + INTERVIEW_COLS,
         interview_id,
         user.sub,
     )
@@ -1127,17 +1130,14 @@ async def billing_webhook_simulate(event: dict) -> PlainTextResponse:
     return PlainTextResponse("ok")
 
 
-@api.post("/interviews/{interview_id}/chat/stream")
-async def chat_stream(
-    interview_id: str,
-    body: ChatTurn,
-    user: CurrentUser,
-    config: LLMConfigDep,
-) -> StreamingResponse:
-    await _require_interview_owned(interview_id, user.sub)
-    # The resume comes back with the interview. A correlated scalar subquery rather than a JOIN because
-    # INTERVIEW_COLS is deliberately unqualified and `resumes` has `id`/`owner_id` too - a join would
-    # make every one of those columns ambiguous.
+async def _chat_session(interview_id: str, user: CurrentUser) -> tuple[dict, list, int, Dials]:
+    """Interview row + transcript + arc position, for both chat endpoints (the opener and a reply).
+
+    Ownership is the WHERE clause rather than a pre-check, so a foreign id is a plain 404. The resume
+    comes back with the interview: a correlated scalar subquery rather than a JOIN because
+    INTERVIEW_COLS is deliberately unqualified and `resumes` has `id`/`owner_id` too - a join would
+    make every one of those columns ambiguous.
+    """
     interview = await fetchrow(
         f"SELECT {INTERVIEW_COLS}, (SELECT r.text FROM resumes r WHERE r.id = interviews.resume_id) AS resume_text FROM interviews WHERE id = $1 AND owner_id = $2",
         interview_id,
@@ -1157,30 +1157,122 @@ async def chat_stream(
         interview_id,
     )
     # Interviewer turns already asked -> which phase of the arc this reply belongs to (chitchat
-    # -> opener -> behavioural -> technical -> closing). Derived from the transcript, not stored.
+    # -> opener -> tell me about yourself -> behavioural -> technical -> sign-off). Derived from the
+    # transcript, not stored.
     asked = sum(1 for r in prior_rows if r["role"] == "assistant")
     dials = Dials(**{k: interview[k] for k in DIAL_FIELDS})
     # The question mix is a real budget: once the arc is spent the interview is over, so refuse the
-    # turn BEFORE spending a chat credit or a model call on it. The closing statement itself was
-    # the previous turn (see llm.is_closing_turn); this is what makes it final.
+    # turn BEFORE spending a chat credit or a model call on it. The sign-off itself was the previous
+    # turn (see llm.is_closing_turn); this is what makes it final.
     if llm.is_interview_finished(asked, dials):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="This interview has asked all of its questions. Press Finish to get your feedback, or start a new interview with a wider question mix.",
         )
+    return interview, prior_rows, asked, dials
 
-    # BYOK pays the provider, not us, so the TIER cap is not the gate - the flat billing.BYOK_CHAT_TURNS
-    # ceiling is, and the turn is metered either way: `byok` is self-asserted, and a waived + unmetered
-    # cap is a free ride on whoever's GPU the owner's base_url names (BYOK.md). tier=None IS that BYOK
-    # signal, which is what keeps resolve_tier out of this path: nothing else here needs the tier.
+
+async def _spend_chat_turn(user: CurrentUser, config: llm.LLMConfig) -> None:
+    """One MODEL turn = one chat credit, so every path that generates goes through here (the opener,
+    the reply to an answer, the sign-off). Refusal happens before the call, never after it.
+
+    BYOK pays the provider, not us, so the TIER cap is not the gate - the flat billing.BYOK_CHAT_TURNS
+    ceiling is, and the turn is metered either way: `byok` is self-asserted, and a waived + unmetered
+    cap is a free ride on whoever's GPU the owner's base_url names (BYOK.md). tier=None IS that BYOK
+    signal, which is what keeps resolve_tier out of this path: nothing else here needs the tier.
+    """
     tier = None if config.byok else await billing.resolve_tier(user)
     if await billing.chat_turn_remaining(tier, user.sub) == 0:
         raise HTTPException(
             status_code=status.HTTP_402_PAYMENT_REQUIRED,
             detail=(f"Daily chat-turn limit reached ({billing.BYOK_CHAT_TURNS} turns/day on your own provider). Try again after midnight UTC." if config.byok else "Daily chat-turn credits reached. Try again after midnight UTC, or upgrade to Pro."),
         )
-
     await billing.bump_chat_turn(user.sub)
+
+
+async def _reply_frames(
+    history: list[ChatMessage],
+    interview_id: str,
+    config: llm.LLMConfig,
+    asked: int,
+    on_error: Callable[[], Awaitable[None]] | None = None,
+) -> AsyncIterator[str]:
+    """One model turn as SSE frames: the deltas, then the persisted reply and `done` - or one
+    terminal `error` frame and nothing after it.
+
+    Shared by the opener and the reply path because the wire format has to be identical; the rollback
+    is what differs, which is why the caller owns it (`on_error`). The whole protocol lives here, and
+    the difference matters: a `done` frame behind an error frame would tell the client the turn
+    landed, so a rolled-back reply could still be spoken aloud.
+
+    A model or write failure never propagates: the error frame is the contract. BaseException does,
+    so a cancelled client keeps unwinding to the caller's cleanup.
+    """
+    collected: list[str] = []
+    turn_started = time.perf_counter()
+    try:
+        async for delta in llm.stream_chat(history, config):
+            if delta:
+                collected.append(delta)
+                yield f"event: message\ndata: {delta}\n\n"
+        reply = "".join(collected).strip()
+        if not reply:
+            raise RuntimeError("the model returned no reply")  # an empty bubble would read as answered
+        await fetchrow(
+            "INSERT INTO messages (interview_id, role, content) VALUES ($1, 'assistant', $2) RETURNING id",
+            interview_id,
+            reply,
+        )
+        # The one number an access log cannot give: what a turn cost in wall-clock and in output.
+        # AI HERE: tokens are not requested (the provider only reports usage when the payload asks
+        # via stream_options.include_usage), so `chars` stands in; add the payload key when exact
+        # cost accounting is needed.
+        log.info("llm.chat.completed", interview_id=interview_id, model=config.model, asked=asked, chars=len(reply), latency_ms=round((time.perf_counter() - turn_started) * 1000, 1))
+    except Exception as exc:
+        # Model or DB failure while the turn is in flight: whatever the caller wrote first must not
+        # outlive it, or the next send duplicates it (see the reply path's trailing-user-turn repair).
+        log.warning("llm.chat.failed", interview_id=interview_id, model=config.model, byok=config.byok, provider=llm.provider_host(config), asked=asked, reason=type(exc).__name__, latency_ms=round((time.perf_counter() - turn_started) * 1000, 1))
+        if on_error:
+            await on_error()
+        # The client shows this verbatim: an unreachable provider is the one failure its owner can
+        # fix themselves, and "ConnectError" is not that sentence.
+        yield f"event: error\ndata: {llm.unreachable_detail(exc, config) or str(exc)}\n\n"
+        return
+    yield "event: done\ndata: {}\n\n"
+
+
+@api.post("/interviews/{interview_id}/chat/kickoff")
+async def chat_kickoff(interview_id: str, user: CurrentUser, config: LLMConfigDep) -> StreamingResponse:
+    """The interviewer's opening turn.
+
+    The first message of a run is a model generation rather than a canned bubble the frontend draws,
+    so it is streamed and metered like every other turn (llm.OPENING_PHASE), and it is generated once:
+    the endpoint refuses a transcript that already has an interviewer turn in it.
+    """
+    interview, _transcript, asked, dials = await _chat_session(interview_id, user)
+    if asked:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="This interview has already opened.")
+    await _spend_chat_turn(user, config)
+    history = [
+        ChatMessage(role="system", content=llm.system_prompt(interview["role"], interview["level"], interview["topic"], asked=asked, dials=dials, resume=interview["resume_text"] or "")),
+    ]
+
+    async def _stream_events():
+        async for frame in _reply_frames(history, interview_id, config, asked):
+            yield frame
+
+    return StreamingResponse(_stream_events(), media_type="text/event-stream")
+
+
+@api.post("/interviews/{interview_id}/chat/stream")
+async def chat_stream(
+    interview_id: str,
+    body: ChatTurn,
+    user: CurrentUser,
+    config: LLMConfigDep,
+) -> StreamingResponse:
+    interview, prior_rows, asked, dials = await _chat_session(interview_id, user)
+    await _spend_chat_turn(user, config)
 
     # A trailing user turn means an earlier attempt died before its reply was written (killed worker,
     # client abort): this send is that turn's retry, so it REPLACES it. Doing it only here, past the
@@ -1257,54 +1349,29 @@ async def chat_stream(
                 yield f'event: done\ndata: {{"closing": true, "failed": {{"turn": {turn}, "class": "{move.cls}"}}}}\n\n'
                 return
 
-        # Closing turn: the interviewer's sign-off is canned, not sampled (see llm.CLOSING_MESSAGE).
-        # Still streamed as one message event so the client needs no special case, and still
-        # persisted, so the transcript ends the way it was displayed.
+        # Sign-off turn: generated like every other interviewer turn (so it spends a chat turn like
+        # every other one), with the canned line as the guard-rail when the model asks a question the
+        # API would then refuse (see llm.closing_line). Emitted as ONE message frame so the client
+        # needs no special case, and persisted, so the transcript ends the way it was displayed.
         if llm.is_closing_turn(asked, dials):
+            closing = await llm.closing_line(history, config)
             await fetchrow(
                 "INSERT INTO messages (interview_id, role, content) VALUES ($1, 'assistant', $2) RETURNING id",
                 interview_id,
-                llm.CLOSING_MESSAGE,
+                closing,
             )
-            yield f"event: message\ndata: {llm.CLOSING_MESSAGE}\n\n"
+            yield f"event: message\ndata: {closing}\n\n"
             # Tells the client the run is over in the same frame it renders the sign-off.
             yield 'event: done\ndata: {"closing": true}\n\n'
             return
 
-        collected: list[str] = []
-        turn_started = time.perf_counter()
         try:
-            async for delta in llm.stream_chat(history, config):
-                if delta:
-                    collected.append(delta)
-                    yield f"event: message\ndata: {delta}\n\n"
-            reply = "".join(collected).strip()
-            if not reply:
-                raise RuntimeError("the model returned no reply")  # an empty bubble would read as answered
-            await fetchrow(
-                "INSERT INTO messages (interview_id, role, content) VALUES ($1, 'assistant', $2) RETURNING id",
-                interview_id,
-                reply,
-            )
-            # The one number an access log cannot give: what a turn cost in wall-clock and in output.
-            # AI HERE: tokens are not requested (the provider only reports usage when the payload asks
-            # via stream_options.include_usage), so `chars` stands in; add the payload key when exact
-            # cost accounting is needed.
-            log.info("llm.chat.completed", interview_id=interview_id, model=config.model, asked=asked, chars=len(reply), latency_ms=round((time.perf_counter() - turn_started) * 1000, 1))
-        except Exception as exc:
-            # Model or DB failure while the turn is in flight: the user's row must not outlive it, or
-            # the next send duplicates the answer (see the repair above).
-            log.warning("llm.chat.failed", interview_id=interview_id, model=config.model, byok=config.byok, provider=llm.provider_host(config), asked=asked, reason=type(exc).__name__, latency_ms=round((time.perf_counter() - turn_started) * 1000, 1))
-            await _discard_turn()
-            # The client shows this verbatim: an unreachable provider is the one failure its owner can
-            # fix themselves, and "ConnectError" is not that sentence.
-            yield f"event: error\ndata: {llm.unreachable_detail(exc, config) or str(exc)}\n\n"
-            return
+            async for frame in _reply_frames(history, interview_id, config, asked, on_error=_discard_turn):
+                yield frame
         except BaseException:
             # Client went away (CancelledError/GeneratorExit): same rollback, nobody left to notify.
             await _discard_turn()
             raise
-        yield "event: done\ndata: {}\n\n"
 
     return StreamingResponse(_stream_events(), media_type="text/event-stream")
 
@@ -1316,9 +1383,10 @@ async def _require_interview_owned(interview_id: str, owner_id: str) -> None:
 
 
 async def _has_transcript(interview_id: str) -> bool:
-    """Any gradable turn? `system` rows are skipped by llm._format_transcript too, so an
-    interview holding only system framing grades to an empty transcript -> 503 forever."""
-    row = await fetchrow("SELECT 1 FROM messages WHERE interview_id = $1 AND role <> 'system' LIMIT 1", interview_id)
+    """Any CANDIDATE turn? The grader reads candidate answers (llm._format_transcript), so a run
+    holding only interviewer turns - the generated opener, or the hardcore shout - grades to an empty
+    transcript: 503 forever, which is the state this predicate exists to keep unreachable."""
+    row = await fetchrow("SELECT 1 FROM messages WHERE interview_id = $1 AND role = 'user' LIMIT 1", interview_id)
     return row is not None
 
 

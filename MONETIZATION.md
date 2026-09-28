@@ -39,9 +39,12 @@ Decisions: PLAN D10 (owner-scoping is a hard rule).
 ## 2. Enforcement (`billing.py` + `main.py`)
 
 - **No per-interview or daily-interview cap**: `POST /interviews` is a plain INSERT.
-- **Daily global chat-turn cap** on `POST /interviews/{id}/chat/stream`: check
-  `turns_used(today) < limit` against `turn_usage`, then upsert +1. Over → **`402`**, which may
-  happen mid-interview once the owner burns today's credits across ALL their interviews.
+- **Daily global chat-turn cap, one credit per MODEL turn**: `POST /interviews/{id}/chat/kickoff`
+  (the generated opener), `POST /interviews/{id}/chat/stream` (each reply, plus the generated sign-off
+  that ends the arc). Both check `turns_used(today) < limit` against `turn_usage` before the call,
+  then upsert +1. Over → **`402`**, which may happen mid-interview once the owner burns today's
+  credits across ALL their interviews. The review is deliberately NOT metered: `POST /interviews/{id}/finish`
+  runs the whole feedback pipeline (grader, formatter, per-turn annotator) without spending a credit.
 - **BYOK swaps the cap, it does not waive it**: contract and rationale are owned by `BYOK.md`
   (Quota) — one owner, because `billing.py`, `byok.py` and the settings panel all cite it.
 - **Overage → lockout:** block new turns only. **Never delete, truncate, or hide existing user

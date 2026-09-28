@@ -448,7 +448,13 @@ def question(spec: dict, n: int) -> str:
         "Tell me about something you shipped that broke. How did you find it, and what did you change before the next rollout?",
         "Give me a design question where the obvious approach is ruled out - what would you do instead?",
     ]
-    plan = [*chitchat[: spec.get("mix_chitchat", 0)], "Before we begin - could you share your resume / background so I can interview you specifically on it?", *behavioural[: spec.get("mix_behavioural", 2)], *technical[: spec.get("mix_technical", 4)]]
+    plan = [
+        *chitchat[: spec.get("mix_chitchat", 0)],
+        "Before we begin - could you share your resume / background so I can interview you specifically on it?",
+        "Thanks. Now tell me about yourself - what you do now, and how you got here.",
+        *behavioural[: spec.get("mix_behavioural", 2)],
+        *technical[: spec.get("mix_technical", 4)],
+    ]
     return plan[min(n, len(plan) - 1)]
 
 

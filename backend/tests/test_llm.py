@@ -52,17 +52,21 @@ def test_system_prompt_walks_the_arc_by_interviewer_turn_count():
     # transcripts skipped straight from background to technical. Each turn now names its phase.
     opener = llm.system_prompt("Software Engineer", "mid", "", asked=0)
     assert "Current phase: OPENING" in opener
+    # "Tell me about yourself" has its own turn, one after the material ask.
+    assert "Current phase: BACKGROUND" in llm.system_prompt("Software Engineer", "mid", "", asked=1)
 
-    for asked in (1, 2):
+    for asked in (2, 3):
         behavioural = llm.system_prompt("Software Engineer", "mid", "", asked=asked)
         assert "Current phase: BEHAVIOURAL" in behavioural
         assert "Do not ask technical" in behavioural or "no technical" in behavioural
 
-    technical = llm.system_prompt("Software Engineer", "mid", "", asked=3)
+    technical = llm.system_prompt("Software Engineer", "mid", "", asked=4)
     assert "Current phase: TECHNICAL" in technical
-    # The arc no longer has a WRAP-UP phase: the closing line is canned, so the plan ends on the
-    # last question and is_closing_turn/is_interview_finished own the ending (see below).
-    assert "Current phase: WRAP-UP" not in llm.system_prompt("Software Engineer", "mid", "", asked=9)
+    # Past the last question the tail becomes the sign-off, which is the one phase that asks nothing -
+    # so PATH_PROMPT's "ask exactly ONE question" is gone with it.
+    closing = llm.system_prompt("Software Engineer", "mid", "", asked=8)
+    assert "Current phase: CLOSING" in closing
+    assert llm.PATH_PROMPT not in closing
 
 
 def test_interview_plan_honours_the_mix_budgets():
@@ -70,26 +74,50 @@ def test_interview_plan_honours_the_mix_budgets():
 
     # Budgets are counts, 0 skips a kind, and the chitchat warm-up leads the arc.
     kinds = [p.split(" - ")[0].split(" ")[0] for p in llm.interview_plan(Dials(mix_chitchat=2, mix_behavioural=1, mix_technical=3))]
-    assert kinds == ["CHITCHAT", "CHITCHAT", "OPENING", "BEHAVIOURAL", "TECHNICAL", "TECHNICAL", "TECHNICAL"]
-    # Even with every slider on 0 there is a whole interview: the opener, then the close.
-    assert [p.split(" - ")[0] for p in llm.interview_plan(Dials(mix_chitchat=0, mix_behavioural=0, mix_technical=0))] == ["OPENING"]
+    assert kinds == ["CHITCHAT", "CHITCHAT", "OPENING", "BACKGROUND", "BEHAVIOURAL", "TECHNICAL", "TECHNICAL", "TECHNICAL"]
+    # Even with every slider on 0 there is a whole interview: the material ask, tell-me-about-yourself,
+    # then the close.
+    assert [p.split(" - ")[0] for p in llm.interview_plan(Dials(mix_chitchat=0, mix_behavioural=0, mix_technical=0))] == ["OPENING", "BACKGROUND"]
     # Numbering is 1-based and total-aware, which is the whole reason the model respects the order.
     plan = llm.interview_plan(Dials(mix_chitchat=0, mix_behavioural=2, mix_technical=0))
-    assert "BEHAVIOURAL 1 of 2" in plan[1]
-    assert "BEHAVIOURAL 2 of 2" in plan[2]
+    assert "BEHAVIOURAL 1 of 2" in plan[2]
+    assert "BEHAVIOURAL 2 of 2" in plan[3]
 
 
 def test_plan_end_is_the_closing_turn_and_then_the_interview_is_finished():
     from app.models import Dials
 
-    # All budgets on 0: the opener, then the canned closing, then nothing.
+    # All budgets on 0: the material ask, tell-me-about-yourself, then the sign-off, then nothing.
     d = Dials(mix_chitchat=0, mix_behavioural=0, mix_technical=0)
-    assert (llm.is_closing_turn(0, d), llm.is_closing_turn(1, d)) == (False, True)
-    assert (llm.is_interview_finished(1, d), llm.is_interview_finished(2, d)) == (False, True)
-    # The default mix is 7 questions (opener + 2 behavioural + 4 technical) before the close.
-    assert llm.is_closing_turn(6, Dials()) is False
-    assert llm.is_closing_turn(7, Dials()) is True
-    assert llm.is_interview_finished(7, Dials()) is False  # 7 is the close itself, not past it
+    assert (llm.is_closing_turn(1, d), llm.is_closing_turn(2, d)) == (False, True)
+    assert (llm.is_interview_finished(2, d), llm.is_interview_finished(3, d)) == (False, True)
+    # The default mix is 8 questions (opener + tell-me-about-yourself + 2 behavioural + 4 technical)
+    # before the sign-off, which is a model turn of its own.
+    assert llm.is_closing_turn(7, Dials()) is False
+    assert llm.is_closing_turn(8, Dials()) is True
+    assert llm.is_interview_finished(8, Dials()) is False  # 8 is the sign-off itself, not past it
+
+
+async def test_closing_line_is_generated_but_never_asks_anything(monkeypatch):
+    # The sign-off is a model turn now, and every turn after it is refused - so a generated question
+    # would leave the candidate holding something they cannot answer. That is what the guard is for,
+    # and the canned line is what they read instead.
+    history = [ChatMessage(role="system", content=llm.system_prompt("Software Engineer", "mid", "")), ChatMessage(role="user", content="that's my answer")]
+
+    async def _asks(*_a, **_k):
+        return "Thanks for your time. Is there anything you would like to add?"
+
+    monkeypatch.setattr(llm, "_completion", _asks)
+    assert await llm.closing_line(history, REAL) == llm.CLOSING_MESSAGE
+
+    async def _signs_off(*_a, **_k):
+        return "  Thanks for your time - hit the check at the top right for the full feedback.  "
+
+    monkeypatch.setattr(llm, "_completion", _signs_off)
+    assert await llm.closing_line(history, REAL) == "Thanks for your time - hit the check at the top right for the full feedback."
+    # Stub mode never reaches the model: the stub echoes the last user message, which would read as the
+    # interview carrying on after the candidate stopped.
+    assert await llm.closing_line(history, llm.LLMConfig(base_url="", model="")) == llm.CLOSING_MESSAGE
 
 
 def test_interviewer_never_invents_candidate_material():
@@ -101,13 +129,12 @@ def test_interviewer_never_invents_candidate_material():
         assert llm.GROUNDING_PROMPT in llm.system_prompt("Software Engineer", "mid", "", asked=asked)
     assert "Current phase: OPENING" in llm.system_prompt("Software Engineer", "mid", "", asked=0)
     assert llm.BACKGROUND_PROMPT in llm.system_prompt("Software Engineer", "mid", "", asked=0)
-    # The retry fires once, on the turn after the opener (chitchat sits in front of it, hence the
-    # offset), and only without a resume attached.
+    # The re-ask when the material is thin IS the tell-me-about-yourself turn (chitchat sits in front
+    # of the opener, hence the offset), so it cannot land twice.
     d = Dials(mix_chitchat=2)
-    assert llm.BACKGROUND_RETRY not in llm.system_prompt("Software Engineer", "mid", "", asked=2, dials=d)
-    assert llm.BACKGROUND_RETRY in llm.system_prompt("Software Engineer", "mid", "", asked=3, dials=d)
-    assert llm.BACKGROUND_RETRY not in llm.system_prompt("Software Engineer", "mid", "", asked=4, dials=d)
-    assert llm.BACKGROUND_RETRY not in llm.system_prompt("Software Engineer", "mid", "", asked=1, resume="CV")
+    assert "Current phase: BACKGROUND" in llm.system_prompt("Software Engineer", "mid", "", asked=3, dials=d)
+    assert "Current phase: BACKGROUND" not in llm.system_prompt("Software Engineer", "mid", "", asked=4, dials=d)
+    assert llm.BACKGROUND_PHASE in llm.system_prompt("Software Engineer", "mid", "", asked=1, resume="CV")
 
 
 def test_every_turn_binds_one_question_the_phase_and_the_scope():
@@ -125,7 +152,7 @@ def test_behavioural_budget_walks_the_profile_themes_and_ops_is_level_aware():
     # One theme per question, in order: four conflict questions would leave ownership and
     # collaboration null on a full run, and the grader only scores what the arc probed.
     plan = llm.interview_plan(Dials(mix_chitchat=0, mix_behavioural=4, mix_technical=0))
-    assert all(theme in phase for theme, phase in zip(llm.PROFILE_THEMES, plan[1:], strict=True))
+    assert all(theme in phase for theme, phase in zip(llm.PROFILE_THEMES, plan[2:], strict=True))
 
     # The ops question exists at every level, at the level's depth: a junior has shipped less and is
     # not asked for on-call war stories. Only the WORDING changes - main.py's closing math reads the
@@ -133,8 +160,8 @@ def test_behavioural_budget_walks_the_profile_themes_and_ops_is_level_aware():
     d = Dials(mix_chitchat=0, mix_behavioural=0, mix_technical=4)
     junior, senior = llm.interview_plan(d, "junior"), llm.interview_plan(d, "senior")
     assert len(junior) == len(senior) == len(llm.interview_plan(d))
-    assert llm.JUNIOR_OPS_THEME in junior[3] and llm.JUNIOR_OPS_THEME not in senior[3]
-    assert llm.SENIOR_OPS_THEME in senior[3] and llm.SENIOR_OPS_THEME not in junior[3]
+    assert llm.JUNIOR_OPS_THEME in junior[4] and llm.JUNIOR_OPS_THEME not in senior[4]
+    assert llm.SENIOR_OPS_THEME in senior[4] and llm.SENIOR_OPS_THEME not in junior[4]
 
 
 def test_coverage_directive_names_the_axes_the_grader_scores():

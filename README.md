@@ -46,6 +46,7 @@ Every query is scoped to the owner (`ClerkUser.sub`, or dev `DEV_USER`). All pat
 prefix, which the **app** owns (`API_PREFIX`) — no proxy or ingress rewrite strips it.
 
 - `POST /interviews` (role required → `pending`) · `GET|DELETE /interviews[/{id}]` · `POST /interviews/{id}/start|finish`
+- `POST /interviews/{id}/chat/kickoff` — **SSE**; the interviewer's opening turn, generated once (a second call is `409`), metered like any other turn
 - `POST /interviews/{id}/chat/stream` — **SSE** (`event: message` / `done` / `error`); persists both turns. Over quota → `402`
 - `GET /interviews/{id}/messages` · `GET /interviews/{id}/feedback` (accuracy + grade / verdict / tips + 1-10 dims)
 - `GET /interviews/{id}/offer` — the simulated letter that review earned (`404` when it earned none: no review, nothing scored, or a reject/lean_reject call). Priced by `app/offer.py`, written by `main._sync_offer`

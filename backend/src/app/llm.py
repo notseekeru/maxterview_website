@@ -29,6 +29,9 @@ LLM_GRADER_MODEL = os.getenv("LLM_GRADER_MODEL", LLM_MODEL)
 LLM_MAX_TOKENS = int(os.getenv("LLM_MAX_TOKENS", "512"))
 LLM_MAX_GRADER_TOKENS = int(os.getenv("LLM_MAX_GRADER_TOKENS", "1024"))
 LLM_MAX_FEEDBACK_TOKENS = int(os.getenv("LLM_MAX_FEEDBACK_TOKENS", "1024"))
+# The sign-off is two sentences, and a ceiling that low is also the cheap guard against the rambling
+# close a small model writes when it is asked to stop asking questions.
+LLM_MAX_CLOSING_TOKENS = int(os.getenv("LLM_MAX_CLOSING_TOKENS", "160"))
 LLM_DISABLE_THINKING = os.getenv("LLM_DISABLE_THINKING", "true").lower() == "true"
 
 # How much of an attached resume the model actually reads. Both prompts are rebuilt from scratch on
@@ -167,16 +170,13 @@ GROUNDING_PROMPT = (
 )
 
 # The background ask is not optional: no interview question before the candidate's own material is on
-# the table, and material that is thin or unreadable is NAMED rather than filled in.
+# the table, and material that is thin or unreadable is NAMED rather than filled in. Two turns, not
+# one - the opener asks for the material, the turn after it asks for their own account of it (see
+# BACKGROUND_PHASE, which is also what re-asks when the material is thin).
 BACKGROUND_PROMPT = (
-    "Background comes first: your opening turn asks for their resume, or a two-line background if they would rather type it, and no interview question lands before it."
-    " If what they give you is vague, thin or unreadable, say plainly what it leaves unclear and name the one thing you need, then carry on with what you have."
+    "Background comes first: your opening turn asks for their resume, or a two-line background if they would rather type it, and the turn after it asks them to tell you about themselves."
+    " No interview question lands before both. If what they give you is vague, thin or unreadable, say plainly what it leaves unclear and name the one thing you need, then carry on with what you have."
 )
-
-# Fires once, on the turn after the opening ask (see system_prompt): the ask is unconditional, the
-# ANSWER is not, and a candidate who opened with "hi, ready" must be asked again rather than
-# interviewed against a background nobody supplied.
-BACKGROUND_RETRY = "Check their last answer: if it did not give you a usable background, say so in one line and ask once more for their resume or a two-line background. Then move on - never ask a third time."
 
 # Email and URLs are stripped from the resume copy the model reads (never from what is stored): they
 # buy no interview quality and are the one part of a CV that is pure PII shipped to the provider on
@@ -264,26 +264,45 @@ PATH_PROMPT = (
     " Ask the kind of question this phase calls for and nothing from a later phase, even if the candidate invites it."
     " If they ask you something, answer in one short line and come straight back to this phase: you drive the arc, not them."
 )
+# The sign-off, the only phase that asks nothing. PATH_PROMPT's "ask exactly ONE question" is the
+# opposite of what this turn is, so it rides alone (see system_prompt).
+CLOSING_PHASE = (
+    "CLOSING - every question has been asked: this is your sign-off, and it is the LAST thing you say."
+    " Thank them for their time in one sentence and tell them to press the ✓ at the top right for their full feedback."
+    " Ask NOTHING: no question, no 'anything you would like to add', no follow-up, no topic left hanging - the transcript is closed after this turn."
+    " Two sentences at most, and do not use a question mark."
+)
 OPENING_PHASE = (
     "OPENING - the interview proper starts here, and it opens on their background rather than a real question."
-    " If they have already supplied a background or a resume, react to one concrete detail of it; if they have not, ask once, briefly, for their resume or a two-line background."
+    " If they have already supplied a background or a resume, react to one concrete detail of it and ask ONE light question about that detail; if they have not, ask once, briefly, for their resume or a two-line background."
+    " Nothing technical or behavioural this turn - the interview proper starts after they have told you about themselves."
+)
+# The classic opener, one turn after the material ask: "tell me about yourself". Its own entry rather
+# than a clause in OPENING_PHASE because it needs a real question, and because it IS the re-ask when
+# what they gave you is thin (that used to be a separate retry line, aimed at this same turn).
+BACKGROUND_PHASE = (
+    "BACKGROUND - the classic opener: ask them to tell you about themselves - what they do now and how they got here, in their own words."
+    " Their resume is the facts, not the answer, so ask for the account rather than re-reading it back."
+    " If what they gave you is still thin or unreadable, say in one line what is missing and ask for that instead."
     " Nothing else this turn - the first interview question comes after their answer."
 )
-# The first turn is the only place a candidate learns who is on the other side: the frontend's intro
-# bubble ("share your resume/background") is a canned message this prompt never sees, so without this
-# the opener reads as the APPLICANT introducing themselves - which is what one candidate answered
-# ("i thought u were my interviewer"), and the crosstalk that followed was graded as answers.
+# The first turn is the only place a candidate learns who is on the other side. It used to be the
+# frontend's canned bubble; now the opener is the model's own turn, so this line travels with the
+# system prompt that generates it - without it the opener reads as the APPLICANT introducing
+# themselves, which is what one candidate answered ("i thought u were my interviewer"), and the
+# crosstalk that followed was graded as answers.
 INTRO_TURN = "This is your FIRST turn: open with one short line saying you will be running their mock interview today. You are the interviewer and they are the candidate - never introduce yourself as the applicant or describe the job as your own day-to-day."
 # The mix dials are QUESTION BUDGETS, not weights: the phase is a pure function of the transcript
-# length and the interview's dials, so the arc is reproducible and testable. The wrap-up is what
+# length and the interview's dials, so the arc is reproducible and testable. The sign-off is what
 # stops an interview with every budget on 0 (or 4 straight technical questions) from asking
 # questions forever: when the plan runs out, the interviewer closes instead.
-# The interview's closing statement is NOT model output. Every attempt to get a small model to stop
-# asking questions failed - three rewrites of a WRAP-UP phase line and a trailing system turn (which
-# llama.cpp rejects outright mid-conversation) all produced one more probing question - and a closing
-# line that asks a question the API then refuses to accept is worse than no closing line. So the
-# arc's last entry is the last QUESTION, and the turn after it is this fixed line: correct by
-# construction, no model call, and it ends the transcript cleanly (see main.chat_stream).
+# The arc's last entry is the last QUESTION; the turn after it is the sign-off, which is model output
+# like every other interviewer turn (see CLOSING_PHASE and closing_line). FALLBACK, not dead code:
+# every attempt to get a small model to stop asking questions failed - three rewrites of a WRAP-UP
+# phase line and a trailing system turn (which llama.cpp rejects outright mid-conversation) all
+# produced one more probing question - and a sign-off that asks something the API then refuses is
+# worse than a template. So closing_line rejects a question outright and this is what the candidate
+# reads instead: correct by construction, no second call.
 CLOSING_MESSAGE = "Thanks - that's everything I had for you. Take a moment if you want, then hit the ✓ at the top right and you'll get your full feedback: how you communicated, the substance of your answers, your profile as a hire, and where you landed on the hire/reject spectrum."
 
 # Hardcore fail line, canned: the fallback when the shout call returns nothing (llm.fail_shout), and
@@ -351,16 +370,17 @@ def _technical_phase(n: int, total: int, level: str = "any") -> str:
 
 
 def interview_plan(dials: Dials | None = None, level: str = "any") -> tuple[str, ...]:
-    """Every QUESTION of the arc, in order: the chitchat warm-up, the opener, then the mix.
+    """Every QUESTION of the arc, in order: the chitchat warm-up, the material ask, the
+    tell-me-about-yourself opener, then the mix.
 
-    The turn after the last entry is the closing statement (llm.CLOSING_MESSAGE), so a plan of n
-    entries means n model turns plus one canned one. `level` only re-writes the ops question's
-    wording (see _technical_phase); it never changes the plan's LENGTH, so the closing-turn math in
-    main.py does not depend on it.
+    The turn after the last entry is the sign-off (llm.closing_line), so a plan of n entries means
+    n + 1 model turns. `level` only re-writes the ops question's wording (see _technical_phase); it
+    never changes the plan's LENGTH, so the closing-turn math in main.py does not depend on it.
     """
     d = dials or Dials()
     plan = [_chitchat_phase(n, d.mix_chitchat) for n in range(1, d.mix_chitchat + 1)]
     plan.append(OPENING_PHASE)
+    plan.append(BACKGROUND_PHASE)
     plan += [_behavioural_phase(n, d.mix_behavioural) for n in range(1, d.mix_behavioural + 1)]
     plan += [_technical_phase(n, d.mix_technical, level) for n in range(1, d.mix_technical + 1)]
     return tuple(plan)
@@ -369,9 +389,9 @@ def interview_plan(dials: Dials | None = None, level: str = "any") -> tuple[str,
 def interview_phase(asked: int, dials: Dials | None = None, level: str = "any") -> str:
     """Phase directive for the next interviewer turn, where `asked` = interviewer turns so far.
 
-    Past the end of the plan the LAST QUESTION repeats (the closing statement is a separate, canned
-    turn, and the API refuses anything after that) - so an over-run transcript cannot put the
-    interviewer back at the opener.
+    Past the end of the plan the LAST QUESTION repeats (the sign-off is a separate turn and the API
+    refuses anything after it) - so an over-run transcript cannot put the interviewer back at the
+    opener.
     """
     plan = interview_plan(dials, level)
     return plan[min(max(asked, 0), len(plan) - 1)]
@@ -411,7 +431,8 @@ def system_prompt(role: str, level: str, topic: str = "", asked: int = 0, dials:
     states the current phase of the bio -> behavioural -> technical arc explicitly so the arc
     survives a candidate who steers, and carries STYLE_PROMPT so the arc is walked
     conversationally rather than recited. GROUNDING_PROMPT stops it filling in material the
-    candidate never supplied; BACKGROUND_RETRY is the one place the ask is repeated.
+    candidate never supplied; the sign-off phase replaces the tail on the turn after the last
+    question.
     """
     d = dials or Dials()
     parts = [SYSTEM_PROMPT_V1, INJECTION_GUARD, GROUNDING_PROMPT, f'The candidate is interviewing for the role: "{role}".']
@@ -428,7 +449,7 @@ def system_prompt(role: str, level: str, topic: str = "", asked: int = 0, dials:
     if d.company_size != "any":
         parts.append(f"Target employer size: {d.company_size} people. Frame scenarios, scale and process weight at that size.")
     # Background protocol: exactly one of the two branches, never both. The ask itself belongs to
-    # OPENING_PHASE (or the UI bubble, which is never persisted), so it is not restated here.
+    # OPENING_PHASE, so it is not restated here.
     if resume:
         parts.append("The candidate's background is already in hand (the attached resume above). Tailor questions to it, and never ask them to share a resume.")
     else:
@@ -442,12 +463,10 @@ def system_prompt(role: str, level: str, topic: str = "", asked: int = 0, dials:
     parts.append(coverage_directive(level))
     if asked == 0:
         parts.append(INTRO_TURN)
-    # The turn after the opener: chitchat sits in front of it, hence the offset.
-    if not resume and asked == d.mix_chitchat + 1:
-        parts.append(BACKGROUND_RETRY)
     # The operative line, and last on purpose: a small model reads the tail while everything above it
-    # is dressing.
-    parts.append(f"Current phase: {interview_phase(asked, d, level)}" + PATH_PROMPT + scope_directive(role, topic))
+    # is dressing. The sign-off is the one phase that asks nothing, so it carries no PATH_PROMPT.
+    tail = f"Current phase: {CLOSING_PHASE}" if is_closing_turn(asked, d) else f"Current phase: {interview_phase(asked, d, level)}" + PATH_PROMPT
+    parts.append(tail + scope_directive(role, topic))
     return " ".join(parts)
 
 
@@ -587,10 +606,10 @@ and never fault it for being markup, code or long. This is a hardcore run: {FAIL
 soften a weak answer because the interview is going well. Return ONLY the JSON object,
 no prose, no markdown."""
 
-# What the first turn is actually answering. The interviewer's opener is a FRONTEND constant (it is shown
-# as a bubble that is never persisted, and it is env-overridable), so without this the judge graded the
-# opening answer against an empty question - and a pasted resume reads as "not an answer" to a blind
-# judge. Hardcore killed runs on turn 1 for supplying the resume it had just been asked for.
+# The material ask, as a literal. Two readers: the hardcore judge, which is handed the question above
+# an answer (turn 1's question is the one the opener asked, and a pasted resume reads as "not an answer"
+# to a judge that is shown nothing - runs died on turn 1 for supplying the resume it had just asked
+# for), and the no-model stub, which has no model to write an opener with.
 OPENING_QUESTION = "Before we begin - could you share your resume / background so I can interview you specifically on it?"
 
 JUDGE_JSON_SCHEMA = {
@@ -700,11 +719,13 @@ async def _stream_chat(messages: list[ChatMessage], config: LLMConfig) -> AsyncI
     """Stream the assistant reply as incremental text deltas (SSE).
 
     In stub mode (no base URL) yields the last user message echoed back, tokenized by
-    whitespace, so the frontend wire-format can be tested without a live model.
+    whitespace, so the frontend wire-format can be tested without a live model. A call with no user
+    message is the opener, which has nothing to echo: it gets the material ask instead, or a stub run
+    would open with the interviewer saying nothing intelligible.
     """
     if config.stub:
         last = [_m for _m in messages if _m.role == "user"]
-        reply = last[-1].content if last else "Understood. Tell me more."
+        reply = last[-1].content if last else OPENING_QUESTION
         for token in reply.split(" "):
             yield token + " "
         return
@@ -742,6 +763,24 @@ def _extract_delta(chunk: str) -> str:
     except (ValueError, KeyError, TypeError):
         return ""
     return ""
+
+
+async def closing_line(history: list[ChatMessage], config: LLMConfig) -> str:
+    """The interviewer's sign-off. Always returns a usable line, never raises.
+
+    Not streamed: a reply that is only valid once the whole of it is in hand cannot be shown as it
+    arrives, and the guard below is what makes a generated close safe at all. Stub mode returns the
+    canned line because the stub echoes the last user message, which would read as the interview
+    carrying on after the candidate stopped.
+    """
+    if config.stub:
+        return CLOSING_MESSAGE
+    system = next((m.content for m in history if m.role == "system"), "")
+    text = await _completion(system, _format_transcript(history), config=config, max_tokens=LLM_MAX_CLOSING_TOKENS, stage="chat.close")
+    if not text or "?" in text:
+        log.warning("llm.chat.closing_fallback", reason="empty" if not text else "question")
+        return CLOSING_MESSAGE
+    return text.strip()
 
 
 # A dim the formatter omits or nulls is "not assessed" and is dropped, not an error: with ten dims a

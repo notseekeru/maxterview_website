@@ -88,24 +88,52 @@ def test_chat_refuses_turns_after_the_question_mix_is_spent(client):
     from app import llm
 
     c = client
-    # Every budget on 0 -> the arc is opener + closing statement, so the THIRD turn is over the plan.
+    # Every budget on 0 -> the arc is the material ask + tell-me-about-yourself, so the opener, two
+    # replies and the sign-off are the whole run; the turn after that is over the plan.
     iv = c.post("/api/interviews", json={"role": "Mix Exhausted", "mix_chitchat": 0, "mix_behavioural": 0, "mix_technical": 0}).json()
     iid = iv["id"]
     c.post(f"/api/interviews/{iid}/start")
+    # One credit per MODEL turn: the opener, each reply, and the sign-off - which is exactly the run
+    # below, so the whole arc costs 3.
+    before = c.get("/api/usage").json()["chat_turns_used_today"]
+    assert c.post(f"/api/interviews/{iid}/chat/kickoff").status_code == 200
     for i in range(2):
         assert c.post(f"/api/interviews/{iid}/chat/stream", json={"interview_id": iid, "content": f"answer {i}"}).status_code == 200
+    assert c.get("/api/usage").json()["chat_turns_used_today"] == before + 3
 
-    used_before = c.get("/api/usage").json()["chat_turns_used_today"]
     transcript_before = c.get(f"/api/interviews/{iid}/messages").json()
-    # The closing turn is canned and persisted, so the transcript ends the way it was displayed.
+    # Stub mode's sign-off is the canned line, persisted like any reply, so the transcript ends the
+    # way it was displayed. The opener is the first row: nothing was drawn client-side.
+    assert [m["role"] for m in transcript_before] == ["assistant", "user", "assistant", "user", "assistant"]
     assert llm.CLOSING_MESSAGE in transcript_before[-1]["content"]
     r = c.post(f"/api/interviews/{iid}/chat/stream", json={"interview_id": iid, "content": "one more thing"})
     assert r.status_code == 409
     assert "Press Finish" in r.json()["detail"]
     # Refused BEFORE the model call, the chat credit, and the write: an over-plan turn must not
     # cost a quota credit or leave an unanswered user turn in the transcript.
-    assert c.get("/api/usage").json()["chat_turns_used_today"] == used_before
+    assert c.get("/api/usage").json()["chat_turns_used_today"] == before + 3
     assert c.get(f"/api/interviews/{iid}/messages").json() == transcript_before
+    c.delete(f"/api/interviews/{iid}")
+
+
+def test_kickoff_generates_the_opener_once_and_spends_a_turn(client):
+    # The first message of a run is a model turn rather than a bubble the frontend draws, so it is
+    # metered like every other turn and generated exactly once.
+    c = client
+    iid = c.post("/api/interviews", json={"role": "Opener"}).json()["id"]
+    c.post(f"/api/interviews/{iid}/start")
+
+    before = c.get("/api/usage").json()["chat_turns_used_today"]
+    # Sent the way the client sends it: an empty JSON body.
+    r = c.post(f"/api/interviews/{iid}/chat/kickoff", json={})
+    assert r.status_code == 200
+    assert "event: done" in r.text
+    assert [m["role"] for m in c.get(f"/api/interviews/{iid}/messages").json()] == ["assistant"]
+    assert c.get("/api/usage").json()["chat_turns_used_today"] == before + 1
+
+    # A second opener is a second charge for a turn the transcript already has.
+    assert c.post(f"/api/interviews/{iid}/chat/kickoff", json={}).status_code == 409
+    assert c.get("/api/usage").json()["chat_turns_used_today"] == before + 1
     c.delete(f"/api/interviews/{iid}")
 
 
@@ -124,6 +152,9 @@ def test_chat_rolls_back_the_turn_when_the_model_fails(client, monkeypatch):
     c.post(f"/api/interviews/{iid}/start")
     body = c.post(f"/api/interviews/{iid}/chat/stream", json={"interview_id": iid, "content": "my answer"}).text
     assert "event: error" in body
+    # No `done` behind it: that frame is what tells the client the turn landed, and the frontend's
+    # done branch flushes the voice queue - a rolled-back reply would be read aloud.
+    assert "event: done" not in body
     assert c.get(f"/api/interviews/{iid}/messages").json() == []
 
     # The same turn after the model recovers: exactly one copy of the answer.
@@ -879,6 +910,11 @@ def test_finish_requires_at_least_one_message(client):
     r = client.post(f"/api/interviews/{iid}/finish")
     assert r.status_code == 409
     assert client.get(f"/api/interviews/{iid}").json()["status"] == "in_progress"  # still resumable
+
+    # The opener is a stored assistant turn, and it is not an answer: a run that only asked for the
+    # resume must still refuse to finish, or the guard above would be satisfied by the interviewer.
+    assert client.post(f"/api/interviews/{iid}/chat/kickoff").status_code == 200
+    assert client.post(f"/api/interviews/{iid}/finish").status_code == 409
 
     client.post(f"/api/interviews/{iid}/chat/stream", json={"interview_id": iid, "content": "hi"})
     assert client.post(f"/api/interviews/{iid}/finish").status_code == 200

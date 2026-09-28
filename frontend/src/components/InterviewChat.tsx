@@ -4,8 +4,7 @@ import { Modal } from "@/components/ui/modal";
 import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
 import { MAX_TAKE_S, useRecorder, useSpeaker, useVoiceCapability } from "@/hooks/useInterviewVoice";
-import { apiDetail, type Feedback, finishInterview, getFeedback, getInterview, getMessages, getOffer, httpStatus, MAX_TURN_CHARS, type Message, type Offer, regenerateFeedback, startInterview, streamChat } from "@/lib/api";
-import { OPENING_ASKS_RESUME, OPENING_HAS_RESUME } from "@/lib/config";
+import { apiDetail, type Feedback, finishInterview, getFeedback, getInterview, getMessages, getOffer, httpStatus, kickoffInterview, MAX_TURN_CHARS, type Message, type Offer, regenerateFeedback, type StreamEvent, startInterview, streamChat } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { readVoicePref, writeVoicePref } from "@/lib/voice";
 import { Icon } from "./AppIcons";
@@ -58,15 +57,16 @@ export function InterviewChat({ interviewId, onExit }: Props) {
     // them for the review. At the cap there is nothing left to trade, so the click goes straight
     // through. Reset by anything that leaves the footer.
     const [confirmFinish, setConfirmFinish] = useState(false);
-    const [hasResume, setHasResume] = useState(false);
     const sendingRef = useRef(false);
+    // The opener is fetched once per mounted run: the transcript is empty until it lands, and the
+    // effect below would otherwise fire again on every render that clears the error.
+    const kickedRef = useRef(false);
     const abortRef = useRef<AbortController | null>(null);
     // The reply being streamed now. It names the bubble the caption gate applies to, so an earlier reply
     // is never held back by the voice of a later one.
     const replyId = useRef("");
     const scrollRef = useRef<HTMLDivElement | null>(null);
     const inputRef = useRef<HTMLTextAreaElement | null>(null);
-    const opening = hasResume ? OPENING_HAS_RESUME : OPENING_ASKS_RESUME;
     const [voiceOn, setVoiceOn] = useState(readVoicePref);
     // Voice is I/O around the turn: the applicant's speech lands in the answer box, the interviewer's
     // reply is read aloud, and everything after that is the pipeline that already exists (VOICE.md).
@@ -117,7 +117,6 @@ export function InterviewChat({ interviewId, onExit }: Props) {
     const loadExisting = useCallback(
         async (id: string) => {
             const [iv] = await Promise.all([getInterview(id), loadMessages()]);
-            setHasResume(Boolean(iv.resume_id));
             setHardcoreRun(iv.hardcore);
             // A failed hardcore run is dead in the DB before it is finished, so reopening one has to
             // show the ending and close the composer: the stream event only covers the session that
@@ -143,7 +142,6 @@ export function InterviewChat({ interviewId, onExit }: Props) {
             try {
                 const started = await startInterview(interviewId);
                 if (cancelled) return;
-                setHasResume(Boolean(started.resume_id));
                 setHardcoreRun(Boolean(started.hardcore));
                 await loadMessages();
                 setStatus("ready");
@@ -164,6 +162,17 @@ export function InterviewChat({ interviewId, onExit }: Props) {
             abortRef.current?.abort();
         };
     }, [interviewId, loadMessages, loadExisting]);
+
+    // The opening turn is a model generation, so an empty live transcript is a turn still owed: fetch it
+    // on mount, and again on a reload of a run whose opener never landed (nothing is persisted on
+    // failure, so the next mount is the retry). `kickedRef` keeps the failed case from looping, and the
+    // error carries a manual retry.
+    // biome-ignore lint/correctness/useExhaustiveDependencies: runTurn is a fresh closure every render, so it cannot be a dependency; the ref is the guard.
+    useEffect(() => {
+        if (status !== "ready" || messages.length || interviewOver || error || kickedRef.current) return;
+        kickedRef.current = true;
+        void runTurn(null);
+    }, [status, messages.length, interviewOver, error]);
 
     // The composer grows with the answer and stops at nine lines, then scrolls inside the pill. A
     // pasted paragraph should not push the transcript off the screen.
@@ -202,21 +211,8 @@ export function InterviewChat({ interviewId, onExit }: Props) {
             cancelled = true;
         };
     }, [feedback]);
-    // The opening line is a reply, so it is read aloud too, but only when voice was already on: the
-    // click that turns it on is the gesture that lets audio play (VOICE.md gotcha 5).
-    const openingSpoken = useRef(false);
-    useEffect(() => {
-        if (openingSpoken.current || !voiceOn || !capability?.tts || status === "loading" || feedback || messages.length || !opening) return;
-        // Deferred past this commit: StrictMode runs this effect, cancels it and runs it again, so
-        // speaking inline would be stopped by our own cleanup before it was audible. A dev-only
-        // silence is the worst kind of bug to chase, and the flag moves inside the timer so the
-        // cancelled pass cannot claim to have spoken.
-        const timer = setTimeout(() => {
-            openingSpoken.current = true;
-            speaker.say(opening);
-        }, 0);
-        return () => clearTimeout(timer);
-    }, [voiceOn, capability, speaker, status, feedback, messages.length, opening]);
+    // The opener is a reply like any other, so the voice reads it and the caption gate covers it: no
+    // separate speak path, and no canned line to keep in step with the prompt.
 
     /** The choice is per browser and survives the session; the speak call itself is driven by the
      *  hook, so turning this off mid-sentence stops the sentence. */
@@ -229,26 +225,30 @@ export function InterviewChat({ interviewId, onExit }: Props) {
     async function send() {
         const content = draft.trim();
         if (!content || status !== "ready" || sendingRef.current) return;
+        setDraft("");
+        await runTurn(content);
+    }
+
+    /** One interviewer turn over SSE: the opener, or the reply to an answer.
+     *  `answer` is null for the opener, which has no candidate turn to show, to restore on failure, or
+     *  to hand to the hardcore judge. */
+    async function runTurn(answer: string | null) {
+        if (sendingRef.current) return;
         sendingRef.current = true;
         // The take that failed is behind us now; a living mic error under a box that just sent is noise.
         mic.clear();
-        setDraft("");
         setError(null);
         setStatus("streaming");
-
-        const localId = `local-${Date.now()}`;
-        const userMsg: Message = {
-            id: localId,
-            interview_id: interviewId,
-            role: "user",
-            content,
-            created_at: new Date().toISOString(),
-        };
-        setMessages((m) => [...m, userMsg]);
         setAssistBuf("");
 
+        const localId = answer === null ? null : `local-${Date.now()}`;
+        if (answer !== null) {
+            const userMsg: Message = { id: localId as string, interview_id: interviewId, role: "user", content: answer, created_at: new Date().toISOString() };
+            setMessages((m) => [...m, userMsg]);
+        }
+
         const rollback = () => {
-            setMessages((m) => m.filter((x) => x.id !== localId));
+            if (localId) setMessages((m) => m.filter((x) => x.id !== localId));
             setAssistBuf("");
         };
 
@@ -262,59 +262,49 @@ export function InterviewChat({ interviewId, onExit }: Props) {
         replyId.current = `local-reply-${Date.now()}`;
         speaker.begin();
         try {
-            await streamChat(
-                interviewId,
-                content,
-                (ev) => {
-                    if (ev.kind === "message") {
-                        buffer += ev.content;
-                        setAssistBuf(buffer);
-                        speaker.push(ev.content);
-                    } else if (ev.kind === "done") {
-                        settled = true;
-                        speaker.flush();
-                        if (buffer) {
-                            setMessages((m) => [
-                                ...m,
-                                {
-                                    id: replyId.current,
-                                    interview_id: interviewId,
-                                    role: "assistant",
-                                    content: buffer,
-                                    created_at: new Date().toISOString(),
-                                },
-                            ]);
-                        }
-                        setAssistBuf("");
-                        setStatus("ready");
-                        if (ev.closing) setInterviewOver(true);
-                        if (ev.failed) {
-                            setHardcoreFailed(ev.failed);
-                            setMessages((m) => m.map((x) => (x.id === localId ? { ...x, move_class: ev.failed?.class ?? null } : x)));
-                        }
-                    } else if (ev.kind === "error") {
-                        settled = true;
-                        speaker.stop();
-                        rollback();
-                        setDraft(content);
-                        // The server's message names the endpoint and what to do about it; the constant
-                        // is only for a frame with no data.
-                        setError(ev.message || STREAM_FAILED);
-                        setStatus("ready");
+            const onEvent = (ev: StreamEvent) => {
+                if (ev.kind === "message") {
+                    buffer += ev.content;
+                    setAssistBuf(buffer);
+                    speaker.push(ev.content);
+                } else if (ev.kind === "done") {
+                    settled = true;
+                    speaker.flush();
+                    if (buffer) {
+                        setMessages((m) => [...m, { id: replyId.current, interview_id: interviewId, role: "assistant", content: buffer, created_at: new Date().toISOString() }]);
                     }
-                },
-                { signal: ac.signal },
-            );
+                    setAssistBuf("");
+                    setStatus("ready");
+                    if (ev.closing) setInterviewOver(true);
+                    if (ev.failed) {
+                        setHardcoreFailed(ev.failed);
+                        setMessages((m) => m.map((x) => (x.id === localId ? { ...x, move_class: ev.failed?.class ?? null } : x)));
+                    }
+                } else {
+                    settled = true;
+                    speaker.stop();
+                    rollback();
+                    if (answer !== null) setDraft(answer);
+                    // The server's message names the endpoint and what to do about it; the constant
+                    // is only for a frame with no data.
+                    setError(ev.message || STREAM_FAILED);
+                    setStatus("ready");
+                }
+            };
+            await (answer === null ? kickoffInterview(interviewId, onEvent, { signal: ac.signal }) : streamChat(interviewId, answer, onEvent, { signal: ac.signal }));
             if (!settled) {
                 setAssistBuf("");
                 const rows = await loadMessages();
-                if (rows?.some((m) => m.role === "user" && m.content === content)) {
+                // The opener is the only assistant turn a live run can hold at this point, so its
+                // presence is what says the turn landed.
+                const landed = answer === null ? rows?.some((m) => m.role === "assistant") : rows?.some((m) => m.role === "user" && m.content === answer);
+                if (landed) {
                     setError(null);
                     speaker.flush(); // the turn landed after all: finish the sentence the cut-off stream left hanging
                 } else {
                     speaker.stop();
                     rollback();
-                    setDraft(content);
+                    if (answer !== null) setDraft(answer);
                     setError(STREAM_FAILED);
                 }
             }
@@ -323,10 +313,14 @@ export function InterviewChat({ interviewId, onExit }: Props) {
                 speaker.stop();
                 const st = httpStatus(e);
                 if (st === 402) setQuotaLocked(true);
+                // A 409 on the opener means the turn it wanted is already in the transcript (the first
+                // attempt landed after a cut stream): show it rather than locking the composer over a
+                // transcript the user has not seen.
+                else if (st === 409 && answer === null) await loadMessages();
                 else if (st === 409) setInterviewOver(true);
                 else setError(CONNECTION_LOST);
                 rollback();
-                if (st !== 409) setDraft(content);
+                if (st !== 409 && answer !== null) setDraft(answer);
             }
         } finally {
             sendingRef.current = false;
@@ -452,7 +446,17 @@ export function InterviewChat({ interviewId, onExit }: Props) {
                             </Button>
                         </div>
                     )}
-                    {error && <p className="my-1 self-center rounded-2xl border border-destructive/40 bg-destructive/10 px-3 py-1.5 text-center text-xs text-destructive">{error}</p>}
+                    {error && (
+                        <div role="alert" className="my-1 flex flex-col items-center gap-1.5 self-center rounded-2xl border border-destructive/40 bg-destructive/10 px-3 py-1.5 text-center text-xs text-destructive">
+                            <p>{error}</p>
+                            {/* An opener that never landed has no answer to resend, so this is the only way back. */}
+                            {!messages.length && !interviewOver && status === "ready" && (
+                                <Button variant="outline" size="sm" onClick={() => void runTurn(null)}>
+                                    Retry
+                                </Button>
+                            )}
+                        </div>
+                    )}
                     {quotaLocked && <UpgradeNotice />}
                     {interviewOver && (
                         <div role="status" className={cn("my-1 self-center rounded-2xl border px-3.5 py-2 text-center text-xs", hardcoreFailed ? "border-destructive bg-destructive/10 text-destructive" : "bg-muted/50 text-muted-foreground")}>
@@ -469,9 +473,6 @@ export function InterviewChat({ interviewId, onExit }: Props) {
                         </div>
                     )}
                     {status === "loading" && <p className="my-1 self-center text-xs text-muted-foreground">Starting…</p>}
-                    {/* Not while loading: a reopened run would flash the opening line before its
-                    real transcript arrives. */}
-                    {status !== "loading" && messages.length === 0 && opening && <Bubble from="assistant" content={opening} last onReplay={voiceOn && capability?.tts ? speaker.say : undefined} />}
                     {messages.map((m, i) => (
                         <Bubble key={m.id} from={m.role} content={caption(m.id, m.content)} moveClass={m.move_class} comment={m.comment} last={lastOfRun.has(m.id)} lead={messages[i - 1]?.role !== m.role} onReplay={m.role === "assistant" && voiceOn && capability?.tts ? speaker.say : undefined} />
                     ))}

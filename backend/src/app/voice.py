@@ -50,11 +50,11 @@ TIMEOUT = httpx.Timeout(connect=10.0, read=60.0, write=30.0, pool=10.0)
 CONCURRENCY = int(os.getenv("VOICE_CONCURRENCY", "2"))
 _slots = asyncio.Semaphore(CONCURRENCY)
 
-# Synthesized lines, keyed on the voice that would say them. The opening line is one fixed string for
-# every visitor without a resume, and a replay asks for a line we already have, so both stop costing
-# neurons. Only the INTERVIEWER's lines ever reach this: no applicant audio is synthesized, so nothing
-# here is a recording. Bounded in bytes rather than entries because a clip's size tracks its text, and
-# the pod is 256Mi.
+# Synthesized lines, keyed on the voice that would say them: a replay asks for a line we already have,
+# so it stops costing neurons. The opener is generated per run (it used to be one fixed string shared by
+# every visitor, so it was a guaranteed hit), which is why the first line of a run is a miss. Only the
+# INTERVIEWER's lines ever reach this: no applicant audio is synthesized, so nothing here is a recording.
+# Bounded in bytes rather than entries because a clip's size tracks its text, and the pod is 256Mi.
 CACHE_BYTES = int(os.getenv("VOICE_TTS_CACHE_BYTES", str(8 * 1024 * 1024)))
 _cache: OrderedDict[tuple[str, str, str], "Speech"] = OrderedDict()
 

@@ -60,8 +60,8 @@ The line boundaries are what make it feel live: the streamed reply is buffered a
 end, or at the last word that fits when a sentence runs long (140 characters for the first line, 320
 after it), so the first sentence is heard while the rest is still generating. Each line's audio is then
 fetched while the previous one is being heard, so the seam between two sentences is milliseconds rather
-than a round trip, and synthesis is keyed on the line's text: a replay, or the opening line shared by
-every visitor without a resume, costs no neuron the second time.
+than a round trip, and synthesis is keyed on the line's text: a replay costs no neuron the second
+time.
 
 The caption is gated on the voice, not the other way round. While the voice is on, a reply is revealed
 up to the line being spoken, so the words and the audio land together instead of the text streaming a
@@ -119,8 +119,8 @@ allocation is a disabled control rather than an invoice. That allocation is one 
 per-owner metering, which is a limit rather than a design: see Limits, and what comes next.
 
 A line is paid for once: synthesized audio is cached on its text (8MB in memory, evicted oldest first),
-which covers a replay and the opening line every visitor without a resume shares. The applicant's speech
-is never synthesized, so nothing in that cache is a recording.
+which covers a replay of a reply. The applicant's speech is never synthesized, so nothing in that cache
+is a recording.
 
 ## Free alternatives (parked)
 

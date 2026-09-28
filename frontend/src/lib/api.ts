@@ -77,8 +77,8 @@ export interface Interview extends InterviewDials {
 }
 
 // Interview dressing dials (mirrors backend app/models.Dials + app/dials.py). The mix sliders are
-// QUESTION BUDGETS over the arc opening -> chitchat -> behavioural -> technical -> wrap-up, so 0
-// skips that kind rather than silencing it.
+// QUESTION BUDGETS over the arc chitchat -> material ask -> tell-me-about-yourself -> behavioural ->
+// technical -> sign-off, so 0 skips that kind rather than silencing it.
 export type CompanySize = "any" | "1-10" | "11-50" | "51-200" | "201-1k" | "1k-5k" | "5k+";
 export type Cynicism = "kind" | "neutral" | "skeptical";
 
@@ -639,14 +639,26 @@ interface VoiceTranscript {
     language: string;
 }
 
-type StreamEvent = { kind: "message"; content: string } | { kind: "done"; closing?: boolean; failed?: { turn: number; class: MoveClass } } | { kind: "error"; message: string };
+export type StreamEvent = { kind: "message"; content: string } | { kind: "done"; closing?: boolean; failed?: { turn: number; class: MoveClass } } | { kind: "error"; message: string };
+
+/** The interviewer's opening turn. No answer rides with it: the first message of a run is the model's,
+ *  generated once (a second call is refused), and the server draws the candidate's turn from the
+ *  transcript instead. */
+export async function kickoffInterview(interviewId: string, onEvent: (e: StreamEvent) => void, { signal }: { signal?: AbortSignal } = {}): Promise<void> {
+    return streamFrames(`/interviews/${interviewId}/chat/kickoff`, undefined, onEvent, signal);
+}
 
 export async function streamChat(interviewId: string, content: string, onEvent: (e: StreamEvent) => void, { signal }: { signal?: AbortSignal } = {}): Promise<void> {
-    const res = await fetch(`${BASE}/interviews/${interviewId}/chat/stream`, {
+    return streamFrames(`/interviews/${interviewId}/chat/stream`, { interview_id: interviewId, content }, onEvent, signal);
+}
+
+/** Both chat endpoints speak the same SSE frames, so the transport is shared: only the body differs. */
+async function streamFrames(path: string, body: Record<string, unknown> | undefined, onEvent: (e: StreamEvent) => void, signal?: AbortSignal): Promise<void> {
+    const res = await fetch(`${BASE}${path}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ interview_id: interviewId, content }),
+        body: JSON.stringify(body ?? {}),
         signal,
     });
 

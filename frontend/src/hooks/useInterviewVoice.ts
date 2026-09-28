@@ -87,8 +87,8 @@ export function useSpeaker(enabled: boolean) {
         begin: useCallback(() => start(true), [start]),
         push: useCallback((delta: string) => reader.current?.push(delta), []),
         flush: useCallback(() => reader.current?.flush(), []),
-        /** One line, now: a replay, or the opening line. Takes the voice from anything mid-sentence, and
-         *  never gates the caption: the reply it replays is already on screen in full. */
+        /** One line, now: a replay of a reply that is already on screen. Takes the voice from anything
+         *  mid-sentence, and never gates the caption. */
         say: useCallback(
             (text: string) => {
                 start(false);
