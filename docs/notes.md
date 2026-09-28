@@ -5,25 +5,22 @@
 - resume ai reviewer
 - add some evals for ai quality
 - add caching like redis for a lil bit of scalability
+- reconsider ssr
 - make a job queue maybe for not losing some works eg when you retry and go to another page it loses the retry and u have to try again the retry
 - jev for detecting failure for hardcode?
 
 # FEATURES
 
-- alerting for payment process
-- add metrics in readme for hr stuff via from grafana
+- feat: add metrics in readme for hr stuff via from grafana
 - feat: ai resume editor latex to display and edit kind alike overleaf?
 
 # FIX
 
-- fix: the interciew opening should be llm generated, asking for resume or background. then default one chitchat of tell me about yourself
-- fix: dont say premium to users like explicitly just upgrade or something to get use strategies do research on this with data, ask question if uncertain like we use like physicological and marketing tactics, eg like percentage off those online shopping tactics
 
 - grill the plan and architecture and code maintainability/readability. it matters to me when i skim code
 
 # REFACTOR
 
-- refactor: design ui signals for maximazing visual appeal
 - refactor: how about we make development vars put into development env of infisical? but that would be creating a dependency to use internet just to fill the vars? but what if we boot strap and injected to .env so it works offline?
 
 # INFRA
@@ -64,7 +61,3 @@
 - feat: expiry reminder before the period ends. The stack has no email surface at all (no SMTP or
   Resend dep), so every lapse is silent.
 - feat: receipts/invoices to the customer. Same missing email surface.
-- feat: payment alerting (the FEATURES line). Nothing in `observability/grafana` watches the events
-  already emitted: `paymongo.webhook_signature.mismatch|stale`, `paymongo.webhook.payment_not_credited`,
-  `paymongo.request_failed`, and the revocation path (`paymongo.webhook.revoke`,
-  `paymongo.webhook.unattributable_refund` — a refund nobody could attribute is money still serving).

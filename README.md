@@ -6,11 +6,11 @@
 
 **AI mock-interview coach** — practice interviews with an LLM that asks questions, annotates every
 answer like a chess engine would (brilliant → blunder), and scores the run: accuracy, letter grade,
-hire/reject call, tips. **The transcript is the graded artifact; voice is I/O on top of it
-(`VOICE.md`).**
+hire/reject call, tips.
 
 Stack: **FastAPI** (backend) + **React + TypeScript + Vite** (SPA) + **PostgreSQL 18**, run with
 Docker Compose. Frontend: Tailwind 4 + shadcn/ui + react-router.
+NvidiaNim, Neon Postgres, Cloudflare Workers AI, PayMongo,Grafana Cloud + Loki + Tempo
 
 Docs:
 
@@ -27,10 +27,10 @@ Docs:
 ```
 Browser (React SPA) ── /api ──► nginx/Vite proxy ──► FastAPI ──► PostgreSQL 18
                                 (path passthrough)   │
-                                                         └──► LLM (OpenAI-compatible)
+                                                     └──► LLM (OpenAI-compatible)
 ```
 
-- **Backend** (`backend/`): FastAPI monolith in `app/main.py`, raw SQL via asyncpg (`app/db.py`),
+- **Backend** (`backend/`): FastAPI in `app/main.py`, raw SQL via asyncpg (`app/db.py`),
   manual Clerk JWT/JWKS verification (`app/auth.py`), OpenAI-compatible LLM client (`app/llm.py`).
   Migrations via **yoyo** (`backend/migrations/*.sql`).
 - **Frontend** (`frontend/`): React 19 + Vite 8 + TypeScript 7. Consumes the SSE `chat/stream`
@@ -44,20 +44,6 @@ create → start → chat/stream (SSE) → … → complete → feedback
 
 Every query is scoped to the owner (`ClerkUser.sub`, or dev `DEV_USER`). All paths carry the `/api`
 prefix, which the **app** owns (`API_PREFIX`) — no proxy or ingress rewrite strips it.
-
-- `POST /interviews` (role required → `pending`) · `GET|DELETE /interviews[/{id}]` · `POST /interviews/{id}/start|finish`
-- `POST /interviews/{id}/chat/kickoff` — **SSE**; the interviewer's opening turn, generated once (a second call is `409`), metered like any other turn
-- `POST /interviews/{id}/chat/stream` — **SSE** (`event: message` / `done` / `error`); persists both turns. Over quota → `402`
-- `GET /interviews/{id}/messages` · `GET /interviews/{id}/feedback` (accuracy + grade / verdict / tips + 1-10 dims)
-- `GET /interviews/{id}/offer` — the simulated letter that review earned (`404` when it earned none: no review, nothing scored, or a reject/lean_reject call). Priced by `app/offer.py`, written by `main._sync_offer`
-- `POST /interviews/{id}/feedback/generate` — (re)score a completed run. `409` when not completed or empty, `503` when the model is down (retryable)
-- `GET|POST|PUT|DELETE /templates` — owner-scoped dial presets (20 max). The first `GET` seeds three built-ins per owner (The Killer / The Griller / The Chiller) and marks it done, so a deleted default stays deleted
-- `POST /resumes/extract` (multipart PDF → text, **persists nothing**) · `GET|POST /resumes` · `GET|PUT|DELETE /resumes/{id}` — the resume library. Text only: the uploaded PDF is never stored or served back. An interview or preset holds `resume_id` (`ON DELETE SET NULL`), and both prompts read the text from the row
-- `GET /stats/dimensions` · `GET /analytics` — server-side aggregates for the dashboard radar and deep-dive, the offers half (`Analytics.offers`) included. Ask for exactly what `AnalyticsPage.tsx` renders; drop the route when the page does
-- `GET /usage` · `GET /health`
-- `GET|PUT|DELETE /settings/llm` + `POST /settings/llm/test` — BYOK (`BYOK.md`)
-- `GET /voice` (which directions this deployment can do) · `POST /voice/tts` (one line → audio) · `POST /voice/stt` (one clip → text, **persists nothing**). Both need the `CLOUDFLARE_*` pair; without it the UI disables the voice controls and says why (`VOICE.md`)
-- `POST /billing/checkout|cancel|webhook|webhook/simulate` — (`MONETIZATION.md` §3)
 
 `complete` auto-generates feedback and refuses with `409` if no turn was ever sent — an empty
 transcript is unscorable, so completion fails instead of dead-ending a completed interview with no
@@ -78,8 +64,6 @@ make up                     # builds + starts postgres, backend, frontend   (dev
 
 - Backend API: http://localhost:8000/api (`/api/health`)
 - Frontend UI: http://localhost:5173
-
-Then create an interview (role + optional topic), answer the AI's questions, and click **Complete**.
 
 ### What to initialize to use each feature
 
@@ -102,26 +86,6 @@ Feature env values come from your Clerk app's **Development instance** (`.clerk.
 `pk_test_` / `sk_test_`) and PayMongo **test mode** — both safe on `localhost`. Live keys are locked
 to `seekeru.tech` and are rejected elsewhere. `BILLING_MODE=subscription` additionally needs
 `PAYMONGO_PLAN_ID` and a support-enabled account (`MONETIZATION.md` §4).
-
----
-
-## Common commands (`make`)
-
-```
-make up          # start dev stack (postgres + backend + frontend)
-make logs        # tail all service logs
-make shell       # exec bash in the backend container
-make psql        # interactive psql helper (tools profile)
-make migrate     # apply yoyo migrations
-make rollback    # roll back last yoyo migration
-make new-migration name=<name>
-make lint        # ruff (backend) + biome (frontend)
-make exec        # full gate: frontend npm ci + biome + typecheck + build; backend ruff + pytest
-make test-llm    # end-to-end LLM smoke test (single turn) — needs a live model + running stack
-scripts/llm-smoke.py         # the same smoke, callable directly (optional BASE_URL arg)
-make build / buildcache / down / clean  (dev)
-make prod-build / prod-up / prod-logs / prod-down  (prod-style)
-```
 
 ---
 
@@ -154,14 +118,10 @@ Operator notes:
 - **Database:** Neon, **direct host** (not `-pooler`) with `?sslmode=require`. The direct host needs
   no code change — the backend is one long-running pod holding ~10 pooled connections; Neon's pooler
   only matters when many short-lived instances share a DB, and `app/db.py` auto-detects a `-pooler`
-  DSN (`statement_cache_size=0`) anyway. **Prod schema is live** (all migrations applied by the
-  PreSync Job). Trade-offs: public-internet round trips, and the free tier's 6-hour history window —
+  DSN (`statement_cache_size=0`) anyway.
   **snapshot before each prod migration**.
 - **Migrations on deployed envs** run from the in-cluster Job, not a laptop; `make migrate` is the dev
   path against the container.
-- **Operator MCPs** (`.mcp.json`, agent-side only — no runtime dependency): `grafana` reads
-  `GRAFANA_SERVICE_ACCOUNT_TOKEN` from root `.env` at connect time, so the token never lands in a
-  tracked file. Verify with `mcp({ server: "grafana" })`.
 
 ---
 
