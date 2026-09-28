@@ -1,5 +1,6 @@
 import { useEffect, useId, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { Spinner } from "@/components/ui/spinner";
 import { ALL_DIMS } from "@/lib/dimensions";
 import { cn } from "@/lib/utils";
 
@@ -53,7 +54,7 @@ export function FinishOverlay({ open, title, done, onDismiss }: { open: boolean;
                                     ✓
                                 </span>
                             ) : i === active ? (
-                                <span role="status" aria-label="Running" className="size-4 shrink-0 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+                                <Spinner label="Running" className="border-primary" />
                             ) : (
                                 <span aria-hidden className="inline-flex size-4 shrink-0 items-center justify-center text-xs text-muted-foreground">
                                     ○

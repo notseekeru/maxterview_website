@@ -4,6 +4,7 @@ import { RangeBar } from "@/components/OfferLetter";
 import { Panel, Stat } from "@/components/PagePrimitives";
 import { Card, CardContent } from "@/components/ui/card";
 import { type ChartConfig, ChartContainer, ChartTooltip, ChartTooltipContent, DRAW_MS } from "@/components/ui/chart";
+import { StateNote } from "@/components/ui/state";
 import type { OfferBenefitStat, OfferGroup, OffersAnalytics } from "@/lib/api";
 import { compactMoney, money, tierFill } from "@/lib/offers";
 
@@ -12,7 +13,7 @@ export function OffersSection({ board }: { board: OffersAnalytics }) {
         return (
             <Card>
                 <CardContent className="pt-6">
-                    <p className="text-sm text-muted-foreground">No offers yet. Every interview that gets a review is priced from it: your communication scores set the level band, the position inside it, and which benefits you cleared.</p>
+                    <StateNote>No offers yet. Every interview that gets a review is priced from it: your communication scores set the level band, the position inside it, and which benefits you cleared.</StateNote>
                 </CardContent>
             </Card>
         );

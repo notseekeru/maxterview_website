@@ -1,6 +1,7 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
+import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
 import { MAX_TAKE_S, useRecorder, useSpeaker, useVoiceCapability } from "@/hooks/useInterviewVoice";
 import { apiDetail, type Feedback, finishInterview, getFeedback, getInterview, getMessages, getOffer, httpStatus, MAX_TURN_CHARS, type Message, type Offer, regenerateFeedback, startInterview, streamChat } from "@/lib/api";
@@ -423,7 +424,7 @@ export function InterviewChat({ interviewId, onExit }: Props) {
                     onClick={() => (interviewOver ? void finishRun() : setConfirmFinish(true))}
                     disabled={isFinishing || status === "streaming" || status === "completed" || !answered || mic.recording}
                 >
-                    {isFinishing ? <Spinner /> : <Icon name="complete" />}
+                    {isFinishing ? <Spinner label="Reviewing" className="size-3.5" /> : <Icon name="complete" />}
                 </Button>
             </header>
             {voiceNote && <p className="border-b bg-muted/40 px-4 py-1.5 text-center text-xs text-muted-foreground">{voiceNote}</p>}
@@ -443,7 +444,7 @@ export function InterviewChat({ interviewId, onExit }: Props) {
                                     ✓
                                 </span>
                             ) : (
-                                <Spinner />
+                                <Spinner label="Reviewing" className="size-3.5" />
                             )}
                             {finishing.title}. It will appear here.
                             <Button variant="ghost" size="sm" className="h-6 px-2" onClick={() => setFinishing((f) => (f ? { ...f, dismissed: false } : f))}>
@@ -482,7 +483,7 @@ export function InterviewChat({ interviewId, onExit }: Props) {
                             <p className="font-medium text-foreground">Interview finished, your review wasn't ready.</p>
                             <p>We couldn't generate your feedback this run. Try again, or exit and check your history.</p>
                             <Button variant="outline" size="sm" onClick={() => void retryReview()} disabled={isFinishing}>
-                                {isFinishing && <Spinner />}
+                                {isFinishing && <Spinner label="Reviewing" className="size-3.5" />}
                                 {isFinishing ? "Reviewing…" : "Retry review"}
                             </Button>
                         </div>
@@ -562,7 +563,7 @@ export function InterviewChat({ interviewId, onExit }: Props) {
                         Keep going
                     </Button>
                     <Button variant="destructive" size="sm" onClick={() => void finishRun()} disabled={isFinishing || mic.recording}>
-                        {isFinishing && <Spinner />}
+                        {isFinishing && <Spinner label="Ending the interview" className="size-3.5" />}
                         End it
                     </Button>
                 </div>
@@ -705,8 +706,4 @@ const Bubble = memo(function Bubble({ from, content, streaming, thinking, moveCl
 function clock(seconds: number): string {
     const total = Math.floor(seconds);
     return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, "0")}`;
-}
-
-function Spinner() {
-    return <span role="status" aria-label="Loading" className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent" />;
 }

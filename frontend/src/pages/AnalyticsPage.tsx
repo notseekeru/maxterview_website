@@ -8,6 +8,7 @@ import { Page, Panel, Stat } from "@/components/PagePrimitives";
 import { Card, CardContent } from "@/components/ui/card";
 import { type ChartConfig, ChartContainer, ChartTooltip, ChartTooltipContent, DRAW_MS } from "@/components/ui/chart";
 import { Skeleton } from "@/components/ui/skeleton";
+import { StateNote } from "@/components/ui/state";
 import { useAnalytics } from "@/hooks/useInterviewData";
 import type { Analytics, AnalyticsActivityWeek, AnalyticsDial, AnalyticsRun } from "@/lib/api";
 import { dimLabel, groupDims, orderDims } from "@/lib/dimensions";
@@ -118,7 +119,7 @@ function Notice({ children }: { children: ReactNode }) {
         <Page wide title={TITLE} description={DESCRIPTION}>
             <Card>
                 <CardContent className="pt-6">
-                    <p className="text-sm text-muted-foreground">{children}</p>
+                    <StateNote>{children}</StateNote>
                 </CardContent>
             </Card>
         </Page>
@@ -142,8 +143,6 @@ function SummaryRow({ data }: { data: Analytics }) {
         </div>
     );
 }
-
-const Empty = ({ children }: { children: ReactNode }) => <p className="text-sm text-muted-foreground">{children}</p>;
 
 /** One point on a time chart: the day, the runs behind it, plus one number per series. */
 interface DayPoint {
@@ -215,7 +214,7 @@ function AccuracyHistory({ runs }: { runs: AnalyticsRun[] }) {
 
     return (
         <Panel title="Accuracy over time" hint={describeDays(data, "scored run")} className="h-80">
-            {data.length === 0 ? <Empty>Nothing has been scored yet.</Empty> : <div className="h-60">{<AccuracyTrendChart defer data={data} />}</div>}
+            {data.length === 0 ? <StateNote>Nothing has been scored yet.</StateNote> : <div className="h-60">{<AccuracyTrendChart defer data={data} />}</div>}
         </Panel>
     );
 }
@@ -233,7 +232,7 @@ function ActivityWeekly({ weeks }: { weeks: AnalyticsActivityWeek[] }) {
     return (
         <Panel title="Practice activity" hint={runs === 0 ? "no runs in the last 12 weeks" : `${runs} run${runs === 1 ? "" : "s"} started in the last 12 weeks, by ISO week`} className="h-72">
             {runs === 0 ? (
-                <Empty>No interviews in the last 12 weeks.</Empty>
+                <StateNote>No interviews in the last 12 weeks.</StateNote>
             ) : (
                 <ChartContainer defer config={ACTIVITY_CONFIG} className="h-52 w-full">
                     {/* Two bars, not a stack: the gap between started and finished is the thing worth
@@ -263,7 +262,7 @@ function MoveBreakdown({ counts }: { counts: Analytics["move_classes"] }) {
     return (
         <Panel title="Answer quality" hint={total === 0 ? "no turns classed yet" : `${total} annotated answer${total === 1 ? "" : "s"}`} className="h-80">
             {total === 0 ? (
-                <Empty>Finish an interview to see how your answers were classed.</Empty>
+                <StateNote>Finish an interview to see how your answers were classed.</StateNote>
             ) : (
                 <ChartContainer defer config={MOVE_CONFIG} className="h-60 w-full">
                     <BarChart data={rows} margin={{ left: 4, right: 8, top: 8, bottom: 0 }}>
@@ -303,7 +302,7 @@ function DimensionHistory({ runs }: { runs: AnalyticsRun[] }) {
     if (scored.length === 0) {
         return (
             <Panel title="Dimension scores over time">
-                <Empty>No run has been scored on the 1-10 dimensions yet.</Empty>
+                <StateNote>No run has been scored on the 1-10 dimensions yet.</StateNote>
             </Panel>
         );
     }
@@ -374,7 +373,7 @@ function DecisionHistory({ runs }: { runs: AnalyticsRun[] }) {
     return (
         <Panel title="Hiring decisions" hint={`Daily mean · ${describeDays(data, "decided run")}`}>
             {decided.length === 0 ? (
-                <Empty>Once runs come back with a hire/reject call, the lean and its certainty plot here.</Empty>
+                <StateNote>Once runs come back with a hire/reject call, the lean and its certainty plot here.</StateNote>
             ) : (
                 <div className="grid gap-4 lg:grid-cols-[2fr_1fr]">
                     <ChartContainer defer config={DECISION_CONFIG} className="h-full min-h-64 w-full">
@@ -459,7 +458,7 @@ function DialBreakdown({ dials }: { dials: Analytics["dials"] }) {
     if (groups.length === 0) {
         return (
             <Panel title="How your settings track outcomes">
-                <Empty>Finish an interview to compare outcomes across the settings you dialled in.</Empty>
+                <StateNote>Finish an interview to compare outcomes across the settings you dialled in.</StateNote>
             </Panel>
         );
     }

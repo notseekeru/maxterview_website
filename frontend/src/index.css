@@ -1,6 +1,37 @@
 @import "tailwindcss";
 @plugin "tailwindcss-animate";
 
+/* Motion. Two easings and two animations, named so a call site states intent (state change vs
+   entrance vs loop) instead of a magic ms, and so the reduced-motion block below can neutralize
+   the whole set in one place rather than at every call site. */
+@theme {
+    --ease-snap: cubic-bezier(0.2, 0, 0, 1);
+    --ease-glide: cubic-bezier(0.22, 1, 0.36, 1);
+    --animate-rise: rise 0.55s var(--ease-glide) both;
+    --animate-breathe: breathe 2.4s ease-in-out infinite;
+
+    @keyframes rise {
+        from {
+            opacity: 0;
+            transform: translate3d(0, 14px, 0);
+        }
+        to {
+            opacity: 1;
+            transform: none;
+        }
+    }
+
+    @keyframes breathe {
+        0%,
+        100% {
+            opacity: 0.3;
+        }
+        50% {
+            opacity: 1;
+        }
+    }
+}
+
 @theme inline {
     --color-background: var(--background);
     --color-foreground: var(--foreground);
@@ -118,5 +149,23 @@
     body {
         background-color: var(--background);
         color: var(--foreground);
+    }
+    ::selection {
+        background-color: var(--foreground);
+        color: var(--background);
+    }
+}
+
+/* Entrance motion is decoration, so the OS switch wins globally. Delay is zeroed too: a 0.01ms
+   animation that still waits out its stagger reads as a stall, not as a disabled effect. */
+@media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+        animation-delay: 0ms !important;
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        scroll-behavior: auto !important;
+        transition-duration: 0.01ms !important;
     }
 }

@@ -4,6 +4,7 @@ import { AccuracyTrendChart } from "@/components/AccuracyTrendChart";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { type ChartConfig, ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
 import { Skeleton } from "@/components/ui/skeleton";
+import { StateNote } from "@/components/ui/state";
 import type { InterviewDims } from "@/hooks/useInterviewData";
 import type { InterviewDimensions } from "@/lib/api";
 import { dimShort, groupDims, orderDims } from "@/lib/dimensions";
@@ -45,7 +46,7 @@ export function DashboardStats({ loading, dims, stats, statsError }: Props) {
                     <CardTitle>Performance stats</CardTitle>
                 </CardHeader>
                 <CardContent>
-                    <p className="text-sm text-muted-foreground">No interviews yet. Complete one to see your accuracy history and secondary breakdown.</p>
+                    <StateNote>No interviews yet. Complete one to see your accuracy history and secondary breakdown.</StateNote>
                 </CardContent>
             </Card>
         );

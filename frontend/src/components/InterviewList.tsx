@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Modal } from "@/components/ui/modal";
 import { Skeleton } from "@/components/ui/skeleton";
+import { StateNote } from "@/components/ui/state";
 import type { Decision, Interview } from "@/lib/api";
 import { levelLabel } from "@/lib/interviewOptions";
 import { cn } from "@/lib/utils";
@@ -100,10 +101,10 @@ export function InterviewList({ interviews, loading, error, onRefresh, onOpen, o
                 </div>
             </CardHeader>
             <CardContent className="space-y-2">
-                {error && <p className="text-sm text-destructive">{error}</p>}
-                {scoreError && <p className="text-sm text-destructive">{scoreError}</p>}
+                {error && <StateNote tone="danger">{error}</StateNote>}
+                {scoreError && <StateNote tone="danger">{scoreError}</StateNote>}
                 {loading && <Skeleton className="h-16" />}
-                {!loading && visible.length === 0 && !error && <p className="text-sm text-muted-foreground">{archived.length > 0 ? "No active runs. Everything is in Archived." : "No interviews yet. Create one to begin."}</p>}
+                {!loading && visible.length === 0 && !error && <StateNote>{archived.length > 0 ? "No active runs. Everything is in Archived." : "No interviews yet. Create one to begin."}</StateNote>}
                 {visible.map((i) => (
                     <div key={i.id} className="flex items-center justify-between gap-3 rounded-md border p-3">
                         <div className="min-w-0">
