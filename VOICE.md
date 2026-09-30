@@ -134,10 +134,8 @@ figures come from Cloudflare's own pricing page (read 2026-09-22) and Groq's rat
 | Cloudflare Workers AI, Pipecat smart-turn-v2 | 0.51 neurons per audio minute                                                              | negligible                 | Turn detection, for a hands-free mode that is not planned                                                                                                                                          |
 | Groq free tier, `whisper-large-v3-turbo`     | OpenAI-compatible, no card, limited by audio seconds per day (see the console limits page) | inside the daily audio cap | A second provider for the same job, and also a shared organization budget                                                                                                                          |
 | Self-hosted on our infrastructure            | faster-whisper small int8 or whisper.cpp, and Piper or Kokoro for the voice                | 0, own hardware            | No account, no quota, no vendor. Needs a separate small deployment (the backend is 256Mi on one replica) and CPU inference runs only a few times faster than realtime, so concurrency is the limit |
-| Self-hosted in the browser                   | whisper.cpp WASM or transformers.js with WebGPU, model downloads to the client             | 0                          | Nothing leaves the device. Costs a 31-142MB download, battery, accuracy at the sizes a browser can hold, and the same generic-sounding voice V1 rejected                                           |
 
-Every one of these keeps the same turn shape: the text lands in the answer box, the applicant
-confirms, the pipeline runs. Only the wait and the voice change.
+Every one of these keeps the same turn shape: the text lands in the answer box, the applicant confirms, the pipeline runs. Only the wait and the voice change.
 
 ## Gotchas that cost days
 

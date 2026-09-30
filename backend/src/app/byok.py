@@ -31,22 +31,21 @@ from app.models import ClerkUser
 log = structlog.get_logger(__name__)
 
 DISABLED_DETAIL = "BYOK is not enabled on this deployment: set BYOK_ENCRYPTION_KEY on the backend, then save again."
-# A key has to be long enough to be a key and must not contain whitespace: it goes verbatim into
-# an Authorization header, where a stray space or newline is a malformed (or injected) request.
+# Long enough to be a key, and no whitespace: it goes verbatim into an Authorization header, where a
+# stray space or newline is a malformed (or injected) request.
 _KEY_MIN, _KEY_MAX = 8, 500
 _DNS_TIMEOUT_S = 5
-# Deployments that WANT a private endpoint (a fork pointing at its own localhost Ollama/LM Studio)
-# flip this. The hosted deployment must not: BYOK is attacker-controlled, so allowing it turns the
-# backend into a probe into its own network (see BYOK.md, `_base_url`).
+# Fork pointing at its own localhost Ollama/LM Studio flips this. The hosted deployment must not:
+# BYOK is attacker-controlled, so allowing it turns the backend into a probe into its own network
+# (BYOK.md, `_base_url`).
 ALLOW_PRIVATE_HOSTS = os.getenv("BYOK_ALLOW_PRIVATE_HOSTS", "").lower() == "true"
 
 
 @lru_cache(maxsize=1)
 def _fernet() -> Fernet | None:
-    """The row cipher, or None when BYOK_ENCRYPTION_KEY is unset/malformed (feature off).
-
-    Cached: the env cannot change under a running process. A test that monkeypatches the env
-    clears the cache (`byok._fernet.cache_clear()`)."""
+    """The row cipher, or None when BYOK_ENCRYPTION_KEY is unset/malformed (feature off). Cached: the env
+    cannot change under a running process. A test that monkeypatches the env clears it
+    (`byok._fernet.cache_clear()`)."""
     raw = os.getenv("BYOK_ENCRYPTION_KEY", "").strip()
     if not raw:
         return None
@@ -62,10 +61,9 @@ def enabled() -> bool:
 
 
 def _origin(raw: str) -> tuple[str, int]:
-    """Host + port of a base URL, normalised for comparison.
-
-    The scheme is deliberately dropped: the same listener behind http and https is the same
-    listener. An IPv4-mapped IPv6 literal (`[::ffff:100.64.2.2]`) is unwrapped to the IPv4 it is."""
+    """Host + port of a base URL, normalised for comparison. The scheme is deliberately dropped: the same
+    listener behind http and https is the same listener. An IPv4-mapped IPv6 literal (`[::ffff:100.64.2.2]`)
+    is unwrapped to the IPv4 it is."""
     url = urlparse(raw)
     host = (url.hostname or "").lower().rstrip(".")
     try:
@@ -81,11 +79,10 @@ def _origin(raw: str) -> tuple[str, int]:
 
 
 def _offnet(host: str) -> bool:
-    """True when `host` is an IP literal that is NOT on the public internet.
-
-    `is_global` - not `is_private` - is the predicate: this Python reports 100.64.0.0/10 (CGNAT, i.e.
-    Tailscale) as NOT private, and that is exactly where a self-hosted model lives. The one predicate
-    also covers RFC1918, loopback, link-local (169.254.169.254/IMDS), ULA, reserved and `0.0.0.0`."""
+    """True when `host` is an IP literal that is NOT on the public internet. `is_global`, not `is_private`:
+    this Python reports 100.64.0.0/10 (CGNAT, i.e. Tailscale) as NOT private, and that is where a
+    self-hosted model lives. Also covers RFC1918, loopback, link-local (169.254.169.254/IMDS), ULA,
+    reserved and `0.0.0.0`."""
     try:
         ip = ipaddress.ip_address(host)
     except ValueError:
@@ -94,11 +91,10 @@ def _offnet(host: str) -> bool:
 
 
 async def _resolve(host: str) -> list[str]:
-    """The addresses `host` resolves to, [] when it does not resolve (or the lookup times out).
-
-    A name is not evidence of a public target - `evil.example A 100.64.2.2` is one DNS record away -
-    so the address check runs on what the name points at too. Unresolvable is ALLOWED: the call
-    fails at use time anyway, and a save must not depend on this deployment's resolver being up."""
+    """The addresses `host` resolves to, [] when it does not resolve (or the lookup times out). A name is
+    not evidence of a public target (`evil.example A 100.64.2.2` is one DNS record away), so the address
+    check runs on what the name points at too. Unresolvable is ALLOWED: the call fails at use time anyway,
+    and a save must not depend on this deployment's resolver being up."""
     try:
         async with asyncio.timeout(_DNS_TIMEOUT_S):
             infos = await asyncio.get_running_loop().getaddrinfo(host, None)
@@ -111,20 +107,15 @@ async def _base_url(raw: str) -> str:
     url = urlparse(raw.strip().rstrip("/"))
     if url.scheme not in ("http", "https") or not url.hostname or url.username or url.password or url.query or url.fragment:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Base URL must look like https://api.openai.com/v1 (http/https, no credentials, no query).")
-    # The deployment's OWN provider is never a valid BYOK target WHILE IT NEEDS NO KEY: a junk key
-    # passes, and the owner trades the tier cap for the higher BYOK ceiling while our own GPU pays
-    # (BYOK.md). Gated on `api_key` on purpose - when this deployment moves to a KEYED provider (the
-    # documented DeepSeek swap) there is no free ride left, and refusing the origin would lock out
-    # every owner who legitimately brings their own key for that same provider.
+    # This deployment's OWN provider is never valid BYOK while IT NEEDS NO KEY: a junk key passes and the
+    # owner trades the tier cap for the higher BYOK ceiling while our GPU pays. Gated on `api_key`, so the
+    # documented DeepSeek swap closes it without locking out owners bringing their own key.
     own = llm.SYSTEM_CONFIG
     if not own.stub and not own.api_key and _origin(raw) == _origin(own.base_url):
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="That is this deployment's own provider. BYOK is for an endpoint you pay for - point it at your own, or clear it to use the system default.")
-    # Anything off the public internet is refused: the backend is the one making the request, so a
-    # private `base_url` is a probe into (and a free ride on) this deployment's own network - the
-    # tailnet, the LAN, the k8s API, node metadata, a neighbour's Ollama.
-    # AI HERE: resolved once at SAVE time, so a name that is public now and private later (DNS
-    # rebinding) still gets through. Upgrade path when BYOK becomes a public feature: re-check per
-    # call (resolve + pin), or deny private egress at the network layer.
+    # Anything off the public internet is refused: the backend makes the request, so a private `base_url`
+    # is a probe into this deployment's own network (tailnet, LAN, k8s API, node metadata).
+    # AI HERE: resolved at SAVE time only, so DNS rebinding gets through. Upgrade: re-check per call.
     if not ALLOW_PRIVATE_HOSTS:
         host = url.hostname or ""
         if _offnet(host) or any(_offnet(addr) for addr in await _resolve(host)):
@@ -152,19 +143,17 @@ async def resolve_config(user: ClerkUser) -> llm.LLMConfig:
     try:
         key = fernet.decrypt(row["api_key"].encode()).decode()
     except (InvalidToken, ValueError, UnicodeDecodeError):
-        # BYOK_ENCRYPTION_KEY was rotated/restored wrong: the stored key is unrecoverable. Degrade
-        # to the system provider (the panel then reads "system default"; the user re-saves).
+        # BYOK_ENCRYPTION_KEY rotated/restored wrong: the stored key is unrecoverable. Degrade to the
+        # system provider; the panel then reads "system default" and the user re-saves.
         log.warning("byok.undecryptable_row")
         return llm.SYSTEM_CONFIG
     return llm.LLMConfig(base_url=row["base_url"], model=row["model"], api_key=key, byok=True)
 
 
 async def save(owner_id: str, base_url: str, model: str, api_key: str) -> None:
-    """Create/update the owner's provider row.
-
-    A supplied `api_key` is encrypted and becomes the saved key. An empty one keeps the stored key
-    (so base URL and model stay editable without re-pasting), and on the FIRST save it means the
-    endpoint needs no auth at all (Ollama, llama.cpp, vLLM)."""
+    """Create/update the owner's provider row. A supplied `api_key` is encrypted and becomes the saved key.
+    An empty one keeps the stored key (so base URL and model stay editable without re-pasting), and on the
+    FIRST save it means the endpoint needs no auth at all (Ollama, llama.cpp, vLLM)."""
     fernet = _fernet()
     if fernet is None:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=DISABLED_DETAIL)
@@ -176,9 +165,9 @@ async def save(owner_id: str, base_url: str, model: str, api_key: str) -> None:
         key = _key(api_key)
         cipher, hint = fernet.encrypt(key.encode()).decode(), key[-4:]
     else:
-        # Empty means "keep the stored key" for an existing row and "no key at all" for a new one:
-        # self-hosted endpoints (Ollama, llama.cpp, vLLM) authenticate nothing, so a keyless row is
-        # legitimate BYOK. Storing the encrypted empty string keeps the reuse rule uniform.
+        # Empty means "keep the stored key" on an existing row and "no key at all" on a new one: self-hosted
+        # endpoints authenticate nothing, so a keyless row is legitimate BYOK. Storing the encrypted empty
+        # string keeps the reuse rule uniform.
         existing = await _row(owner_id)
         cipher, hint = (existing["api_key"], existing["key_hint"]) if existing else (fernet.encrypt(b"").decode(), "")
     await fetchrow(

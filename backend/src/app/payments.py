@@ -44,52 +44,39 @@ PROVIDER = "paymongo"
 BILLING_MODE = os.getenv("BILLING_MODE", "period")
 PREMIUM_PRICE_CENTAVOS = int(os.getenv("PREMIUM_PRICE_CENTAVOS", "9900"))  # ₱99
 PREMIUM_PERIOD_DAYS = int(os.getenv("PREMIUM_PERIOD_DAYS", "30"))
-# QR Ph is the only rail this account can take money on. Measured against the LIVE account
-# 2026-09-26: `POST /v1/payment_methods` refuses paymaya/gcash/grab_pay/billease with
-# `payment_method_not_allowed`, `shopee_pay` is "not configured yet", and `card` is enabled but is a
-# PCI-scoped card form plus KYB (business name, TIN, address) we do not have. QR Ph is active on an
-# Individual account and every PH wallet and bank app scans it. Test mode allows the others, so a
-# test-mode pass proves nothing: probe the live key before changing this.
+# Only rail this LIVE account accepts (MONETIZATION §4). Test mode allows the rest, so probe the
+# live key before adding one: a test-mode pass proves nothing.
 PERIOD_METHODS = ("qrph",)
 
-# Replay window for `Paymongo-Signature` (docs call this optional; it is cheap on a money endpoint).
-# Env-overridable because a rejected fresh-or-not judgement call here means a paying customer is left
-# locked out until the next retry — every rejection is logged so it is diagnosable, not silent.
+# Replay window for `Paymongo-Signature`. Env-overridable: a wrong judgement here leaves a paying
+# customer locked out until the next retry, and every rejection is logged so it is diagnosable.
 SIGNATURE_TOLERANCE_S = int(os.getenv("PAYMONGO_SIGNATURE_TOLERANCE_S", "300"))
 
 # Provider statuses that mean "no more money is coming" -> the row stops being premium. The other
 # statuses stay `premium` so `past_due`/`unpaid` can recover on a later invoice.paid.
 TERMINAL_STATUSES = ("cancelled", "incomplete_cancelled")
 
-# SUBSCRIPTION mode only: mirrors PayMongo's own first-payment window (an `incomplete` subscription
-# self-cancels 24h after its first invoice). Period mode cannot use it — a QR Ph code lives 30
-# minutes, so a 24h lock would outlive the thing it is waiting on (`_resume_or_block`).
+# SUBSCRIPTION mode only: mirrors PayMongo's own first-payment window. Period mode cannot use it, a
+# QR Ph code lives 30 minutes, so a 24h lock would outlive the thing it waits on.
 FIRST_PAYMENT_WINDOW_H = 24
 
-# Intent statuses that mean "no money can arrive on this one". Anything else fails CLOSED: the cost
-# of blocking is minutes (the QR expires on its own), the cost of selling a second purchase is a
-# second charge.
+# Intent statuses meaning no money can arrive. Anything else fails CLOSED: blocking costs minutes
+# (the QR expires on its own), a wrong unblock sells a second charge.
 DEAD_INTENT_STATUSES = ("expired", "canceled", "cancelled", "failed")
 
-# The refund events this account will register. Measured 2026-09-27 against the test key: these two
-# are accepted, while the newer catalog names (`refund.succeeded`, and every `dispute.*`) are refused
-# with `parameter_invalid: … is an invalid event type`, and `GET /v1/disputes` answers
-# `access_denied`. QR Ph cannot be refunded through the API at all (`Refunds are not allowed for
-# payments with source type qrph`), so a dashboard refund is only ever visible as one of these.
+# QR Ph cannot be refunded through the API (`Refunds are not allowed for ...qrph`), so a dashboard
+# refund is only ever visible as one of these. The newer catalog names are refused (MONETIZATION §4).
 REFUND_EVENTS = ("payment.refunded", "payment.refund.updated")
 # A refund settles asynchronously (PayMongo holds one while the balance is short), so only the settled
 # state revokes: a pending or failed refund must leave the paid period serving.
 REFUND_SETTLED = "succeeded"
-# Row status written by `_revoke`. Deliberately absent from `billing.ENTITLED_STATUSES`, which is
-# what makes the downgrade take effect on the next read with no scheduled job. Disputes write
-# `'disputed'` the same way, but through `revoke.sh`: this account has no dispute event to read
-# (measured 2026-09-27), so there is no code path to take.
+# Row status written by `_revoke`. Deliberately absent from `billing.ENTITLED_STATUSES`: that is
+# what makes the downgrade take effect on the next read with no scheduled job.
 REVOKED_REFUND = "refunded"
 
-# Fallback deadline, used only when the intent carries none of its own. Measured 2026-09-26: PayMongo
-# never ages an abandoned intent out — an 11-day-old one still reads `awaiting_next_action` — so the
-# window has to come from the artifact, and a QR Ph code dies 30 minutes after it is drawn
-# (`next_action.code.expires_at`). A redirect method would need its own number here.
+# Fallback deadline, used only when the intent carries none of its own. PayMongo never ages an
+# abandoned intent out (an 11-day-old one still reads `awaiting_next_action`), and a QR Ph code dies
+# 30 minutes after it is drawn, so the window has to come from the artifact.
 QR_TTL_MIN = 30
 
 

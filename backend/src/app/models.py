@@ -6,35 +6,25 @@ from pydantic import BaseModel, Field, computed_field
 
 from app import dials, levels, rating, resumes, voice
 
-# Level slugs accepted on create, unpacked from the canonical levels vocabulary so the
-# API, DB CHECK, prompt, and frontend can never drift (see app/levels.py).
+# Unpacked from the canonical levels vocabulary, so API, DB CHECK, prompt and frontend cannot drift.
 Level = Literal[*levels.LEVELS]
 
-# Interview dressing dials, unpacked from app/dials.py (same anti-drift rule as Level).
+# Unpacked from app/dials.py, same anti-drift rule as Level.
 CompanySize = Literal[*dials.COMPANY_SIZES]
 Cynicism = Literal[*dials.CYNICISM]
 
-# Post-interview hire/reject SPECTRUM, left to right. Canonical slugs shared by the API
-# validation, the LLM JSON schema (llm.FEEDBACK_JSON_SCHEMA), the DB CHECK (migration
-# 0006), and the frontend badge. `certainty` (0-100) is the SEPARATE axis: how well the
-# transcript evidences the decision, not how positive it is.
+# Hire/reject SPECTRUM, left to right. Shared by API validation, FEEDBACK_JSON_SCHEMA, DB CHECK (migration 0006) and the frontend badge. `certainty` is the separate axis: how well the transcript evidences the decision.
 DECISIONS: tuple[str, ...] = ("reject", "lean_reject", "lean_hire", "hire")
 Decision = Literal[*DECISIONS]
-# The hiring end of that spectrum: the only calls that extend an offer (app/offer.py prices the letter,
-# main._sync_offer decides whether one exists at all). Spelled once because the hire-rate column on the
-# analytics page and the offer gate have to agree on what counts as a hire.
+# The hiring end of that spectrum: the only calls that extend an offer. Spelled once, because the hire-rate column and the offer gate must agree on what counts as a hire.
 HIRING_DECISIONS: tuple[str, ...] = ("hire", "lean_hire")
-# Chess-style review vocabulary, spelled once in app/rating.py (migration 0010's CHECK and the
-# frontend labels derive from the same words).
+# Chess-style review vocabulary, spelled once in app/rating.py (migration 0010's CHECK and the frontend labels derive from it).
 MoveClass = Literal[*rating.MOVE_CLASSES]
 Grade = Literal[*rating.GRADES]
 
 
 class ClerkUser(BaseModel):
-    """Authenticated identity — `sub` is the Clerk user id, scopes every query.
-
-    `tier` is the monetization seam (D10): free/premium; `dev` applies for the
-    no-Clerk dev-fallback identity. Resolved by `billing.resolve_tier`."""
+    """Authenticated identity. `sub` is the Clerk user id, scopes every query. `tier` is the monetization seam (D10): free/premium, `dev` only for the no-Clerk fallback identity."""
 
     sub: str
     email: str | None = None
@@ -44,19 +34,13 @@ class ClerkUser(BaseModel):
 
 
 class Dials(BaseModel):
-    """The interview's dressing knobs, shared by create + response so they cannot drift.
-
-    Defaults are what an unspecified interview has always got: neutral, human-sounding, two
-    behavioural questions and as much technical ground as the mix allows. `skeptical` raises
-    the interviewer's evidence bar, `brutally_honest` also reaches the grader (see llm.py).
-    """
+    """Dressing knobs, shared by create + response so they cannot drift. Defaults are what an unspecified interview always got: neutral, human-sounding, two behavioural questions, as much technical ground as the mix allows. `brutally_honest` also reaches the grader."""
 
     company_size: CompanySize = "any"
     cynicism: Cynicism = "neutral"
     brutally_honest: bool = False
     human_mode: bool = True
-    # Hardcore: every answer is judged as it is given, and a failing class (rating.FAIL_CLASSES) ends
-    # the run on the spot with a shout, then the feedback in caps. See main.chat_stream.
+    # Every answer judged as given; a FAIL_CLASSES rating ends the run on the spot. See main.chat_stream.
     hardcore: bool = False
     mix_chitchat: int = Field(default=0, ge=0, le=dials.MIX_MAX)
     mix_behavioural: int = Field(default=2, ge=0, le=dials.MIX_MAX)
@@ -67,9 +51,7 @@ class InterviewCreate(Dials):
     role: str = Field(min_length=1, max_length=200)
     topic: str = Field(default="", max_length=500)
     level: Level = "any"
-    # The attach point (`resumes` below). `UUID` here, `str` on the way out: a malformed id is a 422
-    # before the handler, and every id the API returns is text like `Interview.id`. Ownership is
-    # enforced in the same statement as the INSERT, never by a pre-check.
+    # `UUID` here, `str` out: a malformed id 422s before the handler. Ownership is enforced in the INSERT, never by a pre-check.
     resume_id: UUID | None = None
 
 
@@ -83,18 +65,15 @@ class Interview(Dials):
     status: str
     created_at: datetime
     updated_at: datetime
-    # Derived 0-100 move-review accuracy (NOT a 1-10 average) + its letter grade; null until graded.
+    # 0-100 move-review accuracy (NOT a 1-10 average) plus letter grade; null until graded.
     accuracy: int | None = None
-    # Hardcore outcome: the turn that ended the run and what it was called, set when it happens.
-    # `grade` is F for any run with a failure, however high its accuracy got before it.
+    # Hardcore outcome: the turn that ended the run and its class. `grade` is F for any run with a failure.
     failed_turn: int | None = None
     failed_class: MoveClass | None = None
     verdict: str | None = None
     decision: Decision | None = None
     certainty: int | None = None
-    # Archive: set = hidden from the history list, and NOTHING else. Still returned by
-    # GET /interviews and still counted in the dashboard stats on purpose - unlike delete it is
-    # reversible, and it exists to tidy the list, not to rewrite your record.
+    # Set = hidden from the history list, NOTHING else: still returned by GET /interviews and still in the dashboard stats. Reversible on purpose.
     archived_at: datetime | None = None
 
     @computed_field
@@ -104,10 +83,7 @@ class Interview(Dials):
 
 
 class TemplateCreate(InterviewCreate):
-    """A saved preset: a create body plus a name (inherits, so it cannot hold a knob a create rejects).
-
-    Inherits `resume_id` on purpose: a preset saved from a resume-tailored setup that forgot the
-    resume would silently interview against nothing."""
+    """Saved preset: a create body plus a name. Inherits `resume_id` so a preset saved from a resume-tailored setup cannot silently forget the resume."""
 
     name: str = Field(min_length=1, max_length=60)
 
@@ -120,11 +96,7 @@ class InterviewTemplate(TemplateCreate):
 
 
 class ResumeSummary(BaseModel):
-    """One row of the resume library, WITHOUT its text.
-
-    Deliberately tiny: `text` is up to MAX_CHARS, and a list that carried every resume body would be
-    the per-row fan-out the rate-budget guardrail bans. `chars` is what the UI needs to explain a
-    truncated import without fetching the text."""
+    """One library row, WITHOUT its text. A list carrying every resume body would be the per-row fan-out the rate-budget guardrail bans. `chars` explains a truncated import without fetching text."""
 
     id: str
     name: str
@@ -141,19 +113,14 @@ class Resume(ResumeSummary):
 
 
 class ResumeCreate(BaseModel):
-    """The write body for BOTH import paths: the pasted text, and the extracted text from a PDF.
-
-    `max_length` is the same constant the extractor caps at and the DB CHECK enforces, imported rather
-    than restated so the three cannot drift (the app/levels.py rule). It bounds the JSON body a client
-    may hand us; note none of these caps bound what FastAPI has already buffered."""
+    """Write body for both import paths: pasted text, and extracted text from a PDF. `max_length` is imported from the same constant the extractor caps at and the DB CHECK enforces. Bounds the JSON body a client may hand us, not what FastAPI already buffered."""
 
     name: str = Field(min_length=1, max_length=80)
     text: str = Field(min_length=1, max_length=resumes.MAX_CHARS)
 
 
 class ResumeExtract(BaseModel):
-    """What a PDF gave us, before anyone decided to keep it. `truncated` covers the page cap, the
-    character cap, and unreadable pages alike: all three mean "this is not the whole document"."""
+    """What a PDF gave us, before anyone decided to keep it. `truncated` covers the page cap, the character cap and unreadable pages: all three mean not the whole document."""
 
     text: str
     pages: int
@@ -161,8 +128,7 @@ class ResumeExtract(BaseModel):
 
 
 class VoiceCapability(BaseModel):
-    """What this server can actually do, so the chat surface gates its controls on the truth rather than
-    on a button that 503s. One engine means one boolean pair, not a preference."""
+    """What this server can actually do, so the chat surface gates its controls on the truth rather than on a button that 503s."""
 
     tts: bool
     stt: bool
@@ -171,17 +137,13 @@ class VoiceCapability(BaseModel):
 
 
 class VoiceText(BaseModel):
-    """One line to speak. The client chunks at sentence boundaries and caps each chunk at 140
-    characters, so this is a ceiling on a caller rather than a limit anyone meets: it is what stands
-    between a hostile body and the daily neuron budget. Imported from app/voice.py, never restated."""
+    """One line to speak. The client chunks at sentence boundaries, capping each at 140 characters, so this is a ceiling on a caller: what stands between a hostile body and the daily neuron budget."""
 
     text: str = Field(min_length=1, max_length=voice.MAX_TTS_CHARS)
 
 
 class VoiceTranscript(BaseModel):
-    """One take's text, plus the segment timings Whisper actually returns (start/end per phrase) and the
-    language it detected. Nothing here is persisted: the text joins the answer box, and the chat turn
-    is what saves it. Timings are unused today; they are what pace and pause numbers will read."""
+    """One take's text, plus the segment timings Whisper returns and the detected language. Nothing persisted: the text joins the answer box and the chat turn saves it. Timings unused today."""
 
     text: str
     segments: list[dict] = Field(default_factory=list)
@@ -193,10 +155,9 @@ class Message(BaseModel):
     interview_id: str
     role: str
     content: str
-    # This turn's annotation (chess-style). None on interviewer/system turns and on ungraded runs.
+    # This turn's annotation. None on interviewer/system turns and on ungraded runs.
     move_class: MoveClass | None = None
-    # The annotator's note on that turn: why it got that class and what to fix. None wherever
-    # move_class is None, and on turns the annotator classed without writing a usable note.
+    # The annotator's note: why it got that class and what to fix. None wherever move_class is None.
     comment: str | None = None
     created_at: datetime
 
@@ -218,8 +179,7 @@ class Feedback(BaseModel):
     decision: Decision | None = None
     certainty: int | None = None
     accuracy: int | None = None
-    # Carried from the interview row (main.get_feedback joins it) so the review can shout about a
-    # hardcore failure without re-deriving it from the classes.
+    # Carried from the interview row so the review can shout about a hardcore failure without re-deriving it.
     failed_turn: int | None = None
     failed_class: MoveClass | None = None
     created_at: datetime
@@ -231,24 +191,17 @@ class Feedback(BaseModel):
 
 
 class InterviewDimensions(BaseModel):
-    """The dashboard radar in one aggregate (main.get_interview_dimensions): per-dimension averages
-    over the rated runs, the same averages over just the newest few, and the run counts behind each.
-
-    Flat in size on purpose - the radar wanted a couple dozen numbers, not one Feedback per run."""
+    """The radar in one aggregate: per-dim averages over rated runs, the same over the newest few, and the run counts behind each. Flat in size on purpose."""
 
     count: int
-    # Runs behind `recent`; never more than main.RECENT_WINDOW. Sent so the radar can label the series
-    # with the real window instead of owning a second copy of the number.
+    # Runs behind `recent`, never more than RECENT_WINDOW. Sent so the radar labels the series with the real window.
     recent_n: int
     averages: dict
     recent: dict
 
 
 class AnalyticsRun(BaseModel):
-    """One interview this owner created, as the analytics page reads it: pending, in-progress and
-    finished runs all appear, because the page's activity strip and run log are about the practice
-    history, not only the graded slice. Deliberately tiny: the charts need the shape of the history,
-    not the transcripts behind it."""
+    """One run as the analytics page reads it: pending, in-progress and finished all appear. Tiny on purpose: the charts need the history's shape, not the transcripts."""
 
     id: str
     role: str
@@ -260,22 +213,17 @@ class AnalyticsRun(BaseModel):
     decision: Decision | None = None
     certainty: int | None = None
     failed_class: MoveClass | None = None
-    # The create knobs, carried so the run log can show what produced each row (and so a surprising
-    # dial average above can be traced to the runs behind it). Dials has the vocabulary + defaults.
+    # Carried so the run log can show what produced each row, and a surprising dial average can be traced back.
     dials: Dials = Field(default_factory=Dials)
-    # NULL on an ungraded run (feedback.scores is NOT NULL, but the LEFT JOIN has no row): a run with
-    # no review legitimately has no dimensions, and an empty dict is what "not assessed" reads as.
+    # NULL on an ungraded run: no review legitimately means no dimensions, and `{}` is what not assessed reads as.
     scores: dict = Field(default_factory=dict)
-    # Candidate turns in the run, and how the reviewer classed each one. `moves` holds only the
-    # turns that got a class, so a run can legitimately report fewer moves than `turns`.
+    # `moves` holds only the turns that got a class, so a run can report fewer moves than turns.
     turns: int = 0
     moves: dict[str, int] = Field(default_factory=dict)
 
 
 class AnalyticsActivityWeek(BaseModel):
-    """One ISO week of the activity chart. `started` counts every run created that week, `completed`
-    the subset that finished: the gap between the two bars is runs begun and dropped, which is why
-    they are drawn side by side rather than stacked."""
+    """One ISO week. `started` counts every run created, `completed` the subset that finished. The gap is runs begun and dropped, which is why the bars sit side by side."""
 
     week: str
     started: int
@@ -283,10 +231,7 @@ class AnalyticsActivityWeek(BaseModel):
 
 
 class AnalyticsDial(BaseModel):
-    """One value of one create-dial, with the outcome of the runs created under it.
-
-    Averaged over the runs that SCORED, same denominator honesty as the dashboard: a dial whose
-    runs are all unrated reports `rated: 0` and a null accuracy, never a 0% that reads as failure."""
+    """One value of one create-dial. Averaged over the runs that SCORED: a dial whose runs are all unrated reports `rated: 0` and a null accuracy, never 0%."""
 
     key: str
     label: str
@@ -297,14 +242,7 @@ class AnalyticsDial(BaseModel):
 
 
 class OfferSummary(BaseModel):
-    """Headline numbers over every offer this owner has been issued.
-
-    Means, with the median beside them: a personal history is a handful of offers, and one top-of-band
-    letter drags a two-offer mean somewhere the candidate never was. `best_id`/`worst_id` name the runs
-    behind the extremes so the letter view can open the actual letter.
-
-    Every field defaults to 0 so the empty case is `OfferSummary(count=0)` and the page branches on
-    `count` alone."""
+    """Headline numbers over every offer issued. Means with the median beside them: a handful of offers means one top-of-band letter drags the mean. `best_id`/`worst_id` name the runs behind the extremes. Every field defaults to 0 so the page branches on `count` alone."""
 
     count: int = 0
     avg_base: int = 0
@@ -317,15 +255,14 @@ class OfferSummary(BaseModel):
     avg_signing: int = 0
     avg_equity: int = 0
     avg_performance: int = 0
-    # Benefits per offer, so "the ladder is filling up" is a number rather than a feeling.
+    # Benefits per offer, so the ladder filling up is a number rather than a feeling.
     avg_benefits: float = 0.0
     best_id: str | None = None
     worst_id: str | None = None
 
 
 class OfferBenefit(BaseModel):
-    """One granted benefit, with the letter's own wording for what it is worth. app/offer.py writes
-    both, so the frontend renders a benefit instead of composing one."""
+    """One granted benefit with the letter's own wording. app/offer.py writes both, so the frontend renders a benefit rather than composing one."""
 
     key: str
     label: str
@@ -333,10 +270,7 @@ class OfferBenefit(BaseModel):
 
 
 class Offer(BaseModel):
-    """One issued offer, joined to the run and review that earned it: one page-ready row.
-
-    `band_low`/`band_high` are the edges of the band `base_salary` sits in, so the letter can show
-    where the offer landed without the frontend owning a second copy of the rate card."""
+    """One issued offer joined to the run and review that earned it. `band_low`/`band_high` are the edges `base_salary` sits in, so the frontend owns no copy of the rate card."""
 
     interview_id: str
     role: str
@@ -349,16 +283,15 @@ class Offer(BaseModel):
     signing_bonus: int
     equity: int
     performance: int
-    # Slug + label come from app/offer.py's tier(); the frontend owns only the tone it paints them in.
+    # Slug and label come from app/offer.py tier(); the frontend owns only the tone.
     tier: str
     tier_label: str
     benefits: list[OfferBenefit] = Field(default_factory=list)
-    # Joined from the review, so an offer can be read against the interview behind it. Null when the
-    # feedback row is gone (the offer is priced from it, so this is a data-repair case, not a state).
+    # Joined from the review. Null when the feedback row is gone: a data-repair case, not a state.
     accuracy: int | None = None
     grade: Grade | None = None
     decision: Decision | None = None
-    # When the letter was priced, which is also the date on the page (no second copy of it).
+    # When the letter was priced, which is also the date on the page.
     created_at: datetime
     starts_on: date
 
@@ -371,10 +304,7 @@ class Offer(BaseModel):
 
 
 class OfferGroup(BaseModel):
-    """One bucket of a comparison (by level, by tier): the offers under it and their spread.
-
-    `span` is `high - low` precomputed because the page draws a RANGE bar: a transparent low bar with
-    the span stacked on it, which is the only honest way to show a two-offer average as a range."""
+    """One bucket of a comparison: the offers under it and their spread. `span` precomputed because the page draws a RANGE bar, the only honest way to show a two-offer average."""
 
     key: str
     label: str
@@ -388,10 +318,7 @@ class OfferGroup(BaseModel):
 
 
 class OfferBenefitStat(BaseModel):
-    """One rung of the benefit ladder across every offer: how many cleared it.
-
-    The FULL ladder comes back, unearned rungs included at 0: the climb is the point, and a rung that
-    silently vanished would read as a rung that does not exist."""
+    """One rung of the benefit ladder. The FULL ladder comes back, unearned rungs at 0: a rung that vanished would read as a rung that does not exist."""
 
     key: str
     label: str
@@ -409,17 +336,12 @@ class OfferMonth(BaseModel):
 
 
 class OffersAnalytics(BaseModel):
-    """The offers half of the analytics payload: what the simulated letters say.
-
-    Its own model rather than flat fields on Analytics because the analytics page renders it as its own
-    section, and because the per-run letter (GET /interviews/{id}/offer) reuses models.Offer."""
+    """The offers half of the payload. Its own model because the page renders it as its own section, and GET /interviews/{id}/offer reuses models.Offer."""
 
     summary: OfferSummary
-    # Newest first, archived runs included - an offer already issued does not stop existing because the
-    # run was tidied off the history list.
+    # Newest first, archived runs included: an issued offer does not stop existing when the run is tidied off the list.
     offers: list[Offer]
-    # Both comparisons bucket the PRICED band, not the run's target level: `any` prices as mid, and a
-    # level row holding nothing would be a chart of a dial nobody turned.
+    # Both comparisons bucket the PRICED band, not the run's target level: `any` prices as mid, and a level row holding nothing would chart a dial nobody turned.
     by_level: list[OfferGroup]
     by_tier: list[OfferGroup]
     benefits: list[OfferBenefitStat]
@@ -427,26 +349,19 @@ class OffersAnalytics(BaseModel):
 
 
 class Analytics(BaseModel):
-    """Everything /stats/analytics answers, in one bounded payload (models.InterviewDimensions for
-    the dashboard radar is the precedent: aggregate server-side, never fan out per run).
-
-    All-time on purpose - a window is a product call, and the activity strip already shows WHEN."""
+    """Everything /stats/analytics answers, in one bounded payload: aggregate server-side, never fan out per run. All-time on purpose, a window is a product call."""
 
     runs: list[AnalyticsRun]
     activity: list[AnalyticsActivityWeek]
-    # Move-class slug -> annotated-turn count across every run. Every class is present (0 when
-    # unused) so the chart can render a fixed-strength-to-weakness axis without filling gaps.
+    # Every class present (0 when unused) so the chart renders a fixed axis without filling gaps.
     move_classes: dict[str, int]
-    # Dial name -> its values, in the vocabulary's own order (app/dials.py, app/levels.py).
+    # Dial name -> its values, in the vocabulary's own order.
     dials: dict[str, list[AnalyticsDial]]
     total_turns: int
-    # Consecutive UTC days ending today (or yesterday - a streak dies at midnight, not at 24h) with
-    # at least one run created.
+    # Consecutive UTC days ending today (or yesterday: a streak dies at midnight, not at 24h) with at least one run created.
     streak_days: int
     hardcore_failures: int
-    # The letters themselves. Nested rather than spread over this model because the offline halves of
-    # the page (practice, decisions, runs) do not need any of it, and the chat's review fetches the
-    # one letter it shows from its own route.
+    # Nested rather than spread because the offline halves of the page do not need it, and the chat's review fetches its letter from its own route.
     offers: OffersAnalytics
 
 
@@ -456,10 +371,7 @@ class ChatMessage(BaseModel):
 
 
 class FeedbackSummary(BaseModel):
-    """Structured LLM output for interview feedback (PRD §4.4).
-
-    decision/certainty stay None when the model omitted or drifted the field: an undecided
-    run is honest, a fabricated verdict is not."""
+    """Structured LLM output (PRD 4.4). decision/certainty stay None when the model omitted or drifted: an undecided run is honest, a fabricated verdict is not."""
 
     scores: dict = Field(default_factory=dict)
     verdict: str
@@ -472,8 +384,7 @@ class FeedbackSummary(BaseModel):
 
 class ChatTurn(BaseModel):
     interview_id: str
-    # The candidate's turn is the one unbounded blob that reaches the model, so cap it. Keep in step
-    # with frontend/src/lib/api.ts MAX_TURN_CHARS — the two drifted once (12000 vs 4000).
+    # The candidate's turn is the one unbounded blob reaching the model, so cap it. Keep in step with frontend MAX_TURN_CHARS: the two drifted once.
     content: str = Field(min_length=1, max_length=8000)
 
 
@@ -481,8 +392,7 @@ class ChatTurn(BaseModel):
 
 
 class LLMProviderUpdate(BaseModel):
-    """Write from the settings panel. `api_key` empty = keep the stored key, so base URL and
-    model can be edited without re-pasting the secret."""
+    """Write from the settings panel. `api_key` empty = keep the stored key, so base URL and model stay editable without re-pasting."""
 
     base_url: str = Field(min_length=1, max_length=300)
     model: str = Field(min_length=1, max_length=200)
@@ -490,7 +400,7 @@ class LLMProviderUpdate(BaseModel):
 
 
 class SystemLLM(BaseModel):
-    """The deployment's own provider, shown so "System default" says which model you'd get."""
+    """The deployment's own provider, shown so System default says which model you would get."""
 
     configured: bool
     base_url: str = ""
@@ -498,8 +408,7 @@ class SystemLLM(BaseModel):
 
 
 class ClientError(BaseModel):
-    """Browser-error beacon, sent from every page. Capped because this is unauthenticated input
-    heading straight for the log pipeline."""
+    """Browser-error beacon, sent from every page. Capped: unauthenticated input heading straight for the log pipeline."""
 
     message: str = Field(min_length=1, max_length=300)
     route: str = Field(default="", max_length=200)

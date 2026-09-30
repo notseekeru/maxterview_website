@@ -1,10 +1,5 @@
-"""Target interview-level vocabulary for maxterview.
-
-Single source of truth for the level slugs persisted on `interviews.level`:
-the API validation, the LLM system prompt, and the frontend picker all derive
-from these. `any` means the mock interviewer calibrates
-dynamically off the candidate's demonstrated answers instead of a fixed target.
-"""
+"""Level slugs persisted on `interviews.level`. API validation, LLM system prompt and frontend
+picker all derive from these. `any` = calibrate off the candidate's demonstrated answers."""
 
 LEVELS: tuple[str, ...] = ("any", "intern", "junior", "mid", "senior", "staff", "principal")
 

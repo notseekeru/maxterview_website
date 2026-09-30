@@ -13,24 +13,24 @@ from app.models import ClerkUser
 
 log = structlog.get_logger(__name__)
 
-# Single source of truth for auth config — main.py imports CLERK_ENABLED for the boot guard.
+# Auth config single source; main.py imports CLERK_ENABLED for the boot guard.
 CLERK_ENABLED = os.getenv("CLERK_ENABLED", "false").lower() == "true"
 CLERK_DOMAIN = os.getenv("CLERK_DOMAIN", "")
 CLERK_JWKS_URL = os.getenv("CLERK_JWKS_URL", "")
 CLERK_AUDIENCE = os.getenv("CLERK_AUDIENCE", "")
-# Backend API credential, needed only for the user lookup below (billing needs an email address,
-# which the session token does not carry). Empty = claim-only, exactly the old behaviour.
+# Backend API credential, only for the user lookup below: session token carries no email address.
+# Empty = claim-only, exactly the old behaviour.
 CLERK_SECRET_KEY = os.getenv("CLERK_SECRET_KEY", "")
-# The Backend API has its OWN host: CLERK_DOMAIN is the frontend/JWKS instance and answers 404 for
+# Backend API has its OWN host: CLERK_DOMAIN is the frontend/JWKS instance and answers 404 for
 # /v1/users (verified). Overridable for a non-US Clerk host.
 CLERK_API_BASE = os.getenv("CLERK_API_BASE", "https://api.clerk.com")
 
-# Clerk stamps `iat` from ITS clock and PyJWT rejects `iat > now` outright, so an app a fraction of a
-# second behind 401s a brand-new session's FIRST request (verified live 2026-09-12: fresh session
-# JWT -> 401, same token -> 200 one second later). This leeway also applies to `nbf`/`exp`.
+# Clerk stamps `iat` from ITS clock and PyJWT rejects `iat > now` outright, so sub-second skew 401s
+# a brand-new session's FIRST request (live 2026-09-12: JWT -> 401, same token -> 200 one second
+# later). Covers `nbf`/`exp` too.
 JWT_LEEWAY_S = 10
 
-# Fixed identity used only when CLERK_ENABLED=false (dev/test only — main.py guard enforces).
+# Identity only when CLERK_ENABLED=false (dev/test); main.py guard enforces.
 DEV_USER = ClerkUser(sub="dev-user", email="dev@example.com", name="Dev User")
 
 # Clerk Backend API lookups: {sub: (expires_at, email)}; TTL 1h, same reasoning as the JWKS cache.
@@ -55,7 +55,7 @@ def _public_key_from_jwk(jwk: dict) -> rsa.RSAPublicKey:
 
 
 def _fetch_jwks() -> dict:
-    """Fetch (and cache) Clerk's JWKS — GET CLERK_JWKS_URL, TTL ~1h, kid-miss re-fetch once."""
+    """GET CLERK_JWKS_URL, cached for TTL; kid-miss re-fetches once."""
     global _jwks_cache, _jwks_cache_at
     now = time.time()
     if _jwks_cache is not None and (now - _jwks_cache_at) < _JWKS_CACHE_TTL_S:
@@ -69,10 +69,8 @@ def _fetch_jwks() -> dict:
 
 
 def verify_jwt(token: str, jwks: dict) -> ClerkUser:
-    """Verify a Clerk JWT against JWKS (RS256, kid, iss/aud/exp) → ClerkUser.
-
-    Raises HTTPException(401) on any failure, with no token details leaked.
-    aud is validated ONLY if CLERK_AUDIENCE is set (empty default in .env.example).
+    """Verify Clerk JWT against JWKS (RS256, kid, iss/aud/exp) -> ClerkUser. Any failure raises
+    HTTPException(401) with no token detail leaked. aud checked ONLY when CLERK_AUDIENCE is set.
     """
     try:
         headers = jwt.get_unverified_header(token)
@@ -119,13 +117,12 @@ def _unauthorized() -> HTTPException:
 
 
 async def user_email(user: ClerkUser) -> str | None:
-    """The user's primary email: the JWT claim when present, else Clerk's Backend API.
+    """Primary email: JWT claim when present, else Clerk's Backend API. The DEFAULT session token
+    carries no `email` claim (verified: exp, fva, iat, iss, nbf, sid, sts, sub, v), so relying on the
+    claim refuses every real user. Cached per process: billing wants it once per purchase, not per
+    request.
 
-    Clerk's DEFAULT session token carries no `email` claim (verified: exp, fva, iat, iss, nbf, sid,
-    sts, sub, v), so relying on the claim refuses every real user. Cached per process because the
-    caller (billing) wants it once per purchase, not once per request.
-
-    None means "no address available" — a Clerk outage must not 500 a route that merely wants one.
+    None means "no address available": a Clerk outage must not 500 a route that merely wants one.
     """
     if user.email:
         return user.email
@@ -143,8 +140,8 @@ async def user_email(user: ClerkUser) -> str | None:
         log.warning("clerk.user_lookup_failed", sub=user.sub, reason=type(exc).__name__)
         return None
     if email:
-        # AI HERE: one entry per user who reaches checkout, never evicted. A cap or a shared cache
-        # only matters if this lookup moves off the purchase path.
+        # One entry per user who reaches checkout, never evicted. A cap or a shared cache only
+        # matters if this lookup moves off the purchase path.
         _user_email_cache[user.sub] = (time.time() + _USER_EMAIL_TTL_S, email)
     return email
 
@@ -171,9 +168,8 @@ def _extract_token(request: Request) -> str | None:
 
 
 def _attributed(request: Request, user: ClerkUser) -> ClerkUser:
-    """Record the identity on the request so the access log can attribute the line: it reads
-    `scope["state"]` after the route ran, and a contextvar could not carry the value back up past the
-    rate limiter, which is a `BaseHTTPMiddleware`."""
+    """Identity onto request.state for the access log. The middleware reads `scope["state"]` after
+    the route ran: a contextvar cannot cross the rate limiter, which is a `BaseHTTPMiddleware`."""
     request.state.user_sub = user.sub
     return user
 
