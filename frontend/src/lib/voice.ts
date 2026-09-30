@@ -442,9 +442,8 @@ export function cloudTranscriber(upload: (clip: Blob) => Promise<string>, sink: 
                     }
                     void deliver(clip);
                 };
-                // Guarded: a stream the recorder will not accept (a device grabbed by another app, no
-                // audio track, a browser that reports a mime type it then refuses) throws here, and an
-                // uncaught throw left the take looking live until the three minute cap.
+                // Guarded: a stream the recorder will not accept throws here, and an uncaught throw left
+                // the take looking live until the cap.
                 try {
                     recorder.start();
                     audio = new AudioContext();

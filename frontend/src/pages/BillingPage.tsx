@@ -9,15 +9,12 @@ import { apiDetail, cancelUpgrade, chatTurns, getUsage, turnsToday, type Usage }
 import { clerkEnabled } from "@/lib/config";
 import { PLANS, TIER_NAME } from "@/lib/plans";
 
-// /settings/billing. Free vs Pro cards + current-plan summary. The upgrade CTA posts to
-// /billing/checkout, which answers with a QR Ph code to scan (this account's only live rail; Maya and
-// cards need KYB). PayMongo has no billing portal, so our own copy has to carry the billing terms.
-// GET /usage reports which mode is live:
-//   `period`       one-time top-up; nothing renews itself, so show the expiry and offer no cancel
-//   `subscription` provider-managed recurring; cancel is ours, access runs to the period end
-// `dev` (no-Clerk-only) gets a read-only summary and no upgrade path.
-// The internal tier value stays `premium` (DB column, JWT claim, PayMongo plan name): Pro is the
-// display name only.
+// Free vs Pro cards + current-plan summary. The CTA posts to /billing/checkout, which answers with a QR
+// to scan. PayMongo has no billing portal, so our own copy carries the billing terms.
+// GET /usage reports the live mode: `period` is a one-time top-up that never renews, so show the expiry
+// and offer no cancel; `subscription` is provider-managed and cancel is ours. `dev` gets a read-only
+// summary and no upgrade path.
+// The tier value stays `premium` (DB column, JWT claim, plan name): Pro is the display name only.
 
 export function BillingPage() {
     // One GET /usage feeds Summary + both PlanCards, so do not hoist it into each.
@@ -34,11 +31,9 @@ export function BillingPage() {
     );
 }
 
-// Free/Pro figures come from lib/plans (MONETIZATION §0) because the landing page quotes the same
-// numbers. Turn caps and resume limits are env-overridable server-side, so wherever the caller's own
-// tier is known the LIVE numbers from GET /usage win over the marketing default.
-// PayMongo subscriptions are PHP-only, so the price is stated in pesos (app/billing plans are
-// created with amount=9900).
+// Figures come from lib/plans (MONETIZATION §0) because the landing page quotes the same numbers. The
+// caps are env-overridable server-side, so where the caller's tier is known, GET /usage wins.
+// Subscriptions are PHP-only, so the price is in pesos.
 
 function useUsage() {
     const [usage, setUsage] = useState<Usage | null>(null);
@@ -96,8 +91,7 @@ function Summary({ usage, failed, loading }: { usage: Usage | null; failed: bool
 function PlanCard({ tier, usage }: { tier: "free" | "premium"; usage: Usage | null }) {
     const { start, busy, error: checkoutError, modal } = useQrCheckout();
     const [cancelling, setCancelling] = useState(false);
-    // The server's own `detail` (a 409 explains what to do, e.g. "Add an email to your account", or
-    // that a code is still live), never a generic failure: a refusal read as an outage is how this
+    // The server's own `detail`, never a generic failure: a refusal read as an outage is how this
     // shipped broken once.
     const [cancelError, setCancelError] = useState<string | null>(null);
     const ctaError = checkoutError ?? cancelError;

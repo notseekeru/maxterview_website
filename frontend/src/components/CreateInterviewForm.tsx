@@ -150,9 +150,8 @@ export function CreateInterviewForm({ onCreated, variant = "compact", className 
 
     /** POST the form as a named preset; false = failed. */
     async function createPreset(name: string): Promise<boolean> {
-        // A preset IS a create body, so it is rejected on a field the form already knows is required:
-        // the browser's `required` only guards the real form submit, and "Start interview" is the
-        // only button that runs it. Say which field instead of letting the 422 read as "could not save".
+        // A preset is a create body, so a required field is only caught here: the browser's `required`
+        // guards the real submit only. Name the field, or the 422 reads as "could not save".
         if (!role.trim()) {
             setTemplateError("Pick a role or type one first: a preset has to be replayable.");
             return false;
@@ -222,9 +221,8 @@ export function CreateInterviewForm({ onCreated, variant = "compact", className 
                             <span className="text-sm font-medium leading-none">Presets</span>
                             <div className="flex flex-wrap items-center gap-1.5">
                                 {templates.map((t) => {
-                                    // Anchored to the preset you clicked, not to a value match: a fork saved
-                                    // unchanged has identical dials, and value-only comparison lights BOTH up
-                                    // (which reads as the two being linked).
+                                    // Anchored to the preset you clicked, not to a value match: an unchanged
+                                    // fork has identical dials, so a value comparison lights both up.
                                     const applied = t.id === lastUsedId && isApplied(t);
                                     return (
                                         <div key={t.id} className={cn("flex items-center rounded-full border text-xs transition-colors", applied ? "border-primary bg-primary/10 text-primary" : "border-input text-muted-foreground hover:bg-accent", !applied && t.id === lastUsedId && "border-dashed")}>

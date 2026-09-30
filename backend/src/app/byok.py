@@ -35,9 +35,7 @@ DISABLED_DETAIL = "BYOK is not enabled on this deployment: set BYOK_ENCRYPTION_K
 # stray space or newline is a malformed (or injected) request.
 _KEY_MIN, _KEY_MAX = 8, 500
 _DNS_TIMEOUT_S = 5
-# Fork pointing at its own localhost Ollama/LM Studio flips this. The hosted deployment must not:
-# BYOK is attacker-controlled, so allowing it turns the backend into a probe into its own network
-# (BYOK.md, `_base_url`).
+# Attacker-controlled: a private host turns the backend into a probe of its own network.
 ALLOW_PRIVATE_HOSTS = os.getenv("BYOK_ALLOW_PRIVATE_HOSTS", "").lower() == "true"
 
 
@@ -107,15 +105,11 @@ async def _base_url(raw: str) -> str:
     url = urlparse(raw.strip().rstrip("/"))
     if url.scheme not in ("http", "https") or not url.hostname or url.username or url.password or url.query or url.fragment:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Base URL must look like https://api.openai.com/v1 (http/https, no credentials, no query).")
-    # This deployment's OWN provider is never valid BYOK while IT NEEDS NO KEY: a junk key passes and the
-    # owner trades the tier cap for the higher BYOK ceiling while our GPU pays. Gated on `api_key`, so the
-    # documented DeepSeek swap closes it without locking out owners bringing their own key.
+    # A junk key against our own keyless provider trades the tier cap for the higher BYOK ceiling.
     own = llm.SYSTEM_CONFIG
     if not own.stub and not own.api_key and _origin(raw) == _origin(own.base_url):
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="That is this deployment's own provider. BYOK is for an endpoint you pay for - point it at your own, or clear it to use the system default.")
-    # Anything off the public internet is refused: the backend makes the request, so a private `base_url`
-    # is a probe into this deployment's own network (tailnet, LAN, k8s API, node metadata).
-    # AI HERE: resolved at SAVE time only, so DNS rebinding gets through. Upgrade: re-check per call.
+    # Resolved at SAVE only, so DNS rebinding gets through.
     if not ALLOW_PRIVATE_HOSTS:
         host = url.hostname or ""
         if _offnet(host) or any(_offnet(addr) for addr in await _resolve(host)):
@@ -143,8 +137,7 @@ async def resolve_config(user: ClerkUser) -> llm.LLMConfig:
     try:
         key = fernet.decrypt(row["api_key"].encode()).decode()
     except (InvalidToken, ValueError, UnicodeDecodeError):
-        # BYOK_ENCRYPTION_KEY rotated/restored wrong: the stored key is unrecoverable. Degrade to the
-        # system provider; the panel then reads "system default" and the user re-saves.
+        # Rotated wrong: the stored key is unrecoverable, so the user must re-save.
         log.warning("byok.undecryptable_row")
         return llm.SYSTEM_CONFIG
     return llm.LLMConfig(base_url=row["base_url"], model=row["model"], api_key=key, byok=True)
@@ -165,9 +158,7 @@ async def save(owner_id: str, base_url: str, model: str, api_key: str) -> None:
         key = _key(api_key)
         cipher, hint = fernet.encrypt(key.encode()).decode(), key[-4:]
     else:
-        # Empty means "keep the stored key" on an existing row and "no key at all" on a new one: self-hosted
-        # endpoints authenticate nothing, so a keyless row is legitimate BYOK. Storing the encrypted empty
-        # string keeps the reuse rule uniform.
+        # Empty is legitimate on a first save: self-hosted endpoints authenticate nothing.
         existing = await _row(owner_id)
         cipher, hint = (existing["api_key"], existing["key_hint"]) if existing else (fernet.encrypt(b"").decode(), "")
     await fetchrow(

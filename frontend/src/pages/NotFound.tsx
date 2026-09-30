@@ -3,9 +3,8 @@ import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { useDocumentTitle } from "@/hooks/useDocumentTitle";
 
-// Catch-all for unknown top-level paths (/foo) that match no client route. Reached only via the
-// catch-all <Route>, and deliberately OUTSIDE <Gate> so an unknown URL 404s whatever the auth
-// state (the gated subtree would otherwise render it behind a sign-in wall).
+// Catch-all for unknown top-level paths, deliberately OUTSIDE <Gate> so an unknown URL 404s whatever
+// the auth state, rather than rendering behind a sign-in wall.
 export function NotFound() {
     useDocumentTitle("Page not found");
     return (

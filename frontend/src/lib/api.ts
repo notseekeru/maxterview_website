@@ -33,10 +33,8 @@ export function isQuotaError(e: unknown): boolean {
     return (e as AxiosError)?.response?.status === 402;
 }
 
-// FastAPI errors carry a human-readable `detail`; the backend writes those strings for this
-// UI (e.g. 409 "Nothing to score yet: …"), so prefer it over a generic message. A 422 is the
-// exception: pydantic sends `detail` as a LIST of field errors, which a string-only read silently
-// drops into the fallback - so name the field and the rule instead of "something went wrong".
+// FastAPI's `detail` is written for this UI, so prefer it over a generic message. A 422 is the
+// exception: pydantic sends a LIST of field errors, which a string-only read drops into the fallback.
 export function apiDetail(e: unknown, fallback: string | null = null): string | null {
     const d = (e as AxiosError<{ detail?: string | { loc?: (string | number)[]; msg?: string }[] }>)?.response?.data?.detail;
     if (typeof d === "string" && d) return d;
@@ -76,9 +74,8 @@ export interface Interview extends InterviewDials {
     archived_at?: string | null;
 }
 
-// Interview dressing dials (mirrors backend app/models.Dials + app/dials.py). The mix sliders are
-// QUESTION BUDGETS over the arc chitchat -> material ask -> tell-me-about-yourself -> behavioural ->
-// technical -> sign-off, so 0 skips that kind rather than silencing it.
+// Dials, mirroring backend app/models.Dials. The mix sliders are QUESTION BUDGETS, so 0 skips that kind
+// rather than silencing it.
 export type CompanySize = "any" | "1-10" | "11-50" | "51-200" | "201-1k" | "1k-5k" | "5k+";
 export type Cynicism = "kind" | "neutral" | "skeptical";
 
@@ -206,10 +203,8 @@ export async function deleteResume(id: string): Promise<void> {
     await api.delete(`/resumes/${id}`);
 }
 
-// The dashboard radar's aggregate (mirrors backend models.InterviewDimensions): per-dimension
-// all-time averages over the rated runs, the same averages over just the newest few, and how many
-// runs sit behind each. One request and a payload that does not grow with history, where per-run
-// Feedback reads used to be fetched to average client-side.
+// The radar's aggregate, mirroring backend models.InterviewDimensions: all-time per-dim averages, the
+// same over the newest few, and the counts behind each. One request, a payload that does not grow.
 export interface InterviewDimensions {
     count: number;
     /** Runs behind `recent`; never more than the backend's RECENT_WINDOW. */
@@ -417,21 +412,18 @@ export interface Feedback {
     created_at: string;
 }
 
-// Chess-style answer review (mirrors backend app/rating.py). `move_class` is the model's verdict on
-// ONE candidate turn; accuracy and grade are DERIVED from those classes server-side, so this side
-// never averages or bands anything itself.
+// Chess-style review, mirroring backend app/rating.py. `move_class` is the model's verdict on ONE turn;
+// accuracy and grade are DERIVED server-side, so this side never averages or bands anything.
 export type MoveClass = "brilliant" | "great" | "good" | "book" | "inaccuracy" | "mistake" | "blunder";
 export type Grade = "S" | "A" | "B" | "C" | "D" | "F";
 
-// Post-interview hire/reject spectrum (mirrors backend app/models.DECISIONS, ordered
-// left to right). `certainty` (0-100) is the SEPARATE axis: how well the transcript
-// evidences the decision, not how positive it is. Both are null for a run the model
-// could not decide, and for feedback written before the columns existed.
+// Hire/reject spectrum, mirroring models.DECISIONS, ordered left to right. `certainty` is the SEPARATE
+// axis: how well the transcript evidences the decision, not how positive it is. Both null for an
+// undecided run.
 export type Decision = "reject" | "lean_reject" | "lean_hire" | "hire";
 
-// Mirror GET /usage (MONETIZATION §3). The only quota is a daily GLOBAL chat-turn
-// credit shared across ALL of the owner's interviews (plus `dev` for the no-Clerk
-// identity); the dynamic dial key is addressed via `chatTurns(usage)` below.
+// Mirror GET /usage (MONETIZATION §3). The only quota is a daily GLOBAL chat-turn credit across ALL the
+// owner's interviews.
 
 export type Tier = "free" | "premium" | "dev";
 
@@ -506,9 +498,8 @@ export async function getMessages(id: string): Promise<Message[]> {
     return data;
 }
 
-// Authoritative status for one interview. Needed because POST /start 409s for BOTH
-// in_progress and completed runs, so the error alone can't tell a live run from a
-// finished one.
+// Authoritative status: POST /start 409s for BOTH in_progress and completed runs, so the error alone
+// cannot tell a live run from a finished one.
 export async function getInterview(id: string): Promise<Interview> {
     const { data } = await api.get<Interview>(`/interviews/${id}`);
     return data;
@@ -519,9 +510,8 @@ export async function getFeedback(id: string): Promise<Feedback> {
     return data;
 }
 
-// POST /interviews/{id}/feedback/generate: (re)run the review for a COMPLETED
-// interview whose feedback is absent (real-mode scoring failed on /finish). 404 => not
-// found; 409 => not completed; 503 => model unavailable right now (retry later).
+// POST /interviews/{id}/feedback/generate: (re)run the review for a COMPLETED interview whose feedback
+// is absent. 409 => not completed; 503 => model unavailable right now (retry later).
 export async function regenerateFeedback(id: string): Promise<Feedback> {
     const { data } = await api.post<Feedback>(`/interviews/${id}/feedback/generate`);
     return data;
@@ -532,10 +522,8 @@ export async function getUsage(): Promise<Usage> {
     return data;
 }
 
-// Both hit our billing surface: /billing/checkout answers with whatever makes the payment payable —
-// a QR to render (QR Ph, this account's only live rail) or a provider URL to follow — and with no
-// provider portal, stopping a renewal is our endpoint. Which mode is live is the server's decision
-// (`GET /usage`).
+// /billing/checkout answers with a QR to render or a provider URL to follow; with no provider portal,
+// stopping a renewal is our own endpoint. Which mode is live is the server's call (`GET /usage`).
 export type Checkout = { url?: string; qr?: { image_url: string; expires_at: string } };
 
 export async function startUpgrade(): Promise<Checkout> {
@@ -703,9 +691,8 @@ function dispatchFrame(frame: string, onEvent: (e: StreamEvent) => void) {
 
     if (eventName === "error") onEvent({ kind: "error", message: data });
     else if (eventName === "done") {
-        // `closing` marks the end of the run: either the arc is spent or hardcore failed the candidate
-        // (`failed` carries which), and the server refuses anything after it, so the UI ends the run
-        // now instead of letting the user type into a 409.
+        // `closing` marks the end of the run: the arc is spent or hardcore failed. The server refuses
+        // anything after it, so the UI ends now rather than letting the user type into a 409.
         let closing = false;
         let failed: { turn: number; class: MoveClass } | undefined;
         try {

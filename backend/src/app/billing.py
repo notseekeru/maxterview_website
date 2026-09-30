@@ -26,12 +26,9 @@ from app.models import ClerkUser
 FREE_CHAT_TURNS = int(os.getenv("FREE_CHAT_TURNS", "10"))
 PREMIUM_CHAT_TURNS = int(os.getenv("PREMIUM_CHAT_TURNS", "100"))
 DEV_CHAT_TURNS = int(os.getenv("DEV_CHAT_TURNS", "500"))  # dev > premium
-# BYOK: the owner's own provider pays, so the TIER cap is not the gate, this flat ceiling is. A waived
-# cap would make the self-asserted `byok` flag a free ride on whoever's GPU `base_url` names (BYOK.md).
-# Flat across tiers on purpose: BYOK is a different payer, not an upgrade.
+# The owner's provider pays, so this flat ceiling replaces the tier cap.
 BYOK_CHAT_TURNS = int(os.getenv("BYOK_CHAT_TURNS", "1000"))
-# Resume imports per owner. Free is a teaser cap, premium the real ceiling. `dev` tracks premium: a dev
-# identity is never meant to be the more limited one.
+# Free is a teaser cap, premium the real ceiling; `dev` tracks premium.
 FREE_RESUMES = int(os.getenv("FREE_RESUMES", "1"))
 PREMIUM_RESUMES = int(os.getenv("PREMIUM_RESUMES", "5"))
 DEV_RESUMES = int(os.getenv("DEV_RESUMES", "5"))
@@ -42,8 +39,7 @@ LIMITS = {
     "dev": {"chat_turns": DEV_CHAT_TURNS, "resumes": DEV_RESUMES},
 }
 
-# Statuses that still serve time the customer paid for. `cancelled` is here on purpose: PayMongo cancels
-# immediately but the current invoice stays paid, so access runs to `current_period_end`.
+# `cancelled` included: the provider cancels at once but the invoice stays paid.
 ENTITLED_STATUSES = ("active", "cancelled")
 
 

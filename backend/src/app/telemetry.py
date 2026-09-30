@@ -30,9 +30,8 @@ APP_ENV = os.getenv("APP_ENV", "development")
 EXPORT_TIMEOUT_S = 5.0
 METRIC_EXPORT_INTERVAL_MS = 60_000
 
-# The SDK's default boundaries (0, 5, 10, 25, ...) were written for milliseconds and are applied
-# whatever the unit, so with unit="s" every request under 5s lands in ONE bucket and every percentile
-# reads back as 5s. These span the real range: a DB-backed route at 20ms to a two-minute chat turn.
+# The SDK's default boundaries are written for milliseconds but applied whatever the unit, so with
+# unit="s" every request under the largest one lands in a single bucket. These span the real range.
 BUCKET_BOUNDARIES_S = [0.01, 0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10, 20, 40, 60, 120]
 
 _providers: list = []

@@ -1,9 +1,8 @@
-// Display half of the scoring rubric: axis grouping, labels, short radar ticks. The rubric itself
-// (which dims exist, what each measures, how they are scored) lives in backend app/llm.py -
-// DIMENSION_AXES is the source of truth and this file mirrors it. Nothing here decides a score.
+// Display half of the rubric: axis grouping, labels, radar ticks. backend app/llm.py owns the rubric,
+// and nothing here decides a score.
 //
-// A run legitimately has holes: a dim the interview never probed comes back null/absent, which is
-// "not assessed", not zero. Every helper below therefore takes only the keys a run actually scored.
+// A dim the interview never probed is absent, which reads as "not assessed", not zero, so every helper
+// takes only the keys a run actually scored.
 
 const AXES = [
     { value: "communication", label: "Communication" },

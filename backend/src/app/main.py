@@ -53,9 +53,7 @@ APP_ENV = os.getenv("APP_ENV", "development")
 log = structlog.get_logger(__name__)
 
 
-# M11 CORS allow-list: empty by default, because the SPA reaches the API same-origin through the
-# nginx/Vite `/api` proxy and needs no CORS at all. Only set `CORS_ALLOW_ORIGINS` (comma-separated
-# exact origins, never `*`) if the API is ever called from another origin.
+# Empty by default: the SPA is same-origin through the `/api` proxy. Never `*`.
 def cors_origins(raw: str) -> list[str]:
     return [o.strip() for o in raw.split(",") if o.strip()]
 
@@ -145,9 +143,8 @@ async def client_errors(request: Request) -> Response:
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
-# Interview row columns for every SELECT/RETURNING that builds an `Interview`. Shared because
-# `Interview` fills an absent field from its default, so a query that forgets a dial would answer
-# 200 with a WRONG value ('neutral' for a run created skeptical) rather than an error.
+# Shared: a query that forgets a dial returns the field's default, so the row is silently wrong
+# rather than an error.
 INTERVIEW_COLS = "id::text, owner_id, role, level, topic, resume_id::text, status, created_at, updated_at, failed_turn, failed_class, archived_at, " + ", ".join(DIAL_FIELDS)
 
 
@@ -176,10 +173,8 @@ async def create_interview(
     body: InterviewCreate,
     user: CurrentUser,
 ) -> dict:
-    # The attached resume is proven to be the caller's IN THE INSERT (the `WHERE` below), not by a
-    # pre-check: a foreign or deleted id yields no row, which is the same one round trip and cannot
-    # race a delete between the two statements. None row here means exactly that — this path has no
-    # cap to confuse it with.
+    # Ownership is proven IN the INSERT, not by a pre-check: no race against a delete, one round trip.
+    # A None row here means a foreign or deleted id; this path has no cap to confuse it with.
     row = await fetchrow(
         f"""
         INSERT INTO interviews (owner_id, role, level, topic, resume_id, {", ".join(DIAL_FIELDS)})
@@ -282,10 +277,8 @@ async def finish_interview(
     user: CurrentUser,
     config: LLMConfigDep,
 ) -> dict:
-    # EXISTS guard in the same UPDATE (not a pre-check) so a foreign id still 404s, no extra
-    # round trip, and nothing can slip a turn in between. Mirrors _has_transcript(): the row it wants
-    # is a CANDIDATE one, because the generated opener is an assistant row and a run holding nothing
-    # but interviewer turns has nothing to grade.
+    # Guarded in the same UPDATE, not a pre-check: a foreign id still 404s, no race, no extra round
+    # trip. The row must be a CANDIDATE one, since the generated opener is an assistant row.
     row = await fetchrow(
         "UPDATE interviews SET status = 'completed', updated_at = now() WHERE id = $1 AND owner_id = $2 AND status = 'in_progress' AND EXISTS (SELECT 1 FROM messages m WHERE m.interview_id = interviews.id AND m.role = 'user') RETURNING " + INTERVIEW_COLS,
         interview_id,
@@ -381,11 +374,8 @@ TEMPLATE_CAP = 20
 
 TEMPLATE_COLS = "id::text, owner_id, name, role, level, topic, resume_id::text, created_at, updated_at, " + ", ".join(DIAL_FIELDS)
 
-# Dials are appended after each template statement's own prefix, generated from these bases rather
-# than hand-counted: a hole in the numbering (a dropped or skipped placeholder) makes Postgres parse
-# fine and asyncpg fail at bind with "could not determine data type of parameter $n".
-# CREATE: $1..$6 = owner_id, name, role, level, topic, resume_id. UPDATE: $1..$7 = id, owner_id, then
-# the same five. Two bases, because the two statements do NOT share a prefix.
+# Two bases because the two statements share no prefix. Generated rather than hand-counted: a hole in
+# the numbering passes Postgres and fails at bind ("could not determine data type of parameter $n").
 TEMPLATE_CREATE_DIAL_PARAM = 7
 TEMPLATE_UPDATE_DIAL_PARAM = 8
 
@@ -400,14 +390,9 @@ DEFAULT_TEMPLATES: tuple[TemplateCreate, ...] = (
 # JSON scalar, and jsonb_to_recordset would refuse it).
 DEFAULT_TEMPLATES_ROWS = [t.model_dump(mode="json") for t in DEFAULT_TEMPLATES]
 
-# One statement: the marker insert only returns a row the first time (ON CONFLICT), and the presets
-# are only inserted when it does, so a later read is a no-op and a deleted default stays deleted.
-# The three arrive as ONE jsonb parameter with their column types declared in the recordset
-# signature: a 3x14 VALUES list would mean hand-counting 42 placeholders, and a hole in that
-# numbering fails at bind, not at parse (see the DIAL_PARAM constants above).
-# `ordinality` is the array position, microsecond-staggered onto created_at so the row order matches
-# the order declared above (the list is newest-first, and all three would otherwise share one
-# transaction timestamp and come back in whatever order Postgres liked).
+# Idempotent: the marker insert returns a row only the first time, so a deleted default stays deleted.
+# Three rows arrive as ONE jsonb parameter; a VALUES list would need 42 hand-counted placeholders.
+# created_at is staggered off `ordinality`, or all three share one timestamp and return in any order.
 SEED_DEFAULTS_SQL = f"""
         WITH seed AS (
             INSERT INTO template_seeds (owner_id) VALUES ($1) ON CONFLICT DO NOTHING RETURNING owner_id
@@ -435,9 +420,8 @@ async def create_template(
     body: TemplateCreate,
     user: CurrentUser,
 ) -> dict:
-    # Cap AND resume ownership checked inside the INSERT: one round trip, no pre-count race. The
-    # caller cannot tell which condition returned no row, so the message names the cap (the only one
-    # an honest client can hit — a foreign resume id is caught here too, as a 404).
+    # Cap and resume ownership checked inside the INSERT: one round trip, no pre-count race. The caller
+    # cannot tell which failed, so the message names the cap.
     row = await fetchrow(
         f"""
         INSERT INTO interview_templates (owner_id, name, role, level, topic, resume_id, {", ".join(DIAL_FIELDS)})
@@ -504,9 +488,8 @@ async def delete_template(
 
 # --- resumes (the library; an interview/preset holds `resume_id`, nothing else references one) ---
 
-# No `text` in the list projection: `MAX_CHARS` per row is the per-row fan-out the rate-budget
-# guardrail bans, and the editor only ever opens one. `chars` is computed from the column, so there is
-# no stored length to keep in step with an edit.
+# No `text` in the list projection: per-row fan-out is what the rate-budget guardrail bans.
+# `chars` is computed, so no stored length to keep in step with an edit.
 RESUME_COLS = "id::text, owner_id, name, page_count, created_at, updated_at, length(text) AS chars"
 RESUME_COLS_WITH_TEXT = RESUME_COLS + ", text"
 
@@ -684,17 +667,12 @@ async def voice_stt(file: UploadFile, user: CurrentUser) -> VoiceTranscript:
 
 # Dashboard stats: aggregates, not per-row reads.
 
-# The dashboard radar's second series spans this many of the newest rated runs, not just the newest
-# one: a single run's per-dim holes are noise, and a dimension the last run happened not to probe read
-# as "missing" from the radar even though earlier runs scored it.
+# The radar's second series spans this many newest rated runs: one run's per-dim holes are noise, and a
+# dim the last run did not probe would read as missing.
 RECENT_WINDOW = 5
 
-# The dashboard radar, as ONE row. It used to be a GET /feedback per rated run (N HTTP requests, 2N SQL
-# round trips, a payload growing with history) to average `scores` client-side; the reader wants two
-# averages (all rated runs, and the newest RECENT_WINDOW) plus their counts, so the server answers with
-# exactly that. `runs` is the same population the client filtered for (finished AND scored: accuracy
-# lives on feedback, not interviews), jsonb_each_text skips a dimension a run never scored, and
-# ROUND(...,1) matches the UI's rounding.
+# The radar in ONE row: two averages (all rated runs, the newest RECENT_WINDOW) plus their counts.
+# Finished AND scored only: accuracy lives on feedback, not interviews. ROUND(...,1) matches the UI.
 DIMENSIONS_SQL = f"""
 WITH runs AS (
     SELECT i.created_at, f.scores
@@ -723,11 +701,8 @@ SELECT
 
 @api.get("/stats/dimensions", response_model=InterviewDimensions)
 async def get_interview_dimensions(user: CurrentUser) -> dict:
-    # /stats, not /interviews/dimensions: /interviews/{interview_id} is declared above, so a literal
-    # sibling would be matched as an id and 500 on UUID parsing.
-    # AI HERE: the RESPONSE is flat whatever the history, but the query still aggregates this owner's
-    # feedback rows per request. Upgrade path if it ever gets hot: a rollup table or a short-TTL cache
-    # keyed by owner. `averages` is untrimmed on purpose; `recent` is the only windowed number.
+    # /stats, not /interviews/dimensions: a literal sibling matches the {interview_id} route and 500s.
+    # Aggregated per request; `averages` is untrimmed on purpose, `recent` is the windowed one.
     row = await fetchrow(DIMENSIONS_SQL, user.sub)
     assert row is not None  # scalar subqueries and no FROM: always exactly one row
     return dict(row)
@@ -735,10 +710,8 @@ async def get_interview_dimensions(user: CurrentUser) -> dict:
 
 # --- analytics (the deep-dive page; same one-aggregate rule as the dashboard above) ---
 
-# Every run this owner ever created, newest first, with its review joined. `archived_at` is NOT
-# filtered: the dashboard counts archived runs on purpose, and a page that silently dropped them would
-# disagree with the numbers one route over. `moves` is pre-aggregated so the response carries no
-# per-turn rows.
+# No `archived_at` filter: the dashboard counts archived runs, so dropping them here would disagree
+# with the numbers one route over. `moves` is pre-aggregated: no per-turn rows in the response.
 ANALYTICS_RUNS_SQL = (
     """
 SELECT i.id::text, i.role, i.level, i.status, i.created_at,
@@ -772,9 +745,8 @@ GROUP BY 1 ORDER BY 1
 # hire-rate column and the offer gate in _sync_offer cannot disagree about what a hire is.
 HIRING_SQL = ", ".join(f"'{d}'" for d in HIRING_DECISIONS)
 
-# Dial breakdowns, one row per (dial, value), over the COMPLETED runs only: an in-progress run has no
-# outcome to attribute to its dials. `runs` and `rated` are separate on purpose - a dial whose runs
-# were never scored reports avg_accuracy NULL, not a 0% that reads as failure.
+# COMPLETED runs only: an in-progress run has no outcome. `runs` and `rated` are separate, so a dial
+# whose runs were never scored reports NULL, not a 0% that reads as failure.
 ANALYTICS_DIALS_SQL = f"""
 WITH runs AS (
     SELECT i.level, i.cynicism, i.company_size, i.hardcore, i.human_mode, i.brutally_honest,
@@ -801,10 +773,8 @@ FROM labelled
 GROUP BY dial, value
 """
 
-# Streak: consecutive UTC days with activity, counting back from today. A day's rank and its age
-# (gap) move together, so `gap - rn` is constant across a consecutive run and shifts the moment one is
-# missing: -1 while the run includes today, 0 when the newest day is yesterday. Both count, so a
-# streak does not read 0 for the whole of a day the candidate is still practising in.
+# Consecutive UTC days counting back from today. Today and yesterday both count, so a streak does not
+# read 0 for the whole of a day the candidate is still practising in.
 ANALYTICS_STREAK_SQL = """
 WITH days AS (
     SELECT DISTINCT (created_at AT TIME ZONE 'UTC')::date AS d FROM interviews WHERE owner_id = $1
@@ -817,14 +787,9 @@ SELECT count(*) FROM ranked WHERE gap - rn IN (-1, 0)
 
 @api.get("/stats/analytics", response_model=Analytics)
 async def get_analytics(user: CurrentUser) -> dict:
-    # Five statements, not one: the runs list, the weekly activity, the dial breakdown and the offers
-    # each filter a different population (all runs / all runs / completed only / graded only), and
-    # folding them together would cost more to read than the extra round trips cost to run.
-    # AI HERE: each statement re-scans this owner's full history, and the response carries one row per
-    # run plus one per offer. Fine at a personal history's size. Upgrade path, in order: aggregate the
-    # per-day series server-side (the charts only need day buckets, not every run), cap the run log to
-    # the most recent N with the rest behind a cursor, then a rollup table or a short-TTL cache keyed by
-    # owner. The all-time window is a product call, not a perf one, so none of that trims what is shown.
+    # Five statements, not one: each filters a different population, and folding them together would cost
+    # more to read than the round trips cost.
+    # AI HERE: each re-scans the owner's full history. Fine at personal scale; upgrade is a rollup.
     run_rows = await fetch(ANALYTICS_RUNS_SQL, user.sub)
     activity = await fetch(ANALYTICS_ACTIVITY_SQL, user.sub)
     dial_rows = await fetch(ANALYTICS_DIALS_SQL, user.sub)
@@ -855,11 +820,8 @@ async def get_analytics(user: CurrentUser) -> dict:
     }
 
 
-# Every dial the page breaks down, in render order: key -> (value slug -> label). The vocabularies
-# come from app/dials.py and app/levels.py, so a new slug shows up here before its label does rather
-# than vanishing from the page; `mix` and the two booleans are DERIVED buckets the SQL above computes.
-# No group TITLE: headings are presentation the page owns (lib/moveClasses.ts labels are the
-# precedent). This table owns ORDER + labels.
+# Key -> (value slug -> label), in render order. Vocabularies come from app/dials.py and app/levels.py,
+# so a new slug shows up before its label does. This table owns ORDER and labels only.
 ANALYTICS_DIALS: tuple[tuple[str, dict[str, str]], ...] = (
     ("level", {s: levels.label(s) for s in levels.LEVELS}),
     ("cynicism", dict(zip(dials.CYNICISM, ("Kind", "Neutral", "Skeptical"), strict=True))),
@@ -892,9 +854,7 @@ def dial_groups(rows: list[asyncpg.Record]) -> dict[str, list[dict]]:
 
 # --- offers (the simulated letter; app/offer.py owns the rate card) ---
 
-# Every offer this owner was issued, newest first, joined to the run behind it and the review that
-# priced it. No archived filter: an offer was issued, and hiding the run from the history list does
-# not un-issue it.
+# No archived filter: an offer was issued, and hiding the run from the history list does not un-issue it.
 OFFER_COLS = """
 o.interview_id::text, o.title, o.band, o.base_salary, o.signing_bonus, o.equity, o.performance,
        o.benefits, o.created_at, i.role, i.level, i.failed_class, f.accuracy, f.decision"""
@@ -1047,9 +1007,8 @@ async def get_interview_offer(interview_id: str, user: CurrentUser) -> dict:
 async def get_usage(user: CurrentUser, config: LLMConfigDep) -> dict:
     """Cheap quota status: tier + the daily GLOBAL chat-turn dial (per owner, all interviews)."""
     tier = await billing.resolve_tier(user)
-    # BYOK trades the tier cap for the flat BYOK ceiling (chat_stream gates on this same number), so
-    # `chat` is this owner's effective limit - the UI computes `limit - remaining` and would otherwise
-    # show a negative `used` (lib/api.ts).
+    # BYOK trades the tier cap for the flat ceiling, so this is the effective limit: the UI computes
+    # `limit - remaining` and would otherwise show a negative `used`.
     chat = billing.chat_turn_limit(None if config.byok else tier)
     used = await billing.chat_turns_used(user.sub)
     return {
@@ -1063,9 +1022,8 @@ async def get_usage(user: CurrentUser, config: LLMConfigDep) -> dict:
         # Storage, not a meter: the resume library's ceiling. `used` is the list length the resume page
         # already has, so this is the only number it needs from here.
         "resume_limit": billing.resume_limit(tier),
-        # How money becomes premium, plus when the paid time lapses. Period mode does not
-        # auto-renew, so the UI must show the expiry and must not offer a cancel that cancels
-        # nothing (`billing_mode` is what tells the two apart).
+        # Period mode does not auto-renew, so the UI shows the expiry and offers no cancel;
+        # `billing_mode` is what tells the two rails apart.
         "billing_mode": payments.BILLING_MODE,
         "premium_until": await billing.premium_until(user.sub) if tier == "premium" else None,
     }
@@ -1119,9 +1077,8 @@ async def billing_webhook(request: Request) -> PlainTextResponse:
     return PlainTextResponse("ok")
 
 
-# `stripe listen` has no PayMongo equivalent, and requiring a tunnel for local webhooks is friction
-# we do not want. Same guard shape as the no-Clerk fallback: unreachable wherever the app
-# boots with APP_ENV=production.
+# No PayMongo equivalent of `stripe listen`, and a tunnel for local webhooks is friction we do not want.
+# Guarded like the no-Clerk fallback: unreachable with APP_ENV=production.
 @api.post("/billing/webhook/simulate")
 async def billing_webhook_simulate(event: dict) -> PlainTextResponse:
     if APP_ENV not in ("development", "test"):
@@ -1156,14 +1113,11 @@ async def _chat_session(interview_id: str, user: CurrentUser) -> tuple[dict, lis
         "SELECT role, content FROM messages WHERE interview_id = $1 ORDER BY created_at",
         interview_id,
     )
-    # Interviewer turns already asked -> which phase of the arc this reply belongs to (chitchat
-    # -> opener -> tell me about yourself -> behavioural -> technical -> sign-off). Derived from the
-    # transcript, not stored.
+    # Interviewer turns already asked, which selects the arc phase. Derived from the transcript, not stored.
     asked = sum(1 for r in prior_rows if r["role"] == "assistant")
     dials = Dials(**{k: interview[k] for k in DIAL_FIELDS})
-    # The question mix is a real budget: once the arc is spent the interview is over, so refuse the
-    # turn BEFORE spending a chat credit or a model call on it. The sign-off itself was the previous
-    # turn (see llm.is_closing_turn); this is what makes it final.
+    # Once the arc is spent the interview is over: refuse before spending a chat credit or a model call.
+    # The sign-off was the previous turn, so this is what makes it final.
     if llm.is_interview_finished(asked, dials):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -1223,10 +1177,8 @@ async def _reply_frames(
             interview_id,
             reply,
         )
-        # The one number an access log cannot give: what a turn cost in wall-clock and in output.
-        # AI HERE: tokens are not requested (the provider only reports usage when the payload asks
-        # via stream_options.include_usage), so `chars` stands in; add the payload key when exact
-        # cost accounting is needed.
+        # What a turn cost in wall-clock and output, which an access log cannot give.
+        # AI HERE: `chars` stands in for tokens; the provider reports usage only when asked.
         log.info("llm.chat.completed", interview_id=interview_id, model=config.model, asked=asked, chars=len(reply), latency_ms=round((time.perf_counter() - turn_started) * 1000, 1))
     except Exception as exc:
         # Model or DB failure while the turn is in flight: whatever the caller wrote first must not
@@ -1274,10 +1226,8 @@ async def chat_stream(
     interview, prior_rows, asked, dials = await _chat_session(interview_id, user)
     await _spend_chat_turn(user, config)
 
-    # A trailing user turn means an earlier attempt died before its reply was written (killed worker,
-    # client abort): this send is that turn's retry, so it REPLACES it. Doing it only here, past the
-    # guards, keeps a refused turn (409/402) from deleting anything. The stale row is dropped from the
-    # history too, or the model would see the same answer twice.
+    # A trailing user turn means an earlier attempt died before its reply landed, so this send REPLACES it,
+    # past the guards only. The stale row leaves the history too, or the model sees the answer twice.
     if prior_rows and prior_rows[-1]["role"] == "user":
         await fetchrow(
             "DELETE FROM messages WHERE interview_id = $1 AND id = (SELECT id FROM messages WHERE interview_id = $1 ORDER BY created_at DESC, id DESC LIMIT 1)",
@@ -1321,9 +1271,8 @@ async def chat_stream(
     ]
 
     async def _stream_events():
-        # Hardcore judges THIS answer before the interviewer replies, because one failing answer ends the
-        # run: spending a question on someone who is already out is the one thing the mode promises
-        # never to do. Runs before the closing branch too - the last answer still counts.
+        # Judged before the interviewer replies: one failing answer ends the run, and the mode promises
+        # never to spend a question on someone already out. The last answer counts too.
         if dials.hardcore:
             turn = sum(1 for m in history if m.role == "user")
             question = next((m["content"] for m in reversed(prior_rows) if m["role"] == "assistant"), "")
@@ -1333,9 +1282,8 @@ async def chat_stream(
             if move and move.cls in rating.FAIL_CLASSES:
                 await fetchrow("UPDATE interviews SET failed_turn = $2, failed_class = $3, updated_at = now() WHERE id = $1", interview_id, turn, move.cls)
                 shout = await llm.fail_shout(question, body.content, move.cls, config)
-                # Persisted like any other reply, or a reloaded transcript ends on the candidate's own
-                # answer with no callout. Best-effort: a DB hiccup here must cost the stored line, not
-                # the shout the candidate is owed for choosing this mode.
+                # Persisted like any other reply, or a reload ends on the candidate's own answer with no
+                # callout. Best-effort: a DB hiccup must cost the stored line, not the shout.
                 try:
                     await fetchrow(
                         "INSERT INTO messages (interview_id, role, content) VALUES ($1, 'assistant', $2) RETURNING id",
@@ -1349,10 +1297,8 @@ async def chat_stream(
                 yield f'event: done\ndata: {{"closing": true, "failed": {{"turn": {turn}, "class": "{move.cls}"}}}}\n\n'
                 return
 
-        # Sign-off turn: generated like every other interviewer turn (so it spends a chat turn like
-        # every other one), with the canned line as the guard-rail when the model asks a question the
-        # API would then refuse (see llm.closing_line). Emitted as ONE message frame so the client
-        # needs no special case, and persisted, so the transcript ends the way it was displayed.
+        # Generated like any other turn, so it spends a chat turn. The canned line guards the case where
+        # the model asks a question the API would refuse (llm.closing_line).
         if llm.is_closing_turn(asked, dials):
             closing = await llm.closing_line(history, config)
             await fetchrow(
@@ -1391,10 +1337,8 @@ async def _has_transcript(interview_id: str) -> bool:
 
 
 async def _upsert_feedback(interview_id: str, scores: dict, verdict: str, tips: list, decision: str | None = None, certainty: int | None = None, accuracy: int | None = None) -> None:
-    # Single write path: idempotent UPSERT on the UNIQUE interview_id. `accuracy` is COALESCEd, not
-    # overwritten: it derives from the stored message classes, so a raw POST /feedback (no
-    # classification behind it) must not wipe a grade an earlier pass earned. Callers re-read the row
-    # through _feedback_row, which is the only query that can see the interview's hardcore failure.
+    # `accuracy` is COALESCEd, not overwritten: it derives from the stored message classes, so a raw POST
+    # /feedback must not wipe a grade an earlier pass earned.
     await fetchrow(
         "INSERT INTO feedback (interview_id, scores, verdict, tips, decision, certainty, accuracy) VALUES ($1, $2, $3, $4, $5, $6, $7) "
         "ON CONFLICT (interview_id) DO UPDATE SET scores = EXCLUDED.scores, verdict = EXCLUDED.verdict, tips = EXCLUDED.tips, "
@@ -1536,9 +1480,7 @@ async def _generate_and_persist_feedback(interview_id: str, config: llm.LLMConfi
 
 
 async def _run_feedback_pipeline(interview_id: str, config: llm.LLMConfig) -> dict | None:
-    # `id` is selected for the move-review mapping, and `move_class`/`comment` for the hardcore path
-    # (which already annotated live); the `, id` tiebreak keeps the order stable, since llm numbers
-    # candidate turns off this exact list.
+    # The `, id` tiebreak keeps the order stable: llm numbers candidate turns off this exact list.
     history_rows = await fetch(
         "SELECT id::text, role, content, move_class, comment FROM messages WHERE interview_id = $1 ORDER BY created_at, id",
         interview_id,

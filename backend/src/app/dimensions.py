@@ -2,9 +2,7 @@
 `offer.py` the rate card. Import-free on purpose: offer pricing must not drag the LLM client in.
 """
 
-# Axis -> dims, render order. Communication is the original four, kept so old runs stay comparable.
-# `culture fit` deliberately NOT a dim: scored directly it is a bias proxy with no evidence bar, so
-# it splits into ownership and collaboration.
+# `culture fit` deliberately NOT a dim: scored directly it is a bias proxy with no evidence bar.
 DIMENSION_AXES: dict[str, tuple[str, ...]] = {
     "communication": ("clarity", "relevance", "structure", "confidence"),
     "substance": ("technical_depth", "problem_solving", "production"),

@@ -35,9 +35,8 @@ _SHARED_PROCESSORS = [
     structlog.processors.format_exc_info,
 ]
 
-# No space after `:` or `,`: the `grafanacloud-logs` datasource's traceID derived field is a regex
-# over the raw line (`[tT]race_?[iI][dD]"?[:=]"?(\w+)`) with no room for whitespace, and that field is
-# shared by every project on the stack, so our JSON shape is its contract.
+# No space after `:` or `,`: the Loki datasource's traceID derived field is a regex with no room for
+# whitespace, and it is shared by every project on the stack.
 COMPACT_JSON = {"separators": (",", ":")}
 
 
@@ -59,9 +58,7 @@ def configure_logging() -> None:
         )
     )
     logging.basicConfig(level=LOG_LEVEL, handlers=[handler], force=True)
-    # uvicorn configures its own handlers before importing the app: take them over so nothing escapes
-    # unformatted, and drop its access log (the middleware below is the access log now). Silenced at
-    # the logger, not via `--no-access-log`, so dev, tests and prod stay identical.
+    # uvicorn's own handlers would escape unformatted. Silenced at the logger, so dev/tests/prod match.
     for name in ("uvicorn", "uvicorn.error"):
         logger = logging.getLogger(name)
         logger.handlers, logger.propagate = [handler], False
@@ -118,9 +115,8 @@ class RequestContextMiddleware:
                 current.set_attribute("http.response.status_code", status)
                 if scope["path"] != SKIP_PATH:
                     telemetry.record("http.server.request.duration", elapsed, **{"http.request.method": scope["method"], "http.route": route, "http.response.status_code": status})
-                    # Auth and routing run inside the route, so identity and path params are read off
-                    # the shared scope after the fact: contextvars cannot carry them up here, since the
-                    # rate limiter is a BaseHTTPMiddleware.
+                    # Identity arrives inside the route, so it is read off the shared scope after the
+                    # fact: a contextvar cannot cross the BaseHTTPMiddleware rate limiter.
                     log.info(
                         "http.request",
                         method=scope["method"],

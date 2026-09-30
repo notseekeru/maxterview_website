@@ -24,9 +24,8 @@ export function LLMProviderCard() {
     const [busy, setBusy] = useState<"save" | "test" | "clear" | null>(null);
     const [note, setNote] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
-    // A saved provider that stopped answering is invisible until a turn dies on it, and the turn then
-    // reads as "the model was unreachable" - which is true but not actionable. Probe once per load and
-    // after every save; a failed probe (no row, network blip) is not a verdict, so it clears instead.
+    // A saved provider that stopped answering is invisible until a turn dies on it. Probe once per load
+    // and after every save; a failed probe is not a verdict, so it clears.
     const [health, setHealth] = useState<{ ok: boolean; detail: string } | null>(null);
 
     const apply = useCallback((s: LLMProviderStatus) => {

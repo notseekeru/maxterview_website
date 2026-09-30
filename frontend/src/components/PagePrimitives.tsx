@@ -3,9 +3,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useDocumentTitle } from "@/hooks/useDocumentTitle";
 import { cn } from "@/lib/utils";
 
-// Consistent inner-width wrapper + heading used by every sidebar page. `wide` opts a page out of
-// the reading-width cap: workspace surfaces (the dashboard) have to be able to use a large
-// monitor's width, or their grid tiles collapse to ~100px inside the 3/5 column of a 896px page.
+// Inner-width wrapper + heading for every sidebar page. `wide` opts out of the reading-width cap:
+// workspace surfaces have to use a large monitor's width or their grid tiles collapse.
 const WIDE_MAX = "max-w-[100rem]";
 
 export function Page({ title, description, children, actions, wide }: { title: string; description?: string; children: ReactNode; actions?: ReactNode; wide?: boolean }) {

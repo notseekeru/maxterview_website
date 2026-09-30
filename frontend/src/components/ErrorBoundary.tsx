@@ -13,10 +13,8 @@ interface State {
     error: Error | null;
 }
 
-// Last line of defence around <Routes>: React unmounts the whole tree on an uncaught render
-// throw, which without this leaves a blank page and no way back. A class is the only way to
-// implement componentDidCatch, and a reload is the only honest recovery for an unknown cause
-// (we hold no per-route cache to reset).
+// React unmounts the whole tree on an uncaught render throw, which without this is a blank page and no
+// way back. A class is the only way to get componentDidCatch; a reload is the only honest recovery.
 export class ErrorBoundary extends Component<Props, State> {
     state: State = { error: null };
 
@@ -25,9 +23,8 @@ export class ErrorBoundary extends Component<Props, State> {
     }
 
     componentDidCatch(error: Error, info: ErrorInfo): void {
-        // The card below only shows `error.message`, so whoever is looking at the screen cannot
-        // report what actually broke: the message and the component stack go to Loki via the beacon,
-        // the full error stays on the console for local runs.
+        // The card shows only `error.message`, so nobody at the screen can report what broke: the
+        // message and component stack go to Loki, the full error stays on the console.
         console.error("unhandled render error", error, info.componentStack);
         reportRenderCrash(error, info.componentStack);
     }

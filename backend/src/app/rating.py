@@ -50,9 +50,8 @@ GRADE_BANDS: tuple[tuple[int, str], ...] = ((90, "S"), (80, "A"), (70, "B"), (60
 # still exercises the review UI. Opens on `good` so a one-answer smoke run does not read S or F.
 STUB_MOVE_CYCLE: tuple[str, ...] = ("good", "inaccuracy", "great", "book", "mistake")
 
-# The canned note per class, same reason as the cycle: a model-free run has to render the note under
-# the bubble too, and it must not spend a model call to do it. Canned, so it never claims to have read
-# the answer.
+# Canned per class: a model-free run must render the note without spending a model call, and canned text
+# never claims to have read the answer.
 STUB_MOVE_NOTES: dict[str, str] = {
     "brilliant": "No notes: this one went past what was asked. Repeat it by naming the trade-off and the number that backed it.",
     "great": "A real example with your own decisions in it, which is the bar. Add what you would do differently now.",

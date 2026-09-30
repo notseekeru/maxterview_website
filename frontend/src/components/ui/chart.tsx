@@ -18,10 +18,9 @@ type TooltipNameType = number | string;
 // draw. Per series, not on the chart root: the root does not reliably forward it.
 export const DRAW_MS = 350;
 
-// AI HERE: /analytics mounts five recharts trees, and several landing in one commit measured as a
-// ~0.5s main-thread block (measured). Deferred charts queue at mount and are released in DOM
-// order, 250ms apart, one slot open at a time. Ceiling: this spreads the mounts, it does not make any
-// of them cheaper, and the gap is a constant rather than a frame-budget measurement.
+// AI HERE: five recharts trees on /analytics, and several landing in one commit measured as a ~0.5s
+// main-thread block. Deferred charts queue at mount, released in DOM order one slot at a time.
+// Ceiling: this spreads the mounts, it does not make them cheaper.
 const GAP_MS = 250;
 
 type Claim = (handBack: () => void) => void;
@@ -127,9 +126,8 @@ function ChartContainer({
         enqueue(claim);
         return () => {
             forget(claim);
-            // Released in the cleanup, not the effect body: this runs after the commit that mounted
-            // the chart, and it also covers an unmount that beat the commit, which would stall the
-            // queue for every chart behind it.
+            // Released in the cleanup, not the effect body: it runs after the mounting commit, and covers
+            // an unmount that beat the commit, which would stall every chart behind it.
             const handBack = held.current;
             held.current = null;
             handBack?.();
@@ -143,10 +141,9 @@ function ChartContainer({
                 data-slot="chart"
                 data-chart={chartId}
                 className={cn(
-                    // NB: keep this container shape-neutral and full-width (no `aspect-video`,
-                    // no `flex justify-center`) — `aspect-video` overrides explicit card
-                    // heights and the flex wrapper makes ResponsiveContainer measure a
-                    // shrink-to-fit box. Callers size the height (see AccuracyTrendChart).
+                    // Keep this container shape-neutral and full-width: `aspect-video` overrides explicit
+                    // card heights, and a flex wrapper makes ResponsiveContainer measure a shrink-to-fit
+                    // box. Callers size the height.
                     "relative w-full min-w-0 text-xs [&_.recharts-cartesian-axis-tick_text]:fill-muted-foreground [&_.recharts-cartesian-grid_line[stroke='#ccc']]:stroke-border/50 [&_.recharts-curve.recharts-tooltip-cursor]:stroke-border [&_.recharts-dot[stroke='#fff']]:stroke-transparent [&_.recharts-layer]:outline-hidden [&_.recharts-polar-grid_[stroke='#ccc']]:stroke-border [&_.recharts-radial-bar-background-sector]:fill-muted [&_.recharts-rectangle.recharts-tooltip-cursor]:fill-muted [&_.recharts-reference-line_[stroke='#ccc']]:stroke-border [&_.recharts-sector]:outline-hidden [&_.recharts-sector[stroke='#fff']]:stroke-transparent [&_.recharts-surface]:outline-hidden",
                     className,
                 )}

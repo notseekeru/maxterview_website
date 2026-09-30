@@ -3,9 +3,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { type Analytics, getAnalytics, getInterviewDimensions, type Interview, type InterviewDimensions, listInterviews } from "@/lib/api";
 import { isHiring } from "@/lib/interviewOptions";
 
-// Dashboard data, in two hooks on purpose: the list (and everything derived from it) is cheap and
-// shared, while the radar's dimension aggregate is a separate request the History page never needs.
-// One hook for both made every History visit pay for chart data it does not render.
+// Two hooks on purpose: the list is cheap and shared, while the radar's aggregate is a request the
+// History page never needs. One hook made every History visit pay for chart data it does not render.
 export function useInterviews() {
     const [interviews, setInterviews] = useState<Interview[] | null>(null);
     const [error, setError] = useState<string | null>(null);
@@ -65,9 +64,8 @@ export interface InterviewDims {
     avgCertainty: number | null;
 }
 
-// Axis labels are built here (not in the chart) so the chart stays a pure renderer.
-// When a date repeats the label gains the run time — same-day runs would otherwise
-// render identical "09-09" ticks.
+// Labels are built here so the chart stays a pure renderer. A repeated date gains the run time, or
+// same-day runs render identical "09-09" ticks.
 function trendLabel(iso: string, dateRepeats: boolean): string {
     const md = iso.slice(5, 10).replace("-", "/");
     return dateRepeats ? `${md} ${iso.slice(11, 16)}` : md;
@@ -75,15 +73,13 @@ function trendLabel(iso: string, dateRepeats: boolean): string {
 
 function computeDims(interviews: Interview[] | null): InterviewDims {
     const list = interviews ?? [];
-    // `completed` counts what the History rows label "completed" (status only). The review can
-    // legitimately fail (no model, or an unclassifiable transcript) leaving completed-without-
-    // accuracy, so do NOT derive this tile from rated runs — it then reads fewer than the rows show.
+    // Counts status, not rated runs: a review can legitimately fail and leave completed-without-accuracy,
+    // so deriving this from rated runs reads fewer than the rows show.
     const completed = list.filter((i) => i.status === "completed");
     const recent = completed.filter((i) => typeof i.accuracy === "number");
     const avgAccuracy = recent.length === 0 ? 0 : recent.reduce((a, i) => a + (i.accuracy as number), 0) / recent.length;
-    // GET /interviews is ordered created_at DESC, so `recent` is newest-first. A trend chart has
-    // to run oldest -> newest, and "last 20" means the 20 MOST RECENT, not the tail of a
-    // newest-first array (that plotted the oldest runs, right to left).
+    // The API returns newest-first; a trend chart runs oldest to newest. "Last 20" is the 20 MOST
+    // RECENT, not the tail of a newest-first array.
     const chronological = [...recent].reverse();
     const window = chronological.slice(-20);
     const dates = window.map((i) => i.created_at.slice(0, 10));
@@ -97,9 +93,8 @@ function computeDims(interviews: Interview[] | null): InterviewDims {
     return { total: list.length, completed: completed.length, rated: recent.length, avgAccuracy, accuracyTrend, decided: decided.length, hiring: hiring.length, avgCertainty };
 }
 
-// The analytics page's aggregate: one request, loaded only when that route mounts (the dashboard
-// must not pay for it, and vice versa). Mirrors useDashboardStats deliberately - same shape, same
-// "no data" vs "could not load" split.
+// Loaded only when the analytics route mounts: the dashboard must not pay for it, and vice versa.
+// Mirrors useDashboardStats: same shape, same "no data" vs "could not load" split.
 export function useAnalytics() {
     const [data, setData] = useState<Analytics | null>(null);
     const [error, setError] = useState<string | null>(null);

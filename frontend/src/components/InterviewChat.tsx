@@ -43,18 +43,14 @@ export function InterviewChat({ interviewId, onExit }: Props) {
     const [interviewOver, setInterviewOver] = useState(false);
     const [hardcoreRun, setHardcoreRun] = useState(false);
     const [hardcoreFailed, setHardcoreFailed] = useState<{ turn: number; class: string } | null>(null);
-    // Non-null while a finish or rebuild request is in flight: what the progress screen calls it,
-    // whether the candidate closed it, and whether the review has landed. Closing never cancels the
-    // request behind it.
+    // Non-null while a finish or rebuild is in flight. Closing the screen never cancels the request.
     const [finishing, setFinishing] = useState<{ title: string; dismissed: boolean; done: boolean } | null>(null);
     const isFinishing = finishing !== null;
-    // /finish refuses a transcript with no gradable turn, so the button stays dead until the
-    // candidate has said something. Without this the progress screen flashes for a request that
-    // cannot land.
+    // The button stays dead until the candidate has said something: /finish refuses a transcript with
+    // no gradable turn.
     const answered = messages.some((m) => m.role === "user");
     const [reviewFailed, setReviewFailed] = useState(false);
-    // Mid-run Finish needs a second look: the arc still has questions left, so ending here trades
-    // them for the review. At the cap there is nothing left to trade, so the click goes straight
+    // Mid-run Finish confirms because the arc still has questions left; at the cap it goes straight
     // through. Reset by anything that leaves the footer.
     const [confirmFinish, setConfirmFinish] = useState(false);
     const sendingRef = useRef(false);
@@ -68,10 +64,8 @@ export function InterviewChat({ interviewId, onExit }: Props) {
     const scrollRef = useRef<HTMLDivElement | null>(null);
     const inputRef = useRef<HTMLTextAreaElement | null>(null);
     const [voiceOn, setVoiceOn] = useState(readVoicePref);
-    // Voice is I/O around the turn: the applicant's speech lands in the answer box, the interviewer's
-    // reply is read aloud, and everything after that is the pipeline that already exists (VOICE.md).
-    // The server is asked what it can do before anything is offered, so a deployment without Workers
-    // AI shows a dead control with a reason instead of a button that fails on click.
+    // Voice is I/O around the turn (VOICE.md). The server is asked what it can do before anything is
+    // offered, so a deployment without Workers AI shows a dead control with a reason.
     const { capability, failed: capabilityFailed } = useVoiceCapability();
     const speaker = useSpeaker(voiceOn && Boolean(capability?.tts));
     const mic = useRecorder(
@@ -82,11 +76,9 @@ export function InterviewChat({ interviewId, onExit }: Props) {
         }, []),
     );
     const voiceTitle = capability?.tts ? (voiceOn ? "Stop reading replies aloud" : "Read each reply aloud") : undefined;
-    // Voice limits belong to the server, not the run, so they are stated on screen where the controls
-    // are. A title attribute is not enough: the buttons that need the explanation are disabled, and a
-    // hairline under the pointer is not where a stuck visitor looks. A probe that FAILED is a third
-    // state: the controls stay off, and the line says the check did not happen rather than inventing a
-    // deployment without voice.
+    // Limits belong to the server, not the run, so they are stated on screen: the buttons that need the
+    // explanation are disabled, and a title attribute is not where a stuck visitor looks.
+    // A failed probe is a third state: the controls stay off and the line says the check did not happen.
     const voiceNote = capabilityFailed ? "Voice couldn't be checked just now, so both controls are off. Reload to try again." : capability && !capability.tts ? "Replies can't be read aloud: this server has no speech voice configured." : null;
     const micProblem = mic.blocked ?? mic.error;
     const placeholder = mic.recording
@@ -118,9 +110,8 @@ export function InterviewChat({ interviewId, onExit }: Props) {
         async (id: string) => {
             const [iv] = await Promise.all([getInterview(id), loadMessages()]);
             setHardcoreRun(iv.hardcore);
-            // A failed hardcore run is dead in the DB before it is finished, so reopening one has to
-            // show the ending and close the composer: the stream event only covers the session that
-            // watched it happen. Finish stays the candidate's click either way.
+            // A failed hardcore run is dead in the DB before it is finished: the stream event only covers
+            // the session that watched it, so reopening one must show the ending and close the composer.
             if (iv.failed_turn) {
                 setHardcoreFailed({ turn: iv.failed_turn, class: iv.failed_class ?? "fault" });
                 setInterviewOver(true);
@@ -163,10 +154,8 @@ export function InterviewChat({ interviewId, onExit }: Props) {
         };
     }, [interviewId, loadMessages, loadExisting]);
 
-    // The opening turn is a model generation, so an empty live transcript is a turn still owed: fetch it
-    // on mount, and again on a reload of a run whose opener never landed (nothing is persisted on
-    // failure, so the next mount is the retry). `kickedRef` keeps the failed case from looping, and the
-    // error carries a manual retry.
+    // The opener is a model generation and nothing is persisted on failure, so an empty live transcript
+    // is a turn still owed: fetch on mount, and again on the next mount after a failure.
     // biome-ignore lint/correctness/useExhaustiveDependencies: runTurn is a fresh closure every render, so it cannot be a dependency; the ref is the guard.
     useEffect(() => {
         if (status !== "ready" || messages.length || interviewOver || error || kickedRef.current) return;
@@ -174,10 +163,10 @@ export function InterviewChat({ interviewId, onExit }: Props) {
         void runTurn(null);
     }, [status, messages.length, interviewOver, error]);
 
-    // The composer grows with the answer and stops at nine lines, then scrolls inside the pill. A
-    // pasted paragraph should not push the transcript off the screen.
-    // AI HERE: fixed pixel cap and a layout-forced reflow per keystroke. Upgrade path is a measure
-    // in useLayoutEffect keyed on value length only.
+    // The composer grows to a pixel cap then scrolls inside the pill, so a pasted paragraph cannot push
+    // the transcript off the screen.
+    // AI HERE: fixed pixel cap and a layout-forced reflow per keystroke; upgrade is a measure in
+    // useLayoutEffect keyed on value length.
     // biome-ignore lint/correctness/useExhaustiveDependencies: el.scrollHeight is a function of draft, which no linter can see through the DOM.
     useEffect(() => {
         const el = inputRef.current;
@@ -194,9 +183,8 @@ export function InterviewChat({ interviewId, onExit }: Props) {
         if (feedback) scrollRef.current?.scrollTo({ top: 0 });
     }, [feedback]);
 
-    // The letter is priced from the review, so it is fetched when the review lands and never before.
-    // A 404 here (unfinished run, or a review that scored nothing) is not a failure: it is no letter,
-    // and the review renders without one.
+    // The letter is priced from the review, so it is fetched when the review lands. A 404 is not a
+    // failure: it means no letter, and the review renders without one.
     useEffect(() => {
         if (!feedback) return;
         let cancelled = false;
@@ -256,9 +244,8 @@ export function InterviewChat({ interviewId, onExit }: Props) {
         abortRef.current = ac;
         let buffer = "";
         let settled = false;
-        // Spoken as it streams, sentence by sentence: waiting for the whole reply would put the voice
-        // a generation behind the text on screen. `speaker.begin` also holds the caption back to what
-        // has been said out loud, so the words and the voice share one beat.
+        // Spoken as it streams, sentence by sentence: waiting for the whole reply would put the voice a
+        // generation behind the text.
         replyId.current = `local-reply-${Date.now()}`;
         speaker.begin();
         try {
@@ -313,9 +300,8 @@ export function InterviewChat({ interviewId, onExit }: Props) {
                 speaker.stop();
                 const st = httpStatus(e);
                 if (st === 402) setQuotaLocked(true);
-                // A 409 on the opener means the turn it wanted is already in the transcript (the first
-                // attempt landed after a cut stream): show it rather than locking the composer over a
-                // transcript the user has not seen.
+                // A 409 means the turn is already in the transcript (the first attempt landed after a cut
+                // stream): show it rather than locking the composer.
                 else if (st === 409 && answer === null) await loadMessages();
                 else if (st === 409) setInterviewOver(true);
                 else setError(CONNECTION_LOST);
@@ -373,17 +359,13 @@ export function InterviewChat({ interviewId, onExit }: Props) {
         await openReview(() => regenerateFeedback(interviewId));
     }
 
-    // Hardcore is the only dial with a body count, so it gets the only red: a tinted bar while the
-    // run is live, full strength once it fails. Light-mode red is the darker token, #ff9999 on white
-    // is invisible.
+    // Hardcore gets the only red. Light-mode red is the darker token: #ff9999 on white is invisible.
     const hardcoreBar = hardcoreFailed ? "border-destructive bg-destructive/10" : hardcoreRun && status !== "completed" ? "border-destructive/40 bg-destructive/5" : undefined;
     // Consecutive turns from one side close up tight and only the last of each burst carries the
     // interviewer's face, the way a chat app groups a paragraph of short replies.
     const lastOfRun = new Set(messages.filter((m, i) => messages[i + 1]?.role !== m.role).map((m) => m.id));
-    // While the voice is on, a reply is revealed up to what has been said out loud: the caption and the
-    // audio then land together, instead of the text streaming a whole reply ahead of the voice reading
-    // it. Null whenever nothing is held back (voice off, a replay, the queue drained), and only ever on
-    // the reply being streamed now.
+    // While the voice is on, a reply is revealed up to what has been said out loud, so caption and audio
+    // land together. Null whenever nothing is held back (voice off, a replay, the queue drained).
     const speech = speaker.spoken;
     const caption = (id: string, content: string) => (speech === null || id !== replyId.current ? content : content.slice(0, speech));
     const live = caption(replyId.current, assistBuf);
@@ -537,8 +519,7 @@ export function InterviewChat({ interviewId, onExit }: Props) {
                                 if (mic.recording) mic.stop();
                                 else {
                                     // A talking interviewer would be transcribed into the answer (VOICE.md
-                                    // gotcha 7), and pressing the microphone is the applicant
-                                    // interrupting: the voice stops for them.
+                                    // gotcha 7). Pressing the microphone stops the voice for the applicant.
                                     speaker.stop();
                                     mic.start();
                                 }
@@ -578,10 +559,8 @@ export function InterviewChat({ interviewId, onExit }: Props) {
  *  puts it away, which is also how a second bulb takes over from this one. */
 const TipButton = memo(function TipButton({ comment }: { comment: string }) {
     const [open, setOpen] = useState(false);
-    // The bulb sits left of an answer that can be a whole screen wide, so the card's natural spot can
-    // land past the transcript's right edge, where it gets clipped and drags a scrollbar in. It slides
-    // back by the overflow, measured from the bulb rather than the card: a reopen must not measure the
-    // shift it applied last time.
+    // The bulb sits left of an answer that can be screen-wide, so the card can land past the right edge
+    // and drag a scrollbar in. It slides back by the overflow, measured from the bulb, not the card.
     const [shift, setShift] = useState(0);
     const ref = useRef<HTMLDivElement | null>(null);
     const cardRef = useRef<HTMLDivElement | null>(null);
@@ -650,9 +629,8 @@ const Bubble = memo(function Bubble({ from, content, streaming, thinking, moveCl
     useEffect(() => {
         const el = bodyRef.current;
         if (!el || !foldable || expanded) return;
-        // The box is the measure, and it has to be measured CLAMPED: only then does it report more
-        // content than it shows, which is what the toggle exists for. Re-run on width changes too,
-        // because a wider bubble pulls lines back over the fold.
+        // Measured CLAMPED: only then does the box report more content than it shows. Re-run on width
+        // changes too, or a wider bubble pulls lines back over the fold.
         const measure = () => setClipped(el.scrollHeight > el.clientHeight + 1);
         measure();
         const ro = new ResizeObserver(measure);

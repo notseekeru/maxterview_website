@@ -24,14 +24,10 @@ log = structlog.get_logger(__name__)
 ACCOUNT_ID = os.getenv("CLOUDFLARE_ACCOUNT_ID", "")
 API_TOKEN = os.getenv("CLOUDFLARE_API_TOKEN", "")
 STT_MODEL = os.getenv("CLOUDFLARE_STT_MODEL", "@cf/openai/whisper-large-v3-turbo")
-# Deepgram Aura-1, not MeloTTS: MeloTTS 500s on every request from this account and the Auras do not.
-# Aura is also the human voice the feature is for, and it is the scarce resource: roughly 1.4k-3.8k
-# neurons per run against a 10,000 a day allocation, where transcription costs a few hundred.
+# MeloTTS 500s on every request from this account, and Aura is the human voice the feature is for.
+# Aura is the scarce resource: roughly 1.4k-3.8k neurons per run of the daily allocation.
 TTS_MODEL = os.getenv("CLOUDFLARE_TTS_MODEL", "@cf/deepgram/aura-1")
-# The model's own default is `angus`, an Irish man: the interviewer's voice is cast, not inherited.
-# `hera` is Deepgram's adult American female, described as smooth, warm and professional. The other
-# Aura-1 female voices are asteria (confident, energetic), luna (young, friendly), athena (British,
-# calm) and stella (fast, casual).
+# The model's default is `angus`, an Irish man: the interviewer's voice is cast, not inherited.
 TTS_SPEAKER = os.getenv("CLOUDFLARE_TTS_SPEAKER", "hera")
 
 # A take is capped at 180s in the UI; 8MB is roughly four minutes of Opus, so this only catches a
@@ -50,17 +46,14 @@ TIMEOUT = httpx.Timeout(connect=10.0, read=60.0, write=30.0, pool=10.0)
 CONCURRENCY = int(os.getenv("VOICE_CONCURRENCY", "2"))
 _slots = asyncio.Semaphore(CONCURRENCY)
 
-# Synthesized lines, keyed on the voice that would say them: a replay asks for a line we already have,
-# so it stops costing neurons. The opener is generated per run (it used to be one fixed string shared by
-# every visitor, so it was a guaranteed hit), which is why the first line of a run is a miss. Only the
-# INTERVIEWER's lines ever reach this: no applicant audio is synthesized, so nothing here is a recording.
-# Bounded in bytes rather than entries because a clip's size tracks its text, and the pod is 256Mi.
+# Keyed on the voice that would say the line, so a replay costs no neurons, and bounded in bytes: a
+# clip's size tracks its text and the pod is 256Mi.
+# The opener is generated per run, so the first line is always a miss.
 CACHE_BYTES = int(os.getenv("VOICE_TTS_CACHE_BYTES", str(8 * 1024 * 1024)))
 _cache: OrderedDict[tuple[str, str, str], "Speech"] = OrderedDict()
 
 # One client per process, per event loop: a pool's connections belong to the loop that opened them.
-# TTS is one request per sentence and `_run` used to build a client per call, which put a TLS
-# handshake on the path to the first word (VOICE.md Limits).
+# A client per call put a TLS handshake on the path to the first word.
 _http: tuple[asyncio.AbstractEventLoop, httpx.AsyncClient] | None = None
 
 # Container magic bytes. Whisper needs a real container, and the browser's Content-Type is not proof of
@@ -75,9 +68,7 @@ class VoiceError(Exception):
 @dataclass(frozen=True)
 class Transcript:
     text: str
-    # Whisper turbo answers with SEGMENTS (start/end/text, 10 of them for a 90 second clip), not with
-    # per-word timings: pace and pause numbers read these, and word-level detail would need the
-    # non-turbo model.
+    # Whisper turbo returns SEGMENTS, not per-word timings: word-level detail needs the non-turbo model.
     segments: list[dict]
     # Detected language, logged because a wrong guess here is the first suspect when the text comes
     # back looking like nonsense.
@@ -253,9 +244,8 @@ async def transcribe(data: bytes, transcription: str = "transcribe") -> Transcri
         # run's cost and a mis-detected language readable out of Loki (VOICE.md gotcha 10).
         audio_s=info.get("duration"),
         language=info.get("language"),
-        # Measured, not estimated: the response reports the neurons it spent (87.26 for a 112s clip,
-        # which is the published 46.63 per audio minute). TTS returns raw audio, so its cost stays an
-        # estimate from characters.
+        # Measured, not estimated: the response reports the neurons it spent. TTS returns raw audio, so its
+        # cost stays an estimate from characters.
         neurons=usage.get("neurons"),
     )
     return Transcript(text=text.strip(), segments=segments, language=str(info.get("language") or ""))

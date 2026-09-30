@@ -4,15 +4,13 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { getUsage, type Tier } from "@/lib/api";
 
-// /dashboard?upgrade=pending — the return_url a redirect rail sends the customer back to after they pay.
-// The QR rail polls in place (see QrCheckout), so this only guards the redirect path.
-// The flip is asynchronous (PayMongo posts the webhook, `resolve_tier` reads the DB at read time), so
-// this is the "I paid and nothing happened" guard: poll a bounded window, then hand the user a manual
-// retry rather than leaving them staring at a Free badge.
+// /dashboard?upgrade=pending, the return_url a redirect rail sends the customer back to. The QR rail
+// polls in place (QrCheckout), so this guards the redirect path only.
+// The flip is asynchronous, so this is the "I paid and nothing happened" guard: poll a bounded window,
+// then hand the user a manual retry rather than a Free badge.
 //
-// On success we do a full `window.location.replace('/dashboard')` instead of patching state: the shell's
-// UsageBadge fetches once on mount, and a remount is the only way it, the BillingPage and this notice
-// all agree without an event bus. The navigation also strips the query param.
+// Success does a full `window.location.replace('/dashboard')`: the shell's UsageBadge fetches once on
+// mount, and a remount is the only way it, the BillingPage and this notice agree without an event bus.
 const POLL_MS = 5000;
 const POLL_ATTEMPTS = 12; // ~1 minute, then stop and let the user drive
 const COOLDOWN_MS = 1000; // floor between checks, poll or click
@@ -26,10 +24,9 @@ export function UpgradePendingNotice() {
     const last = useRef(0);
 
     const check = useCallback(async () => {
-        // RATE_LIMIT is one bucket per client for the whole API, not per route: unchecked clicking
-        // spends the same 120/min the chat and dashboard spend, so 10 clicks in a second is a
-        // self-inflicted 429 on the user's own session. A ref, not `cooling`: two clicks inside one
-        // tick would both read the same render.
+        // One rate-limit bucket per client for the whole API, not per route: unchecked clicking spends
+        // the chat's budget and 429s the user's own session. A ref, not state: two clicks in one tick
+        // would read the same render.
         if (Date.now() - last.current < COOLDOWN_MS) return;
         last.current = Date.now();
         setCooling(true);

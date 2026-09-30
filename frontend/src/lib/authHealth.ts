@@ -1,11 +1,8 @@
-// Env-misconfiguration detection: surface the classic mistakes (wrong secret in the
-// wrong var, placeholder still present, frontend/backend disagreeing about whether
-// Clerk is on) instead of a silent login failure or 401 soup.
+// Surfaces the classic env mistakes (secret in the wrong var, placeholder still there, frontend and
+// backend disagreeing about whether Clerk is on) instead of a silent login failure.
 
-// Clerk publishable keys always start pk_ (dev pk_test_, live pk_live_). A non-empty
-// key that does NOT start pk_ means the wrong secret was pasted into
-// VITE_CLERK_PUBLISHABLE_KEY (most often whsec_/sk_). In that state we must NOT boot
-// <ClerkProvider> — it would use a garbage key and nobody could ever sign in.
+// Publishable keys start pk_. A non-empty key that does not means a secret was pasted into
+// VITE_CLERK_PUBLISHABLE_KEY, and <ClerkProvider> must not boot: nobody could sign in.
 const clerkKey = (import.meta.env.VITE_CLERK_PUBLISHABLE_KEY as string | undefined) ?? "";
 
 const clerkKeyShapeValid = /^pk_/.test(clerkKey);
@@ -19,9 +16,8 @@ function originIsHttps(): boolean {
     return window.location.protocol === "https:";
 }
 
-// A production (pk_live_) key only authorizes its bound production origin. On any
-// non-https origin (localhost in dev) Clerk rejects it with an Origin/domain error
-// and no one can sign in — a classic trap worth a banner instead of a silent loop.
+// A pk_live_ key only authorizes its bound production origin, so on localhost Clerk rejects it with an
+// Origin error and nobody can sign in. Worth a banner rather than a silent loop.
 function isLiveKeyOnNonProdOrigin(): boolean {
     return clerkKey.startsWith("pk_live_") && !originIsHttps();
 }

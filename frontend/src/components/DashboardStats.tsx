@@ -18,10 +18,8 @@ interface Props {
     dims: InterviewDims;
 }
 
-// Full-width stats surface: a 4-up stat row, then trend + dimensions side by side. Sizes are
-// VIEWPORT breakpoints on purpose — this is a top-level page, not a column inside one, so
-// `xl:grid-cols-4` gives ~380px tiles instead of the ~110px it used to hand out when the same
-// grid lived inside a 3/5 column of a max-w-4xl page.
+// Full-width surface: a 4-up stat row, then trend + dimensions side by side. Sizes are VIEWPORT
+// breakpoints on purpose, because this is a top-level page and not a column inside one.
 export function DashboardStats({ loading, dims, stats, statsError }: Props) {
     if (loading) {
         return (
@@ -113,10 +111,8 @@ function Stat({ label, value, hint }: { label: string; value: string; hint?: str
     );
 }
 
-// The 1-10 dimensions, now secondary (backend app/rating.py owns the primary reading). Averaged over
-// the runs that reported each dimension; a dimension nobody probed is simply absent (see the
-// "not assessed" reading in lib/dimensions.ts), never a zero. Both series are averages on purpose: a
-// single run's holes are noise, the newest handful reads as form.
+// Secondary to the move review. Averaged over the runs that reported each dimension: a dim nobody
+// probed is absent, never a zero. One run's holes are noise, the newest handful reads as form.
 const RADAR_CONFIG: ChartConfig = {
     recent: { label: "Recent runs", color: "var(--chart-1)" },
     average: { label: "All-time average", color: "var(--chart-2)" },
@@ -129,9 +125,8 @@ function avg(nums: number[]): number {
 
 const round1 = (n: number) => Math.round(n * 10) / 10;
 
-// Radar, not tiles: ten 1-10 dims is where a tile grid stops reading, and a polygon shows the SHAPE
-// of the run - a collapsed substance axis is one glance, not ten numbers to compare. The exact
-// values it cannot give are the per-axis rollup underneath (and the full list in the review page).
+// Radar, not tiles: ten dims is where a tile grid stops reading, and a collapsed axis is one glance
+// rather than ten numbers to compare. The per-axis rollup underneath carries the exact values.
 function DimensionScores({ stats, error }: { stats: InterviewDimensions | null; error?: string | null }) {
     // The server owns the averaging and the rounding; this component only re-keys them for the radar.
     const averages = stats?.averages ?? {};

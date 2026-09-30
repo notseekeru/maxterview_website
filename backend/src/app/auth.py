@@ -18,16 +18,12 @@ CLERK_ENABLED = os.getenv("CLERK_ENABLED", "false").lower() == "true"
 CLERK_DOMAIN = os.getenv("CLERK_DOMAIN", "")
 CLERK_JWKS_URL = os.getenv("CLERK_JWKS_URL", "")
 CLERK_AUDIENCE = os.getenv("CLERK_AUDIENCE", "")
-# Backend API credential, only for the user lookup below: session token carries no email address.
-# Empty = claim-only, exactly the old behaviour.
+# Session token carries no email, so billing needs this. Empty = claim-only.
 CLERK_SECRET_KEY = os.getenv("CLERK_SECRET_KEY", "")
-# Backend API has its OWN host: CLERK_DOMAIN is the frontend/JWKS instance and answers 404 for
-# /v1/users (verified). Overridable for a non-US Clerk host.
+# Backend API has its OWN host, not CLERK_DOMAIN.
 CLERK_API_BASE = os.getenv("CLERK_API_BASE", "https://api.clerk.com")
 
-# Clerk stamps `iat` from ITS clock and PyJWT rejects `iat > now` outright, so sub-second skew 401s
-# a brand-new session's FIRST request (live 2026-09-12: JWT -> 401, same token -> 200 one second
-# later). Covers `nbf`/`exp` too.
+# Clerk's clock is not ours: sub-second skew 401s a brand-new session without this leeway.
 JWT_LEEWAY_S = 10
 
 # Identity only when CLERK_ENABLED=false (dev/test); main.py guard enforces.

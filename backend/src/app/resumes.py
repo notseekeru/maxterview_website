@@ -24,9 +24,8 @@ log = structlog.get_logger(__name__)
 MAX_BYTES = int(os.getenv("RESUME_MAX_BYTES", str(2 * 1024 * 1024)))
 MAX_PAGES = int(os.getenv("RESUME_MAX_PAGES", "15"))
 MAX_CHARS = int(os.getenv("RESUME_MAX_CHARS", "60000"))
-# Concurrent parses. pypdf is pure-Python and synchronous, so a burst is a burst of GIL-bound
-# threads each holding a whole document in RAM: with `replicas: 1` an unbounded surge is an OOMKill
-# (a full outage), not a slow upload. Two is plenty for a person uploading a CV.
+# pypdf is synchronous and pure-Python, so each parse holds a whole document in RAM: with `replicas: 1`
+# an unbounded surge is an OOMKill, not a slow upload.
 PARSE_CONCURRENCY = int(os.getenv("RESUME_PARSE_CONCURRENCY", "2"))
 
 _PDF_MAGIC = b"%PDF-"

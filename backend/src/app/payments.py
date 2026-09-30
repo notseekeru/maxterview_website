@@ -74,9 +74,6 @@ REFUND_SETTLED = "succeeded"
 # what makes the downgrade take effect on the next read with no scheduled job.
 REVOKED_REFUND = "refunded"
 
-# Fallback deadline, used only when the intent carries none of its own. PayMongo never ages an
-# abandoned intent out (an 11-day-old one still reads `awaiting_next_action`), and a QR Ph code dies
-# 30 minutes after it is drawn, so the window has to come from the artifact.
 QR_TTL_MIN = 30
 
 
@@ -91,9 +88,7 @@ def _resubscribe_block(row: dict | None, now: datetime | None = None) -> str:
         return ""
     now = now or datetime.now(UTC)
     if row.get("status") == "incomplete":
-        # Checked before the period branch: an incomplete subscription has no period yet, and while
-        # the first-payment link is alive a second subscription is a second charge for the same
-        # first month. Subscription mode only — period mode goes through `_resume_or_block`.
+        # A second subscription while the first payment link is alive is a second charge.
         started = row.get("updated_at")
         if started is None or (now - started).total_seconds() < FIRST_PAYMENT_WINDOW_H * 3600:
             return "A first payment is already pending. Finish it, or retry after it expires (24h)"
@@ -251,14 +246,8 @@ async def start_period_purchase(user: ClerkUser) -> dict:
         },
     )
     intent_id = intent["data"]["id"]
-    # `provider_subscription_id` holds the intent id: that is the column `_owner_for` resolves from
-    # (PayMongo's `payment.paid` carries `payment_intent_id`, and a refund reaches it through
-    # `_intent_of_payment`), so period mode needs no migration.
-    # AI HERE: one handle per owner, one period per payment; stacked renewals would want a ledger
-    # keyed by provider id. Revocation itself needs none (`_revoke` writes the row in place).
-    # Row AFTER the payable artifact, still before the browser can show it. A method the account
-    # refuses (`payment_method_not_allowed`) would leave an intent nobody can pay, and a row for it
-    # would block the owner's retry.
+    # `provider_subscription_id` holds the intent id, the column `_owner_for` resolves from.
+    # A refused method must not leave a row blocking the owner's retry.
     payable = await _payable_intent(intent_id, PERIOD_METHODS[0])
     await _upsert(user.sub, customer_id, intent_id, "", "premium", "incomplete", None)
     return payable
@@ -341,11 +330,7 @@ async def _ensure_customer(user: ClerkUser, email: str) -> str:
             },
         )
     except HTTPException:
-        # PayMongo refuses a second customer for one email (measured: 422 "A customer with this email
-        # already exists"), which is reachable whenever the row holding the first id is gone — a
-        # restore, a cleanup, a swapped provider. Reuse it: the email IS the key PayMongo holds, so
-        # re-raising would wedge that address on checkout for good. Its list endpoint REQUIRES an
-        # email or phone filter (400 without one), so this is an exact lookup, not a scan.
+        # Re-raising would wedge that address on checkout for good.
         found = (await _api("GET", "/v1/customers", params={"email": email, "limit": 100})).get("data") or []
         match = next((c["id"] for c in found if ((c.get("attributes") or {}).get("email") or "").lower() == email.lower()), "")
         if not match:
@@ -416,10 +401,7 @@ async def handle_webhook_event(event: dict) -> None:
     elif resource.get("type") == "invoice":
         await _on_invoice(etype, attrs)
     elif etype in REFUND_EVENTS or resource.get("type") == "refund":
-        # Keyed on the resource as well as the name: PayMongo's docs already carry `refund.succeeded`
-        # (unregistrable here today), and a refund resource that never settled writes nothing.
-        # Before the payment branch: `payment.refunded` may embed the payment itself, which
-        # `_on_payment` would ignore (it only credits `*.paid`).
+        # `payment.refunded` can embed the payment, which `_on_payment` ignores (it credits only `*.paid`).
         await _on_refund(etype, resource, attrs)
     elif resource.get("type") in ("payment", "payment_intent"):
         await _on_payment(etype, resource, attrs)
@@ -583,10 +565,7 @@ async def _intent_view(intent_id: str) -> tuple[str, datetime | None, dict]:
 
 async def _on_subscription(attrs: dict) -> None:
     subs_id = attrs.get("id") or ""
-    # Strict on purpose: only the subscription id currently stored on the row may resolve an owner.
-    # Falling back to `customer_id` here would let a STALE event (out-of-order delivery is documented
-    # by PayMongo: a late `cancelled` for a subscription the user already replaced) overwrite the live
-    # row — downgrading a paying customer and pointing their row at a dead subscription.
+    # A `customer_id` fallback would let a stale event for a replaced subscription downgrade a payer.
     owner = await _owner_for(subscription_id=subs_id)
     if not owner:
         if subs_id:
@@ -612,10 +591,7 @@ async def _on_invoice(etype: str, attrs: dict) -> None:
     if not owner:
         return
     if etype == "subscription.invoice.paid":
-        # The strongest "money arrived" signal — it recovers a lapsed-but-live subscription. It does
-        # NOT resurrect a cancelled or 24h-expired one: those are deliberate end states, and a
-        # cancelled subscription can still have collectible open invoices (PayMongo keeps them).
-        # `current_period_end` is left to the subscription events, which carry next_billing_schedule.
+        # Recovers a lapsed-but-live subscription, never a cancelled or self-cancelled one.
         await fetchrow(
             """
             UPDATE subscriptions SET plan = 'premium', status = 'active', updated_at = now()

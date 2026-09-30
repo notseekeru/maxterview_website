@@ -16,9 +16,8 @@ from typing import Any, NamedTuple
 from app import levels
 from app.dimensions import DIMENSION_AXES
 
-# USD annual base, per target level: (floor, ceiling, title prefix). `any` is priced as mid - the
-# target level was never set, and guessing seniority off a role string is how a mock interview ends up
-# paying a junior a principal's band.
+# (floor, ceiling, title prefix) per level. `any` prices as mid: guessing seniority off a role string is
+# how a junior gets a principal's band.
 MID: tuple[int, int, str] = (110_000, 150_000, "")
 BANDS: dict[str, tuple[int, int, str]] = {
     "intern": (45_000, 70_000, "Intern"),
@@ -30,11 +29,8 @@ BANDS: dict[str, tuple[int, int, str]] = {
     "any": MID,
 }
 
-# What prices the offer, and how much. Communication carries half because this is a communication
-# assessment: it is the axis a transcript can actually evidence. Substance and the move review vote
-# only when the run has something to score them on - see performance(). Profile (ownership,
-# collaboration, growth) is deliberately unpriced: it is the axis a single interview reads least
-# reliably, and paying for it would turn a vibe into a number.
+# Communication carries half: it is the axis a transcript can actually evidence. Profile is deliberately
+# unpriced: a single interview reads it least reliably, so paying for it turns a vibe into a number.
 WEIGHTS: dict[str, float] = {"communication": 0.5, "substance": 0.25, "accuracy": 0.25}
 
 # Performance -> what the letter calls it (slug, floor, label). The percentages above are the number,
@@ -63,9 +59,8 @@ class Rung(NamedTuple):
     value: str
 
 
-# Ascending by threshold: the rung order is the progression, which is what the analytics page draws.
-# Thresholds are deliberately spread over the 0-100 scale so a history of runs is partly a history of
-# benefits earned and partly one of benefits missed.
+# Ascending by threshold: the order IS the progression the analytics page draws. Spread over the scale so
+# a history is partly benefits earned and partly benefits missed.
 LADDER: tuple[Rung, ...] = (
     Rung("health", "Health insurance", 20, "Medical, dental and vision premiums covered"),
     Rung("retirement", "401(k) match", 30, "4% of base, vested immediately"),
@@ -144,7 +139,7 @@ def performance(scores: dict[str, Any], accuracy: int | None) -> int | None:
     for axis in ("communication", "substance"):
         mean = _axis_mean(scores, axis)
         if mean is not None:
-            # 1-10 -> 0-1 off the scale's own floor: a 1 is no performance, not 10%.
+            # Off the scale's own floor: the lowest score is no performance, not a tenth of one.
             signals.append((WEIGHTS[axis], (min(10.0, max(1.0, mean)) - 1) / 9))
     if accuracy is not None:
         signals.append((WEIGHTS["accuracy"], min(100, max(0, accuracy)) / 100))
@@ -171,9 +166,8 @@ def terms(role: str, level: str, scores: dict[str, Any], accuracy: int | None) -
         return None
     floor, ceiling, _ = band_range(level)
     base = _round_to(floor + (ceiling - floor) * perf / 100, 500)
-    # Both are gated at the middle of the ladder: an offer below the bar pays the band floor and PTO,
-    # which is what a letter looks like when the run was weak, and it keeps equity from reading as a
-    # participation trophy at the bottom.
+    # Both gated mid-ladder: below the bar pays the band floor and PTO, which keeps equity from reading
+    # as a participation trophy.
     equity = 0 if perf < 30 else _round_to(base * (0.02 + 0.18 * perf / 100), 1000)
     signing = 0 if perf < 45 else _round_to(base * 0.10 * (perf - 45) / 55, 500)
     return Terms(title(role, level), band_key(level), base, signing, equity, perf, benefits(perf))

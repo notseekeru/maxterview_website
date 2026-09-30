@@ -16,9 +16,8 @@ import { DECISIONS, decisionLabel, isHiring } from "@/lib/interviewOptions";
 import { gradeTone, MOVE_CLASSES, moveClassMeta } from "@/lib/moveClasses";
 import { cn } from "@/lib/utils";
 
-// /analytics — the deep dive behind the dashboard's tiles. Every chart, every offer letter and the raw
-// run log come from ONE aggregate request (GET /stats/analytics), and the page is split into the
-// sections the strip below jumps to, so a long history is navigable instead of scrolled.
+// The deep dive behind the dashboard's tiles: every chart, offer letter and the run log come from ONE
+// aggregate request, and the page is split into the sections the strip below jumps to.
 const TITLE = "Analytics";
 const DESCRIPTION = "Every run you have started, and what the numbers say about them.";
 
@@ -282,9 +281,8 @@ function MoveBreakdown({ counts }: { counts: Analytics["move_classes"] }) {
     );
 }
 
-// Ten 1-10 dims is past where a line chart reads, so only the three axis means are drawn and the
-// per-dim breakdown is the table beside it. Each run collapses to its per-axis mean FIRST (a run that
-// scored two substance dims counts once), then those run means average across the day.
+// Ten dims is past where a line chart reads, so only the three axis means are drawn. Each run collapses
+// to its per-axis mean FIRST, then those run means average across the day.
 function DimensionHistory({ runs }: { runs: AnalyticsRun[] }) {
     const scored = runs.filter((r) => Object.keys(r.scores).length > 0);
     const keys = orderDims([...new Set(scored.flatMap((r) => Object.keys(r.scores)))]);
@@ -639,12 +637,11 @@ function AnswerMix({ run }: { run: AnalyticsRun }) {
     );
 }
 
-// Rating order, best -> worst, derived from lib/moveClasses so a class added to the rubric appears
-// here without an edit.
+// Best -> worst, derived from lib/moveClasses so a class added to the rubric appears without an edit.
 //
-// ONE scale, two renderers: the chart paints an SVG shape (explicit fill + opacity), the run log's dot
-// is HTML (a bg-* class). The tokens are literals because Tailwind only extracts class names it can
-// see in the source - a computed `bg-[var(--chart-${n})]` never reaches the stylesheet.
+// ONE scale, two renderers: the chart paints SVG (explicit fill + opacity), the run log's dot is HTML.
+// Tokens are literals: Tailwind only extracts class names it can see, so a computed
+// `bg-[var(--chart-${n})]` never reaches the stylesheet.
 const MOVE_ORDER = MOVE_CLASSES.map((m) => m.value);
 const MOVE_SCALE: Record<string, { chart: string; bg: string; opacity: number }> = {
     brilliant: { chart: "var(--chart-1)", bg: "bg-[var(--chart-1)]", opacity: 1 },
@@ -656,9 +653,8 @@ const MOVE_SCALE: Record<string, { chart: string; bg: string; opacity: number }>
     blunder: { chart: "var(--chart-5)", bg: "bg-[var(--chart-5)]", opacity: 1 },
 };
 
-// Display order: the hiring end first, which is the direction the page reads in. Values and labels
-// come from lib/interviewOptions so a decision added to the spectrum cannot go missing here; only the
-// bar TONE is this page's (strength = the primary token, worst = destructive).
+// Hiring end first, the direction the page reads in. Values and labels come from lib/interviewOptions so
+// a decision added to the spectrum cannot go missing; only the bar tone is this page's.
 const DECISION_TONES: Record<string, string> = {
     hire: "bg-[var(--chart-1)]",
     lean_hire: "bg-[var(--chart-2)]",
