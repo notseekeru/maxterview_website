@@ -5,7 +5,7 @@ import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { useDocumentTitle } from "@/hooks/useDocumentTitle";
 import type { MoveClass } from "@/lib/api";
-import { MOVE_CLASSES, moveClassMeta } from "@/lib/moveClasses";
+import { gradeTone, MOVE_CLASSES, moveClassMeta } from "@/lib/moveClasses";
 import { PLANS } from "@/lib/plans";
 import { cn } from "@/lib/utils";
 
@@ -40,6 +40,34 @@ const TURN_LOG: { turn: string; answer: string; note: MoveClass; delta: string }
     { turn: "04", answer: "Two years on the billing service, mostly Go.", note: "good", delta: "+6" },
     { turn: "05", answer: "We sharded on tenant id, then backfilled in batches.", note: "great", delta: "+11" },
     { turn: "06", answer: "Kafka, because it scales.", note: "blunder", delta: "−9" },
+];
+
+// Specimen dashboard. Same four headline numbers the real dashboard shows, so the page cannot
+// promise a metric the product does not compute. Accuracies are whole numbers from 0-100 because
+// the API sends the derived integer (rating.accuracy), not a 1-10 average.
+const ANALYTICS_STATS = [
+    { label: "Interviews", value: "14" },
+    { label: "Finished", value: "12" },
+    { label: "Avg accuracy", value: "74%", hint: "from 12 of 12 rated" },
+    { label: "Hire rate", value: "58%", hint: "7 of 12 decided" },
+];
+
+const TREND: number[] = [41, 48, 44, 57, 63, 59, 68, 71, 66, 74, 74];
+
+const TREND_PATH = (() => {
+    const step = 100 / (TREND.length - 1);
+    return TREND.map((v, i) => `${i === 0 ? "M" : "L"}${(i * step).toFixed(2)} ${(32 - (v / 100) * 32).toFixed(2)}`).join(" ");
+})();
+
+// Specimen run log. Mirrors the analytics table: one row per finished run, with the grade and the
+// hiring call the API stores on the row. The F row is a hardcore failure: its accuracy is still the
+// number the earlier answers averaged to, and only the letter is forced to F by the turn that ended
+// the run. That mechanic appears nowhere else on this page.
+const RUN_LOG: { date: string; role: string; accuracy: string; grade: "S" | "A" | "B" | "C" | "D" | "F"; decision: string }[] = [
+    { date: "02/14", role: "Backend engineer", accuracy: "74%", grade: "B", decision: "Lean hire" },
+    { date: "02/11", role: "Platform engineer", accuracy: "66%", grade: "C", decision: "Lean hire" },
+    { date: "02/09", role: "Backend engineer", accuracy: "52%", grade: "F", decision: "Reject" },
+    { date: "02/06", role: "Backend engineer", accuracy: "71%", grade: "B", decision: "Lean hire" },
 ];
 
 const STEPS = [
@@ -268,6 +296,64 @@ export function Landing() {
                                                     </tr>
                                                 );
                                             })}
+                                        </tbody>
+                                    </table>
+                                </figure>
+                            </Reveal>
+
+                            {/* Specimen, like the turn log above it. The analytics half of the product had no
+                                artifact on this page: four headline numbers and the trend are what the dashboard
+                                actually renders after a few runs. */}
+                            <Reveal delay={0.1} className="mt-14">
+                                <figure className="overflow-hidden rounded-xl border">
+                                    <div className="flex items-baseline justify-between gap-6 border-b bg-muted/40 px-3 py-3 sm:px-5">
+                                        <span className={LABEL}>Progress</span>
+                                        <span className={cn(LABEL, "opacity-70")}>Specimen</span>
+                                    </div>
+                                    <dl className="grid grid-cols-2 gap-px bg-border lg:grid-cols-4">
+                                        {ANALYTICS_STATS.map((s) => (
+                                            <div key={s.label} className="bg-background px-4 py-5 sm:px-5">
+                                                <dt className={cn(LABEL, "opacity-70")}>{s.label}</dt>
+                                                <dd className="mt-3 font-serif text-4xl leading-none tracking-[-0.03em] tabular-nums">{s.value}</dd>
+                                                {s.hint && <p className="mt-2 font-mono text-[0.6rem] tabular-nums text-muted-foreground">{s.hint}</p>}
+                                            </div>
+                                        ))}
+                                    </dl>
+                                    <div className="border-t px-4 py-5 sm:px-5">
+                                        <div className="flex items-baseline justify-between gap-4">
+                                            <span className={cn(LABEL, "opacity-70")}>Accuracy trend</span>
+                                            <span className="font-mono text-[0.6rem] tabular-nums text-muted-foreground">last {TREND.length} rated runs</span>
+                                        </div>
+                                        <svg viewBox="0 0 100 32" preserveAspectRatio="none" aria-label={`Accuracy across the last ${TREND.length} rated runs, from ${TREND[0]}% to ${TREND[TREND.length - 1]}%`} className="mt-4 h-16 w-full">
+                                            <path d={`${TREND_PATH} L100 32 L0 32 Z`} fill="var(--chart-1)" fillOpacity={0.08} />
+                                            {/* The 100-wide viewBox is stretched to the card, so strokeWidth 0.6
+                                                would scale with it. vectorEffect pins the stroke to one
+                                                device-space hairline at any width. */}
+                                            <path d={TREND_PATH} fill="none" stroke="var(--chart-1)" strokeWidth={1.5} vectorEffect="non-scaling-stroke" />
+                                        </svg>
+                                    </div>
+                                    <table className="w-full border-collapse border-t text-sm">
+                                        <thead>
+                                            <tr className="border-b">
+                                                {["Run", "Role", "Accuracy", "Grade", "Call"].map((h, i) => (
+                                                    <th key={h} scope="col" className={cn(LABEL, "px-3 py-3 font-normal sm:px-5", i >= 2 ? "text-right" : "text-left")}>
+                                                        {h}
+                                                    </th>
+                                                ))}
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {RUN_LOG.map((r) => (
+                                                <tr key={r.date} className="border-b last:border-b-0">
+                                                    <td className="px-3 py-3.5 font-mono text-xs tabular-nums text-muted-foreground sm:px-5">{r.date}</td>
+                                                    <td className="px-3 py-3.5 font-serif text-base tracking-[-0.01em] sm:px-5">{r.role}</td>
+                                                    <td className="px-3 py-3.5 text-right font-mono text-xs tabular-nums sm:px-5">{r.accuracy}</td>
+                                                    <td className="px-3 py-3.5 text-right sm:px-5">
+                                                        <span className={cn("inline-flex size-7 items-center justify-center rounded-md border text-[0.7rem] font-semibold", gradeTone(r.grade))}>{r.grade}</span>
+                                                    </td>
+                                                    <td className="px-3 py-3.5 text-right text-xs text-muted-foreground sm:px-5">{r.decision}</td>
+                                                </tr>
+                                            ))}
                                         </tbody>
                                     </table>
                                 </figure>
