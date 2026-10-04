@@ -1,10 +1,7 @@
-Landing-page media. Photos are Unsplash stock (Unsplash License: free commercial use, no
-attribution required; credited here for provenance). The hero recording is our own screen capture.
-Re-fetch a photo crop with ?w=<width>&q=85&fm=jpg on the `photo-…` URL. Photos are committed as
-grayscale 1600/800-wide or 240px-square crops; the video is re-encoded, not the raw capture.
-
-Subject rule: one person at a screen, or an empty desk. Never a candidate facing an interviewer.
-Those photos read as a human-led interview, which is the opposite of what this product is.
+Landing-page media. There is exactly one asset here and it is ours: the hero recording is a screen
+capture of this product, re-encoded rather than shipped raw. Every photograph that used to sit beside
+it was Unsplash stock and has been removed: the page is type, hairlines, a dot grid and the product's
+own output now, so there is nothing third-party left to license or attribute.
 
 demo-hero.mp4                                 screen recording of a practice run, 8x speed
     1280x668, 30fps, no audio, 1.2MB. Built from a 1900x992/60fps capture:
@@ -15,11 +12,6 @@ demo-hero.mp4                                 screen recording of a practice run
 demo-hero-poster.jpg, demo-hero-poster-800.jpg frame 25 (t=6.25s) of demo-hero.mp4, 1600x600 / 800x300
     Must stay the frame the video starts on (VIDEO_START in Landing.tsx), or the still-to-motion
     swap shows a cut.
-step-1-setup.jpg                              person writing on white paper
-    https://images.unsplash.com/photo-1627514818551-db74fc995e9b
-step-2-answer.jpg                             a hand typing on a laptop keyboard
-    https://images.unsplash.com/photo-1760886671236-28a22dec4039
-step-3-review.jpg                             chess pieces on a chess board
-    https://images.unsplash.com/photo-1611195974226-a6a9be9dd763
-cta-desk-night.jpg, cta-desk-night-800.jpg    laptop on a desk at night, city lights
-    https://images.unsplash.com/photo-1788341977051-6af565ebc960
+
+Fonts live in frontend/public/fonts (Inter, Fraunces, JetBrains Mono; latin cut plus a ~1.5KB peso cut
+per family). CSS declares and range-gates them in frontend/src/index.css.
