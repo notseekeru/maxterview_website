@@ -183,17 +183,20 @@ export function Landing() {
 
                             <m.div initial={{ opacity: 0, y: 40 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 1.1, ease: GLIDE, delay: 0.68 }} className={cn(SHELL, "mt-16")}>
                                 <figure className="overflow-hidden rounded-xl border bg-card shadow-xl shadow-black/5 dark:shadow-black/50">
-                                    <div aria-hidden className="flex items-center gap-3 border-b bg-muted/40 px-4 py-2.5">
-                                        <span className="flex gap-1.5">
+                                    {/* figcaption has to be a direct child of figure, and it has to stay out of
+                                        the aria-hidden group: the traffic lights are decoration, the label is the
+                                        figure's accessible name. */}
+                                    <figcaption className={cn(LABEL, "flex items-center gap-3 border-b bg-muted/40 px-4 py-2.5")}>
+                                        <span aria-hidden className="flex gap-1.5">
                                             {[0, 1, 2].map((i) => (
                                                 <span key={i} className="size-2 rounded-full border bg-background" />
                                             ))}
                                         </span>
-                                        <figcaption className={cn(LABEL, "mx-auto flex items-center gap-2")}>
-                                            <span className="animate-breathe size-1.5 rounded-full bg-foreground" />
+                                        <span className="mx-auto flex items-center gap-2">
+                                            <span aria-hidden className="animate-breathe size-1.5 rounded-full bg-foreground" />
                                             recorded run
-                                        </figcaption>
-                                    </div>
+                                        </span>
+                                    </figcaption>
                                     <div className="relative isolate aspect-[8/3]">
                                         <img
                                             src="/assets/landing/demo-hero-poster.jpg"
@@ -241,7 +244,7 @@ export function Landing() {
                                     <table className="w-full border-collapse text-sm">
                                         <thead>
                                             <tr className="border-b">
-                                                {["Turn", "Answer", "Class", "Δ"].map((h, i) => (
+                                                {["Turn", "Answer", "Class", "Delta"].map((h, i) => (
                                                     <th key={h} scope="col" className={cn(LABEL, "px-5 py-3 font-normal", i === 2 || i === 3 ? "text-right" : "text-left")}>
                                                         {h}
                                                     </th>
@@ -338,14 +341,15 @@ export function Landing() {
                                 <Folio n="03" label="Pricing" />
                                 <h2 className="mt-10 max-w-[24ch] font-serif text-[clamp(1.9rem,3.4vw,3.25rem)] leading-[1.06] tracking-[-0.025em] text-balance">Pricing</h2>
                             </Reveal>
-                            {/* Uneven split: the paid plan gets the width and the tint. Two equal cards read as a
-                                comparison table, which is not the decision this section is asking for. */}
+                            {/* Uneven split: the paid plan gets the width. Emphasis is the border, not a fill:
+                                a 3% tint behind the plan's own --muted-foreground items measures 4.43:1, under
+                                AA, while the same text on plain white is 4.74:1. */}
                             <div className="mt-14 grid grid-cols-1 gap-4 lg:grid-cols-12">
                                 {(["free", "premium"] as const).map((id, i) => {
                                     const plan = PLANS[id];
                                     const premium = id === "premium";
                                     return (
-                                        <Reveal key={id} delay={i * 0.08} className={cn("flex flex-col gap-6 rounded-xl border p-8", premium ? "lg:col-span-7 lg:bg-foreground/[0.03] lg:p-10" : "lg:col-span-5")}>
+                                        <Reveal key={id} delay={i * 0.08} className={cn("flex flex-col gap-6 rounded-xl border p-8", premium ? "lg:col-span-7 lg:border-foreground/40 lg:p-10" : "lg:col-span-5")}>
                                             <div className="flex items-baseline justify-between gap-3 border-b pb-6">
                                                 <h3 className={LABEL}>{plan.name}</h3>
                                                 <span className={cn("font-serif tabular-nums tracking-[-0.03em]", premium ? "text-5xl" : "text-4xl")}>

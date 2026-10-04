@@ -15,3 +15,16 @@ demo-hero-poster.jpg, demo-hero-poster-800.jpg frame 25 (t=6.25s) of demo-hero.m
 
 Fonts live in frontend/public/fonts (Inter, Fraunces, JetBrains Mono; latin cut plus a ~1.5KB peso cut
 per family). CSS declares and range-gates them in frontend/src/index.css.
+
+symbols.woff2                                 the grade marks, U+25A4/25CB/2605/2713/2715/2717
+    1.3KB subset of Noto Sans Symbols 2 (SIL OFL 1.1, github.com/google/fonts/ofl/notosanssymbols2).
+    None of the three text families carries these codepoints, so without it every mark (the lexicon,
+    the class tiles, the turn log) is drawn by whatever symbol font the OS happens to ship and the
+    page looks different on each platform. Rebuild:
+    curl -sSLO https://raw.githubusercontent.com/google/fonts/main/ofl/notosanssymbols2/NotoSansSymbols2-Regular.ttf
+    pyftsubset NotoSansSymbols2-Regular.ttf \
+      --unicodes=U+0394,U+2192,U+22EE,U+258B,U+25A4,U+25CB,U+2605,U+2713,U+2715,U+2717 \
+      --flavor=woff2 --layout-features='' --no-hinting --desubroutinize --output-file=symbols.woff2
+    Only those six landed: the source face has no U+0394/2192/22EE/258B, so nothing is lost by listing
+    them. U+0394 is Greek and lives in a Noto Sans subset; U+2192 in Noto Sans Symbols (v1); U+22EE
+    and U+258B in neither. Those three fall back on the app pages that use them (none on the landing).
