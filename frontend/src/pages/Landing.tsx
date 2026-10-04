@@ -150,7 +150,10 @@ export function Landing() {
                                     <span className="animate-breathe size-1.5 rounded-full bg-foreground" />
                                     AI mock interviews
                                 </m.p>
-                                <h1 className="mt-6 max-w-[18ch]">
+                                {/* rem, not `ch`: the display size lives on the masked child, so a `ch` cap here
+                                    would resolve against this element's inherited 16px and clip the headline
+                                    against the overflow-hidden mask. Must stay font-size independent. */}
+                                <h1 className="mt-6 max-w-[46rem]">
                                     {/* The mask is the wrapper and the padding lives on the moving child: the
                                         child has to stay at least as tall as its own descenders or the clip
                                         guillotines the p/y/q in the headline, and the mask's negative margin
@@ -237,7 +240,7 @@ export function Landing() {
                                 grader; this is the grader's actual output shape, in the product's own vocabulary. */}
                             <Reveal delay={0.1} className="mt-14">
                                 <figure className="overflow-hidden rounded-xl border">
-                                    <div className="flex items-baseline justify-between gap-6 border-b bg-muted/40 px-5 py-3">
+                                    <div className="flex items-baseline justify-between gap-6 border-b bg-muted/40 px-3 py-3 sm:px-5">
                                         <span className={LABEL}>Turn log</span>
                                         <span className={cn(LABEL, "opacity-70")}>Specimen</span>
                                     </div>
@@ -245,7 +248,7 @@ export function Landing() {
                                         <thead>
                                             <tr className="border-b">
                                                 {["Turn", "Answer", "Class", "Delta"].map((h, i) => (
-                                                    <th key={h} scope="col" className={cn(LABEL, "px-5 py-3 font-normal", i === 2 || i === 3 ? "text-right" : "text-left")}>
+                                                    <th key={h} scope="col" className={cn(LABEL, "px-3 py-3 font-normal sm:px-5", i === 2 || i === 3 ? "text-right" : "text-left")}>
                                                         {h}
                                                     </th>
                                                 ))}
@@ -256,12 +259,12 @@ export function Landing() {
                                                 const meta = moveClassMeta(row.note);
                                                 return (
                                                     <tr key={row.turn} className="border-b last:border-b-0">
-                                                        <td className={cn("px-5 py-4 font-mono text-xs tabular-nums text-muted-foreground")}>{row.turn}</td>
-                                                        <td className="px-5 py-4 font-serif text-base tracking-[-0.01em]">{row.answer}</td>
-                                                        <td className="px-5 py-4 text-right">
+                                                        <td className={cn("px-3 py-4 font-mono text-xs tabular-nums text-muted-foreground sm:px-5")}>{row.turn}</td>
+                                                        <td className="px-3 py-4 font-serif text-base tracking-[-0.01em] sm:px-5">{row.answer}</td>
+                                                        <td className="px-3 py-4 text-right sm:px-5">
                                                             <span className={cn("inline-flex size-7 items-center justify-center rounded-md border text-[0.7rem] font-semibold", meta?.tone)}>{meta?.glyph}</span>
                                                         </td>
-                                                        <td className={cn("px-5 py-4 text-right font-mono text-xs tabular-nums", row.delta.startsWith("+") ? "text-foreground" : "text-muted-foreground")}>{row.delta}</td>
+                                                        <td className={cn("px-3 py-4 text-right font-mono text-xs tabular-nums sm:px-5", row.delta.startsWith("+") ? "text-foreground" : "text-muted-foreground")}>{row.delta}</td>
                                                     </tr>
                                                 );
                                             })}
