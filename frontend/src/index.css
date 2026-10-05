@@ -105,6 +105,7 @@
     --color-accent-foreground: var(--accent-foreground);
     --color-destructive: var(--destructive);
     --color-destructive-foreground: var(--destructive-foreground);
+    --color-success: var(--success);
     --color-border: var(--border);
     --color-input: var(--input);
     --color-ring: var(--ring);
@@ -137,6 +138,9 @@
     --accent-foreground: #0a0a0a;
     --destructive: #a00000;
     --destructive-foreground: #ffffff;
+    /* The one token outside the monochrome palette: the plan matrix's ✓ is the only state on the
+       site that has to read as positive at 16px, where a black glyph reads as decoration. */
+    --success: #15803d;
     --border: #e5e5e5;
     --input: #e5e5e5;
     --ring: #000000;
@@ -168,6 +172,7 @@
     --accent-foreground: #fafafa;
     --destructive: #ff9999;
     --destructive-foreground: #1f0000;
+    --success: #4ade80;
     --border: #262626;
     --input: #333333;
     --ring: #fafafa;

@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
 import { Page } from "@/components/PagePrimitives";
+import { PlanPitch } from "@/components/PlanPitch";
 import { useQrCheckout } from "@/components/QrCheckout";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -11,6 +12,7 @@ import { PLANS, TIER_NAME } from "@/lib/plans";
 
 // Free vs Pro cards + current-plan summary. The CTA posts to /billing/checkout, which answers with a QR
 // to scan. PayMongo has no billing portal, so our own copy carries the billing terms.
+// The cards sell; PlanPitch inside them carries the prices and the feature lists.
 // GET /usage reports the live mode: `period` is a one-time top-up that never renews, so show the expiry
 // and offer no cancel; `subscription` is provider-managed and cancel is ours. `dev` gets a read-only
 // summary and no upgrade path.
@@ -26,13 +28,11 @@ export function BillingPage() {
                 <PlanCard tier="free" usage={usageState.usage} />
                 <PlanCard tier="premium" usage={usageState.usage} />
             </div>
-            <p className="text-xs text-muted-foreground">Running your own model key replaces the daily cap with a higher ceiling, on any plan (Settings, System).</p>
         </Page>
     );
 }
 
-// Figures come from lib/plans (MONETIZATION §0) because the landing page quotes the same numbers. The
-// caps are env-overridable server-side, so where the caller's tier is known, GET /usage wins.
+// Figures come from lib/plans (MONETIZATION §0) because the landing page quotes the same numbers.
 // Subscriptions are PHP-only, so the price is in pesos.
 
 function useUsage() {
@@ -102,11 +102,6 @@ function PlanCard({ tier, usage }: { tier: "free" | "premium"; usage: Usage | nu
     // the card shows when the paid time ends instead of a button that would cancel nothing.
     const periodMode = usage?.billing_mode === "period";
     const until = usage?.premium_until ? new Date(usage.premium_until).toLocaleDateString() : null;
-    // Live caps for the caller's own tier (env can move them); the marketing default only for the
-    // tier they are not on, where no live number exists to show.
-    const today = isCurrent && usage ? turnsToday(usage) : null;
-    const turns = today?.limit ?? plan.turns;
-    const resumes = (isCurrent ? usage?.resume_limit : null) ?? plan.resumes;
 
     // Cancelling is our own endpoint (no provider portal), so confirm first: the user keeps the
     // period they already paid for.
@@ -177,22 +172,9 @@ function PlanCard({ tier, usage }: { tier: "free" | "premium"; usage: Usage | nu
                     <CardTitle>{plan.name}</CardTitle>
                     {isCurrent && <Badge variant={isPremium ? "default" : "secondary"}>Your plan</Badge>}
                 </div>
-                <CardDescription className="text-lg font-semibold text-foreground">
-                    {plan.price}
-                    {plan.term && <span className="text-sm font-normal text-muted-foreground"> / {plan.term}</span>}
-                </CardDescription>
             </CardHeader>
-            <CardContent className="flex-1 space-y-2.5 text-sm text-muted-foreground">
-                <Feature>
-                    <strong>{turns}</strong> chat turns a day
-                    {isPremium && <span> · {plan.turns / PLANS.free.turns}x the free plan</span>}
-                    {today && <span className="text-foreground"> · {today.remaining} left today</span>}
-                </Feature>
-                <Feature>
-                    <strong>{resumes}</strong> resume {resumes === 1 ? "slot" : "slots"}
-                </Feature>
-                <Feature>Unlimited interviews, full review and verdict on every run</Feature>
-                {isPremium && <Feature>About ₱3.30 a day</Feature>}
+            <CardContent className="flex-1 pb-6">
+                <PlanPitch tier={tier} usage={usage} />
             </CardContent>
             <CardFooter className="flex-col items-stretch gap-2 pt-0">
                 {cta}
@@ -202,16 +184,5 @@ function PlanCard({ tier, usage }: { tier: "free" | "premium"; usage: Usage | nu
                 {modal}
             </CardFooter>
         </Card>
-    );
-}
-
-function Feature({ children }: { children: ReactNode }) {
-    return (
-        <div className="flex items-start gap-2">
-            <span aria-hidden="true" className="mt-0.5">
-                •
-            </span>
-            <span>{children}</span>
-        </div>
     );
 }

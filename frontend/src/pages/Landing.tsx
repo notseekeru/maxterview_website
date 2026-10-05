@@ -2,6 +2,7 @@ import { domAnimation, LazyMotion, MotionConfig, m, useScroll } from "motion/rea
 import { type ReactNode, useEffect, useRef } from "react";
 import { Link } from "react-router-dom";
 import { LABEL } from "@/components/PagePrimitives";
+import { PlanPitch } from "@/components/PlanPitch";
 import { Button } from "@/components/ui/button";
 import { useDocumentTitle } from "@/hooks/useDocumentTitle";
 import type { MoveClass } from "@/lib/api";
@@ -91,7 +92,7 @@ const STEPS = [
 ];
 
 const FAQ = [
-    { q: "Is it free?", a: `Yes. Free includes ${PLANS.free.turns} chat turns a day across all your interviews and full feedback on every run. ${PLANS.premium.name} adds ${PLANS.premium.turns} turns a day for ${PLANS.premium.price} per ${PLANS.premium.term}.` },
+    { q: "Is it free?", a: `Yes. Free covers full review and analytics on every run, capped at a daily turn allowance. ${PLANS.premium.name} is ${PLANS.premium.price} per ${PLANS.premium.term} and raises the allowance and the resume slots.` },
     { q: "What happens when I run out of turns?", a: "The interview pauses, nothing is deleted and your history stays readable. The counter resets at 00:00 UTC, or you can upgrade for more turns." },
     { q: "Which roles and levels does it cover?", a: "Any role you can name, from intern to staff, across behavioral, technical and case rounds. Save a setup as a preset and replay it whenever you want." },
     { q: "Do you train on my answers?", a: "No. Your transcripts are stored so you can revisit them and are sent to the interview model only to generate your questions and feedback." },
@@ -454,30 +455,16 @@ export function Landing() {
                             </Reveal>
                             {/* Uneven split: the paid plan gets the width. Emphasis is the border, not a fill:
                                 a 3% tint behind the plan's own --muted-foreground items measures 4.43:1, under
-                                AA, while the same text on plain white is 4.74:1. */}
+                                AA, while the same text on plain white is 4.74:1. The feature list and price live in
+                                PlanPitch, shared with the billing page. */}
                             <div className="mt-14 grid grid-cols-1 gap-4 lg:grid-cols-12">
                                 {(["free", "premium"] as const).map((id, i) => {
                                     const plan = PLANS[id];
                                     const premium = id === "premium";
                                     return (
                                         <Reveal key={id} delay={i * 0.08} className={cn("flex flex-col gap-6 rounded-xl border p-8", premium ? "lg:col-span-7 lg:border-foreground/40 lg:p-10" : "lg:col-span-5")}>
-                                            <div className="flex items-baseline justify-between gap-3 border-b pb-6">
-                                                <h3 className={LABEL}>{plan.name}</h3>
-                                                <span className={cn("font-serif tabular-nums tracking-[-0.03em]", premium ? "text-5xl" : "text-4xl")}>
-                                                    {plan.price}
-                                                    {plan.term && <span className="ml-2 text-sm tracking-normal text-muted-foreground">/ {plan.term}</span>}
-                                                </span>
-                                            </div>
-                                            <ul className="divide-y text-sm text-muted-foreground">
-                                                <li className="py-3">
-                                                    {plan.turns} chat turns a day
-                                                    {premium && ` (${plan.turns / PLANS.free.turns}x the free plan)`}
-                                                </li>
-                                                <li className="py-3">
-                                                    {plan.resumes} resume {plan.resumes === 1 ? "slot" : "slots"}
-                                                </li>
-                                                <li className="py-3">Unlimited interviews, full review on every run</li>
-                                            </ul>
+                                            <h3 className={LABEL}>{plan.name}</h3>
+                                            <PlanPitch tier={id} />
                                             <Button asChild variant={premium ? "default" : "outline"} className="mt-auto">
                                                 <Link to={premium ? "/settings/billing" : "/sign-up"}>{premium ? `Upgrade to ${plan.name}` : "Start free"}</Link>
                                             </Button>
@@ -486,7 +473,9 @@ export function Landing() {
                                 })}
                             </div>
                             {/* Must stay true in both billing modes. */}
-                            <p className="mt-6 font-mono text-[0.65rem] leading-[1.9] tracking-[0.04em] text-muted-foreground">Prices in PHP, paid by QR through PayMongo (GCash, Maya, or any bank app). One payment covers {PLANS.premium.term}, no auto-renew.</p>
+                            <p className="mt-6 font-mono text-[0.65rem] leading-[1.9] tracking-[0.04em] text-muted-foreground">
+                                A chat turn is one interviewer question or reply, shared across all of your interviews and reset at 00:00 UTC. Prices in PHP, paid by QR through PayMongo (GCash, Maya, or any bank app). One payment covers {PLANS.premium.term}, no auto-renew.
+                            </p>
                         </section>
 
                         <section id="questions" className={cn(SHELL, SECTION, "scroll-mt-24")}>
