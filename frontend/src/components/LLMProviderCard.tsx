@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { apiDetail, clearLLMProvider, getLLMProvider, type LLMProviderStatus, saveLLMProvider, testLLMProvider } from "@/lib/api";
 
