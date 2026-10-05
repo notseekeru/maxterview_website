@@ -42,27 +42,35 @@ const TURN_LOG: { turn: string; answer: string; note: MoveClass; delta: string }
     { turn: "06", answer: "Kafka, because it scales.", note: "blunder", delta: "−9" },
 ];
 
-// Specimen dashboard. Same four headline numbers the real dashboard shows, so the page cannot
-// promise a metric the product does not compute. Accuracies are whole numbers from 0-100 because
-// the API sends the derived integer (rating.accuracy), not a 1-10 average.
+// Specimen dashboard, and the same four headline numbers the real dashboard shows, so the page
+// cannot promise a metric the product does not compute. The average is derived from TREND: a second
+// hand-written number beside the chart is a fact free to disagree with it. Accuracies are whole
+// numbers 0-100 because the API sends the derived integer (rating.accuracy), not a 1-10 average.
+const TREND: number[] = [45, 52, 58, 55, 66, 70, 74, 71, 52, 66, 74];
+
+const TREND_AVG = Math.round(TREND.reduce((a, b) => a + b, 0) / TREND.length);
+const TREND_DELTA = TREND[TREND.length - 1] - TREND[0];
+
 const ANALYTICS_STATS = [
     { label: "Interviews", value: "14" },
     { label: "Finished", value: "12" },
-    { label: "Avg accuracy", value: "74%", hint: "from 12 of 12 rated" },
+    { label: "Avg accuracy", value: `${TREND_AVG}%`, hint: `from ${TREND.length} of 12 rated` },
     { label: "Hire rate", value: "58%", hint: "7 of 12 decided" },
 ];
 
-const TREND: number[] = [41, 48, 44, 57, 63, 59, 68, 71, 66, 74, 74];
-
-const TREND_PATH = (() => {
-    const step = 100 / (TREND.length - 1);
-    return TREND.map((v, i) => `${i === 0 ? "M" : "L"}${(i * step).toFixed(2)} ${(32 - (v / 100) * 32).toFixed(2)}`).join(" ");
-})();
+// One pass produces the path and the dot anchors together, so the line and its points cannot land in
+// different places. Dots are zero-length round-capped lines rather than <circle>: the 100x32 box is
+// stretched to the card, which turns a circle into an ellipse, while a non-scaling stroke stays
+// round at any width.
+const TREND_BOX = { w: 100, h: 32 };
+const TREND_POINTS = TREND.map((v, i) => ({ x: (i * TREND_BOX.w) / (TREND.length - 1), y: TREND_BOX.h - (v / 100) * TREND_BOX.h }));
+const TREND_PATH = TREND_POINTS.map((p, i) => `${i === 0 ? "M" : "L"}${p.x.toFixed(2)} ${p.y.toFixed(2)}`).join(" ");
 
 // Specimen run log. Mirrors the analytics table: one row per finished run, with the grade and the
-// hiring call the API stores on the row. The F row is a hardcore failure: its accuracy is still the
-// number the earlier answers averaged to, and only the letter is forced to F by the turn that ended
-// the run. That mechanic appears nowhere else on this page.
+// hiring call the API stores on the row. Its four rows are the trend's last four points, oldest
+// first, so the two artefacts read as one history. The F row is a hardcore failure: 52% is still the
+// number its earlier answers averaged to, and only the letter is forced to F by the turn that ended
+// the run.
 const RUN_LOG: { date: string; role: string; accuracy: string; grade: "S" | "A" | "B" | "C" | "D" | "F"; decision: string }[] = [
     { date: "02/14", role: "Backend engineer", accuracy: "74%", grade: "B", decision: "Lean hire" },
     { date: "02/11", role: "Platform engineer", accuracy: "66%", grade: "C", decision: "Lean hire" },
@@ -320,17 +328,48 @@ export function Landing() {
                                         ))}
                                     </dl>
                                     <div className="border-t px-4 py-5 sm:px-5">
-                                        <div className="flex items-baseline justify-between gap-4">
+                                        <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
                                             <span className={cn(LABEL, "opacity-70")}>Accuracy trend</span>
-                                            <span className="font-mono text-[0.6rem] tabular-nums text-muted-foreground">last {TREND.length} rated runs</span>
+                                            <span className="font-mono text-[0.6rem] tabular-nums text-muted-foreground">
+                                                last {TREND.length} rated runs · {TREND_DELTA > 0 ? "+" : ""}
+                                                {TREND_DELTA} pts
+                                            </span>
                                         </div>
-                                        <svg viewBox="0 0 100 32" preserveAspectRatio="none" aria-label={`Accuracy across the last ${TREND.length} rated runs, from ${TREND[0]}% to ${TREND[TREND.length - 1]}%`} className="mt-4 h-16 w-full">
-                                            <path d={`${TREND_PATH} L100 32 L0 32 Z`} fill="var(--chart-1)" fillOpacity={0.08} />
-                                            {/* The 100-wide viewBox is stretched to the card, so strokeWidth 0.6
-                                                would scale with it. vectorEffect pins the stroke to one
-                                                device-space hairline at any width. */}
-                                            <path d={TREND_PATH} fill="none" stroke="var(--chart-1)" strokeWidth={1.5} vectorEffect="non-scaling-stroke" />
-                                        </svg>
+                                        <div className="relative mt-4">
+                                            {/* pr-10 is the gutter the 50% label sits in: an SVG's viewport is its content
+                                                box, so the padding ends the plot before the label rather than under it. */}
+                                            {/* overflow-visible: the end dots are centred on the viewport edge, so the
+                                                SVG default of clipping to the viewport halves them. The caps are
+                                                device-space (non-scaling-stroke), which no viewBox-relative inset can
+                                                clear at every card width, so the spill is allowed instead. */}
+                                            <svg viewBox={`0 0 ${TREND_BOX.w} ${TREND_BOX.h}`} preserveAspectRatio="none" aria-label={`Accuracy across the last ${TREND.length} rated runs, from ${TREND[0]}% to ${TREND[TREND.length - 1]}%`} className="block h-16 w-full overflow-visible pr-10">
+                                                {/* The scale has to come from somewhere: an unlabelled line makes 45% and 74%
+                                                    the same picture. */}
+                                                <line x1={0} y1={TREND_BOX.h / 2} x2={TREND_BOX.w} y2={TREND_BOX.h / 2} stroke="var(--border)" strokeWidth={1} strokeDasharray="3 3" vectorEffect="non-scaling-stroke" />
+                                                <path d={`${TREND_PATH} L${TREND_BOX.w} ${TREND_BOX.h} L0 ${TREND_BOX.h} Z`} fill="var(--chart-1)" fillOpacity={0.08} />
+                                                <path d={TREND_PATH} fill="none" stroke="var(--chart-1)" strokeWidth={1.5} vectorEffect="non-scaling-stroke" />
+                                                {TREND_POINTS.map((p, i) => (
+                                                    <m.line
+                                                        key={p.x}
+                                                        x1={p.x}
+                                                        y1={p.y}
+                                                        x2={p.x}
+                                                        y2={p.y}
+                                                        stroke="var(--chart-1)"
+                                                        strokeWidth={i === TREND_POINTS.length - 1 ? 9 : 6}
+                                                        strokeLinecap="round"
+                                                        vectorEffect="non-scaling-stroke"
+                                                        initial={{ opacity: 0 }}
+                                                        whileInView={{ opacity: 1 }}
+                                                        viewport={VIEWPORT}
+                                                        transition={{ duration: 0.35, delay: 0.15 + i * 0.04 }}
+                                                    />
+                                                ))}
+                                            </svg>
+                                            <span aria-hidden className="absolute top-1/2 right-0 -translate-y-1/2 font-mono text-[0.6rem] tabular-nums text-muted-foreground">
+                                                50%
+                                            </span>
+                                        </div>
                                     </div>
                                     <table className="w-full border-collapse border-t text-sm">
                                         <thead>
