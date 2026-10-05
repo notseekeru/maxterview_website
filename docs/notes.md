@@ -11,11 +11,12 @@
 
 # FEATURES
 
+- feat: diagram architecture just like how infisical does it in landing page somewhere
+- feat: higher tier models for pro
 - feat: add metrics in readme for hr stuff via from grafana
 - feat: ai resume editor latex to display and edit kind alike overleaf?
 
 # FIX
-
 
 - grill the plan and architecture and code maintainability/readability. it matters to me when i skim code
 
