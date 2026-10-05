@@ -1,4 +1,4 @@
-import type { Offer } from "./api";
+import type { Offer, OfferMonth } from "./api";
 
 /** USD, no cents: an offer is spoken in whole dollars, and the letter is a document, not a quote.
  *  `$176,203`. */
@@ -6,6 +6,20 @@ export const money = (n: number) => `$${Math.round(n).toLocaleString("en-US")}`;
 
 /** For axes and band edges: `$176k`. The exact figure belongs in the tooltip or the table. */
 export const compactMoney = (n: number) => (Math.abs(n) >= 1000 ? `$${Math.round(n / 1000)}k` : money(n));
+
+export const signedMoney = (n: number) => `${n < 0 ? "-" : "+"}${money(Math.abs(n))}`;
+
+/** Money is the one place on this site where up is good; a grade moving up is a worse run. So the
+ *  green/red pair belongs here rather than in a shared palette. */
+export const deltaTone = (n: number) => (n > 0 ? "text-success" : n < 0 ? "text-destructive" : "text-muted-foreground");
+
+/** The two newest calendar months, newest against the one before it. `month` is the BASELINE, which is
+ *  what a `vs` label needs; null below two months, where a month has nothing to be measured against. */
+export function baseDelta(activity: OfferMonth[]): { amount: number; month: string } | null {
+    if (activity.length < 2) return null;
+    const [before, last] = activity.slice(-2);
+    return { amount: last.avg_base - before.avg_base, month: before.month };
+}
 
 /** How far up its own level's band the money landed, 0-100. Computed from the stored numbers rather
  *  than read off `performance`: rounding the base to a round salary is what separates the two, and the

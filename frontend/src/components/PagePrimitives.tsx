@@ -35,14 +35,17 @@ export function Page({ title, description, children, actions, wide }: { title: s
  *  The hint is pinned to the tile's floor rather than trailing the number: the grid stretches every tile
  *  in a row to the tallest, and a hint that floats leaves the shorter tiles with a band of dead space.
  *  Same for the number itself, which keeps the big figure on a shared baseline across the row. */
-export function Stat({ label, value, hint }: { label: string; value: string; hint?: string }) {
+export function Stat({ label, value, hint, delta }: { label: string; value: string; hint?: string; delta?: ReactNode }) {
     return (
         <Card className="flex flex-col">
             <CardHeader className="pb-2">
                 <CardTitle className={LABEL}>{label}</CardTitle>
             </CardHeader>
             <CardContent className="flex grow flex-col">
-                <p className="font-serif text-4xl leading-none tracking-[-0.03em] tabular-nums">{value}</p>
+                <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+                    <p className="font-serif text-4xl leading-none tracking-[-0.03em] tabular-nums">{value}</p>
+                    {delta}
+                </div>
                 {hint && <p className="mt-auto pt-3 font-mono text-[0.6rem] tabular-nums text-muted-foreground">{hint}</p>}
             </CardContent>
         </Card>

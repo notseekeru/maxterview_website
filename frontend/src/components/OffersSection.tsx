@@ -6,7 +6,8 @@ import { Card, CardContent } from "@/components/ui/card";
 import { type ChartConfig, ChartContainer, ChartTooltip, ChartTooltipContent, DRAW_MS } from "@/components/ui/chart";
 import { StateNote } from "@/components/ui/state";
 import type { OfferBenefitStat, OfferGroup, OffersAnalytics } from "@/lib/api";
-import { compactMoney, money, tierFill } from "@/lib/offers";
+import { baseDelta, compactMoney, deltaTone, money, signedMoney, tierFill } from "@/lib/offers";
+import { cn } from "@/lib/utils";
 
 export function OffersSection({ board }: { board: OffersAnalytics }) {
     if (board.offers.length === 0) {
@@ -36,11 +37,24 @@ function OfferTiles({ board }: { board: OffersAnalytics }) {
     const { summary, offers } = board;
     const best = offers.find((o) => o.interview_id === summary.best_id);
     const worst = offers.find((o) => o.interview_id === summary.worst_id);
+    const delta = baseDelta(board.activity);
 
     return (
         <div className="grid grid-cols-2 gap-4 lg:grid-cols-3 xl:grid-cols-6">
             <Stat label="Offers" value={String(summary.count)} hint="one per graded run" />
-            <Stat label="Average base" value={money(summary.avg_base)} hint={`median ${money(summary.median_base)}`} />
+            <Stat
+                label="Average base"
+                value={money(summary.avg_base)}
+                hint={`median ${money(summary.median_base)}`}
+                delta={
+                    delta && (
+                        <span className={cn("font-mono text-xs tabular-nums", deltaTone(delta.amount))}>
+                            {signedMoney(delta.amount)}
+                            <span className="text-muted-foreground"> vs {delta.month.slice(2).replace("-", "/")}</span>
+                        </span>
+                    )
+                }
+            />
             <Stat label="Lowest" value={money(summary.low_base)} hint={worst ? `${worst.title} · ${worst.tier_label.toLowerCase()}` : undefined} />
             <Stat label="Highest" value={money(summary.high_base)} hint={best ? `${best.title} · ${best.tier_label.toLowerCase()}` : undefined} />
             <Stat label="Average total comp" value={money(summary.avg_total)} hint={`+${money(summary.avg_equity)} equity, +${money(summary.avg_signing)} signing`} />

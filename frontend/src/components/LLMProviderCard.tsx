@@ -6,14 +6,6 @@ import { Card, CardDescription, CardFooter, CardHeader, CardTitle } from "@/comp
 import { Input } from "@/components/ui/input";
 import { apiDetail, clearLLMProvider, getLLMProvider, type LLMProviderStatus, saveLLMProvider, testLLMProvider } from "@/lib/api";
 
-// Presets only fill the base URL + a known-good model id; both fields stay editable, so any
-// OpenAI-compatible endpoint works (the API shape is the contract, not this list).
-const PRESETS = [
-    { label: "OpenAI", base_url: "https://api.openai.com/v1", model: "gpt-4o-mini" },
-    { label: "DeepSeek", base_url: "https://api.deepseek.com", model: "deepseek-chat" },
-    { label: "OpenRouter", base_url: "https://openrouter.ai/api/v1", model: "openai/gpt-4o-mini" },
-];
-
 // BYOK: run your interviews on your own provider account (backend app/byok.py, BYOK.md).
 // The key is sent once, stored encrypted, and never returned — only its last 4 characters.
 export function LLMProviderCard() {
@@ -104,8 +96,6 @@ export function LLMProviderCard() {
         });
 
     const disabled = !status?.enabled;
-    // A key is optional: an empty field keeps the saved key, and a keyless save is how self-hosted
-    // endpoints (vLLM, any self-hosted OpenAI-compatible server) are configured.
     const canSave = !disabled && Boolean(baseUrl.trim()) && Boolean(model.trim());
 
     return (
@@ -113,7 +103,6 @@ export function LLMProviderCard() {
             <CardHeader className="flex-row items-start justify-between space-y-0">
                 <div>
                     <CardTitle>Interview engine (BYOK)</CardTitle>
-                    <CardDescription className="mt-1">Bring your own key: any OpenAI-compatible provider, used for your interviews, scoring and feedback. A keyless self-hosted endpoint needs no key at all; a saved key is stored encrypted and never shown again.</CardDescription>
                 </div>
                 {status && <Badge variant={status.byok ? "default" : "outline"}>{status.byok ? "Your key" : "System default"}</Badge>}
             </CardHeader>
@@ -138,28 +127,6 @@ export function LLMProviderCard() {
                             <span className="font-medium">Your provider is not reachable.</span> {health.detail} Interviews fail until this endpoint answers.
                         </p>
                     )}
-                    {!status?.byok && status?.system.configured && (
-                        <p className="text-sm text-muted-foreground">
-                            System default: {status.system.model} at {status.system.base_url}. The daily chat-turn limit applies to it.
-                        </p>
-                    )}
-
-                    <div className="flex flex-wrap gap-2">
-                        {PRESETS.map((p) => (
-                            <Button
-                                key={p.label}
-                                type="button"
-                                variant="outline"
-                                size="sm"
-                                onClick={() => {
-                                    setBaseUrl(p.base_url);
-                                    setModel(p.model);
-                                }}
-                            >
-                                {p.label}
-                            </Button>
-                        ))}
-                    </div>
 
                     <div className="grid gap-3 sm:grid-cols-2">
                         <label htmlFor="llm-base-url" className="flex flex-col gap-1 text-sm">
