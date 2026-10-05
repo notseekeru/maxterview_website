@@ -78,6 +78,12 @@ const RUN_LOG: { date: string; role: string; accuracy: string; grade: "S" | "A" 
     { date: "02/06", role: "Backend engineer", accuracy: "71%", grade: "B", decision: "Lean hire" },
 ];
 
+// The strip's eighth cell: a 7-item list leaves the grid with one gap, and the verdict is the half of
+// the product the seven classes do not cover. Each cell is titled with its `hint`, so the meanings
+// survive without the page carrying a second column of prose about them.
+const VERDICT_CELL = { glyph: "%", label: "Verdict", hint: "Accuracy, a letter grade, a hire or reject call, and the fixes that would move it." };
+const VOCAB = [...MOVE_CLASSES, VERDICT_CELL];
+
 const STEPS = [
     { title: "Set the interview", body: "Pick the role, level and company size. Add a topic, or dial how cynical and how brutally honest the interviewer should be." },
     { title: "Answer in the chat", body: "One question at a time: chitchat, then behavioral, then technical, until the arc is spent." },
@@ -397,27 +403,6 @@ export function Landing() {
                                     </table>
                                 </figure>
                             </Reveal>
-
-                            <ul className="mt-10 grid grid-cols-1 gap-px overflow-hidden rounded-xl border bg-border sm:grid-cols-2 lg:grid-cols-4">
-                                {MOVE_CLASSES.map((m, i) => (
-                                    <Reveal key={m.value} delay={(i % 4) * 0.05} className="group bg-background p-5">
-                                        <span aria-hidden className={cn("flex size-10 items-center justify-center rounded-md border text-xs font-semibold transition-transform duration-300 ease-glide group-hover:scale-110", m.tone)}>
-                                            {m.glyph}
-                                        </span>
-                                        <h3 className="mt-4 font-serif text-lg tracking-[-0.015em]">{m.label}</h3>
-                                        <p className="mt-1.5 text-xs leading-[1.7] text-muted-foreground">{m.hint}</p>
-                                    </Reveal>
-                                ))}
-                                {/* Eighth cell: a 7-item list leaves the grid with one gap, and the verdict is the
-                                    half of the product the seven classes above do not cover. */}
-                                <Reveal className="bg-background p-5">
-                                    <span aria-hidden className="flex size-10 items-center justify-center rounded-md border border-foreground/25 bg-foreground/10 text-xs font-semibold">
-                                        %
-                                    </span>
-                                    <h3 className="mt-4 font-serif text-lg tracking-[-0.015em]">Run verdict</h3>
-                                    <p className="mt-1.5 text-xs leading-[1.7] text-muted-foreground">Accuracy, a letter grade, a hire or reject call, and the fixes that would move it.</p>
-                                </Reveal>
-                            </ul>
                         </section>
 
                         <section id="how" className={cn(SHELL, SECTION, "scroll-mt-24")}>
@@ -438,29 +423,32 @@ export function Landing() {
                             </ol>
                         </section>
 
-                        {/* The lexicon, run edge to edge on the one dark band. This is the page's single full-bleed
-                            moment and it carries the product's actual vocabulary, glyph by glyph, rather than a
-                            photograph of somebody at a desk. */}
+                        {/* The lexicon, run edge to edge on the one dark band: the page's single full-bleed moment
+                            and its only rendering of the vocabulary that the turn log prints as bare glyphs. The list
+                            itself drifts through the frame on a loop rather than a light passing over a static one. */}
                         <div className="relative mt-24 border-y bg-[#111111] text-white sm:mt-32 lg:mt-40">
                             <div aria-hidden className="dotgrid absolute inset-0 opacity-40 [mask-image:radial-gradient(90%_140%_at_50%_50%,#000_10%,transparent_80%)]" />
                             <div className={cn(SHELL, "relative py-16 sm:py-20")}>
                                 <p className="font-mono text-[0.65rem] uppercase tracking-[0.18em] text-white/50">The grading vocabulary</p>
-                                <ul className="mt-10 grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-white/15 bg-white/15 sm:grid-cols-4 lg:grid-cols-8">
-                                    {MOVE_CLASSES.map((m) => (
-                                        <li key={m.value} className="flex flex-col items-center gap-3 bg-[#111111] px-3 py-6">
-                                            <span aria-hidden className="font-serif text-2xl leading-none tracking-[-0.02em]">
-                                                {m.glyph}
-                                            </span>
-                                            <span className="font-mono text-[0.6rem] uppercase tracking-[0.14em] text-white/60">{m.label}</span>
-                                        </li>
-                                    ))}
-                                    <li className="flex flex-col items-center gap-3 bg-[#111111] px-3 py-6">
-                                        <span aria-hidden className="font-serif text-2xl leading-none tracking-[-0.02em]">
-                                            %
-                                        </span>
-                                        <span className="font-mono text-[0.6rem] uppercase tracking-[0.14em] text-white/60">Verdict</span>
-                                    </li>
-                                </ul>
+                                {/* Four copies deep, so -50% lands on an identical pattern, the seam is invisible and the
+                                    track still covers the frame at the widest the shell ever gets. Only the first copy is
+                                    exposed to assistive tech; the rest are the same eight cells again. */}
+                                <div className="group mt-10 overflow-hidden rounded-xl border border-white/15 bg-[#111111]">
+                                    <div className="flex w-max animate-vocab-marquee group-hover:[animation-play-state:paused]">
+                                        {[0, 1, 2, 3].map((copy) => (
+                                            <ul key={copy} aria-hidden={copy > 0 || undefined} className="flex">
+                                                {VOCAB.map((m) => (
+                                                    <li key={m.label} title={m.hint} className="flex w-[7rem] shrink-0 flex-col items-center gap-3 border-r border-white/15 px-3 py-6 sm:w-[8.5rem]">
+                                                        <span aria-hidden className="font-serif text-2xl leading-none tracking-[-0.02em]">
+                                                            {m.glyph}
+                                                        </span>
+                                                        <span className="font-mono text-[0.6rem] uppercase tracking-[0.14em] text-white/60">{m.label}</span>
+                                                    </li>
+                                                ))}
+                                            </ul>
+                                        ))}
+                                    </div>
+                                </div>
                             </div>
                         </div>
 

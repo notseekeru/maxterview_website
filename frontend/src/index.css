@@ -53,7 +53,7 @@
     unicode-range: U+25A4, U+25CB, U+2605, U+2713, U+2715, U+2717;
 }
 
-/* Motion. Two easings and one animation, named so a call site states intent (state change vs
+/* Motion. Two easings and two animations, named so a call site states intent (state change vs
    entrance vs loop) instead of a magic ms, and so the reduced-motion block below can neutralize
    the whole set in one place rather than at every call site. Scroll-entrance motion is not here:
    it lives in Landing.tsx on `motion`, which owns transform work and honours the same OS switch
@@ -65,6 +65,10 @@
     --ease-snap: cubic-bezier(0.2, 0, 0, 1);
     --ease-glide: cubic-bezier(0.22, 1, 0.36, 1);
     --animate-breathe: breathe 2.4s ease-in-out infinite;
+    /* The vocabulary drifts through its frame, looping without a seam. Literal duration, never a
+       distance: the loop is half the track, so the same 60s reads as the same px/s on a phone and on a
+       wide card. Linear, because any easing would pulse once per lap. */
+    --animate-vocab-marquee: vocab-marquee 60s linear infinite;
     @keyframes breathe {
         0%,
         100% {
@@ -72,6 +76,14 @@
         }
         50% {
             opacity: 1;
+        }
+    }
+    @keyframes vocab-marquee {
+        from {
+            transform: translateX(0);
+        }
+        to {
+            transform: translateX(-50%);
         }
     }
 }
