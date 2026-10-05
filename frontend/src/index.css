@@ -118,6 +118,9 @@
 
 /* Black/white monochrome aesthetic. */
 :root {
+    /* UA fallback is `normal`, i.e. the OS: a light-theme user on a dark machine gets dark
+       scrollbars, checkbox and range track. */
+    color-scheme: light;
     --background: #ffffff;
     --foreground: #000000;
     --card: #ffffff;

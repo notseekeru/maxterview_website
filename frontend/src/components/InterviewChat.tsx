@@ -176,11 +176,13 @@ export function InterviewChat({ interviewId, onExit }: Props) {
     }, [draft]);
 
     useEffect(() => {
-        scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
+        // `instant` overrides the global smoothed scroll in index.css: both of these cross a whole
+        // transcript, which smooth turns into a slide.
+        scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "instant" });
     }, []);
 
     useEffect(() => {
-        if (feedback) scrollRef.current?.scrollTo({ top: 0 });
+        if (feedback) scrollRef.current?.scrollTo({ top: 0, behavior: "instant" });
     }, [feedback]);
 
     // The letter is priced from the review, so it is fetched when the review lands. A 404 is not a
@@ -500,6 +502,8 @@ export function InterviewChat({ interviewId, onExit }: Props) {
                             onChange={(e) => setDraft(e.target.value)}
                             placeholder={placeholder}
                             onKeyDown={(e) => {
+                                // An IME candidate commit is an Enter keydown too.
+                                if (e.nativeEvent.isComposing) return;
                                 if (e.key === "Enter" && !e.shiftKey && status === "ready") {
                                     e.preventDefault();
                                     void send();
