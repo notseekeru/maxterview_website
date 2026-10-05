@@ -33,7 +33,7 @@ export class ErrorBoundary extends Component<Props, State> {
         if (!this.state.error) return this.props.children;
         if (this.props.inline) {
             return (
-                <div className="m-6 space-y-2 rounded-lg border border-dashed p-4">
+                <div className="m-6 space-y-2 rounded-xl border border-dashed p-4">
                     <p className="text-sm font-medium">This page failed to render</p>
                     <p className="text-sm text-muted-foreground">Your interviews are stored server-side and are not affected. Pick another page from the rail, or reload.</p>
                     <p className="font-mono text-xs text-muted-foreground">{this.state.error.message}</p>
@@ -42,7 +42,7 @@ export class ErrorBoundary extends Component<Props, State> {
         }
         return (
             <div className="flex min-h-screen flex-col items-center justify-center gap-3 bg-background p-6 text-center">
-                <h1 className="text-xl font-semibold tracking-tight">Something broke on this screen</h1>
+                <h1 className="font-serif text-3xl tracking-[-0.025em]">Something broke on this screen</h1>
                 <p className="max-w-md text-sm text-muted-foreground">Your interviews are stored server-side and are not affected. Reload to get back to the dashboard.</p>
                 <p className="max-w-md font-mono text-xs text-muted-foreground">{this.state.error.message}</p>
                 <Button onClick={() => window.location.assign("/dashboard")}>Back to dashboard</Button>

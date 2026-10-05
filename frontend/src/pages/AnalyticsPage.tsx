@@ -4,7 +4,7 @@ import { Bar, BarChart, CartesianGrid, Cell, Line, LineChart, XAxis, YAxis } fro
 
 import { AccuracyTrendChart } from "@/components/AccuracyTrendChart";
 import { OffersSection } from "@/components/OffersSection";
-import { Page, Panel, Stat } from "@/components/PagePrimitives";
+import { LABEL, Page, Panel, Stat } from "@/components/PagePrimitives";
 import { Card, CardContent } from "@/components/ui/card";
 import { type ChartConfig, ChartContainer, ChartTooltip, ChartTooltipContent, DRAW_MS } from "@/components/ui/chart";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -38,7 +38,7 @@ function Section({ id, children }: { id: SectionId; children: ReactNode }) {
         // scroll-mt keeps the heading clear of the sticky shell bar when a jump lands.
         <section id={id} className="scroll-mt-20 space-y-4">
             <div className="space-y-1 border-b pb-2">
-                <h2 className="text-lg font-semibold tracking-tight">{title}</h2>
+                <h2 className="font-serif text-xl tracking-[-0.015em]">{title}</h2>
                 <p className="text-xs text-muted-foreground">{hint}</p>
             </div>
             {children}
@@ -341,7 +341,7 @@ function DimensionAverages({ runs, keys }: { runs: AnalyticsRun[]; keys: string[
         <div className="space-y-1">
             {groupDims(keys).map((group) => (
                 <div key={group.axis} className="space-y-0.5">
-                    <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{group.label}</p>
+                    <p className={LABEL}>{group.label}</p>
                     {group.dims.map((dim) => {
                         const row = rows.find((r) => r.dim === dim);
                         if (!row) return null;
@@ -468,7 +468,7 @@ function DialBreakdown({ dials }: { dials: Analytics["dials"] }) {
             <div className="columns-1 gap-x-8 md:columns-2 xl:columns-3">
                 {groups.map(([key, rows]) => (
                     <div key={key} className="mb-6 break-inside-avoid space-y-2">
-                        <h3 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{DIAL_TITLES[key] ?? key}</h3>
+                        <h3 className={LABEL}>{DIAL_TITLES[key] ?? key}</h3>
                         <div className="space-y-2.5">
                             {rows.map((row) => (
                                 <DialRow key={row.key} row={row} />

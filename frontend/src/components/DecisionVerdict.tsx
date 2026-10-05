@@ -30,7 +30,7 @@ export function DecisionVerdict({ decision, certainty, className }: { decision: 
     const active = DECISIONS.findIndex((d) => d.value === decision);
 
     return (
-        <div className={cn("space-y-3 rounded-lg border p-4", className)}>
+        <div className={cn("space-y-3 rounded-xl border p-4", className)}>
             <div className="flex flex-wrap items-baseline justify-between gap-x-2 gap-y-1">
                 <span className="text-sm font-medium">Hiring decision</span>
                 <span className="text-sm text-muted-foreground">{pct === null ? "certainty not reported" : `${pct}% certain`}</span>

@@ -28,7 +28,7 @@ export function Modal({ open, onClose, title, children, className }: { open: boo
             onClose={onClose}
             // Padding lives on the inner div: with padding on the dialog itself, a click on the
             // padding reads as a backdrop click and closes the modal under the user's cursor.
-            className={cn("m-auto w-[calc(100vw-2rem)] max-w-md overscroll-contain rounded-lg border bg-background p-0 text-foreground shadow-lg backdrop:bg-black/50", className)}
+            className={cn("m-auto w-[calc(100vw-2rem)] max-w-md overscroll-contain rounded-xl border bg-background p-0 text-foreground shadow-lg backdrop:bg-black/50", className)}
             // mousedown, not click: a drag that starts inside the modal and ends on the backdrop
             // should not close it. Escape is the platform's own (dialog onClose).
             onMouseDown={(e) => {

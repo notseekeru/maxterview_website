@@ -134,7 +134,7 @@ export function LLMProviderCard() {
                         </p>
                     )}
                     {health && !health.ok && (
-                        <p role="status" className="rounded-lg border border-destructive bg-destructive/10 p-3 text-sm">
+                        <p role="status" className="rounded-xl border border-destructive bg-destructive/10 p-3 text-sm">
                             <span className="font-medium">Your provider is not reachable.</span> {health.detail} Interviews fail until this endpoint answers.
                         </p>
                     )}

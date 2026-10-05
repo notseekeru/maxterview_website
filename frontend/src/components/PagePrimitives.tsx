@@ -7,14 +7,20 @@ import { cn } from "@/lib/utils";
 // workspace surfaces have to use a large monitor's width or their grid tiles collapse.
 const WIDE_MAX = "max-w-[100rem]";
 
+/** Mono at 70% of --foreground, not --muted-foreground: these run at 10.4px, where the secondary
+ *  token measures 4.74:1 on white and 4.35:1 over a --muted fill, under AA, against 8.6:1 and 8.3:1
+ *  for /70. One constant for every eyebrow, column head, unit and tier tag across the app pages and
+ *  the landing page, so the two cannot drift. Ratios measured 2026-10-05 on the light palette. */
+export const LABEL = "font-mono text-[0.65rem] uppercase tracking-[0.18em] text-foreground/70";
+
 export function Page({ title, description, children, actions, wide }: { title: string; description?: string; children: ReactNode; actions?: ReactNode; wide?: boolean }) {
     useDocumentTitle(title);
     return (
         <div className={cn("mx-auto w-full space-y-6 px-4 py-6 sm:px-6", wide ? WIDE_MAX : "max-w-4xl")}>
-            <header className="flex flex-wrap items-end justify-between gap-3">
-                <div className="space-y-1">
-                    <h1 className="text-2xl font-semibold tracking-tight">{title}</h1>
-                    {description && <p className="text-sm text-muted-foreground">{description}</p>}
+            <header className="flex flex-wrap items-end justify-between gap-x-6 gap-y-3 border-t pt-4">
+                <div className="space-y-2.5">
+                    <h1 className="font-serif text-[clamp(1.75rem,2.8vw,2.5rem)] leading-[1.06] tracking-[-0.025em] text-balance">{title}</h1>
+                    {description && <p className="max-w-[56ch] text-sm leading-[1.75] text-muted-foreground">{description}</p>}
                 </div>
                 {actions && <div className="flex items-center gap-2">{actions}</div>}
             </header>
@@ -33,11 +39,11 @@ export function Stat({ label, value, hint }: { label: string; value: string; hin
     return (
         <Card className="flex flex-col">
             <CardHeader className="pb-2">
-                <CardTitle className="text-xs font-medium text-muted-foreground">{label}</CardTitle>
+                <CardTitle className={LABEL}>{label}</CardTitle>
             </CardHeader>
             <CardContent className="flex grow flex-col">
-                <p className="text-3xl font-semibold tabular-nums">{value}</p>
-                {hint && <p className="mt-auto pt-2 text-xs text-muted-foreground">{hint}</p>}
+                <p className="font-serif text-4xl leading-none tracking-[-0.03em] tabular-nums">{value}</p>
+                {hint && <p className="mt-auto pt-3 font-mono text-[0.6rem] tabular-nums text-muted-foreground">{hint}</p>}
             </CardContent>
         </Card>
     );

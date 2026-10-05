@@ -3,6 +3,7 @@ import { useCallback, useState } from "react";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { Icon } from "@/components/AppIcons";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
+import { LABEL } from "@/components/PagePrimitives";
 import { UsageBadge } from "@/components/UsageBadge";
 import { Button } from "@/components/ui/button";
 import { clerkEnabled } from "@/lib/config";
@@ -38,7 +39,7 @@ export function AppShell() {
 function Brand() {
     const navigate = useNavigate();
     return (
-        <button type="button" onClick={() => navigate("/")} className="flex h-14 shrink-0 items-center border-b border-border px-4 text-left text-base font-semibold tracking-tight">
+        <button type="button" onClick={() => navigate("/")} className="flex h-14 shrink-0 items-center border-b border-border px-4 text-left font-serif text-lg tracking-[-0.015em]">
             maxterview
         </button>
     );
@@ -50,7 +51,7 @@ function NavBody({ onNavigate }: { onNavigate: () => void }) {
             <div className="space-y-6">
                 {NAV.map((section) => (
                     <div key={section.id} className="space-y-1">
-                        {section.title && <p className="px-3 pb-1 pt-2 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">{section.title}</p>}
+                        {section.title && <p className={cn("px-3 pt-2 pb-1", LABEL)}>{section.title}</p>}
                         {section.items.map((item) => (
                             <RailItem key={item.to} item={item} onNavigate={onNavigate} />
                         ))}
@@ -89,7 +90,7 @@ function MobileTopBar() {
     return (
         <>
             <header className="sticky top-0 z-40 flex h-14 items-center justify-between border-b border-border bg-background/95 px-4 backdrop-blur lg:hidden">
-                <button type="button" className="text-base font-semibold tracking-tight" onClick={() => navigate("/")}>
+                <button type="button" className="font-serif text-lg tracking-[-0.015em]" onClick={() => navigate("/")}>
                     maxterview
                 </button>
                 <Button variant="ghost" size="icon" aria-label="Open navigation" onClick={() => setOpen(true)}>
@@ -102,7 +103,7 @@ function MobileTopBar() {
                     <button type="button" aria-label="Close navigation" className="absolute inset-0 bg-black/50" onClick={close} />
                     <div className="absolute inset-y-0 left-0 flex w-72 max-w-[85vw] flex-col border-r border-border bg-background">
                         <div className="flex h-14 items-center justify-between border-b border-border px-4">
-                            <span className="text-base font-semibold tracking-tight">maxterview</span>
+                            <span className="font-serif text-lg tracking-[-0.015em]">maxterview</span>
                             <Button variant="ghost" size="icon" aria-label="Close navigation" onClick={close}>
                                 <Icon name="x" className="h-5 w-5" />
                             </Button>

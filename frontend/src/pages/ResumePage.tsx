@@ -224,7 +224,7 @@ export function ResumePage() {
                             pick(e.dataTransfer.files?.[0]);
                         }}
                         className={cn(
-                            "flex flex-col items-center justify-center gap-3 rounded-lg border border-dashed px-6 text-center transition-colors",
+                            "flex flex-col items-center justify-center gap-3 rounded-xl border border-dashed px-6 text-center transition-colors",
                             editing || importing ? "min-h-[12rem]" : "min-h-[calc(100dvh-10.5rem)] lg:min-h-[calc(100dvh-6.5rem)]",
                             busy ? "cursor-default opacity-60" : "cursor-pointer",
                             dropping ? "border-primary bg-primary/10 text-primary" : "text-muted-foreground hover:bg-accent",

@@ -1,6 +1,7 @@
 import { PolarAngleAxis, PolarGrid, PolarRadiusAxis, Radar, RadarChart } from "recharts";
 
 import { AccuracyTrendChart } from "@/components/AccuracyTrendChart";
+import { Stat } from "@/components/PagePrimitives";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { type ChartConfig, ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -92,20 +93,6 @@ function AccuracyTrend({ data }: { data: { label: string; accuracy: number }[] }
                 header keeps both cards in the row the same size. */}
             <CardContent className="h-60 pb-6">
                 <AccuracyTrendChart data={data} />
-            </CardContent>
-        </Card>
-    );
-}
-
-function Stat({ label, value, hint }: { label: string; value: string; hint?: string }) {
-    return (
-        <Card>
-            <CardHeader className="pb-2">
-                <CardTitle className="text-xs font-medium text-muted-foreground">{label}</CardTitle>
-            </CardHeader>
-            <CardContent>
-                <p className="text-4xl font-semibold tabular-nums">{value}</p>
-                {hint && <p className="mt-1.5 text-xs text-muted-foreground">{hint}</p>}
             </CardContent>
         </Card>
     );

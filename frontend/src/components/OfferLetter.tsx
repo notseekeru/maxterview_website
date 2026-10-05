@@ -15,7 +15,7 @@ export function OfferLetter({ offer }: { offer: Offer }) {
         // readout beside the letter is a third of its height, so that side ended empty on every letter.
         <article className="space-y-4 text-sm leading-relaxed">
             <div className="flex flex-wrap items-baseline justify-between gap-2 border-b pb-3">
-                <span className="font-semibold tracking-tight">maxterview</span>
+                <span className="font-serif text-lg tracking-[-0.015em]">maxterview</span>
                 <span className="text-xs text-muted-foreground">Offer of employment · {offer.created_at.slice(0, 10)}</span>
             </div>
 

@@ -1,3 +1,4 @@
+import { LABEL } from "@/components/PagePrimitives";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import type { Decision, Feedback, Message, Offer } from "@/lib/api";
@@ -33,7 +34,7 @@ export function FeedbackView({ feedback, messages = [], offer, onAnnotate, annot
             </CardHeader>
             <CardContent className="space-y-4">
                 {failed && (
-                    <div className="space-y-1 rounded-lg border border-destructive bg-destructive/10 p-3">
+                    <div className="space-y-1 rounded-xl border border-destructive bg-destructive/10 p-3">
                         <p className="font-semibold uppercase tracking-wide text-destructive">Hardcore: run over</p>
                         <p className="text-sm uppercase leading-relaxed">
                             One vague or wrong answer ended it: question {failed} was a {feedback.failed_class ?? "fault"}. Grade F, no second chance.
@@ -61,7 +62,7 @@ export function FeedbackView({ feedback, messages = [], offer, onAnnotate, annot
                         </div>
                     </div>
                 ) : (
-                    <div className="space-y-2 rounded-lg border border-dashed p-3">
+                    <div className="space-y-2 rounded-xl border border-dashed p-3">
                         <p className="text-xs text-muted-foreground">No answer-by-answer review for this run. The annotator couldn't classify the transcript, so there is no accuracy to report. The hiring call below is unaffected.</p>
                         {/* The annotator hop is a model call and can come back empty while the verdict
                             and tips land; the dashboard has the only other retry. */}
@@ -81,7 +82,7 @@ export function FeedbackView({ feedback, messages = [], offer, onAnnotate, annot
                     these scores, and the review is where the candidate is already looking. Collapsed by
                     default so it opens as a summary with the number, not a wall of letter. */}
                 {offer && (
-                    <details className="rounded-lg border">
+                    <details className="rounded-xl border">
                         <summary className="cursor-pointer px-3 py-2 text-sm font-medium hover:text-foreground">
                             Offer letter · {money(offer.base_salary)} base · {offer.tier_label}
                         </summary>
@@ -108,7 +109,7 @@ export function FeedbackView({ feedback, messages = [], offer, onAnnotate, annot
                     <div className="mt-3 space-y-3">
                         {dimGroups.map((group) => (
                             <div key={group.axis} className="space-y-2">
-                                <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{group.label}</p>
+                                <p className={LABEL}>{group.label}</p>
                                 {group.dims.map((key) => {
                                     const value = typeof scores[key] === "number" ? scores[key] : null;
                                     return (

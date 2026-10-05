@@ -79,7 +79,7 @@ function GateSkeleton() {
 function GateFailed() {
     return (
         <div className="flex min-h-screen flex-col items-center justify-center gap-3 bg-background p-6 text-center">
-            <h1 className="text-xl font-semibold tracking-tight">Can’t reach the sign-in service</h1>
+            <h1 className="font-serif text-2xl tracking-[-0.02em]">Can’t reach the sign-in service</h1>
             <p className="max-w-sm text-sm text-muted-foreground">Clerk did not load, so we can’t tell whether you are signed in. Check your connection and try again.</p>
             <Button onClick={() => window.location.reload()}>Retry</Button>
         </div>

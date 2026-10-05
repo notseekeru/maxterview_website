@@ -4,7 +4,7 @@ import { useNavigate } from "react-router-dom";
 import { CreateInterviewForm } from "@/components/CreateInterviewForm";
 import { DashboardStats } from "@/components/DashboardStats";
 import { InterviewList } from "@/components/InterviewList";
-import { Page } from "@/components/PagePrimitives";
+import { LABEL, Page } from "@/components/PagePrimitives";
 import { UpgradePendingNotice } from "@/components/UpgradePendingNotice";
 import { Button } from "@/components/ui/button";
 import { useDashboardStats, useInterviews } from "@/hooks/useInterviewData";
@@ -64,7 +64,7 @@ export function AppHome() {
             <DashboardStats loading={loading || statsLoading} dims={dims} stats={stats} statsError={statsError} />
 
             <section className="space-y-2">
-                <h2 className="text-sm font-medium uppercase tracking-wide text-muted-foreground">History</h2>
+                <h2 className={LABEL}>History</h2>
                 <InterviewList interviews={interviews} loading={loading} error={error} onRefresh={() => void refresh()} onOpen={(id) => navigate(`/interviews/${id}`)} onDelete={onDelete} onArchive={onArchive} onRescore={onRescore} />
             </section>
         </Page>

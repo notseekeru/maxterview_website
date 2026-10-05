@@ -1,7 +1,7 @@
 import { domAnimation, LazyMotion, MotionConfig, m, useScroll } from "motion/react";
 import { type ReactNode, useEffect, useRef } from "react";
 import { Link } from "react-router-dom";
-
+import { LABEL } from "@/components/PagePrimitives";
 import { Button } from "@/components/ui/button";
 import { useDocumentTitle } from "@/hooks/useDocumentTitle";
 import type { MoveClass } from "@/lib/api";
@@ -98,11 +98,6 @@ const FAQ = [
     { q: "Can I use my own model?", a: "Yes. Bring an OpenAI-compatible key (OpenAI, DeepSeek, OpenRouter, a local model) in settings and your turns run on your own account." },
 ];
 
-// Mono, not the serif: every label on this page is furniture (a folio, a column head, a unit), and
-// furniture is what a mono is for. The serif only ever sets a title or a sentence. Set at 70% of
-// --foreground rather than --muted-foreground because these run at 10.4px, where the secondary
-// token measures 4.43:1 on the light palette and 4.35:1 once a --muted fill sits behind it.
-const LABEL = "font-mono text-[0.65rem] uppercase tracking-[0.18em] text-foreground/70";
 const SHELL = "mx-auto w-full max-w-[76rem] px-6 sm:px-8 lg:px-10";
 // Section spacing has one owner: leading padding here, nothing trailing, so two adjacent sections
 // cannot stack their gaps into a dead band.
@@ -159,7 +154,7 @@ export function Landing() {
                         <div className={cn(SHELL, "flex items-center justify-between gap-4 py-3")}>
                             <Link to="/" className="flex items-center gap-2.5" aria-label="maxterview home">
                                 <img src="/M-Inverted.svg" width={500} height={500} alt="" aria-hidden className="size-6 rounded-[0.35rem] ring-1 ring-border" />
-                                <span className="text-sm font-semibold tracking-tight">maxterview</span>
+                                <span className="font-serif text-base tracking-[-0.01em]">maxterview</span>
                             </Link>
                             <nav aria-label="Sections" className="flex items-center gap-1">
                                 {SECTIONS.map((s) => (
@@ -171,10 +166,10 @@ export function Landing() {
                                         {s.label}
                                     </a>
                                 ))}
-                                <Button variant="ghost" size="sm" className="rounded-full" asChild>
+                                <Button variant="ghost" size="sm" asChild>
                                     <Link to="/sign-in">Sign in</Link>
                                 </Button>
-                                <Button size="sm" className="rounded-full" asChild>
+                                <Button size="sm" asChild>
                                     <Link to="/sign-up">Start free</Link>
                                 </Button>
                             </nav>
@@ -210,10 +205,10 @@ export function Landing() {
                                     Answer behavioral and technical questions one at a time, get every answer annotated the way a chess engine annotates moves, and watch your accuracy across every run.
                                 </m.p>
                                 <m.div variants={{ hidden: { opacity: 0, y: 14 }, shown: { opacity: 1, y: 0, transition: { duration: 0.7, ease: GLIDE, delay: 0.42 } } }} className="mt-9 flex flex-wrap items-center gap-3">
-                                    <Button size="lg" className="rounded-full" asChild>
+                                    <Button size="lg" asChild>
                                         <Link to="/sign-up">Start practicing free</Link>
                                     </Button>
-                                    <Button size="lg" variant="outline" className="rounded-full" asChild>
+                                    <Button size="lg" variant="outline" asChild>
                                         <a href="#how">See how it works</a>
                                     </Button>
                                 </m.div>
@@ -483,7 +478,7 @@ export function Landing() {
                                                 </li>
                                                 <li className="py-3">Unlimited interviews, full review on every run</li>
                                             </ul>
-                                            <Button asChild variant={premium ? "default" : "outline"} className="mt-auto rounded-full">
+                                            <Button asChild variant={premium ? "default" : "outline"} className="mt-auto">
                                                 <Link to={premium ? "/settings/billing" : "/sign-up"}>{premium ? `Upgrade to ${plan.name}` : "Start free"}</Link>
                                             </Button>
                                         </Reveal>
@@ -520,7 +515,7 @@ export function Landing() {
                                 <div aria-hidden className="absolute top-1/2 left-1/2 -z-10 size-[46rem] -translate-x-1/2 -translate-y-1/2 rounded-full bg-white/[0.06] blur-3xl" />
                                 <m.div initial={{ opacity: 0, y: 24 }} whileInView={{ opacity: 1, y: 0 }} viewport={VIEWPORT} transition={{ duration: 0.85, ease: GLIDE }} className={cn(SHELL, "flex flex-col items-center gap-8 py-24 text-center sm:py-32")}>
                                     <h2 className="max-w-[22ch] font-serif text-[clamp(2rem,4.2vw,3.75rem)] leading-[1.05] tracking-[-0.03em] text-balance">Your next interview is practice, not the real one.</h2>
-                                    <Button size="lg" className="rounded-full bg-white text-black hover:bg-white/90" asChild>
+                                    <Button size="lg" className="bg-white text-black hover:bg-white/90" asChild>
                                         <Link to="/sign-up">Start practicing free</Link>
                                     </Button>
                                 </m.div>

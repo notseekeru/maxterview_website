@@ -74,7 +74,7 @@ export function UpgradeNotice() {
     const body = !usage ? "Turns come back at 00:00 UTC." : paid ? "Every turn in today's allowance is spent. It comes back at 00:00 UTC." : `Free gives you ${PLANS.free.turns} turns a day. Pro gives you ${PLANS.premium.turns}, plus ${PLANS.premium.resumes} resume slots.`;
 
     return (
-        <div className="flex flex-col items-start gap-3 rounded-lg border border-dashed bg-muted/50 p-4 text-sm">
+        <div className="flex flex-col items-start gap-3 rounded-xl border border-dashed bg-muted/50 p-4 text-sm">
             <div className="space-y-1">
                 <p className="font-medium">Out of turns for today</p>
                 <p className="w-full max-w-sm text-muted-foreground">{body}</p>
