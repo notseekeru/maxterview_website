@@ -1,5 +1,5 @@
 import { domAnimation, LazyMotion, MotionConfig, m, useScroll } from "motion/react";
-import { type ReactNode, useEffect, useRef } from "react";
+import type { ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { LABEL } from "@/components/PagePrimitives";
 import { PlanPitch } from "@/components/PlanPitch";
@@ -10,7 +10,10 @@ import { gradeTone, MOVE_CLASSES, moveClassMeta } from "@/lib/moveClasses";
 import { PLANS } from "@/lib/plans";
 import { cn } from "@/lib/utils";
 
-const VIDEO_START = 6.25;
+// Hero separator geometry, in the 1200x160 box the SVG's preserveAspectRatio="none" stretches to the
+// viewport. Land is heavier than sky: the gradient behind them runs light at the top of the box and
+// dark at the bottom, so each silhouette edge reads as a horizon instead of a filled shape.
+const RIDGES = ["M0 108 C120 96 180 60 300 58 C420 56 470 104 600 106 C720 108 790 52 910 50 C1030 48 1090 92 1200 84 L1200 160 L0 160 Z", "M0 132 C140 128 220 96 360 98 C500 100 560 136 700 138 C840 140 900 108 1040 106 C1130 105 1170 120 1200 118 L1200 160 L0 160 Z"];
 
 // One curve for every entrance. `m` animates transform, which the CSS reduced-motion block in
 // index.css cannot reach, so <MotionConfig reducedMotion="user"> below is what honours the OS
@@ -126,26 +129,7 @@ function Folio({ n, label }: { n: string; label: string }) {
 export function Landing() {
     useDocumentTitle();
 
-    const videoRef = useRef<HTMLVideoElement>(null);
     const { scrollYProgress } = useScroll();
-
-    useEffect(() => {
-        const video = videoRef.current;
-        if (!video) return;
-        if (!window.matchMedia("(min-width: 1024px)").matches || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
-        if ((navigator as Navigator & { connection?: { saveData?: boolean } }).connection?.saveData) return;
-
-        video.currentTime = VIDEO_START;
-        const observer = new IntersectionObserver(
-            ([entry]) => {
-                if (entry.isIntersecting) void video.play().catch(() => {});
-                else video.pause();
-            },
-            { threshold: 0.25 },
-        );
-        observer.observe(video);
-        return () => observer.disconnect();
-    }, []);
 
     return (
         <LazyMotion features={domAnimation} strict>
@@ -222,39 +206,24 @@ export function Landing() {
                                 </m.ul>
                             </m.div>
 
-                            <m.div initial={{ opacity: 0, y: 40 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 1.1, ease: GLIDE, delay: 0.68 }} className={cn(SHELL, "mt-16")}>
-                                <figure className="overflow-hidden rounded-xl border bg-card shadow-xl shadow-black/5 dark:shadow-black/50">
-                                    {/* figcaption has to be a direct child of figure, and it has to stay out of
-                                        the aria-hidden group: the traffic lights are decoration, the label is the
-                                        figure's accessible name. */}
-                                    <figcaption className={cn(LABEL, "flex items-center gap-3 border-b bg-muted/40 px-4 py-2.5")}>
-                                        <span aria-hidden className="flex gap-1.5">
-                                            {[0, 1, 2].map((i) => (
-                                                <span key={i} className="size-2 rounded-full border bg-background" />
-                                            ))}
-                                        </span>
-                                        <span className="mx-auto flex items-center gap-2">
-                                            <span aria-hidden className="animate-breathe size-1.5 rounded-full bg-foreground" />
-                                            recorded run
-                                        </span>
-                                    </figcaption>
-                                    <div className="relative isolate aspect-[8/3]">
-                                        <img
-                                            src="/assets/landing/demo-hero-poster.jpg"
-                                            srcSet="/assets/landing/demo-hero-poster-800.jpg 800w, /assets/landing/demo-hero-poster.jpg 1600w"
-                                            sizes="(min-width: 1216px) 1216px, 100vw"
-                                            width={1600}
-                                            height={600}
-                                            fetchPriority="high"
-                                            decoding="async"
-                                            alt=""
-                                            aria-hidden
-                                            className="absolute inset-0 h-full w-full object-cover object-center"
-                                        />
-                                        {/* No poster attribute: the <img> above already is the poster, with a real srcset. */}
-                                        <video ref={videoRef} src="/assets/landing/demo-hero.mp4" muted playsInline loop preload="none" aria-label="Screen recording of a practice interview: questions, answers and the review" className="absolute inset-0 h-full w-full object-cover object-center" />
-                                    </div>
-                                </figure>
+                            {/* Full-bleed separator where the recorded-run card used to be. It escapes the
+                                shell on purpose: the band is the one thing on the page that has to reach both
+                                viewport edges, so it sits outside the SHELL container. */}
+                            <m.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 1.1, ease: GLIDE, delay: 0.68 }} aria-hidden className="relative mt-16 h-[clamp(6rem,12vw,9.5rem)] overflow-hidden border-y">
+                                <div className="dotgrid absolute inset-0 opacity-30 [mask-image:linear-gradient(to_right,transparent,#000_18%,#000_82%,transparent)]" />
+                                <svg viewBox="0 0 1200 160" preserveAspectRatio="none" aria-hidden="true" className="absolute inset-0 h-full w-full">
+                                    <defs>
+                                        {/* userSpaceOnUse, not the default per-path box: a box-relative gradient would restart
+                                            at whichever ridge is being filled and grow darker toward its own crest. */}
+                                        <linearGradient id="hero-ridge" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="0" y2="160">
+                                            <stop offset="0" stopColor="var(--foreground)" stopOpacity={0.02} />
+                                            <stop offset="1" stopColor="var(--foreground)" stopOpacity={0.13} />
+                                        </linearGradient>
+                                    </defs>
+                                    {RIDGES.map((d) => (
+                                        <path key={d} d={d} fill="url(#hero-ridge)" />
+                                    ))}
+                                </svg>
                             </m.div>
 
                             <ul className={cn(SHELL, "mt-16 grid gap-px border-y bg-border md:grid-cols-3")}>

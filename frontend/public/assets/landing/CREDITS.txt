@@ -1,7 +1,8 @@
-Landing-page media. There is exactly one asset here and it is ours: the hero recording is a screen
-capture of this product, re-encoded rather than shipped raw. Every photograph that used to sit beside
-it was Unsplash stock and has been removed: the page is type, hairlines, a dot grid and the product's
-own output now, so there is nothing third-party left to license or attribute.
+Landing-page media. The hero recording is a screen capture of this product, re-encoded rather than
+shipped raw. Nothing references it since the hero card became a vector separator (Landing.tsx); the
+files stay so the recording can come back without a re-encode. Every photograph that used to sit
+beside it was Unsplash stock and has been removed: the page is type, hairlines, a dot grid and the
+product's own output now, so there is nothing third-party left to license or attribute.
 
 demo-hero.mp4                                 screen recording of a practice run, 8x speed
     1280x668, 30fps, no audio, 1.2MB. Built from a 1900x992/60fps capture:
@@ -10,8 +11,6 @@ demo-hero.mp4                                 screen recording of a practice run
       -movflags +faststart demo-hero.mp4
     Raw captures are 25-55MB and are gitignored (frontend/public/maxterview-demo-vid-*.mp4).
 demo-hero-poster.jpg, demo-hero-poster-800.jpg frame 25 (t=6.25s) of demo-hero.mp4, 1600x600 / 800x300
-    Must stay the frame the video starts on (VIDEO_START in Landing.tsx), or the still-to-motion
-    swap shows a cut.
 
 Fonts live in frontend/public/fonts (Inter, Fraunces, JetBrains Mono; latin cut plus a ~1.5KB peso cut
 per family). CSS declares and range-gates them in frontend/src/index.css.
