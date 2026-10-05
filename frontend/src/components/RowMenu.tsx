@@ -41,7 +41,7 @@ export function RowMenu({ label, items }: { label: string; items: RowMenuItem[] 
 
     return (
         <details ref={ref} className="relative">
-            <summary aria-label={label} title={label} className="flex h-8 w-8 cursor-pointer list-none items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground [&::-webkit-details-marker]:hidden">
+            <summary aria-label={label} title={label} className="flex h-11 w-11 cursor-pointer list-none items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground [&::-webkit-details-marker]:hidden">
                 <span aria-hidden className="text-base leading-none">
                     ⋮
                 </span>

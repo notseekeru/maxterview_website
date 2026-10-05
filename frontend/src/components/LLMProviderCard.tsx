@@ -164,17 +164,17 @@ export function LLMProviderCard() {
                     <div className="grid gap-3 sm:grid-cols-2">
                         <label htmlFor="llm-base-url" className="flex flex-col gap-1 text-sm">
                             <span className="text-muted-foreground">Base URL</span>
-                            <Input id="llm-base-url" value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder="https://api.openai.com/v1" spellCheck={false} />
+                            <Input id="llm-base-url" value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder="https://api.openai.com/v1" />
                         </label>
                         <label htmlFor="llm-model" className="flex flex-col gap-1 text-sm">
                             <span className="text-muted-foreground">Model</span>
-                            <Input id="llm-model" value={model} onChange={(e) => setModel(e.target.value)} placeholder="gpt-4o-mini" spellCheck={false} />
+                            <Input id="llm-model" value={model} onChange={(e) => setModel(e.target.value)} placeholder="gpt-4o-mini" />
                         </label>
                     </div>
 
                     <label htmlFor="llm-api-key" className="flex flex-col gap-1 text-sm">
                         <span className="text-muted-foreground">API key</span>
-                        <Input id="llm-api-key" type="password" autoComplete="off" value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder={status?.byok && status.key_hint ? "Leave blank to keep the saved key" : "sk-… (optional: a keyless self-hosted endpoint needs none)"} spellCheck={false} />
+                        <Input id="llm-api-key" type="password" autoComplete="off" value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder={status?.byok && status.key_hint ? "Leave blank to keep the saved key" : "sk-… (optional: a keyless self-hosted endpoint needs none)"} />
                     </label>
 
                     <div className="flex flex-wrap items-center gap-3">

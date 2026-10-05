@@ -12,7 +12,7 @@ const Progress = React.forwardRef<HTMLDivElement, ProgressProps>(({ className, v
     const pct = Math.min(100, Math.max(0, value ?? 0));
     return (
         <div ref={ref} role="progressbar" aria-valuenow={Math.round(pct)} aria-valuemin={0} aria-valuemax={100} className={cn("relative h-2 w-full overflow-hidden rounded-full bg-muted", className)} {...props}>
-            <div className="h-full rounded-full bg-primary transition-all" style={{ width: `${pct}%` }} />
+            <div className="h-full rounded-full bg-primary transition-[width]" style={{ width: `${pct}%` }} />
         </div>
     );
 });

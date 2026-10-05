@@ -516,7 +516,7 @@ export function InterviewChat({ interviewId, onExit }: Props) {
                         <Button
                             variant={mic.recording ? "destructive" : "ghost"}
                             size="icon"
-                            className={cn("h-8 w-8 shrink-0 rounded-full", !mic.recording && "text-muted-foreground")}
+                            className={cn("shrink-0 rounded-full", !mic.recording && "text-muted-foreground")}
                             aria-pressed={mic.recording}
                             aria-label={mic.recording ? "Stop and keep what you said" : "Speak your answer"}
                             onClick={() => {
@@ -533,7 +533,7 @@ export function InterviewChat({ interviewId, onExit }: Props) {
                         >
                             <Icon name={mic.recording ? "stop" : "mic"} />
                         </Button>
-                        <Button size="icon" className="h-8 w-8 shrink-0 rounded-full" aria-label="Send your answer" title="Send your answer" onClick={() => void send()} disabled={status !== "ready" || !draft.trim() || interviewOver || mic.recording}>
+                        <Button size="icon" className="shrink-0 rounded-full" aria-label="Send your answer" title="Send your answer" onClick={() => void send()} disabled={status !== "ready" || !draft.trim() || interviewOver || mic.recording}>
                             <Icon name="send" />
                         </Button>
                     </div>
