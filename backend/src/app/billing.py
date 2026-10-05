@@ -26,17 +26,18 @@ from app.models import ClerkUser
 FREE_CHAT_TURNS = int(os.getenv("FREE_CHAT_TURNS", "10"))
 PREMIUM_CHAT_TURNS = int(os.getenv("PREMIUM_CHAT_TURNS", "100"))
 DEV_CHAT_TURNS = int(os.getenv("DEV_CHAT_TURNS", "500"))  # dev > premium
-# The owner's provider pays, so this flat ceiling replaces the tier cap.
-BYOK_CHAT_TURNS = int(os.getenv("BYOK_CHAT_TURNS", "1000"))
+# Per tier, not flat: a flat ceiling would hand Pro's allowance back to the owner of a key.
+BYOK_CHAT_TURNS = int(os.getenv("BYOK_CHAT_TURNS", "300"))
+BYOK_PREMIUM_CHAT_TURNS = int(os.getenv("BYOK_PREMIUM_CHAT_TURNS", "5000"))
 # Free is a teaser cap, premium the real ceiling; `dev` tracks premium.
 FREE_RESUMES = int(os.getenv("FREE_RESUMES", "1"))
 PREMIUM_RESUMES = int(os.getenv("PREMIUM_RESUMES", "5"))
 DEV_RESUMES = int(os.getenv("DEV_RESUMES", "5"))
 
 LIMITS = {
-    "free": {"chat_turns": FREE_CHAT_TURNS, "resumes": FREE_RESUMES},
-    "premium": {"chat_turns": PREMIUM_CHAT_TURNS, "resumes": PREMIUM_RESUMES},
-    "dev": {"chat_turns": DEV_CHAT_TURNS, "resumes": DEV_RESUMES},
+    "free": {"chat_turns": FREE_CHAT_TURNS, "byok_turns": BYOK_CHAT_TURNS, "resumes": FREE_RESUMES},
+    "premium": {"chat_turns": PREMIUM_CHAT_TURNS, "byok_turns": BYOK_PREMIUM_CHAT_TURNS, "resumes": PREMIUM_RESUMES},
+    "dev": {"chat_turns": DEV_CHAT_TURNS, "byok_turns": BYOK_PREMIUM_CHAT_TURNS, "resumes": DEV_RESUMES},
 }
 
 # `cancelled` included: the provider cancels at once but the invoice stays paid.
@@ -79,10 +80,11 @@ def _quota(tier: str, what: str) -> float:
     return limits[what]
 
 
-def chat_turn_limit(tier: str | None) -> int:
-    """Daily chat-turn ceiling: `tier`'s, or the flat BYOK one when the tier is None. None MEANS BYOK (the
-    caller must not resolve a tier it has no other use for); it is never "uncapped"."""
-    return BYOK_CHAT_TURNS if tier is None else int(_quota(tier, "chat_turns"))
+def chat_turn_limit(tier: str, byok: bool = False) -> int:
+    """Daily chat-turn ceiling for `tier`, or the same tier's BYOK one when `byok`. Never uncapped:
+    `byok` is self-asserted (BYOK.md), so the ceiling is what stands between a saved endpoint and a
+    free ride on whoever's GPU the base_url names."""
+    return int(_quota(tier, "byok_turns" if byok else "chat_turns"))
 
 
 def resume_limit(tier: str) -> int:
@@ -102,10 +104,6 @@ async def chat_turns_used(owner_id: str) -> int:
         _utc_day(),
     )
     return (row["turns"] or 0) if row else 0
-
-
-async def chat_turn_remaining(tier: str | None, owner_id: str) -> int:
-    return max(0, chat_turn_limit(tier) - await chat_turns_used(owner_id))
 
 
 async def bump_chat_turn(owner_id: str) -> None:

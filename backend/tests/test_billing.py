@@ -35,11 +35,13 @@ def test_quota_defaults():
 
 
 def test_byok_ceiling_swaps_the_tier_cap_in():
-    # BYOK (tier=None) is never uncapped: the tier's dial is replaced, not removed. It must stay
-    # ABOVE premium's, or bringing a key would read as a downgrade.
-    assert billing.chat_turn_limit(None) == billing.BYOK_CHAT_TURNS
+    # BYOK is never uncapped: the tier's dial is replaced, not removed, and the replacement is tiered
     assert billing.chat_turn_limit("free") == billing.FREE_CHAT_TURNS
+    assert billing.chat_turn_limit("free", byok=True) == billing.BYOK_CHAT_TURNS
+    assert billing.chat_turn_limit("premium", byok=True) == billing.BYOK_PREMIUM_CHAT_TURNS
+    assert billing.chat_turn_limit("dev", byok=True) == billing.BYOK_PREMIUM_CHAT_TURNS
     assert billing.BYOK_CHAT_TURNS > billing.PREMIUM_CHAT_TURNS
+    assert billing.BYOK_PREMIUM_CHAT_TURNS > billing.BYOK_CHAT_TURNS
 
 
 async def test_resolve_tier_dev_fallback_when_no_clerk(monkeypatch):
@@ -69,26 +71,6 @@ async def test_resolve_tier_free_when_no_subscription(monkeypatch):
 async def test_chat_turns_used_defaults_zero_when_no_row(monkeypatch):
     monkeypatch.setattr(billing, "fetchrow", _async_none)
     assert await billing.chat_turns_used("some-owner") == 0
-
-
-async def test_chat_turn_remaining_uses_global_counter(monkeypatch):
-    # Used 7 across all interviews today -> free(10) has 3 left; premium(100) has 93.
-    async def _fake(q, owner, day):
-        return {"turns": 7}
-
-    monkeypatch.setattr(billing, "fetchrow", _fake)
-    assert await billing.chat_turn_remaining("free", "o") == 3
-    assert await billing.chat_turn_remaining("premium", "o") == 93
-    assert await billing.chat_turn_remaining("dev", "o") == 493
-    assert await billing.chat_turn_remaining(None, "o") == billing.BYOK_CHAT_TURNS - 7  # BYOK ceiling
-
-
-async def test_chat_turn_remaining_floor_at_zero(monkeypatch):
-    async def _fake(q, owner, day):
-        return {"turns": 30}
-
-    monkeypatch.setattr(billing, "fetchrow", _fake)
-    assert await billing.chat_turn_remaining("free", "o") == 0
 
 
 async def test_bump_upserts_global_row(monkeypatch):

@@ -19,7 +19,7 @@ export function PlanPitch({ tier, usage }: { tier: PlanTier; usage?: Usage | nul
     const includes =
         tier === "free"
             ? [`${turns} chat turns a day, about ${runs === 1 ? "one finished run" : `${runs} finished runs`}`, `${resumes} resume slot`, "Review, verdict and analytics on every run"]
-            : [`${turns} chat turns a day, about ${runs} finished runs`, `${resumes} resume slots to keep, and swap between`, "Higher BYOK Limits", "Subject to higher quality model"];
+            : [`${turns} chat turns a day, about ${runs} finished runs`, `${resumes} resume slots to keep, and swap between`, `Higher BYOK limits: ${PLANS.premium.byokTurns} turns a day on your own key`, "Subject to higher quality model"];
     return (
         <div className="flex flex-col gap-5">
             <p className="text-sm leading-relaxed text-muted-foreground">{plan.audience}</p>

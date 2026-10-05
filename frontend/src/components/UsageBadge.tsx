@@ -70,8 +70,16 @@ export function UpgradeNotice() {
             .catch(() => {});
     }, []);
 
-    const paid = usage?.tier === "premium" || usage?.byok === true;
-    const body = !usage ? "Turns come back at 00:00 UTC." : paid ? "Every turn in today's allowance is spent. It comes back at 00:00 UTC." : `Free gives you ${PLANS.free.turns} turns a day. Pro gives you ${PLANS.premium.turns}, plus ${PLANS.premium.resumes} resume slots.`;
+    // A saved key outranks the tier on the provider-paid ceiling, but only free has Pro above it, so
+    // the upsell decision belongs to the TIER and not to `byok`.
+    const paid = usage?.tier === "premium" || usage?.tier === "dev";
+    const body = !usage
+        ? "Turns come back at 00:00 UTC."
+        : paid
+          ? "Every turn in today's allowance is spent. It comes back at 00:00 UTC."
+          : usage.byok
+            ? `Free gives you ${PLANS.free.byokTurns} turns a day on your own provider key. Pro gives you ${PLANS.premium.byokTurns}.`
+            : `Free gives you ${PLANS.free.turns} turns a day. Pro gives you ${PLANS.premium.turns}, plus ${PLANS.premium.resumes} resume slots.`;
 
     return (
         <div className="flex flex-col items-start gap-3 rounded-xl border border-dashed bg-muted/50 p-4 text-sm">

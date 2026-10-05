@@ -1007,9 +1007,9 @@ async def get_interview_offer(interview_id: str, user: CurrentUser) -> dict:
 async def get_usage(user: CurrentUser, config: LLMConfigDep) -> dict:
     """Cheap quota status: tier + the daily GLOBAL chat-turn dial (per owner, all interviews)."""
     tier = await billing.resolve_tier(user)
-    # BYOK trades the tier cap for the flat ceiling, so this is the effective limit: the UI computes
+    # BYOK swaps in its own ceiling, so this is the effective limit: the UI computes
     # `limit - remaining` and would otherwise show a negative `used`.
-    chat = billing.chat_turn_limit(None if config.byok else tier)
+    chat = billing.chat_turn_limit(tier, byok=config.byok)
     used = await billing.chat_turns_used(user.sub)
     return {
         "tier": tier,
@@ -1126,21 +1126,26 @@ async def _chat_session(interview_id: str, user: CurrentUser) -> tuple[dict, lis
     return interview, prior_rows, asked, dials
 
 
+def _lockout_detail(tier: str, byok: bool, limit: int) -> str:
+    """402 copy. Upgrading is the answer only on free: the one tier where Pro raises the BYOK ceiling."""
+    if not byok:
+        return "Daily chat-turn credits reached. Try again after midnight UTC, or upgrade to Pro."
+    pro = billing.chat_turn_limit("premium", byok=True)
+    return f"Daily chat-turn limit reached ({limit} turns/day on your own provider). Try again after midnight UTC." + (f" Pro raises it to {pro}." if tier == "free" else "")
+
+
 async def _spend_chat_turn(user: CurrentUser, config: llm.LLMConfig) -> None:
     """One MODEL turn = one chat credit, so every path that generates goes through here (the opener,
     the reply to an answer, the sign-off). Refusal happens before the call, never after it.
 
-    BYOK pays the provider, not us, so the TIER cap is not the gate - the flat billing.BYOK_CHAT_TURNS
-    ceiling is, and the turn is metered either way: `byok` is self-asserted, and a waived + unmetered
-    cap is a free ride on whoever's GPU the owner's base_url names (BYOK.md). tier=None IS that BYOK
-    signal, which is what keeps resolve_tier out of this path: nothing else here needs the tier.
+    BYOK pays the provider, not us, so the TIER cap is not the gate - the tier's BYOK ceiling is, and
+    the turn is metered either way: `byok` is self-asserted, and a waived + unmetered cap is a free
+    ride on whoever's GPU the owner's base_url names (BYOK.md).
     """
-    tier = None if config.byok else await billing.resolve_tier(user)
-    if await billing.chat_turn_remaining(tier, user.sub) == 0:
-        raise HTTPException(
-            status_code=status.HTTP_402_PAYMENT_REQUIRED,
-            detail=(f"Daily chat-turn limit reached ({billing.BYOK_CHAT_TURNS} turns/day on your own provider). Try again after midnight UTC." if config.byok else "Daily chat-turn credits reached. Try again after midnight UTC, or upgrade to Pro."),
-        )
+    tier = await billing.resolve_tier(user)
+    limit = billing.chat_turn_limit(tier, byok=config.byok)
+    if await billing.chat_turns_used(user.sub) >= limit:
+        raise HTTPException(status_code=status.HTTP_402_PAYMENT_REQUIRED, detail=_lockout_detail(tier, config.byok, limit))
     await billing.bump_chat_turn(user.sub)
 
 

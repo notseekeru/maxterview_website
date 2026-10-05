@@ -429,7 +429,7 @@ export type Tier = "free" | "premium" | "dev";
 
 export interface Usage {
     tier: Tier;
-    /** The caller's EFFECTIVE daily cap: their tier's, or the flat, higher BYOK ceiling when
+    /** The caller's EFFECTIVE daily cap: their tier's, or that tier's BYOK ceiling when
      *  `byok` is set. The server reports only the caller's own tier key, so a page may never
      *  assume another tier's number from here (see lib/plans.ts for marketing). */
     chat_turns_per_day_free?: number;

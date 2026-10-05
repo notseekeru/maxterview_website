@@ -8,7 +8,7 @@
 - BYOK is optional by construction: no encryption key, no row, or an undecryptable row all
   fall back to the system default. A settings problem must never take interviews down.
 - The deployment's OWN provider (while it needs no key) and anything off the public internet are
-  not valid targets (`_base_url`): `byok` is self-asserted and swaps the tier cap for a flat
+  not valid targets (`_base_url`): `byok` is self-asserted and swaps the tier cap for that tier's
   ceiling, so either one is a free ride on, or a probe into, this deployment's own infrastructure.
 
 See BYOK.md for the contract, endpoints and threat notes.
@@ -105,7 +105,7 @@ async def _base_url(raw: str) -> str:
     url = urlparse(raw.strip().rstrip("/"))
     if url.scheme not in ("http", "https") or not url.hostname or url.username or url.password or url.query or url.fragment:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Base URL must look like https://api.openai.com/v1 (http/https, no credentials, no query).")
-    # A junk key against our own keyless provider trades the tier cap for the higher BYOK ceiling.
+    # A junk key against our own keyless provider trades the tier cap for the BYOK ceiling.
     own = llm.SYSTEM_CONFIG
     if not own.stub and not own.api_key and _origin(raw) == _origin(own.base_url):
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="That is this deployment's own provider. BYOK is for an endpoint you pay for - point it at your own, or clear it to use the system default.")

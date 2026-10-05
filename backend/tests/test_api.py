@@ -1045,9 +1045,9 @@ def test_complete_auto_retry_stops_on_first_success(client, monkeypatch):
 
 
 def test_byok_chat_turn_skips_the_tier_quota_but_is_still_metered(client, monkeypatch):
-    # BYOK pays the provider, not us: the turn must pass with the TIER's credits exhausted, and the
-    # tier must not even be resolved. It IS metered, and the flat BYOK ceiling still gates it - a
-    # self-asserted flag that waived both the cap and the counter is a free ride (BYOK.md).
+    # BYOK pays the provider, not us: the turn must pass with the TIER's credits exhausted. It IS
+    # metered, and the BYOK ceiling still gates it - a self-asserted flag that waived both the cap and
+    # the counter is a free ride (BYOK.md). The tier is read only to pick WHICH BYOK ceiling applies.
     from cryptography.fernet import Fernet
 
     from app import billing, byok, llm
@@ -1077,7 +1077,7 @@ def test_byok_chat_turn_skips_the_tier_quota_but_is_still_metered(client, monkey
         r = client.post(f"/api/interviews/{iid}/chat/stream", json={"interview_id": iid, "content": "hi"})
         assert r.status_code == 200
         assert "Sure - " in r.text
-        assert (seen["tiers"], seen["bumps"]) == (0, 1)  # tier skipped, turn metered
+        assert (seen["tiers"], seen["bumps"]) == (1, 1)  # tier read for the ceiling, turn metered
         assert client.get("/api/usage").json()["byok"] is True
         client.delete(f"/api/interviews/{iid}")
     finally:
@@ -1087,13 +1087,15 @@ def test_byok_chat_turn_skips_the_tier_quota_but_is_still_metered(client, monkey
 
 def test_byok_turns_stop_at_the_byok_ceiling(client, monkeypatch):
     # The ceiling is the half of the waiver that is NOT negotiable, and it is the same number /usage
-    # reports, so the counter in the UI and the 402 can never disagree.
+    # reports, so the counter in the UI and the 402 can never disagree. This client is the dev
+    # identity, so the ceiling under test is premium's BYOK one.
     from cryptography.fernet import Fernet
 
     from app import billing, byok
 
     monkeypatch.setenv("BYOK_ENCRYPTION_KEY", Fernet.generate_key().decode())
-    monkeypatch.setattr(billing, "BYOK_CHAT_TURNS", 3)
+    # LIMITS is built from the env at import, so the ceiling under test is patched where it is read.
+    monkeypatch.setitem(billing.LIMITS["dev"], "byok_turns", 3)
     byok._fernet.cache_clear()
 
     async def _used(_owner):
@@ -1112,7 +1114,7 @@ def test_byok_turns_stop_at_the_byok_ceiling(client, monkeypatch):
         client.post(f"/api/interviews/{iid}/start")
         r = client.post(f"/api/interviews/{iid}/chat/stream", json={"interview_id": iid, "content": "hi"})
         assert r.status_code == 402
-        assert "your own provider" in r.json()["detail"]  # not an upsell: premium has the same ceiling
+        assert "your own provider" in r.json()["detail"]
         client.delete(f"/api/interviews/{iid}")
     finally:
         client.delete("/api/settings/llm")

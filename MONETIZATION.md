@@ -51,8 +51,8 @@ Decisions: PLAN D10 (owner-scoping is a hard rule).
   data** — reads stay fully available. Hard rule.
 - **No cache-aside** for the counters (DB-backed, per-user, low-frequency). `tier` is cached in the
   JWT; JWKS in `auth.py`.
-- **`GET /usage`** returns `tier`, the EFFECTIVE cap (`chat_turns_per_day_<tier>`, or the BYOK
-  ceiling when the caller brings a key), `chat_turns_used_today` / `chat_turns_remaining_today`,
+- **`GET /usage`** returns `tier`, the EFFECTIVE cap (`chat_turns_per_day_<tier>`, or that tier's
+  BYOK ceiling when the caller brings a key), `chat_turns_used_today` / `chat_turns_remaining_today`,
   `byok`, plus `billing_mode` and `premium_until` (period mode has no renewal for the UI to infer an
   expiry from, so the server states it). The frontend header shows the tier via `UsageBadge`.
 
