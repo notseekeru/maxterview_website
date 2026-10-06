@@ -68,7 +68,7 @@ async def _run(monkeypatch, classes, backfill=None, comments=None):
         cls = (backfill or {}).get(turn)
         return rating.Move(cls, f"note {turn}") if cls else None
 
-    async def fake_generate_feedback(history, dials, config, failure=None, annotate=True, resume=""):
+    async def fake_generate_feedback(history, dials, config, failure=None, annotate=True, resume="", level="any"):
         seen["failure_arg"] = failure
         return SUMMARY
 

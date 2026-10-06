@@ -272,8 +272,8 @@ def test_interview_lifecycle_owner_scoped(client):
     r = c.post(f"/api/interviews/{iid}/start")
     assert r.status_code == 200
     assert r.json()["status"] == "in_progress"
-
-    # SSE chat: real LLM stub streams + persists both turns
+    # The opener is the question the answer counts against: without it the certainty cap floors.
+    assert c.post(f"/api/interviews/{iid}/chat/kickoff").status_code == 200
     r = c.post(f"/api/interviews/{iid}/chat/stream", json={"interview_id": iid, "content": "I have 5 years of experience."})
     assert r.status_code == 200
     assert "text/event-stream" in r.headers["content-type"]
@@ -689,6 +689,7 @@ def test_resume_reaches_both_prompts_from_the_database(client, monkeypatch):
     rid = c.post("/api/resumes", json=_resume_payload("Fodder", "Alex ran a 40-node K3s cluster and cut p99 from 40s to 900ms.")).json()["id"]
     iid = c.post("/api/interviews", json={"role": "Platform Engineer", "resume_id": rid}).json()["id"]
     c.post(f"/api/interviews/{iid}/start")
+    c.post(f"/api/interviews/{iid}/chat/kickoff")
 
     sent = {}
 
@@ -704,7 +705,7 @@ def test_resume_reaches_both_prompts_from_the_database(client, monkeypatch):
 
     # The grader is a separate prompt built by a separate call, and it gets the same resume.
     real_grader_prompt = llm.grader_prompt
-    monkeypatch.setattr(llm, "grader_prompt", lambda dials=None, resume="": sent.setdefault("grader", real_grader_prompt(dials, resume)))
+    monkeypatch.setattr(llm, "grader_prompt", lambda dials=None, resume="", level="any": sent.setdefault("grader", real_grader_prompt(dials, resume, level)))
 
     # A non-stub config, or generate_feedback short-circuits to the deterministic stand-in before the
     # grader prompt is ever built (the test env has no provider). `_completion` below is the only thing

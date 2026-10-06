@@ -15,6 +15,15 @@ REAL = llm.LLMConfig(base_url="http://llm.test", model="qwen")
 MOVES_JSON = '{"moves": [{"turn": 1, "class": "great", "comment": "Your own decisions were visible in it."}, {"turn": 2, "class": "inaccuracy", "comment": "No evidence behind the claim: name the situation."}]}'
 
 
+def _interview(*answers: str) -> list[ChatMessage]:
+    """Interviewer turn then candidate answer: the shape the no-material floor and the certainty cap read."""
+    history: list[ChatMessage] = []
+    for a in answers:
+        history.append(ChatMessage(role="assistant", content="And what happened next?"))
+        history.append(ChatMessage(role="user", content=a))
+    return history
+
+
 def test_unreachable_detail_names_the_endpoint_a_byok_owner_can_fix():
     cfg = llm.LLMConfig(base_url="https://old-llama.example.ts.net/v1", model="qwen", byok=True)
     assert llm.unreachable_detail(ConnectError("boom"), cfg) == "Could not reach your provider (old-llama.example.ts.net) - ConnectError. Test it in Settings > Interview engine (BYOK)."
@@ -303,7 +312,7 @@ def test_chat_extras_disable_thinking_by_default():
 
 
 async def test_stub_feedback_is_deterministic():
-    f: FeedbackSummary = await llm.generate_feedback([ChatMessage(role="user", content="hi")], None, llm.SYSTEM_CONFIG)
+    f: FeedbackSummary = await llm.generate_feedback(_interview("hi"), None, llm.SYSTEM_CONFIG)
     assert set(f.scores.keys()) == set(llm.FEEDBACK_DIMS)
     assert f.verdict
     assert isinstance(f.tips, list) and len(f.tips) >= 1
@@ -373,25 +382,27 @@ def test_coerce_certainty_range_percent_and_probability():
 
 def test_evidence_cap_scales_with_answer_count_then_saturates():
     def answers(n):
-        return [ChatMessage(role="user", content="x") for _ in range(n)]
+        return _interview(*(f"answer {i}" for i in range(n)))
 
-    assert llm._evidence_cap(answers(1)) == 48
-    assert llm._evidence_cap(answers(4)) == 72
-    assert llm._evidence_cap(answers(8)) == 100
-    assert llm._evidence_cap(answers(40)) == 100  # no overshoot past 100
-    assert llm._evidence_cap([]) == 40
+    assert llm._evidence_cap(answers(1), None) == 48
+    assert llm._evidence_cap(answers(4), None) == 72
+    assert llm._evidence_cap(answers(8), None) == 100
+    assert llm._evidence_cap(answers(40), None) == 100  # no overshoot past 100
+    assert llm._evidence_cap([], None) == 40
+    # Turns that never answered a question are not evidence, however many there are.
+    assert llm._evidence_cap([ChatMessage(role="user", content="x")] * 20, None) == 40
 
 
 def test_evidence_cap_clamps_model_certainty():
     # The model may WANT to be certain; a one-answer transcript doesn't support it.
     loud = FeedbackSummary(scores={d: 8 for d in llm.FEEDBACK_DIMS}, verdict="v", tips=["a"], decision="hire", certainty=99)
-    assert llm._apply_evidence_cap(loud, [ChatMessage(role="user", content="one answer")]).certainty == 48
+    assert llm._apply_evidence_cap(loud, _interview("one answer"), None).certainty == 48
     # ...and never inflates a modest one.
     quiet = FeedbackSummary(scores={d: 5 for d in llm.FEEDBACK_DIMS}, verdict="v", tips=["a"], decision="lean_reject", certainty=20)
-    assert llm._apply_evidence_cap(quiet, [ChatMessage(role="user", content="x")] * 20).certainty == 20
+    assert llm._apply_evidence_cap(quiet, _interview(*(f"x{i}" for i in range(20))), None).certainty == 20
     # `failed` opts out: a hardcore failure's certainty is set by the failure, not by turn count.
     certain = FeedbackSummary(scores={d: 5 for d in llm.FEEDBACK_DIMS}, verdict="v", tips=["a"], decision="reject", certainty=100)
-    assert llm._apply_evidence_cap(certain, [ChatMessage(role="user", content="one answer")], failed=True).certainty == 100
+    assert llm._apply_evidence_cap(certain, _interview("one answer"), None, failed=True).certainty == 100
 
 
 async def test_generate_feedback_real_grader_and_formatter_path(monkeypatch):
@@ -411,7 +422,7 @@ async def test_generate_feedback_real_grader_and_formatter_path(monkeypatch):
         return "prose notes" if not json_output else full
 
     monkeypatch.setattr(llm, "_completion", _completion)
-    out = await llm.generate_feedback([ChatMessage(role="user", content=f"hi {i}") for i in range(10)], None, REAL)
+    out = await llm.generate_feedback(_interview(*(f"hi {i}" for i in range(10))), None, REAL)
     assert out is not None
     assert set(out.scores) == set(llm.FEEDBACK_DIMS)  # the full rubric lands when the model fills it
     assert all(1 <= out.scores[d] <= 10 for d in llm.FEEDBACK_DIMS)
@@ -437,7 +448,7 @@ async def test_generate_feedback_keeps_scores_when_decision_drifts(monkeypatch):
         return "prose notes"
 
     monkeypatch.setattr(llm, "_completion", _completion)
-    out = await llm.generate_feedback([ChatMessage(role="user", content="hi")], None, REAL)
+    out = await llm.generate_feedback(_interview("hi"), None, REAL)
     assert out is not None and out.verdict == "Fine."
     assert out.decision is None
     # Orphan certainty is dropped with it, so the dashboard average stays over decided runs only.
@@ -456,7 +467,7 @@ async def test_generate_feedback_drops_unassessed_dims_without_losing_the_run(mo
         return "prose notes"
 
     monkeypatch.setattr(llm, "_completion", _completion)
-    out = await llm.generate_feedback([ChatMessage(role="user", content="hi")], None, REAL)
+    out = await llm.generate_feedback(_interview("hi"), None, REAL)
     assert out is not None and out.scores == {"clarity": 7.0, "relevance": 6.0, "ownership": 8.0}
 
 
@@ -474,7 +485,7 @@ async def test_generate_feedback_recovers_from_out_of_range_scores(monkeypatch):
         return "prose notes"
 
     monkeypatch.setattr(llm, "_completion", _completion)
-    out = await llm.generate_feedback([ChatMessage(role="user", content="hello")], None, REAL)
+    out = await llm.generate_feedback(_interview("hello"), None, REAL)
     assert attempts["n"] == 1  # no wasted retry
     assert out is not None and out.scores == {d: 1.0 for d in llm.FEEDBACK_DIMS}
 
@@ -493,7 +504,7 @@ async def test_generate_feedback_formatter_retries_on_bad_schema(monkeypatch):
         return "prose notes"
 
     monkeypatch.setattr(llm, "_completion", _completion)
-    out = await llm.generate_feedback([ChatMessage(role="user", content="hi")], None, REAL)
+    out = await llm.generate_feedback(_interview("hi"), None, REAL)
     assert attempts["n"] == 2  # schema mismatch triggered the formatter retry
     assert out is not None and out.verdict == "Great."
 
@@ -512,7 +523,7 @@ async def test_generate_feedback_returns_none_when_formatter_never_valid(monkeyp
         return "prose notes"
 
     monkeypatch.setattr(llm, "_completion", _completion)
-    out = await llm.generate_feedback([ChatMessage(role="user", content="hi")], None, REAL)
+    out = await llm.generate_feedback(_interview("hi"), None, REAL)
     assert attempts["n"] == 2  # formatter exhausted its one retry
     assert out is None  # no fabricated feedback
 
@@ -530,7 +541,7 @@ async def test_generate_feedback_returns_none_when_grader_fails(monkeypatch):
         return None
 
     monkeypatch.setattr(llm, "_completion", _completion)
-    out = await llm.generate_feedback([ChatMessage(role="user", content="hi")], None, REAL)
+    out = await llm.generate_feedback(_interview("hi"), None, REAL)
     assert grader_attempts["n"] == 2  # grader retried once
     assert format_attempts["n"] == 0  # formatter never invoked
     assert out is None
@@ -615,7 +626,7 @@ async def test_generate_feedback_keeps_verdict_when_annotation_fails(monkeypatch
         return "prose notes"
 
     monkeypatch.setattr(llm, "_completion", _completion)
-    out = await llm.generate_feedback([ChatMessage(role="user", content="hi")], None, REAL)
+    out = await llm.generate_feedback(_interview("hi"), None, REAL)
     assert out is not None and out.verdict == "Fine." and out.moves == {}
 
 
@@ -649,7 +660,7 @@ async def test_hardcore_failure_prompts_for_caps_and_forces_reject(monkeypatch):
         return "prose notes"
 
     monkeypatch.setattr(llm, "_completion", _completion)
-    out = await llm.generate_feedback([ChatMessage(role="user", content="hi")], None, REAL, failure=(2, "blunder"), annotate=False)
+    out = await llm.generate_feedback(_interview("hi"), None, REAL, failure=(2, "blunder"), annotate=False)
     assert "HARDCORE MODE - THE RUN FAILED" in seen["system"]
     # Caps are the server's floor on a hardcore verdict, not something a small model is trusted to hold.
     assert out is not None and out.verdict == "YOU BLEW IT."

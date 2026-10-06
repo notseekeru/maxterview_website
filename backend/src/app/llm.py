@@ -418,9 +418,20 @@ BRUTAL_GRADER_PROMPT = """
 Brutal honesty was requested: lead the verdict with the weakest part of the interview in plain words, name the single biggest gap so it cannot be skimmed past, and skip the encouragement framing. Same evidence bar - never invent a failure, and do not dress up a minor gap as a fatal one."""
 
 
-def grader_prompt(dials: Dials | None = None, resume: str = "") -> str:
+def _grader_band(level: str) -> str:
+    """Without it every candidate is graded against the same absolute bar, which is how an intern gets marked down for lacking senior evidence."""
+    if not level or level == "any":
+        return "\n\nTarget band is unspecified: set the bar from the evidence in the transcript and name the band you graded against in the verdict."
+    band = levels.label(level).lower()
+    return (
+        f"\n\nTarget band: {band}. Grade against the {band} bar: first-hand work the candidate actually did, their own decisions and fixes, and visible curiosity clear it."
+        f" Do not demand senior evidence (production incidents at scale, team or infra ownership, shipped-product metrics), and do not read {band}-level strengths as a senior verdict."
+    )
+
+
+def grader_prompt(dials: Dials | None = None, resume: str = "", level: str = "any") -> str:
     d = dials or Dials()
-    prompt = GRADER_PROMPT_V1 + (BRUTAL_GRADER_PROMPT if d.brutally_honest else "") + (HARDCORE_GRADER_PROMPT if d.hardcore else "")
+    prompt = GRADER_PROMPT_V1 + _grader_band(level) + (BRUTAL_GRADER_PROMPT if d.brutally_honest else "") + (HARDCORE_GRADER_PROMPT if d.hardcore else "")
     return prompt + (GRADER_RESUME_PROMPT.format(text=injectable_resume(resume)) if resume else "")
 
 
@@ -669,19 +680,29 @@ def _stub_moves(history: list[ChatMessage]) -> dict[int, rating.Move]:
 
 
 # A one-answer transcript cannot support a near-certain verdict.
-# Turn COUNT only, not answer substance.
 EVIDENCE_CAP_BASE, EVIDENCE_CAP_STEP = 40, 8
 
 
-def _evidence_cap(history: list[ChatMessage]) -> int:
-    answers = sum(1 for m in history if m.role == "user")
-    return min(100, EVIDENCE_CAP_BASE + EVIDENCE_CAP_STEP * answers)
+def _graded_answers(history: list[ChatMessage], dials: Dials | None) -> int:
+    """Small talk is not evidence: only turns answering a question past the chitchat count."""
+    first_graded = (dials or Dials()).mix_chitchat + 1
+    asked = graded = 0
+    for m in history:
+        if m.role == "assistant":
+            asked += 1
+        elif m.role == "user" and asked >= first_graded:
+            graded += 1
+    return graded
 
 
-def _apply_evidence_cap(summary: FeedbackSummary, history: list[ChatMessage], *, failed: bool = False) -> FeedbackSummary:
+def _evidence_cap(history: list[ChatMessage], dials: Dials | None) -> int:
+    return min(100, EVIDENCE_CAP_BASE + EVIDENCE_CAP_STEP * _graded_answers(history, dials))
+
+
+def _apply_evidence_cap(summary: FeedbackSummary, history: list[ChatMessage], dials: Dials | None, *, failed: bool = False) -> FeedbackSummary:
     """Clamp the model's certainty to what the transcript can support. `failed` is a hardcore failure whose certainty is already set: a run ENDED by a wrong answer does not become less certain for having died early, the class that killed it is the evidence."""
     if summary.certainty is not None and not failed:
-        summary.certainty = min(summary.certainty, _evidence_cap(history))
+        summary.certainty = min(summary.certainty, _evidence_cap(history, dials))
     return summary
 
 
@@ -863,7 +884,7 @@ def _json_format(schema: dict | None) -> dict:
     return {"type": "json_schema", "json_schema": {"name": "feedback", "strict": True, "schema": schema}}
 
 
-async def _request_grader_notes(history: list[ChatMessage], dials: Dials | None, config: LLMConfig, resume: str = "") -> str | None:
+async def _request_grader_notes(history: list[ChatMessage], dials: Dials | None, config: LLMConfig, resume: str = "", level: str = "any") -> str | None:
     """Stage 1: grade the FULL transcript in free text. Retries once. Runs on the grader config. Fresh prompt and a role-labelled transcript: the model is far more reliable at prose critique than at strict JSON over a long context."""
     transcript = _format_transcript(history)
     if not transcript:
@@ -871,7 +892,7 @@ async def _request_grader_notes(history: list[ChatMessage], dials: Dials | None,
         return None
     for _ in range(2):
         notes = await _completion(
-            grader_prompt(dials, resume),
+            grader_prompt(dials, resume, level),
             transcript,
             config=grader_config(config),
             max_tokens=LLM_MAX_GRADER_TOKENS,
@@ -1042,13 +1063,18 @@ async def fail_shout(question: str, answer: str, cls: str, config: LLMConfig) ->
     return text.upper()
 
 
-async def generate_feedback(history: list[ChatMessage], dials: Dials | None, config: LLMConfig, failure: tuple[int, str] | None = None, annotate: bool = True, resume: str = "") -> FeedbackSummary | None:
+# A model asked to grade an empty run invents an answer to critique.
+NO_MATERIAL_VERDICT = "The interview ended before any interview question was answered, so there is nothing to grade."
+NO_MATERIAL_TIP = "Run it again and answer the first few questions."
+
+
+async def generate_feedback(history: list[ChatMessage], dials: Dials | None, config: LLMConfig, failure: tuple[int, str] | None = None, annotate: bool = True, resume: str = "", level: str = "any") -> FeedbackSummary | None:
     """Structured feedback for a completed transcript, or None when it is genuinely unavailable. `dials`
     reaches the grader (brutally_honest and hardcore change its framing). `failure` is (turn, class) for
-    a run that already died. `resume` reaches the grader's prompt only: the formatter and move classifier
-    read the transcript, and a resume is not a turn. Grader (transcript -> prose), formatter (prose ->
-    strict JSON), then moves. Failing either of the first two after its retry returns None and the caller
-    MUST NOT write feedback: an unscored interview beats fabricated 6s."""
+    a run that already died. `resume` and `level` reach the grader's prompt only: the formatter and move
+    classifier read the transcript, and neither is a turn. Grader (transcript -> prose), formatter
+    (prose -> strict JSON), then moves. Failing either of the first two after its retry returns None and
+    the caller MUST NOT write feedback: an unscored interview beats fabricated 6s."""
     if config.stub:
         log.warning("llm.feedback.stub_deterministic")
         stub = _deterministic_summary()
@@ -1058,8 +1084,11 @@ async def generate_feedback(history: list[ChatMessage], dials: Dials | None, con
             stub.verdict = f"RUN OVER. TURN {failure[0]} WAS A {failure[1].upper()} AND IN HARDCORE MODE THAT IS THE WHOLE RUN. NO SECOND CHANCES."
             stub.decision = "reject"
             stub.certainty = 100
-        return _apply_evidence_cap(stub, history, failed=failure is not None)
-    notes = await _request_grader_notes(history, dials, config, resume)
+        return _apply_evidence_cap(stub, history, dials, failed=failure is not None)
+    if failure is None and _graded_answers(history, dials) == 0:
+        log.warning("llm.feedback.no_material")
+        return FeedbackSummary(scores={}, verdict=NO_MATERIAL_VERDICT, tips=[NO_MATERIAL_TIP])
+    notes = await _request_grader_notes(history, dials, config, resume, level)
     if notes is None:
         return None
     summary = await _request_format(notes, config, failure)
@@ -1068,7 +1097,7 @@ async def generate_feedback(history: list[ChatMessage], dials: Dials | None, con
     # Additive: the transcript-wide annotation pass cannot cost the run its verdict and tips. Skipped on a hardcore run, already judged answer by answer.
     if annotate:
         summary.moves = await classify_turns(history, config)
-    return _apply_evidence_cap(summary, history, failed=failure is not None)
+    return _apply_evidence_cap(summary, history, dials, failed=failure is not None)
 
 
 async def test_provider(config: LLMConfig) -> tuple[bool, str]:

@@ -1493,13 +1493,13 @@ async def _run_feedback_pipeline(interview_id: str, config: llm.LLMConfig) -> di
     history = [ChatMessage(role=r["role"], content=r["content"]) for r in history_rows]
     # Dials come from the interview, not the caller: regenerate_feedback has no body to trust. The
     # attached resume comes with them (same scalar-subquery reason as chat_stream).
-    row = await fetchrow(f"SELECT {', '.join(DIAL_FIELDS)}, failed_turn, failed_class, (SELECT r.text FROM resumes r WHERE r.id = interviews.resume_id) AS resume_text FROM interviews WHERE id = $1", interview_id)
+    row = await fetchrow(f"SELECT {', '.join(DIAL_FIELDS)}, level, failed_turn, failed_class, (SELECT r.text FROM resumes r WHERE r.id = interviews.resume_id) AS resume_text FROM interviews WHERE id = $1", interview_id)
     dials = Dials(**{k: row[k] for k in DIAL_FIELDS}) if row else None
     failure = (row["failed_turn"], row["failed_class"]) if row and row["failed_turn"] else None
     # A hardcore run was already judged turn by turn as it was answered (chat_stream), so its
     # annotation pass would only re-litigate verdicts the candidate was told about.
     hardcore = bool(dials and dials.hardcore)
-    summary = await llm.generate_feedback(history, dials, config, failure=failure, annotate=not hardcore, resume=(row["resume_text"] or "") if row else "")
+    summary = await llm.generate_feedback(history, dials, config, failure=failure, annotate=not hardcore, resume=(row["resume_text"] or "") if row else "", level=(row["level"] or "any") if row else "any")
     if summary is None:
         return None
     candidate_rows = [r for r in history_rows if r["role"] == "user"]
