@@ -120,9 +120,9 @@ Two exclusions, for different reasons.
 
 ## What the reads cost
 
-The reads that scale with history are in the loop, so the loop's own writes change them. `GET /api/interviews` returns every run for the owner with no limit, and the stats endpoints re-scan the full history. A later step therefore reads a bigger account than an earlier one did, and part of any curve is data the test itself created.
+The reads that scale with history are in the loop, so the loop's own writes change them. `GET /api/interviews` returns every run for the owner with no limit, and the stats endpoints re-scan the full history. Left alone, a later step reads a bigger account than an earlier one did, and part of any curve is data the test itself created.
 
-Record the row count at each step so that contribution is a number and not an unknown.
+So the rows go between steps. Every other test here cleans up after itself and this one does the same, which holds the account at a constant size and stops growth from presenting itself as capacity loss.
 
 ## Perf window
 
@@ -138,8 +138,6 @@ The pod is not patched with `kubectl set env`. Argo reconciles the prod overlay 
 | ingress `limit-rps` | raised                       |
 
 `APP_ENV=test` does two things beyond letting Clerk off, and I am accepting both. `/api/billing/webhook/simulate` becomes reachable and calls `payments.handle_webhook_event` with no auth, so that route is open for the window. And structlog switches to `ConsoleRenderer`, so Loki loses its structured fields: the log-based Grafana rules stop matching, one of them reads `event="browser.error"`, and the derived `trace_id` field goes with them, so log-to-trace linking is dark until the revert. The log volume I record for the window is therefore console output and is not prod's telemetry cost. Analysis during the window comes from the metrics and the k6 output, and Loki is for reading by eye.
-
-A saved BYOK row outranks the system config for that owner, so one row and that owner's turns run against a real provider while every other VU is stubbed. Check that `llm_credentials` is empty for `dev-user`.
 
 The window ends by reverting the commit and waiting for the sync, then reading the running pod's env directly to confirm `CLERK_ENABLED` is true, `RATE_LIMIT` is not `off`, and `APP_ENV` is production. A sync that reports success is not a pod on the real config, and a revert that silently fails leaves prod with the billing simulate route open and no login.
 
@@ -174,7 +172,6 @@ These bound what one client can do, so they set the roof on the loop.
 | DB pool                  | `max_size=10`, `min_size=0`                                  |
 | rate limit               | 120/minute per client IP by default, `off` in the window     |
 | chat turns per UTC day   | 10 free, 100 premium, 500 dev                                |
-| chat turns on BYOK       | 300 free, 5000 premium                                       |
 | review redos per run     | 1 free, 10 premium, 10 dev                                   |
 | resumes                  | 1 free, 10 premium, 10 dev                                   |
 | templates                | 20, a module constant                                        |
@@ -221,7 +218,6 @@ The sweep runs against prod's default branch, so it spends prod's own budget and
 | Logging       | structlog, one JSON access line per request                         |
 | Telemetry     | OpenTelemetry SDK, OTLP over HTTP to the in-cluster collector       |
 | Auth          | PyJWT verified against Clerk's JWKS, with a cached key set          |
-| BYOK crypto   | cryptography, Fernet, so the stored provider key is never plaintext |
 | HTTP client   | httpx, for the model provider and for Workers AI                    |
 | Rate limiting | limits, in-process memory storage, so the budget is per replica     |
 | Documents     | pypdf for resume import                                             |
