@@ -1,42 +1,40 @@
-import { SignOutButton } from "@clerk/react";
-import { useCallback, useEffect, useState } from "react";
+import { SignOutButton, useUser } from "@clerk/react";
+import { Fragment } from "react";
 import { Link } from "react-router-dom";
-import { Page } from "@/components/PagePrimitives";
+
+import { LABEL, Page } from "@/components/PagePrimitives";
+import { TurnsMeter } from "@/components/TurnsMeter";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
-import { chatTurns, getUsage, turnsToday, type Usage } from "@/lib/api";
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import { StateNote } from "@/components/ui/state";
+import { useUsage } from "@/hooks/useUsage";
+import { chatTurns, turnsToday, type Usage } from "@/lib/api";
 import { clerkEnabled } from "@/lib/config";
 import { TIER_NAME } from "@/lib/plans";
 
 export function AccountSettingsPage() {
-    const [usage, setUsage] = useState<Usage | null>(null);
-    const load = useCallback(async () => setUsage(await getUsage()), []);
-    useEffect(() => {
-        void load().catch(() => setUsage(null));
-    }, [load]);
-
+    const { usage, failed, loading } = useUsage();
     const tierLabel = TIER_NAME[usage?.tier ?? "free"];
     const today = usage ? turnsToday(usage) : null;
 
     return (
-        <Page title="Account Settings" description="Your sign-in details and subscription.">
+        <Page title="Account" description="The plan you are on and the sign-in it belongs to.">
             {/* Plan — summary only; the full tiers, upgrade and cancel surface lives on
                 /settings/billing (PayMongo has no billing portal to link out to). */}
             <Card>
                 <CardHeader className="flex-row items-center justify-between space-y-0">
                     <div>
                         <CardTitle>Plan</CardTitle>
-                        <CardDescription className="mt-1">
-                            {usage?.tier === "dev"
-                                ? "Dev mode: no Clerk key, runs against the backend DEV_USER."
-                                : usage?.byok
-                                  ? `Your own provider key pays for these turns, so ${chatTurns(usage)} a day is the ceiling instead of your plan cap.`
-                                  : `You are on ${tierLabel}. ${usage ? (today ? `${today.remaining} of ${today.limit} daily chat turns left today (all interviews); resets 00:00 UTC.` : `Daily chat turns (all interviews): ${chatTurns(usage)}.`) : ""}`}
-                        </CardDescription>
+                        <CardDescription className="mt-1">{planLine(usage, failed, loading, tierLabel)}</CardDescription>
                     </div>
-                    <Badge variant={usage?.tier === "premium" ? "default" : "secondary"}>{tierLabel}</Badge>
+                    {usage && <Badge variant={usage.tier === "premium" ? "default" : "secondary"}>{tierLabel}</Badge>}
                 </CardHeader>
+                {usage && today && (
+                    <CardContent className="pb-6">
+                        <TurnsMeter usage={usage} />
+                    </CardContent>
+                )}
                 <CardFooter className="flex flex-row flex-wrap items-center gap-3">
                     {usage?.tier !== "premium" && usage?.tier !== "dev" && (
                         <Button asChild size="sm">
@@ -51,22 +49,60 @@ export function AccountSettingsPage() {
                     <Button asChild variant="ghost" size="sm">
                         <Link to="/settings/system">Bring your own key</Link>
                     </Button>
+                    {/* The count is what the buttons above were chosen around; with no counter on the
+                        response, the plan's own number is the only honest one left. */}
+                    {usage && !today && <span className="text-xs text-muted-foreground">{chatTurns(usage)} chat turns a day</span>}
                 </CardFooter>
             </Card>
 
-            {/* Profile — the mail/space is owned by Clerk; no backend row drives it. */}
-            {/* AI HERE: Clerk holds first/last/email. A bespoke display name isn't in the
-                data model; add client-side pref later if needed. Skip: keep zero-touch. */}
+            {/* Profile — the name, the mail and the session are Clerk's; no backend row drives them. */}
             <Card>
                 <CardHeader>
                     <CardTitle>Profile</CardTitle>
-                    <CardDescription>Manage your sign-in and profile via Clerk.</CardDescription>
+                    <CardDescription>Your sign-in and profile are held by Clerk, which is also where they are changed.</CardDescription>
                 </CardHeader>
-                <CardFooter className="flex flex-row items-center gap-3">
-                    {clerkEnabled && <SignOutButton>Sign out</SignOutButton>}
-                    {!clerkEnabled && <span className="text-sm text-muted-foreground">No session in dev mode.</span>}
-                </CardFooter>
+                {clerkEnabled ? (
+                    <CardContent>
+                        <ProfileFields />
+                    </CardContent>
+                ) : (
+                    <CardContent>
+                        <StateNote>No session in dev mode.</StateNote>
+                    </CardContent>
+                )}
+                {clerkEnabled && (
+                    <CardFooter>
+                        <SignOutButton>Sign out</SignOutButton>
+                    </CardFooter>
+                )}
             </Card>
         </Page>
+    );
+}
+
+function planLine(usage: Usage | null, failed: boolean, loading: boolean, tierLabel: string): string {
+    if (loading) return "Loading…";
+    if (failed || !usage) return "Couldn’t load your plan. Refresh to retry.";
+    if (usage.tier === "dev") return "Dev mode: no Clerk key, so runs bill to the backend DEV_USER.";
+    if (usage.byok) return "Your own provider key pays for these turns, so the ceiling below is BYOK's rather than your plan's.";
+    return `You are on ${tierLabel}.`;
+}
+
+function ProfileFields() {
+    const { user } = useUser();
+    const rows = [
+        { label: "Name", value: user?.fullName ?? user?.firstName ?? "Not set" },
+        { label: "Email", value: user?.primaryEmailAddress?.emailAddress ?? "Not set" },
+        { label: "Member since", value: user?.createdAt ? new Date(user.createdAt).toLocaleDateString() : "Unknown" },
+    ];
+    return (
+        <dl className="grid gap-x-6 gap-y-3 text-sm sm:grid-cols-[9rem_1fr]">
+            {rows.map((row) => (
+                <Fragment key={row.label}>
+                    <dt className={LABEL}>{row.label}</dt>
+                    <dd className="min-w-0 truncate">{row.value}</dd>
+                </Fragment>
+            ))}
+        </dl>
     );
 }

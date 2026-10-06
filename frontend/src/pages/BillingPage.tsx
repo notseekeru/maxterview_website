@@ -1,32 +1,34 @@
 import type { ReactNode } from "react";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Page } from "@/components/PagePrimitives";
 import { PlanPitch } from "@/components/PlanPitch";
 import { useQrCheckout } from "@/components/QrCheckout";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
-import { apiDetail, cancelUpgrade, chatTurns, getUsage, turnsToday, type Usage } from "@/lib/api";
+import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import { useUsage } from "@/hooks/useUsage";
+import { apiDetail, cancelUpgrade, type Usage } from "@/lib/api";
 import { clerkEnabled } from "@/lib/config";
-import { PLANS, TIER_NAME } from "@/lib/plans";
+import { PLANS } from "@/lib/plans";
 
-// Free vs Pro cards + current-plan summary. The CTA posts to /billing/checkout, which answers with a QR
-// to scan. PayMongo has no billing portal, so our own copy carries the billing terms.
+// Free vs Pro cards. The CTA posts to /billing/checkout, which answers with a QR to scan. PayMongo has no
+// billing portal, so our own copy carries the billing terms.
 // The cards sell; PlanPitch inside them carries the prices and the feature lists.
+// The current plan itself is stated on /settings/account and in the shell badge, so this page compares
+// the two tiers and nothing else. What the caller is on only decides which CTA a card shows.
 // GET /usage reports the live mode: `period` is a one-time top-up that never renews, so show the expiry
 // and offer no cancel; `subscription` is provider-managed and cancel is ours. `dev` gets a read-only
 // summary and no upgrade path.
 // The tier value stays `premium` (DB column, JWT claim, plan name): Pro is the display name only.
 
 export function BillingPage() {
-    // One GET /usage feeds Summary + both PlanCards, so do not hoist it into each.
-    const usageState = useUsage();
+    // One GET /usage feeds both PlanCards, so do not hoist it into each.
+    const { usage } = useUsage();
     return (
-        <Page title="Billing & Plan" description="Your plan sets your daily chat turns and how many resumes you can keep.">
-            <Summary {...usageState} />
+        <Page title="Billing" description="Your plan sets your daily chat turns and how many resumes you can keep.">
             <div className="grid gap-4 md:grid-cols-2">
-                <PlanCard tier="free" usage={usageState.usage} />
-                <PlanCard tier="premium" usage={usageState.usage} />
+                <PlanCard tier="free" usage={usage} />
+                <PlanCard tier="premium" usage={usage} />
             </div>
         </Page>
     );
@@ -34,59 +36,6 @@ export function BillingPage() {
 
 // Figures come from lib/plans (MONETIZATION §0) because the landing page quotes the same numbers.
 // Subscriptions are PHP-only, so the price is in pesos.
-
-function useUsage() {
-    const [usage, setUsage] = useState<Usage | null>(null);
-    const [failed, setFailed] = useState(false);
-    useEffect(() => {
-        let alive = true;
-        getUsage()
-            .then((u) => alive && setUsage(u))
-            .catch(() => alive && setFailed(true));
-        return () => {
-            alive = false;
-        };
-    }, []);
-    return { usage, failed, loading: !usage && !failed };
-}
-
-function Summary({ usage, failed, loading }: { usage: Usage | null; failed: boolean; loading: boolean }) {
-    const today = usage ? turnsToday(usage) : null;
-    return (
-        <Card>
-            <CardHeader className="flex-row flex-wrap items-center justify-between space-y-0">
-                <div className="space-y-1">
-                    <CardTitle>Current plan</CardTitle>
-                    <CardDescription>Turn allowances are shared across all of your interviews.</CardDescription>
-                </div>
-                {usage && !failed && !loading && <Badge variant={usage.tier === "premium" ? "default" : "secondary"}>{TIER_NAME[usage.tier]}</Badge>}
-            </CardHeader>
-            <CardFooter className="text-sm">
-                {usage ? (
-                    <span className="text-muted-foreground">
-                        {usage.byok ? (
-                            <>
-                                Your own provider key pays for these turns, so <span className="font-medium text-foreground">{chatTurns(usage)}</span> a day is the ceiling instead of your plan cap.
-                            </>
-                        ) : today ? (
-                            <>
-                                <span className="font-medium text-foreground">{today.remaining}</span> of {today.limit} turns left today. Resets at 00:00 UTC.
-                            </>
-                        ) : (
-                            <>
-                                Daily chat turns (all interviews): <span className="font-medium text-foreground">{chatTurns(usage)}</span>
-                            </>
-                        )}
-                    </span>
-                ) : failed ? (
-                    <span className="text-destructive">Couldn’t load your plan. Refresh to retry.</span>
-                ) : (
-                    <span className="text-muted-foreground">Loading…</span>
-                )}
-            </CardFooter>
-        </Card>
-    );
-}
 
 function PlanCard({ tier, usage }: { tier: "free" | "premium"; usage: Usage | null }) {
     const { start, busy, error: checkoutError, modal } = useQrCheckout();
