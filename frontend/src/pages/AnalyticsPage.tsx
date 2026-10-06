@@ -4,7 +4,7 @@ import { Bar, BarChart, CartesianGrid, Cell, Line, LineChart, XAxis, YAxis } fro
 
 import { AccuracyTrendChart } from "@/components/AccuracyTrendChart";
 import { OffersSection } from "@/components/OffersSection";
-import { LABEL, Page, Panel, Stat } from "@/components/PagePrimitives";
+import { LABEL, Page, Panel, SectionHeading, Stat } from "@/components/PagePrimitives";
 import { Card, CardContent } from "@/components/ui/card";
 import { type ChartConfig, ChartContainer, ChartTooltip, ChartTooltipContent, DRAW_MS } from "@/components/ui/chart";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -37,10 +37,7 @@ function Section({ id, children }: { id: SectionId; children: ReactNode }) {
     return (
         // scroll-mt keeps the heading clear of the sticky shell bar when a jump lands.
         <section id={id} className="scroll-mt-20 space-y-4">
-            <div className="space-y-1 border-b pb-2">
-                <h2 className="font-serif text-xl tracking-[-0.015em]">{title}</h2>
-                <p className="text-xs text-muted-foreground">{hint}</p>
-            </div>
+            <SectionHeading title={title} hint={hint} />
             {children}
         </section>
     );
