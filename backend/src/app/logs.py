@@ -27,10 +27,17 @@ LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
 # cheaper than a Collector rule, and it never reaches the free-tier stream cap.
 SKIP_PATH = f"{API_PREFIX}/health"
 
+def _stamp_env(_, __, event_dict: dict) -> dict:
+    """Tag every record with the environment. The OTel resource tags spans and metrics, not lines."""
+    event_dict["env"] = APP_ENV
+    return event_dict
+
+
 # Shared by the structlog chain and the foreign (stdlib) pre-chain: one shape for every record.
 _SHARED_PROCESSORS = [
     structlog.contextvars.merge_contextvars,
     structlog.stdlib.add_log_level,
+    _stamp_env,
     structlog.processors.TimeStamper(fmt="iso", utc=True),
     structlog.processors.format_exc_info,
 ]
