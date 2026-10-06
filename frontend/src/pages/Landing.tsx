@@ -29,7 +29,7 @@ const SECTIONS = [
     { id: "questions", label: "Questions" },
 ];
 
-const HERO_FACTS = [`${PLANS.free.turns} free turns a day`, "Behavioral, technical and case rounds", "No credit card"];
+const HERO_FACTS = ["Review and verdict on every run", "Behavioral, technical and case rounds", "No credit card"];
 
 const FEATURES = [
     { title: "AI interviewer", body: "One question at a time, chitchat through technical, reacting to the answer you just gave." },
@@ -96,7 +96,7 @@ const STEPS = [
 
 const FAQ = [
     { q: "Is it free?", a: `Yes. Free covers full review and analytics on every run, capped at a daily turn allowance. ${PLANS.premium.name} is ${PLANS.premium.price} per ${PLANS.premium.term} and raises the allowance and the resume slots.` },
-    { q: "What happens when I run out of turns?", a: "The interview pauses, nothing is deleted and your history stays readable. The counter resets at 00:00 UTC, or you can upgrade for more turns." },
+    { q: "What happens when I run out of turns?", a: "The interview pauses. Nothing is deleted and your history stays readable. The allowance comes back on its own, or you can upgrade for more turns." },
     { q: "Which roles and levels does it cover?", a: "Any role you can name, from intern to staff, across behavioral, technical and case rounds. Save a setup as a preset and replay it whenever you want." },
     { q: "Do you train on my answers?", a: "No. Your transcripts are stored so you can revisit them and are sent to the interview model only to generate your questions and feedback." },
     { q: "Can I use my own model?", a: "Yes. Bring an OpenAI-compatible key (OpenAI, DeepSeek, OpenRouter, a local model) in settings and your turns run on your own account." },

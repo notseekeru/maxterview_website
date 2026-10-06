@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { StateNote } from "@/components/ui/state";
 import { useUsage } from "@/hooks/useUsage";
-import { chatTurns, turnsToday, type Usage } from "@/lib/api";
+import { turnsToday, type Usage } from "@/lib/api";
 import { clerkEnabled } from "@/lib/config";
 import { TIER_NAME } from "@/lib/plans";
 
@@ -49,9 +49,6 @@ export function AccountSettingsPage() {
                     <Button asChild variant="ghost" size="sm">
                         <Link to="/settings/system">Bring your own key</Link>
                     </Button>
-                    {/* The count is what the buttons above were chosen around; with no counter on the
-                        response, the plan's own number is the only honest one left. */}
-                    {usage && !today && <span className="text-xs text-muted-foreground">{chatTurns(usage)} chat turns a day</span>}
                 </CardFooter>
             </Card>
 

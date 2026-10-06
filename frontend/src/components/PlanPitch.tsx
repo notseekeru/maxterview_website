@@ -1,20 +1,11 @@
 import { Icon } from "@/components/AppIcons";
-import { chatTurns, type Usage } from "@/lib/api";
 import { PLANS } from "@/lib/plans";
 
 type PlanTier = "free" | "premium";
 
-const MAX_RUN_TURNS = 15;
-
-function caps(tier: PlanTier, usage: Usage | null): { turns: number; resumes: number } {
-    if (usage && usage.tier === tier && !usage.byok && usage.resume_limit) return { turns: chatTurns(usage), resumes: usage.resume_limit };
-    return { turns: PLANS[tier].turns, resumes: PLANS[tier].resumes };
-}
-
-export function PlanPitch({ tier, usage }: { tier: PlanTier; usage?: Usage | null }) {
+export function PlanPitch({ tier }: { tier: PlanTier }) {
     const plan = PLANS[tier];
-    const { turns, resumes } = caps(tier, usage ?? null);
-    const includes = tier === "free" ? [`${turns} chat turns a day`, `${resumes} resume slot`, "Review, verdict and analytics on every run"] : [`${turns} chat turns a day`, `${resumes} resume slots`, `${PLANS.premium.byokTurns} turns a day on your own key`, "Subject to higher quality model"];
+    const includes = tier === "free" ? ["Unlimited interviews", "A daily turn allowance for practice", "Review, verdict and analytics on every run"] : ["A daily allowance that covers real practice", "More resumes on file", "Your own model key, with the highest ceiling", "Subject to higher quality model"];
     return (
         <div className="flex flex-col gap-5">
             <p className="text-sm leading-relaxed text-muted-foreground">{plan.audience}</p>
@@ -28,7 +19,7 @@ export function PlanPitch({ tier, usage }: { tier: PlanTier; usage?: Usage | nul
                     {includes.map((text) => (
                         <Item key={text} text={text} />
                     ))}
-                    {tier === "free" && turns < MAX_RUN_TURNS && <Item text="One run with every question dial maxed" ok={false} />}
+                    {tier === "free" && <Item text="A full run with every question dial maxed" ok={false} />}
                 </ul>
             </div>
         </div>

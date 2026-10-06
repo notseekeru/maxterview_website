@@ -268,7 +268,7 @@ export function ResumePage() {
                     <section className="space-y-3">
                         {/* The limit rides the heading as its hint: how many slots are left is a fact
                             about the list, not about the editor below it. */}
-                        <SectionHeading title="Your resumes" hint={limit === null ? undefined : `${rows.length} of ${limit}${limit === 1 ? ` · ${PLANS.premium.name} keeps ${PLANS.premium.resumes}` : ""}`} />
+                        <SectionHeading title="Your resumes" hint={limit === null ? undefined : `${rows.length} of ${limit}${limit === 1 ? ` · ${PLANS.premium.name} keeps more` : ""}`} />
                         <div className="flex flex-wrap items-center gap-1.5">
                             {rows.map((r) => (
                                 <button key={r.id} type="button" onClick={() => void open(r.id)} className={cn("rounded-full border px-3 py-1 text-xs transition-colors", draft.id === r.id ? "border-primary bg-primary/10 font-medium text-primary" : "border-input text-muted-foreground hover:bg-accent")}>

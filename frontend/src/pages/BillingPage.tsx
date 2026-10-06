@@ -25,7 +25,7 @@ export function BillingPage() {
     // One GET /usage feeds both PlanCards, so do not hoist it into each.
     const { usage } = useUsage();
     return (
-        <Page title="Billing" description="Your plan sets your daily chat turns and how many resumes you can keep.">
+        <Page title="Billing" description="Your plan sets your daily allowance and your resume library.">
             <div className="grid gap-4 md:grid-cols-2">
                 <PlanCard tier="free" usage={usage} />
                 <PlanCard tier="premium" usage={usage} />
@@ -34,7 +34,7 @@ export function BillingPage() {
     );
 }
 
-// Figures come from lib/plans (MONETIZATION §0) because the landing page quotes the same numbers.
+// Figures come from lib/plans (MONETIZATION §0): the docs page quotes the numbers, the pitch does not.
 // Subscriptions are PHP-only, so the price is in pesos.
 
 function PlanCard({ tier, usage }: { tier: "free" | "premium"; usage: Usage | null }) {
@@ -123,7 +123,7 @@ function PlanCard({ tier, usage }: { tier: "free" | "premium"; usage: Usage | nu
                 </div>
             </CardHeader>
             <CardContent className="flex-1 pb-6">
-                <PlanPitch tier={tier} usage={usage} />
+                <PlanPitch tier={tier} />
             </CardContent>
             <CardFooter className="flex-col items-stretch gap-2 pt-0">
                 {cta}

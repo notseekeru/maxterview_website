@@ -5,7 +5,6 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { getUsage, turnsToday, type Usage } from "@/lib/api";
 import { clerkEnabled } from "@/lib/config";
-import { PLANS } from "@/lib/plans";
 
 // Quota-status badge (GET /usage, MONETIZATION §3).
 export function UsageBadge() {
@@ -73,13 +72,7 @@ export function UpgradeNotice() {
     // A saved key outranks the tier on the provider-paid ceiling, but only free has Pro above it, so
     // the upsell decision belongs to the TIER and not to `byok`.
     const paid = usage?.tier === "premium" || usage?.tier === "dev";
-    const body = !usage
-        ? "Turns come back at 00:00 UTC."
-        : paid
-          ? "Every turn in today's allowance is spent. It comes back at 00:00 UTC."
-          : usage.byok
-            ? `Free gives you ${PLANS.free.byokTurns} turns a day on your own provider key. Pro gives you ${PLANS.premium.byokTurns}.`
-            : `Free gives you ${PLANS.free.turns} turns a day. Pro gives you ${PLANS.premium.turns}, plus ${PLANS.premium.resumes} resume slots.`;
+    const body = !usage ? "Turns come back at 00:00 UTC." : paid ? "Every turn in today's allowance is spent. It comes back at 00:00 UTC." : usage.byok ? "Free runs on a modest ceiling even on your own key. Pro raises it." : "Free runs on a small daily allowance. Pro raises it, and gives you more room for resumes.";
 
     return (
         <div className="flex flex-col items-start gap-3 rounded-xl border border-dashed bg-muted/50 p-4 text-sm">
