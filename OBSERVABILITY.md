@@ -31,7 +31,7 @@ Labels are `namespace/pod/container/app` plus the external `cluster`/`app`.
 | Credential      | Terraform `maxterview-logs` Secret, values from Infisical | `LOKI_URL`/`LOKI_USER`/`LOKI_TOKEN`/`OTLP_URL`: one access-policy token, scoped `logs:write`, `metrics:write`, `traces:write`. Both pipelines authenticate with it; only the username differs (next table). The app never holds it, and it is the only write credential either pipeline has. |
 
 Independent of all of the above: k3s ships `metrics-server`, and `kubectl top` fails on a kubelet
-certificate SAN. Fixing that (`--tls-san`, brief apiserver restart) unblocks M18's load test with no
+certificate SAN. Fixing that (`--tls-san`, brief apiserver restart) unblocks the load test with no
 new pipeline at all.
 
 ## Shipped — tier 3, OTLP

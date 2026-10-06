@@ -1,6 +1,6 @@
 # SRE
 
-`PLAN.md` M18 owns the milestone. This file owns the run: the architecture it measures, the indicators it produces, the config the app runs under, and the decisions behind all of it.
+This file owns the run: the architecture it measures, the indicators it produces, the workload, the config the app runs under, and the decisions behind all of it.
 
 Some tables below restate owners that already exist, on purpose, so a run can be read from one file: the manifests hold the dependency lists, the modules hold the constants, `OBSERVABILITY.md` holds the metrics, README holds the request path. Those stay the owners. This file is the copy that goes stale.
 
@@ -43,25 +43,25 @@ There is no model hop to account for. Every stub branch in `llm.py` returns befo
 
 | #   | Run        | Path                                                     | What it is for                                                    |
 | --- | ---------- | -------------------------------------------------------- | ----------------------------------------------------------------- |
-| 1   | Cloudflare | k6 -> Internet -> Cloudflare -> tunnel -> ingress -> pod | 5 VUs. Does the public path add latency, and does SSE survive it.  |
+| 1   | Cloudflare | k6 -> Internet -> Cloudflare -> tunnel -> ingress -> pod | 5 VUs. Does the public path add latency, and does SSE survive it. |
 | 2   | Capacity   | k6 -> Tailscale -> ingress -> pod                        | The sweep.                                                        |
 
 One k6 script, one workload, one think-time distribution, both paths. Only the network changes, and the two results are reported separately, never merged. The Cloudflare run goes first because bot protection has to come off for it anyway, and I would rather put that window behind me.
 
 The generator is the Windows box, off-node, so k6 does not compete with the app for the same four cores. Tailscale adds WireGuard and a 1280 MTU, so the capacity number describes an isolated remote client and not a loopback baseline.
 
-The public run passes when, over its step: every response is a real API response rather than an HTML challenge, no 429 appears, every SSE stream reaches its `done` frame instead of being truncated, and p95 sits within a multiple of the same workload on the capacity path. The first three are validity checks and get read before the latency figure. A trip on any of them is not an app result: it says the edge will not carry automated traffic, which is a finding about Cloudflare and belongs in its own note.
+The public run passes when, over its step: every response is a real API response rather than an HTML challenge, no 429 appears, every SSE stream reaches its `done` frame instead of being truncated, and p95 sits within a multiple of the same workload on the capacity path. The first three are k6 thresholds, so a trip fails the run rather than being read past, and the latency figure is only reported from a run that passed them. A trip is not an app result: it says the edge will not carry automated traffic, which is a finding about Cloudflare and belongs in its own note.
 
 ## What is measured
 
-| Indicator          | Source                                                        | Carries                                                  |
-| ------------------ | ------------------------------------------------------------- | -------------------------------------------------------- |
-| Request latency    | `http.server.request.duration`, and k6 on the client side      | method, route, status                                    |
-| Model-call latency | `llm.client.call.duration`                                     | stage (chat, judge, grader, formatter, classify, shout), model, outcome |
-| Error rate         | the same two histograms, plus k6 broken down by status code    | status                                                   |
-| Throughput         | k6 RPS, and the server histogram's own sample count            | route                                                    |
-| Database pressure  | connections in use against a pool of 10                        |                                                          |
-| Saturation         | CPU, frequency, temperature, load, memory                      |                                                          |
+| Indicator          | Source                                                      | Carries                                                                 |
+| ------------------ | ----------------------------------------------------------- | ----------------------------------------------------------------------- |
+| Request latency    | `http.server.request.duration`, and k6 on the client side   | method, route, status                                                   |
+| Model-call latency | `llm.client.call.duration`                                  | stage (chat, judge, grader, formatter, classify, shout), model, outcome |
+| Error rate         | the same two histograms, plus k6 broken down by status code | status                                                                  |
+| Throughput         | k6 RPS, and the server histogram's own sample count         | route                                                                   |
+| Database pressure  | connections in use against a pool of 10                     |                                                                         |
+| Saturation         | CPU, frequency, temperature, load, memory                   |                                                                         |
 
 Bucket boundaries are pinned in the SDK rather than left to its defaults, and they run from 0.01 to 120 seconds.
 
@@ -77,7 +77,9 @@ The access line carries `request_id`, `trace_id`, `span_id`, `status` and `durat
 
 Both server-side indicators only exist when `OTEL_EXPORTER_OTLP_ENDPOINT` is set. With it unset the SDK is never installed and every call site is a no-op, so the server emits nothing at all.
 
-The runner's own CPU and network get recorded alongside. k6 saturates before the target does at some point, and without that baseline a flattening curve has two possible authors.
+The runner's own CPU and network get sampled on the Windows box during each step, `Get-Counter` or `typeperf` to a CSV per step, recorded with the k6 summary. k6 saturates before the target does at some point, and without that baseline a flattening curve has two possible authors.
+
+The turn counter's contention has no app metric. If the curve bends before the hardware explains it, `turn_usage` is the first suspect, and the evidence is lock waits on the Neon side rather than anything in the dashboards.
 
 ## SLO
 
@@ -85,12 +87,12 @@ One gate shape, and the gates themselves come from the baseline.
 
 A step passes when, for that step, p95 latency stays under the gate, the error rate stays under the gate, and neither is explained by my own config. A quota 402, a template or resume cap 409, and the arc-spent 409 are all excluded from the error rate by status and route. They are walls I built, not capacity.
 
-| Indicator                             | Gate           |
-| ------------------------------------- | -------------- |
-| p95 latency, plain reads              | from the baseline |
-| p95 time-to-last-byte, SSE turns      | from the baseline |
-| error rate, my own config excluded    | from the baseline |
-| throughput                            | none. It is the experiment's output, not a target. |
+| Indicator                          | Gate                                               |
+| ---------------------------------- | -------------------------------------------------- |
+| p95 latency, plain reads           | from the baseline                                  |
+| p95 time-to-last-byte, SSE turns   | from the baseline                                  |
+| error rate, my own config excluded | from the baseline                                  |
+| throughput                         | none. It is the experiment's output, not a target. |
 
 The rule for setting them: run the baseline at a load the box is comfortably not stressed by, take its p95, and set the gate at a multiple of it. The multiple is the one choice the baseline cannot make for me, so the number and the multiple get written down here once they exist.
 
@@ -133,14 +135,13 @@ The pod is not patched with `kubectl set env`. Argo reconciles the prod overlay 
 | `DEV_CHAT_TURNS`    | raised past the sweep budget |
 | `CLERK_ENABLED`     | `false`                      |
 | `APP_ENV`           | `test`                       |
-| `DATABASE_URL`      | the branch DSN, via a Secret |
 | ingress `limit-rps` | raised                       |
 
-The branch DSN carries a password, so it cannot sit in the overlay. `env` overrides `envFrom` in Kubernetes, so a temporary Secret plus an explicit env entry reaches the pod without touching the shared Infisical secret. It is deleted with the revert.
+`APP_ENV=test` does two things beyond letting Clerk off, and I am accepting both. `/api/billing/webhook/simulate` becomes reachable and calls `payments.handle_webhook_event` with no auth, so that route is open for the window. And structlog switches to `ConsoleRenderer`, so Loki loses its structured fields: the log-based Grafana rules stop matching, one of them reads `event="browser.error"`, and the derived `trace_id` field goes with them, so log-to-trace linking is dark until the revert. The log volume I record for the window is therefore console output and is not prod's telemetry cost. Analysis during the window comes from the metrics and the k6 output, and Loki is for reading by eye.
 
-`APP_ENV=test` does two things beyond letting Clerk off, and I am accepting both. `/api/billing/webhook/simulate` becomes reachable and calls `payments.handle_webhook_event` with no auth, so that route is open for the window. And structlog switches to `ConsoleRenderer`, so Loki loses its structured fields: the log-based Grafana rules stop matching, one of them reads `event="browser.error"`, and the derived `trace_id` field goes with them, so log-to-trace linking is dark until the revert. The log volume I record for the window is therefore console output and is not prod's telemetry cost.
+A saved BYOK row outranks the system config for that owner, so one row and that owner's turns run against a real provider while every other VU is stubbed. Check that `llm_credentials` is empty for `dev-user`.
 
-A saved BYOK row outranks the system config for that owner, so one row and that owner's turns run against a real provider while every other VU is stubbed. Check that `llm_credentials` is empty for `dev-user` on the branch.
+The window ends by reverting the commit and waiting for the sync, then reading the running pod's env directly to confirm `CLERK_ENABLED` is true, `RATE_LIMIT` is not `off`, and `APP_ENV` is production. A sync that reports success is not a pod on the real config, and a revert that silently fails leaves prod with the billing simulate route open and no login.
 
 The stub is read at import. Confirm it is live before the sweep rather than after.
 
@@ -152,15 +153,15 @@ RPi5, 8 GB, four Cortex-A76 cores.
 
 ### Deploy
 
-| Setting          | Value                                                                  |
-| ---------------- | ---------------------------------------------------------------------- |
-| replicas         | 1, no autoscaler, no HPA, no KEDA                                      |
-| pod memory limit | 256Mi                                                                  |
-| uvicorn workers  | 1, the Dockerfile passes no `--workers`                                |
+| Setting          | Value                                                                                                                                                                          |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| replicas         | 1, no autoscaler, no HPA, no KEDA                                                                                                                                              |
+| pod memory limit | 256Mi                                                                                                                                                                          |
+| uvicorn workers  | 1, the Dockerfile passes no `--workers`                                                                                                                                        |
 | probes           | `/api/health`, shallow and with no DB call, and the backend drops it from the access log by path (`logs.py::SKIP_PATH`), so probe traffic reaches neither Loki nor the metrics |
-| ingress          | `limit-rps 30, burst 20` per source IP, `proxy-body-size 10m`          |
-| telemetry        | OTLP to the in-cluster Alloy receiver, which is the only holder of a write credential |
-| database         | Neon direct host, not `-pooler`, TLS required                          |
+| ingress          | `limit-rps 30, burst 20` per source IP, `proxy-body-size 10m`                                                                                                                  |
+| telemetry        | OTLP to the in-cluster Alloy receiver, which is the only holder of a write credential                                                                                          |
+| database         | Neon direct host, not `-pooler`, TLS required                                                                                                                                  |
 
 The overlay itself lives in the gitops repo, so those values are read from there and not from this file.
 
@@ -168,26 +169,26 @@ The overlay itself lives in the gitops repo, so those values are read from there
 
 These bound what one client can do, so they set the roof on the loop.
 
-| Limit                   | Value                                                    |
-| ----------------------- | -------------------------------------------------------- |
-| DB pool                 | `max_size=10`, `min_size=0`                              |
-| rate limit              | 120/minute per client IP by default, `off` in the window |
-| chat turns per UTC day  | 10 free, 100 premium, 500 dev                            |
-| chat turns on BYOK      | 300 free, 5000 premium                                   |
-| review redos per run    | 1 free, 10 premium, 10 dev                               |
-| resumes                 | 1 free, 10 premium, 10 dev                               |
-| templates               | 20, a module constant                                    |
-| resume parse concurrency| 2                                                        |
-| feedback attempts       | 3 attempts, 800ms apart                                  |
-| voice                   | 2 concurrent calls, TTS capped at 600 chars, uploads at 8 MB |
+| Limit                    | Value                                                        |
+| ------------------------ | ------------------------------------------------------------ |
+| DB pool                  | `max_size=10`, `min_size=0`                                  |
+| rate limit               | 120/minute per client IP by default, `off` in the window     |
+| chat turns per UTC day   | 10 free, 100 premium, 500 dev                                |
+| chat turns on BYOK       | 300 free, 5000 premium                                       |
+| review redos per run     | 1 free, 10 premium, 10 dev                                   |
+| resumes                  | 1 free, 10 premium, 10 dev                                   |
+| templates                | 20, a module constant                                        |
+| resume parse concurrency | 2                                                            |
+| feedback attempts        | 3 attempts, 800ms apart                                      |
+| voice                    | 2 concurrent calls, TTS capped at 600 chars, uploads at 8 MB |
 
 ## What stops the sweep first
 
-Ordering matters more than the numbers here, because a sweep that dies for a boring reason teaches nothing. Defaults come from M18.
+Ordering matters more than the numbers here, because a sweep that dies for a boring reason teaches nothing.
 
 The ingress `limit-rps 30, burst 20` per source IP as the ingress sees it. That is 9,000 requests in a five minute step, and it becomes the front wall as soon as `RATE_LIMIT=off` removes the app limiter. If the box serves more than 30 requests a second, the ingress hides it and the result is an ingress-nginx number, so it gets raised in the same commit.
 
-Then the turn quota, one bucket shared by every VU. Then the asyncpg pool at `max_size=10`, which is the database concurrency ceiling. Then pod memory at 256Mi, which on this box is the likelier failure before CPU.
+Then the turn quota, one bucket shared by every VU. Then the turn counter itself: `turn_usage` is keyed `(owner_id, day)` and `bump_chat_turn` upserts that single row on every turn, so all VUs queue on one tuple and each wait costs a Neon round trip. At 30 requests a second that queue can bind before the Pi does, and it belongs to the one-identity choice rather than to the hardware. Then the asyncpg pool at `max_size=10`, which is the database concurrency ceiling. Then pod memory at 256Mi, which on this box is the likelier failure before CPU.
 
 Not on that list: Neon's `max_connections`. It is 104 at the smallest compute and 839 at the Free ceiling, against a pool of ten. The app asks for ten.
 
@@ -195,14 +196,12 @@ Not on that list: Neon's `max_connections`. It is 104 at the smallest compute an
 
 ### Neon
 
-The branch lives inside the prod project, so it shares prod's budget rather than getting its own.
+The sweep runs against prod's default branch, so it spends prod's own budget and every row it writes is permanent.
 
 - 100 CU-hours of compute per project per month. 2,932 CPU-s were used at the last check.
 - Scale to zero is always on and cannot be disabled. Computes suspend after five minutes idle, so the wake sits on the path of the first request after a gap. Warm it and discard the warmup.
 - Autoscaling tops out at 2 CU on Free.
 - 5 GB of network transfer per project per month.
-- 10 branches per project.
-- Concurrently active computes are limited, and the branch is a second active compute beside prod's. Check that limit before the first sweep, not during it.
 
 ### Cloudflare
 
@@ -214,39 +213,37 @@ The branch lives inside the prod project, so it shares prod's budget rather than
 
 ### The app
 
-| Layer          | What                                                                     |
-| -------------- | ------------------------------------------------------------------------ |
-| Runtime        | Python 3.13, FastAPI, uvicorn with a single worker                        |
-| Data           | asyncpg against Postgres, yoyo for migrations                             |
-| Validation     | Pydantic                                                                  |
-| Logging        | structlog, one JSON access line per request                               |
-| Telemetry      | OpenTelemetry SDK, OTLP over HTTP to the in-cluster collector             |
-| Auth           | PyJWT verified against Clerk's JWKS, with a cached key set                |
-| BYOK crypto    | cryptography, Fernet, so the stored provider key is never plaintext       |
-| HTTP client    | httpx, for the model provider and for Workers AI                          |
-| Rate limiting  | limits, in-process memory storage, so the budget is per replica           |
-| Documents      | pypdf for resume import                                                   |
-| Frontend       | React 19, Vite, TypeScript, Tailwind, Clerk React, axios, recharts        |
+| Layer         | What                                                                |
+| ------------- | ------------------------------------------------------------------- |
+| Runtime       | Python 3.13, FastAPI, uvicorn with a single worker                  |
+| Data          | asyncpg against Postgres, yoyo for migrations                       |
+| Validation    | Pydantic                                                            |
+| Logging       | structlog, one JSON access line per request                         |
+| Telemetry     | OpenTelemetry SDK, OTLP over HTTP to the in-cluster collector       |
+| Auth          | PyJWT verified against Clerk's JWKS, with a cached key set          |
+| BYOK crypto   | cryptography, Fernet, so the stored provider key is never plaintext |
+| HTTP client   | httpx, for the model provider and for Workers AI                    |
+| Rate limiting | limits, in-process memory storage, so the budget is per replica     |
+| Documents     | pypdf for resume import                                             |
+| Frontend      | React 19, Vite, TypeScript, Tailwind, Clerk React, axios, recharts  |
 
 ### The experiment
 
-| Purpose             | Tool                                              |
-| ------------------- | ------------------------------------------------- |
-| Load generation     | k6, on the Windows box                            |
-| Private path        | Tailscale                                         |
-| Orchestration       | k3s, ingress-nginx, Argo CD, Kustomize            |
-| Public edge         | Cloudflare and cloudflared                        |
+| Purpose               | Tool                                                |
+| --------------------- | --------------------------------------------------- |
+| Load generation       | k6, on the Windows box                              |
+| Private path          | Tailscale                                           |
+| Orchestration         | k3s, ingress-nginx, Argo CD, Kustomize              |
+| Public edge           | Cloudflare and cloudflared                          |
 | Metrics, logs, traces | Grafana Cloud, with Alloy as the in-cluster shipper |
-| Database            | Neon, on a branch of the prod project             |
-| Voice               | Cloudflare Workers AI                             |
-| Secrets             | Infisical                                         |
-| Images              | GHCR, built in GitHub Actions, scanned with Trivy |
+| Database              | Neon, prod's default branch, direct host             |
+| Voice                 | Cloudflare Workers AI                               |
+| Secrets               | Infisical                                           |
+| Images                | GHCR, built in GitHub Actions, scanned with Trivy   |
 
 ## Between steps
 
 Warm the database. `min_size=0` means the first requests pay pool creation and a fresh TLS handshake, and Neon scale-to-zero means the first request after an idle gap pays the compute wake. Discard the warmup.
-
-Keep the DSN shape the same as prod's. A `-pooler` DSN turns `statement_cache_size` off, which is a different code path from the direct host prod runs, and I would be measuring a deployment I do not have.
 
 Step-load to find where latency stops being flat, then bisect inside that bracket, then confirm the candidate. Five minutes per step.
 
@@ -255,7 +252,7 @@ Step-load to find where latency stops being flat, then bisect inside that bracke
 1. k3s only, no host run. I am keeping k8s, so host-versus-k3s had no decision attached. Rejected: the host run, which answers a question I am no longer asking.
 2. The prod pod patched, not a second Deployment. On a single node a second pod fights the prod pod for the same four cores, so its number is not prod's number. Rejected: a parallel Deployment, which measures a pod no user will hit.
 3. The values go through the gitops overlay. Argo self-heals drift, so `kubectl set env` is a race with the reconciler. Rejected: patching the running pod.
-4. Branch of the prod project. Writes stay out of prod data and the DSN shape matches prod. Rejected: the prod default branch, which pollutes prod and moves real owners' turn counters, and a local container, which stops the run saying anything about where prod actually lives.
+4. Prod's default branch, not a Neon branch. Every VU is one `dev-user` either way, so a branch would isolate rows and change nothing about contention, at the cost of a second compute and a Secret swap. This is a deliberate override of D11, which says branches are for PR and migration rehearsal and that prod's default branch is never used for this. D11 needs a carve-out, or the override needs recording there.
 5. The Cloudflare run first and separate, 5 VUs. Rejected: Cloudflare in the capacity path, where the number measures Cloudflare.
 6. Bot protection off for that run. Rejected: leaving it on, which makes the run an observation about Cloudflare rather than a latency figure.
 7. `APP_ENV=test` with Clerk off, and the simulate route left open. Both side effects accepted and recorded above. Rejected: staying on production with minted Clerk tokens, which keeps JWT verification in the measured path but makes Clerk a dependency of the sweep.
@@ -270,19 +267,13 @@ Step-load to find where latency stops being flat, then bisect inside that bracke
 ## Open
 
 - `kubectl top` fails on a kubelet certificate SAN. Fix is `--tls-san` plus a brief apiserver restart. Until then host CPU and temperature come from `vmstat` and `htop`.
-- The branch DSN's route into the cluster: a temporary Secret plus an explicit env entry, or an Infisical change and `make apply`.
-- Confirm Argo self-heal is on for the prod overlay, since the whole revert depends on it.
-- Neon's concurrently-active-computes limit, before the branch is created.
-- Neon baseline before the first sweep: 2,932 CPU-s of 100 CU-h.
 - The baseline run itself, which produces every SLO gate.
-- M18 needs amending: it measures app capacity with the stub *and* a real-model canary for provider capacity, reporting two ceilings. The canary is out of scope here, so that line is unfulfilled until it is struck or planned on its own.
 
 ### Holes found while verifying
 
-1. **The log line carries no environment tag.** The OTLP resource does, `deployment.environment` from `APP_ENV`, so the window's spans and metrics are separable. The structlog chain binds only `request_id`, `trace_id`, `span_id`, level and timestamp, so its lines look exactly like prod's and can only be excluded by time range. Harmless with no users, awkward for any after-the-fact count.
-2. **The runner is not measured.** Recorded in the list above, but nothing produces it yet, so the script has to.
-3. **The schema check is against prod, not the branch.** A branch is copy-on-write from the parent at creation, so it holds whatever prod holds at that moment. Migrations run from the in-cluster Job, so the question is whether prod is at `0019_review_redos` in yoyo's version table. If prod is behind, the branch is behind, and nothing about creating the branch changes that.
-4. **The Cloudflare rule has to be applied to the results, not just written.** The three validity checks get read before the latency figure, or the number is a Cloudflare number wearing the app's name.
+1. **The runner sampler is not built.** CPU and network on the Windows box, per step, recorded with the summary, is the method. Nothing produces it yet.
+2. **Prod's schema has to be current before the sweep.** With no branch there is nothing to inspect but prod, so confirm `0019_review_redos` is in yoyo's version table first. If prod is behind, the run measures a schema the deployed app does not expect.
+3. **Argo self-heal is unconfirmed.** The revert assumes the sync puts the pod back, and the start of the window assumes the same mechanism applies the perf commit. Both directions depend on one setting nobody has read yet.
 
 ## AI HERE
 
