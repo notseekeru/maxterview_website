@@ -10,8 +10,8 @@ Decisions: PLAN D10 (owner-scoping is a hard rule).
 |                                           | Free                       | Premium                              | dev                        |
 | ----------------------------------------- | -------------------------- | ------------------------------------ | -------------------------- |
 | Interviews (creation)                     | **unlimited**              | **unlimited**                        | **unlimited**              |
-| Resumes kept                              | **1** (`FREE_RESUMES`)     | **5** (`PREMIUM_RESUMES`)            | **5** (`DEV_RESUMES`)      |
-| Review redos / run                        | **1** (`FREE_REDOS`)       | **5** (`PREMIUM_REDOS`)              | **5** (`DEV_REDOS`)        |
+| Resumes kept                              | **1** (`FREE_RESUMES`)     | **10** (`PREMIUM_RESUMES`)           | **10** (`DEV_RESUMES`)     |
+| Review redos / run                        | **1** (`FREE_REDOS`)       | **10** (`PREMIUM_REDOS`)             | **10** (`DEV_REDOS`)       |
 | Price                                     | ₱0                         | **₱99 / 30 days** (one payment)      | ₱0                         |
 | Chat turns / day (GLOBAL, all interviews) | **10** (`FREE_CHAT_TURNS`) | **100** (`PREMIUM_CHAT_TURNS`)       | **500** (`DEV_CHAT_TURNS`) |
 
@@ -26,6 +26,8 @@ Decisions: PLAN D10 (owner-scoping is a hard rule).
   a model outage never spends it, and the first review (`/finish`) is never a redo.
 - Limits are env-overridable (`backend/.env.example`). The **`dev` tier** is for developers only and
   never persists in `subscriptions`; it is what the no-Clerk fallback identity resolves to.
+- **One free→premium factor across every metered cap** (turns, resumes, redos). The shell badge quotes
+  that factor (`UsageBadge`), so a retune that moves one cap alone makes the badge a lie.
 - **Feedback is not feature-gated** — same quality across tiers. The turn cap is the cost lever.
 - Billing is **one payment at a time**, single-user: period mode sells 30 days and does not
   auto-renew. PayMongo bills in PHP only; we handle tax (no merchant-of-record).

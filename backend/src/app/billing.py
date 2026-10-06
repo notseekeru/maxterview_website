@@ -33,12 +33,12 @@ BYOK_CHAT_TURNS = int(os.getenv("BYOK_CHAT_TURNS", "300"))
 BYOK_PREMIUM_CHAT_TURNS = int(os.getenv("BYOK_PREMIUM_CHAT_TURNS", "5000"))
 # Free is a teaser cap, premium the real ceiling; `dev` tracks premium.
 FREE_RESUMES = int(os.getenv("FREE_RESUMES", "1"))
-PREMIUM_RESUMES = int(os.getenv("PREMIUM_RESUMES", "5"))
-DEV_RESUMES = int(os.getenv("DEV_RESUMES", "5"))
+PREMIUM_RESUMES = int(os.getenv("PREMIUM_RESUMES", "10"))
+DEV_RESUMES = int(os.getenv("DEV_RESUMES", "10"))
 # Per RUN, unlike the three limits above.
 FREE_REDOS = int(os.getenv("FREE_REDOS", "1"))
-PREMIUM_REDOS = int(os.getenv("PREMIUM_REDOS", "5"))
-DEV_REDOS = int(os.getenv("DEV_REDOS", "5"))
+PREMIUM_REDOS = int(os.getenv("PREMIUM_REDOS", "10"))
+DEV_REDOS = int(os.getenv("DEV_REDOS", "10"))
 
 LIMITS = {
     "free": {"chat_turns": FREE_CHAT_TURNS, "byok_turns": BYOK_CHAT_TURNS, "resumes": FREE_RESUMES, "redos": FREE_REDOS},
