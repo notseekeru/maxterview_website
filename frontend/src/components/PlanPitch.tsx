@@ -14,7 +14,7 @@ function caps(tier: PlanTier, usage: Usage | null): { turns: number; resumes: nu
 export function PlanPitch({ tier, usage }: { tier: PlanTier; usage?: Usage | null }) {
     const plan = PLANS[tier];
     const { turns, resumes } = caps(tier, usage ?? null);
-    const includes = tier === "free" ? [`${turns} chat turns a day`, `${resumes} resume slot`, "Review, verdict and analytics on every run"] : [`${turns} chat turns a day`, `${resumes} resume slots`, `Higher BYOK limits: ${PLANS.premium.byokTurns} turns a day on your own key`, "Subject to higher quality model"];
+    const includes = tier === "free" ? [`${turns} chat turns a day`, `${resumes} resume slot`, "Review, verdict and analytics on every run"] : [`${turns} chat turns a day`, `${resumes} resume slots`, "Subject to higher quality model"];
     return (
         <div className="flex flex-col gap-5">
             <p className="text-sm leading-relaxed text-muted-foreground">{plan.audience}</p>
