@@ -409,6 +409,8 @@ export interface Feedback {
     /** Hardcore: the turn that ended the run and what it was called (drives the FAILED banner). */
     failed_turn?: number | null;
     failed_class?: MoveClass | null;
+    /** Review rebuilds already charged to this run (backend app/billing.py::redo_limit per tier). */
+    redos?: number;
     created_at: string;
 }
 
@@ -422,8 +424,8 @@ export type Grade = "S" | "A" | "B" | "C" | "D" | "F";
 // undecided run.
 export type Decision = "reject" | "lean_reject" | "lean_hire" | "hire";
 
-// Mirror GET /usage (MONETIZATION §3). The only quota is a daily GLOBAL chat-turn credit across ALL the
-// owner's interviews.
+// Mirror GET /usage (MONETIZATION §3): the daily GLOBAL chat-turn credit across ALL the owner's
+// interviews, plus the resume ceiling. Review redos ride on the review itself (Feedback.redos).
 
 export type Tier = "free" | "premium" | "dev";
 

@@ -313,7 +313,7 @@ async def _feedback_row(interview_id: str) -> asyncpg.Record | None:
     an INSERT ... RETURNING cannot reach it.
     """
     return await fetchrow(
-        "SELECT f.id::text, f.interview_id::text, f.scores, f.verdict, f.tips, f.decision, f.certainty, f.accuracy, i.failed_turn, i.failed_class, f.created_at FROM feedback f JOIN interviews i ON i.id = f.interview_id WHERE f.interview_id = $1",
+        "SELECT f.id::text, f.interview_id::text, f.scores, f.verdict, f.tips, f.decision, f.certainty, f.accuracy, f.redos, i.failed_turn, i.failed_class, f.created_at FROM feedback f JOIN interviews i ON i.id = f.interview_id WHERE f.interview_id = $1",
         interview_id,
     )
 
@@ -360,13 +360,30 @@ async def regenerate_feedback(
     # model could ever grade. 409 (structural) beats a 503 the retry button can never clear.
     if not await _has_transcript(interview_id):
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Nothing to score yet: this interview has no answers.")
+    # Redo allowance, per run. A run that never got a review reads as zero spent, so the repair path
+    # stays open to an owner who has nothing to lose.
+    row = await fetchrow("SELECT redos FROM feedback WHERE interview_id = $1", interview_id)
+    tier = await billing.resolve_tier(user)
+    limit = billing.redo_limit(tier)
+    if (row["redos"] if row else 0) >= limit:
+        spent = f"This run has used all {limit} of its review redos."
+        # Same split as the resume cap: 402 sells the next tier, 409 is a wall, and paying again does
+        # not buy a Pro owner more redos.
+        upsell = tier == "free"
+        raise HTTPException(
+            status_code=status.HTTP_402_PAYMENT_REQUIRED if upsell else status.HTTP_409_CONFLICT,
+            detail=f"{spent} Pro raises that limit." if upsell else spent,
+        )
     row = await _generate_and_persist_feedback(interview_id, config)
     if row is None:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Scoring model could not produce feedback right now; try again later.",
         )
-    return dict(row)
+    # Charged here and not in the pipeline: /finish writes the FIRST review through that same pipeline,
+    # and the one included in the run is not a redo.
+    await fetchrow("UPDATE feedback SET redos = redos + 1 WHERE interview_id = $1", interview_id)
+    return dict(await _feedback_row(interview_id))
 
 
 # Per-owner ceiling: presets render as one chip row above the create form.

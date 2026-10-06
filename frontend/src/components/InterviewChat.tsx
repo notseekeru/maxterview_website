@@ -50,6 +50,10 @@ export function InterviewChat({ interviewId, onExit }: Props) {
     // no gradable turn.
     const answered = messages.some((m) => m.role === "user");
     const [reviewFailed, setReviewFailed] = useState(false);
+    // In-place review rebuild: the finish overlay is for a review landing the first time, and a redo
+    // already has a review on screen to stay behind.
+    const [redoing, setRedoing] = useState(false);
+    const [redoError, setRedoError] = useState<string | null>(null);
     // Mid-run Finish confirms because the arc still has questions left; at the cap it goes straight
     // through. Reset by anything that leaves the footer.
     const [confirmFinish, setConfirmFinish] = useState(false);
@@ -355,10 +359,25 @@ export function InterviewChat({ interviewId, onExit }: Props) {
         }
     }
 
-    /** Re-run the review for a run that finished without one (or without its per-answer notes). */
+    /** Re-run the review for a run that finished without one. */
     async function retryReview() {
         setFinishing({ title: "Rebuilding your review", dismissed: false, done: false });
         await openReview(() => regenerateFeedback(interviewId));
+    }
+
+    /** Rebuild this run's review without leaving it. The server charges the run's redo allowance, so
+     *  the refusal lands next to the button instead of behind the finish overlay. */
+    async function redoReview() {
+        setRedoing(true);
+        setRedoError(null);
+        try {
+            setFeedback(await regenerateFeedback(interviewId));
+            await loadMessages();
+        } catch (e: unknown) {
+            setRedoError(apiDetail(e, "Couldn't rebuild your review just now."));
+        } finally {
+            setRedoing(false);
+        }
     }
 
     // Hardcore gets the only red. Light-mode red is the darker token: #ff9999 on white is invisible.
@@ -412,7 +431,7 @@ export function InterviewChat({ interviewId, onExit }: Props) {
                 <div className="mx-auto flex w-full max-w-[100rem] flex-col gap-1 px-4 py-5 sm:px-6">
                     {/* Safe to always offer: /finish refuses an empty transcript, so a review implies
                         at least one answer to re-annotate. */}
-                    {feedback && <FeedbackView feedback={feedback} messages={messages} offer={offer} onAnnotate={() => void retryReview()} annotating={isFinishing} />}
+                    {feedback && <FeedbackView feedback={feedback} messages={messages} offer={offer} onRedo={() => void redoReview()} redoing={redoing} redoError={redoError} />}
                     {/* The screen was closed while the run is still being finished: keep the wait visible
                         where the review will land, plus a way back to the stages. */}
                     {finishing?.dismissed && (

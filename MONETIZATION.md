@@ -11,6 +11,7 @@ Decisions: PLAN D10 (owner-scoping is a hard rule).
 | ----------------------------------------- | -------------------------- | ------------------------------------ | -------------------------- |
 | Interviews (creation)                     | **unlimited**              | **unlimited**                        | **unlimited**              |
 | Resumes kept                              | **1** (`FREE_RESUMES`)     | **5** (`PREMIUM_RESUMES`)            | **5** (`DEV_RESUMES`)      |
+| Review redos / run                        | **1** (`FREE_REDOS`)       | **5** (`PREMIUM_REDOS`)              | **5** (`DEV_REDOS`)        |
 | Price                                     | ₱0                         | **₱99 / 30 days** (one payment)      | ₱0                         |
 | Chat turns / day (GLOBAL, all interviews) | **10** (`FREE_CHAT_TURNS`) | **100** (`PREMIUM_CHAT_TURNS`)       | **500** (`DEV_CHAT_TURNS`) |
 
@@ -20,6 +21,9 @@ Decisions: PLAN D10 (owner-scoping is a hard rule).
 - The resume cap is **storage, not a meter**: importing one spends nothing (parsing is local CPU), so
   it is counted at INSERT and never decremented. At the cap a free owner gets `402` and a paid one
   `409`, which is the difference between an upsell and a wall.
+- Review redos are **per RUN, not per day** (`feedback.redos`): the allowance belongs to the run it
+  rewrites. `POST /interviews/{id}/feedback/generate` charges one **only when it produced a review**, so
+  a model outage never spends it, and the first review (`/finish`) is never a redo.
 - Limits are env-overridable (`backend/.env.example`). The **`dev` tier** is for developers only and
   never persists in `subscriptions`; it is what the no-Clerk fallback identity resolves to.
 - **Feedback is not feature-gated** — same quality across tiers. The turn cap is the cost lever.
@@ -45,6 +49,7 @@ Decisions: PLAN D10 (owner-scoping is a hard rule).
   then upsert +1. Over → **`402`**, which may happen mid-interview once the owner burns today's
   credits across ALL their interviews. The review is deliberately NOT metered: `POST /interviews/{id}/finish`
   runs the whole feedback pipeline (grader, formatter, per-turn annotator) without spending a credit.
+  Rebuilding it IS metered (`/feedback/generate`, §0 redos).
 - **BYOK swaps the cap, it does not waive it**: contract and rationale are owned by `BYOK.md`
   (Quota) — one owner, because `billing.py`, `byok.py` and the settings panel all cite it.
 - **Overage → lockout:** block new turns only. **Never delete, truncate, or hide existing user

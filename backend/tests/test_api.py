@@ -977,6 +977,50 @@ def test_regenerate_feedback_writes_when_model_recovers(client, monkeypatch):
     client.delete(f"/api/interviews/{iid}")
 
 
+def test_review_redo_cap_is_per_run_and_charged_only_on_success(client, monkeypatch):
+    from app import billing, llm
+    from app import main as main_mod
+    from app.models import FeedbackSummary
+
+    # One redo, this run. The cap hangs off the dev tier, which is what the no-Clerk test identity
+    # resolves to - patching the tier itself would swap the daily turn gate out from under the run.
+    monkeypatch.setitem(billing.LIMITS["dev"], "redos", 1)
+
+    iv = client.post("/api/interviews", json={"role": "Redo Cap"}).json()
+    iid = iv["id"]
+    client.post(f"/api/interviews/{iid}/start")
+    client.post(f"/api/interviews/{iid}/chat/stream", json={"interview_id": iid, "content": "hello?"})
+
+    # The FIRST review is included in the run: /finish auto-generates it and spends no redo, even when
+    # the model comes back empty and the row is never written.
+    monkeypatch.setattr(main_mod, "_backoff_sleep", _noop_sleep)
+    monkeypatch.setattr(llm, "generate_feedback", _always_none)
+    assert client.post(f"/api/interviews/{iid}/finish").status_code == 200
+    assert client.get(f"/api/interviews/{iid}/feedback").status_code == 404
+
+    async def _ok(history, dials=None, config=None, **_kw):
+        return FeedbackSummary(scores={d: 7.0 for d in llm.FEEDBACK_DIMS}, verdict="Rebuilt", tips=["Keep going."])
+
+    monkeypatch.setattr(llm, "generate_feedback", _ok)
+    first = client.post(f"/api/interviews/{iid}/feedback/generate")
+    assert first.status_code == 200 and first.json()["redos"] == 1
+
+    # Spent: the cap is the run's, so the next rebuild is a wall, and NOT a reason to drop the review
+    # that is already there. Free gets the upsell instead (402 against 409, same as the resume cap).
+    over = client.post(f"/api/interviews/{iid}/feedback/generate")
+    assert over.status_code == 409 and "review redos" in over.json()["detail"]
+    assert client.get(f"/api/interviews/{iid}/feedback").json()["redos"] == 1
+
+    async def _free(_user):
+        return "free"
+
+    monkeypatch.setattr(billing, "resolve_tier", _free)
+    monkeypatch.setitem(billing.LIMITS["free"], "redos", 1)
+    upsell = client.post(f"/api/interviews/{iid}/feedback/generate")
+    assert upsell.status_code == 402 and "Pro raises" in upsell.json()["detail"]
+    client.delete(f"/api/interviews/{iid}")
+
+
 async def _always_none(history, dials=None, config=None, **_kw):
     return None
 

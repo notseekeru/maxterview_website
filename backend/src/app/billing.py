@@ -7,7 +7,9 @@
 - **`dev` tier**: only for the no-Clerk fallback identity (`CLERK_ENABLED=false`). `main.py`'s boot guard
   refuses to boot with `CLERK_ENABLED=false` outside development/test, so `dev` cannot leak to prod.
 - **Quotas**: one daily chat-turn credit per owner is the only METERED gate, across all of the owner's
-  interviews in one UTC day. No per-interview cap, no token metering. See `chat_turn_limit`.
+  interviews in one UTC day. No per-interview cap, no token metering. See `chat_turn_limit`. Review
+  redos are the exception to the daily shape: they are capped PER RUN (`redo_limit`, counted on
+  `feedback.redos`), because a rebuild is spent on the review it rewrites and not on the day.
 - **Reset is LAZY**: `day` is part of the `turn_usage` PK, so a new UTC day simply has no row yet and the
   first turn inserts. Do NOT add a scheduled reset (`UPDATE turn_usage SET turns = 0 WHERE day < today`):
   that turns midnight into a whole-table write spike.
@@ -33,11 +35,15 @@ BYOK_PREMIUM_CHAT_TURNS = int(os.getenv("BYOK_PREMIUM_CHAT_TURNS", "5000"))
 FREE_RESUMES = int(os.getenv("FREE_RESUMES", "1"))
 PREMIUM_RESUMES = int(os.getenv("PREMIUM_RESUMES", "5"))
 DEV_RESUMES = int(os.getenv("DEV_RESUMES", "5"))
+# Per RUN, unlike the three limits above.
+FREE_REDOS = int(os.getenv("FREE_REDOS", "1"))
+PREMIUM_REDOS = int(os.getenv("PREMIUM_REDOS", "5"))
+DEV_REDOS = int(os.getenv("DEV_REDOS", "5"))
 
 LIMITS = {
-    "free": {"chat_turns": FREE_CHAT_TURNS, "byok_turns": BYOK_CHAT_TURNS, "resumes": FREE_RESUMES},
-    "premium": {"chat_turns": PREMIUM_CHAT_TURNS, "byok_turns": BYOK_PREMIUM_CHAT_TURNS, "resumes": PREMIUM_RESUMES},
-    "dev": {"chat_turns": DEV_CHAT_TURNS, "byok_turns": BYOK_PREMIUM_CHAT_TURNS, "resumes": DEV_RESUMES},
+    "free": {"chat_turns": FREE_CHAT_TURNS, "byok_turns": BYOK_CHAT_TURNS, "resumes": FREE_RESUMES, "redos": FREE_REDOS},
+    "premium": {"chat_turns": PREMIUM_CHAT_TURNS, "byok_turns": BYOK_PREMIUM_CHAT_TURNS, "resumes": PREMIUM_RESUMES, "redos": PREMIUM_REDOS},
+    "dev": {"chat_turns": DEV_CHAT_TURNS, "byok_turns": BYOK_PREMIUM_CHAT_TURNS, "resumes": DEV_RESUMES, "redos": DEV_REDOS},
 }
 
 # `cancelled` included: the provider cancels at once but the invoice stays paid.
@@ -85,6 +91,12 @@ def chat_turn_limit(tier: str, byok: bool = False) -> int:
     `byok` is self-asserted (BYOK.md), so the ceiling is what stands between a saved endpoint and a
     free ride on whoever's GPU the base_url names."""
     return int(_quota(tier, "byok_turns" if byok else "chat_turns"))
+
+
+def redo_limit(tier: str) -> int:
+    """How many times `tier` may rebuild the review of ONE finished run. Charged on success only
+    (main.regenerate_feedback), so a model that came back empty does not spend the owner's allowance."""
+    return int(_quota(tier, "redos"))
 
 
 def resume_limit(tier: str) -> int:

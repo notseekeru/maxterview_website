@@ -14,7 +14,7 @@ function tallyMoves(messages: Message[]) {
     return MOVE_CLASSES.map((meta) => ({ meta, count: messages.filter((m) => m.move_class === meta.value).length })).filter((t) => t.count > 0);
 }
 
-export function FeedbackView({ feedback, messages = [], offer, onAnnotate, annotating }: { feedback: Feedback; messages?: Message[]; offer?: Offer | null; onAnnotate?: () => void; annotating?: boolean }) {
+export function FeedbackView({ feedback, messages = [], offer, onRedo, redoing, redoError }: { feedback: Feedback; messages?: Message[]; offer?: Offer | null; onRedo?: () => void; redoing?: boolean; redoError?: string | null }) {
     // ALL dims, not just the scored ones: with ten of them a run that probed four is a normal outcome
     // (the run's dials are stated on the interview screen; the mix is why the holes are holes).
     const scores = feedback.scores ?? {};
@@ -28,9 +28,25 @@ export function FeedbackView({ feedback, messages = [], offer, onAnnotate, annot
 
     return (
         <Card className={failed ? "border-destructive" : undefined}>
-            <CardHeader>
-                <CardTitle>{failed ? "Review failed" : "Review"}</CardTitle>
-                <CardDescription>Every answer you gave is annotated in the transcript below</CardDescription>
+            <CardHeader className="flex-row items-start justify-between gap-3 space-y-0">
+                <div>
+                    <CardTitle>{failed ? "Review failed" : "Review"}</CardTitle>
+                    <CardDescription>Every answer you gave is annotated in the transcript below</CardDescription>
+                </div>
+                {onRedo && (
+                    <div className="flex flex-col items-end gap-1">
+                        <Button variant="outline" size="sm" onClick={onRedo} disabled={redoing}>
+                            {redoing ? "Reviewing…" : "Redo review"}
+                        </Button>
+                        {/* The server's own refusal (allowance spent, model down) states itself here,
+                            where the button that asked is. */}
+                        {redoError && (
+                            <p role="alert" className="max-w-[18rem] text-right text-[11px] text-muted-foreground">
+                                {redoError}
+                            </p>
+                        )}
+                    </div>
+                )}
             </CardHeader>
             <CardContent className="space-y-4">
                 {failed && (
@@ -62,15 +78,8 @@ export function FeedbackView({ feedback, messages = [], offer, onAnnotate, annot
                         </div>
                     </div>
                 ) : (
-                    <div className="space-y-2 rounded-xl border border-dashed p-3">
+                    <div className="rounded-xl border border-dashed p-3">
                         <p className="text-xs text-muted-foreground">No answer-by-answer review for this run. The annotator couldn't classify the transcript, so there is no accuracy to report. The hiring call below is unaffected.</p>
-                        {/* The annotator hop is a model call and can come back empty while the verdict
-                            and tips land; the dashboard has the only other retry. */}
-                        {onAnnotate && (
-                            <Button variant="outline" size="sm" onClick={onAnnotate} disabled={annotating}>
-                                {annotating ? "Reviewing…" : "Annotate this run"}
-                            </Button>
-                        )}
                     </div>
                 )}
 

@@ -182,6 +182,8 @@ class Feedback(BaseModel):
     # Carried from the interview row so the review can shout about a hardcore failure without re-deriving it.
     failed_turn: int | None = None
     failed_class: MoveClass | None = None
+    # Rebuilds already charged to this run; the tier's allowance is app/billing.py::redo_limit.
+    redos: int = 0
     created_at: datetime
 
     @computed_field
