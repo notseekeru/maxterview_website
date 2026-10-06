@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
-import { Page } from "@/components/PagePrimitives";
+import { Page, SectionHeading } from "@/components/PagePrimitives";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { StateNote } from "@/components/ui/state";
 import { Textarea } from "@/components/ui/textarea";
 import { apiDetail, createResume, deleteResume, extractResume, getResume, getUsage, httpStatus, listResumes, type Resume as ResumeRecord, type ResumeSummary, updateResume } from "@/lib/api";
 import { PLANS } from "@/lib/plans";
@@ -204,7 +205,7 @@ export function ResumePage() {
     const dirty = draft.id === null ? !!draft.name.trim() || !!draft.text.trim() : !!active && (active.name !== draft.name || active.chars !== draft.text.length);
 
     return (
-        <Page title="Resume" wide>
+        <Page title="Resume" description="The text the interviewer reads. One per role is usually enough; interviews use the first 8,000 characters." wide>
             <div className="space-y-4">
                 {/* The drop zone owns the page on a fresh account, and is opt-in ("+ New") once
                     anything is saved. The paste button is nested, not a sibling: a click on interactive
@@ -249,12 +250,12 @@ export function ResumePage() {
                     </label>
                 )}
 
-                {(error || notice || (capped && atCap)) && (
-                    <div className="space-y-1 text-sm">
-                        {error && <p className="text-destructive">{error}</p>}
-                        {notice && !error && <p className="text-xs text-muted-foreground">{notice}</p>}
+                {(error || notice || capped) && (
+                    <div className="space-y-1">
+                        {error && <StateNote tone="danger">{error}</StateNote>}
+                        {notice && !error && <StateNote>{notice}</StateNote>}
                         {capped && (
-                            <a href="/settings/billing" className="text-xs text-muted-foreground underline underline-offset-2">
+                            <a href="/settings/billing" className="text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground">
                                 See plans
                             </a>
                         )}
@@ -264,16 +265,10 @@ export function ResumePage() {
                 {/* Absent with nothing saved: the drop card and the New resume card already say so,
                     and an empty chip row would just be a second, contradictory "0 of 5". */}
                 {rows.length > 0 && (
-                    <div className="space-y-1.5">
-                        <div className="flex flex-wrap items-center justify-between gap-2">
-                            <span className="text-sm font-medium leading-none">Your resumes</span>
-                            {limit !== null && (
-                                <span className="text-xs text-muted-foreground">
-                                    {rows.length} of {limit}
-                                    {limit === 1 && ` · ${PLANS.premium.name} keeps ${PLANS.premium.resumes}`}
-                                </span>
-                            )}
-                        </div>
+                    <section className="space-y-3">
+                        {/* The limit rides the heading as its hint: how many slots are left is a fact
+                            about the list, not about the editor below it. */}
+                        <SectionHeading title="Your resumes" hint={limit === null ? undefined : `${rows.length} of ${limit}${limit === 1 ? ` · ${PLANS.premium.name} keeps ${PLANS.premium.resumes}` : ""}`} />
                         <div className="flex flex-wrap items-center gap-1.5">
                             {rows.map((r) => (
                                 <button key={r.id} type="button" onClick={() => void open(r.id)} className={cn("rounded-full border px-3 py-1 text-xs transition-colors", draft.id === r.id ? "border-primary bg-primary/10 font-medium text-primary" : "border-input text-muted-foreground hover:bg-accent")}>
@@ -287,7 +282,7 @@ export function ResumePage() {
                                 </button>
                             )}
                         </div>
-                    </div>
+                    </section>
                 )}
 
                 {editing && (

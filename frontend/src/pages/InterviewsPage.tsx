@@ -2,10 +2,12 @@ import { useNavigate } from "react-router-dom";
 
 import { CreateInterviewForm } from "@/components/CreateInterviewForm";
 import { InterviewList } from "@/components/InterviewList";
-import { LABEL, Page } from "@/components/PagePrimitives";
+import { Page } from "@/components/PagePrimitives";
 import { useInterviews } from "@/hooks/useInterviewData";
 import { archiveInterview, deleteInterview, regenerateFeedback, unarchiveInterview } from "@/lib/api";
 
+// /interviews — the only home for the history list (the dashboard shows aggregates, not rows). Both
+// cards carry their own title, so the page adds no headings of its own.
 export function InterviewsPage() {
     const navigate = useNavigate();
     const { interviews, loading, error, refresh } = useInterviews();
@@ -30,18 +32,12 @@ export function InterviewsPage() {
     }
 
     return (
-        <Page title="Interviews" description="Start a new session or review, reopen or remove your interview history." wide>
-            <div className="flex min-h-[calc(100dvh-12rem)] flex-col gap-6 lg:min-h-[calc(100dvh-8.5rem)]">
-                <section className="space-y-2">
-                    <h2 className={LABEL}>New interview</h2>
-                    <CreateInterviewForm onCreated={onCreated} variant="featured" />
-                </section>
+        <Page title="Interviews" description="Every run you have started: open one, review it again, or start the next." wide>
+            <section id="new-interview" className="scroll-mt-20">
+                <CreateInterviewForm onCreated={onCreated} variant="featured" />
+            </section>
 
-                <section className="flex-1 space-y-2">
-                    <h2 className={LABEL}>History</h2>
-                    <InterviewList interviews={interviews} loading={loading} error={error} onRefresh={() => void refresh()} onOpen={(id) => navigate(`/interviews/${id}`)} onDelete={onDelete} onArchive={onArchive} onRescore={onRescore} />
-                </section>
-            </div>
+            <InterviewList interviews={interviews} loading={loading} error={error} onRefresh={() => void refresh()} onOpen={(id) => navigate(`/interviews/${id}`)} onDelete={onDelete} onArchive={onArchive} onRescore={onRescore} />
         </Page>
     );
 }
