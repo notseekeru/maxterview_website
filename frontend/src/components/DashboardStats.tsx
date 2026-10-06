@@ -159,7 +159,7 @@ function nextSteps(dims: InterviewDims, stats: InterviewDimensions | null): Step
     const steps: Step[] = [];
     const unrated = dims.completed - dims.rated;
     if (unrated > 0) {
-        steps.push({ title: `${unrated} finished run${unrated === 1 ? "" : "s"} without a review`, body: "Scoring can fail on its own, so the run looks complete while carrying no accuracy. Retry review on the row runs it again.", to: "/interviews", action: "Retry the review" });
+        steps.push({ title: `${unrated} finished run${unrated === 1 ? "" : "s"} without a review`, body: "Scoring can fail on its own. Retry review on the row runs it again.", to: "/interviews", action: "Retry the review" });
     }
     if (dims.delta.accuracy !== null && dims.delta.accuracy <= -SLIP_PTS) {
         steps.push({ title: "Act on the newest reviews", body: `Accuracy came in ${Math.abs(Math.round(dims.delta.accuracy))} points under the runs before it. The last ${TREND_WINDOW} transcripts name the turns that cost it.`, to: "/interviews", action: "Read the reviews" });

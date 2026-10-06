@@ -19,7 +19,7 @@ export function AccountSettingsPage() {
     const today = usage ? turnsToday(usage) : null;
 
     return (
-        <Page title="Account" description="The plan you are on and the sign-in it belongs to.">
+        <Page title="Account" description="Your sign-in details and subscription.">
             {/* Plan — summary only; the full tiers, upgrade and cancel surface lives on
                 /settings/billing (PayMongo has no billing portal to link out to). */}
             <Card>
@@ -59,7 +59,7 @@ export function AccountSettingsPage() {
             <Card>
                 <CardHeader>
                     <CardTitle>Profile</CardTitle>
-                    <CardDescription>Your sign-in and profile are held by Clerk, which is also where they are changed.</CardDescription>
+                    <CardDescription>Manage your sign-in and profile via Clerk.</CardDescription>
                 </CardHeader>
                 {clerkEnabled ? (
                     <CardContent>
@@ -84,7 +84,7 @@ function planLine(usage: Usage | null, failed: boolean, loading: boolean, tierLa
     if (loading) return "Loading…";
     if (failed || !usage) return "Couldn’t load your plan. Refresh to retry.";
     if (usage.tier === "dev") return "Dev mode: no Clerk key, so runs bill to the backend DEV_USER.";
-    if (usage.byok) return "Your own provider key pays for these turns, so the ceiling below is BYOK's rather than your plan's.";
+    if (usage.byok) return "Your own provider key pays for these turns.";
     return `You are on ${tierLabel}.`;
 }
 

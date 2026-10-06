@@ -205,7 +205,7 @@ export function ResumePage() {
     const dirty = draft.id === null ? !!draft.name.trim() || !!draft.text.trim() : !!active && (active.name !== draft.name || active.chars !== draft.text.length);
 
     return (
-        <Page title="Resume" description="The text the interviewer reads. One per role is usually enough; interviews use the first 8,000 characters." wide>
+        <Page title="Resume" description="The text the interviewer reads. One per role is usually enough." wide>
             <div className="space-y-4">
                 {/* The drop zone owns the page on a fresh account, and is opt-in ("+ New") once
                     anything is saved. The paste button is nested, not a sibling: a click on interactive
