@@ -40,8 +40,8 @@ Commits are atomic: one logical change per commit, scoped to a coherent set of f
   1. **Not already named.** The identifier, signature or type names the fact. `QR_TTL_MIN = 30`, `EVIDENCE_CAP_BASE`, `_coerce_score` need nothing: the name is the comment.
   2. **Not already readable.** The clause is derivable from the adjacent code, including its order, its `if` branches and its `or` fallbacks.
   3. **Not said twice.** One fact per line. Clauses that restate each other collapse to one clause.
-  A comment may not contain a value, string or identifier the code already holds. That is a second source of truth and it rots silently: say what a value is **bound to**, never what it is.
-  Then keep it only if it carries a why the code cannot: an ordering or security constraint, a provider or platform trap, a rejected alternative, a ceiling, or a measurement with its date.
+     A comment may not contain a value, string or identifier the code already holds. That is a second source of truth and it rots silently: say what a value is **bound to**, never what it is.
+     Then keep it only if it carries a why the code cannot: an ordering or security constraint, a provider or platform trap, a rejected alternative, a ceiling, or a measurement with its date.
   - **Rewrite is not the fix.** Shortening a bloated comment leaves it bloated. Delete the clause that failed a check; do not reword it.
   - **Banners die.** No `// --- section ---` dividers. Order, naming and file boundaries do that job.
   - **Step labels die.** No narration of what the next statement does.
@@ -63,4 +63,3 @@ Commits are atomic: one logical change per commit, scoped to a coherent set of f
 ## Interaction Style
 
 - **Laconic:** Minimize token usage while maintaining clarity. No fluff. Answer first, then only the detail required to act.
-
