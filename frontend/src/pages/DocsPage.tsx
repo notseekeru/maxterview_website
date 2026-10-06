@@ -22,8 +22,10 @@ export function DocsPage() {
             <section className="space-y-3">
                 <SectionHeading title="Plans" />
                 <p className="text-sm leading-6 text-muted-foreground">
-                    Free includes unlimited interviews and {PLANS.free.turns} chat turns a day. {PLANS.premium.name} raises that to {PLANS.premium.turns} turns a day and {PLANS.premium.resumes} resume slots, one payment for {PLANS.premium.term}. Reviewing a finished run again costs one redo: {PLANS.free.redos} per run
-                    on Free, {PLANS.premium.redos} on {PLANS.premium.name}.
+                    Free includes unlimited interviews and {PLANS.free.turns} chat turns a day. {PLANS.premium.name} raises that to {PLANS.premium.turns} turns a day and {PLANS.premium.resumes} resume slots, one payment for {PLANS.premium.term}.
+                </p>
+                <p className="text-sm leading-6 text-muted-foreground">
+                    Reviewing a finished run again costs one redo: {PLANS.free.redos} per run on Free, {PLANS.premium.redos} on {PLANS.premium.name}.
                 </p>
             </section>
         </Page>
