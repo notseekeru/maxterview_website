@@ -56,20 +56,19 @@ A sweep that passes on latency while any of those is false is not a pass.
 
 ## What is measured
 
-| Indicator          | Source                                                      | Carries                                                                 |
-| ------------------ | ----------------------------------------------------------- | ----------------------------------------------------------------------- |
-| Request latency    | `http.server.request.duration`, and k6 on the client side   | method, route, status                                                   |
-| Error rate         | the same histogram, plus k6 broken down by status code | status                                                                  |
-| Throughput         | k6 RPS, and the server histogram's own sample count         | route                                                                   |
-| Database pressure  | connections in use against a pool of 10                     |                                                                         |
-| Saturation         | CPU, frequency, temperature, load, memory                   |                                                                         |
+| Indicator         | Source                                                    | Carries               |
+| ----------------- | --------------------------------------------------------- | --------------------- |
+| Request latency   | `http.server.request.duration`, and k6 on the client side | method, route, status |
+| Error rate        | the same histogram, plus k6 broken down by status code    | status                |
+| Throughput        | k6 RPS, and the server histogram's own sample count       | route                 |
+| Database pressure | connections in use against a pool of 10                   |                       |
+| Saturation        | CPU, frequency, temperature, load, memory                 |                       |
 
 Bucket boundaries are pinned in the SDK rather than left to its defaults, and they run from 0.01 to 120 seconds.
 
 Four more are recorded for this experiment. `db.pool.wait.duration` and `db.query.duration` are sampled apart inside `db.py`, so a queued connection and a slow query are distinguishable, and the query label is the statement's first keyword, which keeps the label set bounded and the query text off the metric. The pod's restart count and last termination reason say whether a failure was the 256Mi limit rather than the node. Alloy's own CPU and its dropped-batch signal, which already feeds a Grafana alert, say whether the collector became the bottleneck.
 
 Three properties of the instrumentation matter to this experiment.
-
 
 The route label is the matched template and never the raw path, so the label set stays bounded and a scanner sweeping URLs cannot mint a series per URL.
 
@@ -109,8 +108,6 @@ The gates, one per indicator that can fail a step:
 | error rate, my own config excluded | from the baseline                                  |
 | throughput                         | none. It is the experiment's output, not a target. |
 
-The rule for setting them: run the baseline at a load the box is comfortably not stressed by, take its p95, and multiply it by a factor. The factor is chosen and written down **before the sweep starts**, because the baseline is the only input it is allowed to have. Picking one after a step looks bad is moving the goalposts, and that is the whole reason the gates are empty until then.
-
 Until then this table stays empty on purpose. A threshold invented before the measurement is a threshold I would then spend the sweep trying to justify.
 
 A step fails on a gate, on a failed correctness check, or on a hard resource failure, and the first failure stops the sweep. The latency inflection and the resource that moved first are the explanation of a failure, not its definition: a step can fail on correctness with a perfectly flat curve, and a clean inflection with everything still under the gate is a step that passed.
@@ -130,15 +127,10 @@ Not on that list: Neon's `max_connections`. It is 104 at the smallest compute an
 Two paths, both ending in the same pod.
 
 ```
-Run 1, the public path
-  k6 (Windows box) -> Internet -> Cloudflare edge -> cloudflared -> ingress-nginx -> pod
-
-Run 2, the capacity path
+Capacity path
   k6 (Windows box) -> Tailscale -> ingress-nginx -> pod
-
-Either way
-  pod -> Neon            (direct host, TLS)
-  pod -> Alloy           (in-cluster) -> Grafana Cloud
+  pod -> Neon (direct host, TLS)
+  pod -> Alloy (in-cluster) -> Grafana Cloud
 ```
 
 The app's own request path, its middleware order and the layer breakdown are in the README's `## Architecture` section. What matters here is the composition of a single turn.
@@ -195,29 +187,20 @@ These bound what one client can do, so they set the roof on the loop.
 
 The sweep runs against prod's default branch, so it spends prod's own budget and its rows land in prod's data. The cleanup between steps is what keeps that bounded instead of accumulating.
 
-- 100 CU-hours of compute per project per month. 2,932 CPU-s were used at the last check.
-- Scale to zero is always on and cannot be disabled. Computes suspend after five minutes idle, so the wake sits on the path of the first request after a gap. Warm it and discard the warmup.
-- Autoscaling tops out at 2 CU on Free.
-- 5 GB of network transfer per project per month.
-
 ### Cloudflare
 
-- Bot Fight Mode cannot be skipped. WAF custom rules and Page Rules both fail against it, because it does not run on the Ruleset Engine. That is the Free plan; Super Bot Fight Mode on Pro is skippable.
-- The only lever on Free is an IP Access rule, and any IP Access rule present disables BFM for the whole zone. There is no narrow exception for the runner, only a zone-wide one. Off for the public run, recorded, and restored and verified before the capacity sweep starts, so the two runs never share a configuration state.
-- The second question the run answers is whether SSE survives the edge. Every chat turn is a stream, which is why nginx sets `proxy_buffering off`.
-
-## Tools
+The public path has two external dependencies I do not own: the tunnel that exists because of CGNAT, and Cloudflare's bot protection, which on Free cannot be skipped — the only lever is an IP Access rule, and any IP Access rule disables BFM zone-wide, not just for the runner. So BFM comes off for run 1, is recorded, and is restored and verified before run 2. The capacity run does not depend on either: Tailscale replaces the tunnel and removes the edge from the path. That is why run 2's number is the app's and run 1's is not.## Tools
 
 ### The app
 
-| Layer         | What                                                                 |
-| ------------- | -------------------------------------------------------------------- |
-| Runtime       | Python 3.13, FastAPI, uvicorn with a single worker                   |
-| Data          | asyncpg against Postgres, yoyo for migrations |
-| Logging       | structlog, one JSON access line per request                          |
-| Telemetry     | OpenTelemetry SDK, OTLP over HTTP to the in-cluster collector        |
-| Rate limiting | limits, in-process memory storage, no redis for now                  |
-| Frontend      | React 19, Vite, TypeScript, Tailwind, Clerk React, axios, recharts   |
+| Layer         | What                                                               |
+| ------------- | ------------------------------------------------------------------ |
+| Runtime       | Python 3.13, FastAPI, uvicorn with a single worker                 |
+| Data          | asyncpg against Postgres, yoyo for migrations                      |
+| Logging       | structlog, one JSON access line per request                        |
+| Telemetry     | OpenTelemetry SDK, OTLP over HTTP to the in-cluster collector      |
+| Rate limiting | limits, in-process memory storage, no redis for now                |
+| Frontend      | React 19, Vite, TypeScript, Tailwind, Clerk React, axios, recharts |
 
 ### The experiment
 
