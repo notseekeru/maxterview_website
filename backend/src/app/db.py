@@ -1,7 +1,10 @@
 import json
 import os
+import time
 
 import asyncpg
+
+from app import telemetry
 
 DATABASE_URL = os.getenv("DATABASE_URL", "")
 if not DATABASE_URL:
@@ -46,8 +49,33 @@ def get_pool() -> asyncpg.Pool:
 
 
 async def fetch(query: str, *args) -> list[asyncpg.Record]:
-    return await get_pool().fetch(query, *args)
+    return await _query("fetch", query, args)
 
 
 async def fetchrow(query: str, *args) -> asyncpg.Record | None:
-    return await get_pool().fetchrow(query, *args)
+    return await _query("fetchrow", query, args)
+
+
+# The first keyword only. The label stays bounded by construction, so no query text ever reaches it.
+_OPERATIONS = frozenset({"SELECT", "INSERT", "UPDATE", "DELETE", "WITH"})
+
+
+def _operation(query: str) -> str:
+    first = query.lstrip().split(None, 1)[0].upper() if query.strip() else ""
+    return first if first in _OPERATIONS else "other"
+
+
+assert _operation("\n  SELECT 1") == "SELECT" and _operation("EXPLAIN 1") == "other"
+
+
+async def _query(method: str, query: str, args: tuple):
+    """Wait and execution are sampled apart, because a queued connection and a slow query are
+    different faults and only one of them is the database's."""
+    pool = get_pool()
+    queued = time.perf_counter()
+    async with pool.acquire() as conn:
+        telemetry.record("db.pool.wait.duration", time.perf_counter() - queued)
+        running = time.perf_counter()
+        result = await getattr(conn, method)(query, *args)
+        telemetry.record("db.query.duration", time.perf_counter() - running, **{"db.operation": _operation(query)})
+    return result
