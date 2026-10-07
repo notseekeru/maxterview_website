@@ -65,6 +65,8 @@ The public run passes when, over its step: every response is a real API response
 
 Bucket boundaries are pinned in the SDK rather than left to its defaults, and they run from 0.01 to 120 seconds.
 
+Four more are recorded for this experiment. `db.pool.wait.duration` and `db.query.duration` are sampled apart inside `db.py`, so a queued connection and a slow query are distinguishable, and the query label is the statement's first keyword, which keeps the label set bounded and the query text off the metric. The pod's restart count and last termination reason say whether a failure was the 256Mi limit rather than the node. Alloy's own CPU and its dropped-batch signal, which already feeds a Grafana alert, say whether the collector became the bottleneck.
+
 Three properties of the instrumentation matter to this experiment.
 
 `/api/health` creates no span, no sample and no line, by design. Health probes never appear in the server-side metrics, so load put on that path is invisible from the server's own account.
@@ -87,6 +89,23 @@ One gate shape, and the gates themselves come from the baseline.
 
 A step passes when, for that step, p95 latency stays under the gate, the error rate stays under the gate, and neither is explained by my own config. A quota 402, a template or resume cap 409, and the arc-spent 409 are all excluded from the error rate by status and route. They are walls I built, not capacity.
 
+Everything else that comes back has a class, so the error rate is a count rather than a judgement made after the fact.
+
+| Result                                 | Class                                        |
+| -------------------------------------- | -------------------------------------------- |
+| 402 from the turn quota                | my config                                    |
+| 409 from a cap, or the arc-spent 409   | my config                                    |
+| 422 from a malformed test payload      | test bug, and the script is the fix          |
+| 429                                    | whichever limiter produced it, so config     |
+| 5xx                                    | app failure                                  |
+| timeout                                | capacity                                     |
+| a stream that ends without `done`      | app or network failure                       |
+| a dropped k6 iteration                 | the runner is the suspect                    |
+| a pool acquire timeout                 | dependency saturation                        |
+| a pod restart                          | the 256Mi limit, which is not node capacity  |
+
+The gates, one per indicator that can fail a step:
+
 | Indicator                          | Gate                                               |
 | ---------------------------------- | -------------------------------------------------- |
 | p95 latency, plain reads           | from the baseline                                  |
@@ -94,7 +113,7 @@ A step passes when, for that step, p95 latency stays under the gate, the error r
 | error rate, my own config excluded | from the baseline                                  |
 | throughput                         | none. It is the experiment's output, not a target. |
 
-The rule for setting them: run the baseline at a load the box is comfortably not stressed by, take its p95, and set the gate at a multiple of it. The multiple is the one choice the baseline cannot make for me, so the number and the multiple get written down here once they exist.
+The rule for setting them: run the baseline at a load the box is comfortably not stressed by, take its p95, and multiply it by a factor. The factor is chosen and written down **before the sweep starts**, because the baseline is the only input it is allowed to have. Picking one after a step looks bad is moving the goalposts, and that is the whole reason the gates are empty until then.
 
 Until then this table stays empty on purpose. A threshold invented before the measurement is a threshold I would then spend the sweep trying to justify.
 
@@ -108,7 +127,7 @@ The number of chat turns is randomized per run. A fixed count makes every virtua
 
 `finish` is the heaviest single request in the loop. It generates and persists the review inside the same call, with up to three attempts and an 800ms pause between them, so the stub makes the generation cheap but the retries multiply the writes if the database is slow.
 
-Three caps bound how much of the surface the loop can actually reach, because every virtual user is the same `dev-user` and they all share one account. Chat turns per UTC day, one counter for the whole sweep, a 402 when it runs out, and with a random turn count the total is not known before the sweep. Templates, capped at 20 (a constant, not an env). Resumes, 10 on this tier. Those last two answer with a 409. All three are walls in my own config, so a 402 or a 409 from them is not capacity and does not belong in the 5xx count.
+Three caps bound how much of the surface the loop can actually reach, because every virtual user is the same identity and they all share one account. Chat turns per UTC day, one counter for the whole sweep, a 402 when it runs out, and with a random turn count the total is not known before the sweep. Templates, capped at 20 (a constant, not an env). Resumes, 10 on this tier. Those last two answer with a 409. All three are walls in my own config, so a 402 or a 409 from them is not capacity and does not belong in the 5xx count.
 
 Two endpoints are not stubbed by anything in the perf window: `/voice/tts` and `/voice/stt` call Cloudflare Workers AI and spend a real daily allocation. Putting them in the loop brings a third vendor inside the measurement.
 
@@ -117,6 +136,19 @@ Two exclusions, for different reasons.
 **PDF import is out of the loop.** `PLAN.md` has the measurement: a 40MB `/Contents` peaks 1.74GB for zero characters of text against a 256Mi pod limit, so one upload can OOMKill the only replica. That would read as a capacity failure when it is a known unfixed bug, and it is its own piece of work.
 
 **`hardcore` stays off.** It is a dial on the create payload, defaulting to false. Under the stub the judge indexes a fixed cycle, `good, inaccuracy, great, book, mistake`, by turn, and `inaccuracy` is a failing class, so a hardcore run ends at turn 2 and every later turn is a 409. Nothing is broken: that is the feature working. It is simply a two-turn workload rather than a full one, and the script has to know which it is running.
+
+## What each iteration asserts
+
+Latency says nothing about whether the app worked, so each iteration checks, as k6 checks, that a failure lands in the same report as the timings.
+
+- the interview was created and came back with an id
+- the opener streamed and ended with `done`
+- every answer streamed and ended with `done`
+- the transcript holds one assistant reply per user turn, so a dropped or duplicated turn fails the run
+- `finish` returned the completed status
+- `GET /feedback` returned a review for that run
+
+A sweep that passes on latency while any of those is false is not a pass.
 
 ## What the reads cost
 
@@ -140,6 +172,8 @@ The pod is not patched with `kubectl set env`. Argo reconciles the prod overlay 
 `APP_ENV=test` does two things beyond letting Clerk off, and I am accepting both. `/api/billing/webhook/simulate` becomes reachable and calls `payments.handle_webhook_event` with no auth, so that route is open for the window. And structlog switches to `ConsoleRenderer`, so Loki loses its structured fields: the log-based Grafana rules stop matching, one of them reads `event="browser.error"`, and the derived `trace_id` field goes with them, so log-to-trace linking is dark until the revert. The log volume I record for the window is therefore console output and is not prod's telemetry cost. Analysis during the window comes from the metrics and the k6 output, and Loki is for reading by eye.
 
 The window ends by reverting the commit and waiting for the sync, then reading the running pod's env directly to confirm `CLERK_ENABLED` is true, `RATE_LIMIT` is not `off`, and `APP_ENV` is production. A sync that reports success is not a pod on the real config, and a revert that silently fails leaves prod with the billing simulate route open and no login.
+
+The sweep runs as its own identity. `DEV_USER_SUB` names it and `auth.py` reads it, so the run holds its own interviews and its own `turn_usage` row instead of moving `dev-user`'s. Prod's dev rows and that account's daily turn counter stay where they are, and the cleanup deletes a set of rows that is known to be the sweep's.
 
 The stub is read at import. Confirm it is live before the sweep rather than after.
 
@@ -193,7 +227,7 @@ Not on that list: Neon's `max_connections`. It is 104 at the smallest compute an
 
 ### Neon
 
-The sweep runs against prod's default branch, so it spends prod's own budget and every row it writes is permanent.
+The sweep runs against prod's default branch, so it spends prod's own budget and its rows land in prod's data. The cleanup between steps is what keeps that bounded instead of accumulating.
 
 - 100 CU-hours of compute per project per month. 2,932 CPU-s were used at the last check.
 - Scale to zero is always on and cannot be disabled. Computes suspend after five minutes idle, so the wake sits on the path of the first request after a gap. Warm it and discard the warmup.
@@ -203,7 +237,7 @@ The sweep runs against prod's default branch, so it spends prod's own budget and
 ### Cloudflare
 
 - Bot Fight Mode cannot be skipped. WAF custom rules and Page Rules both fail against it, because it does not run on the Ruleset Engine. That is the Free plan; Super Bot Fight Mode on Pro is skippable.
-- The only lever on Free is an IP Access rule, and any IP Access rule present disables BFM for the whole zone. There is no narrow exception for the runner, only a zone-wide one. Off for the run, recorded, restored after.
+- The only lever on Free is an IP Access rule, and any IP Access rule present disables BFM for the whole zone. There is no narrow exception for the runner, only a zone-wide one. Off for the public run, recorded, and restored and verified before the capacity sweep starts, so the two runs never share a configuration state.
 - The second question the run answers is whether SSE survives the edge. Every chat turn is a stream, which is why nginx sets `proxy_buffering off`.
 
 ## Tools
@@ -239,9 +273,11 @@ The sweep runs against prod's default branch, so it spends prod's own budget and
 
 ## Between steps
 
-Warm the database. `min_size=0` means the first requests pay pool creation and a fresh TLS handshake, and Neon scale-to-zero means the first request after an idle gap pays the compute wake. Discard the warmup.
+Warm the database. `min_size=0` means the first requests pay pool creation and a fresh TLS handshake, and Neon scale-to-zero means the first request after an idle gap pays the compute wake.
 
-Step-load to find where latency stops being flat, then bisect inside that bracket, then confirm the candidate. Five minutes per step.
+Every step runs the same four phases and only the third is data: a 30 second ramp to the target, a 60 second warm-up that is discarded, a 300 second measurement window, and a stop. Seven minutes of wall clock, five minutes of measurement, and the warm-up never becomes part of a number.
+
+The ladder is 10, 25, 50, 100, 200 and 400 VUs. Fine-grained at the bottom, where a pool of ten is the expected wall, and coarser above it. The first failing step brackets the answer, the ladder bisects that interval until one rung is left, and then the candidate is confirmed rather than declared: the baseline, the candidate and the first failing step each run three times, and results that differ materially get investigated rather than averaged.
 
 ## Decisions
 
@@ -253,12 +289,13 @@ Step-load to find where latency stops being flat, then bisect inside that bracke
 6. Bot protection off for that run. Rejected: leaving it on, which makes the run an observation about Cloudflare rather than a latency figure.
 7. `APP_ENV=test` with Clerk off, and the simulate route left open. Both side effects accepted and recorded above. Rejected: staying on production with minted Clerk tokens, which keeps JWT verification in the measured path but makes Clerk a dependency of the sweep.
 8. A full run per virtual user with a randomized turn count, plus any other endpoint a signed-in user can reach. Rejected: a fixed count, which makes every virtual user do identical work and has to be tuned to sit inside the arc; and a reads-only loop, which never touches the streaming path.
-9. Step-load then binary search, five minutes a step. Rejected: one high ladder, which assumes where the interesting region is.
+9. Step-load then binary search, with the phases and the ladder written above. Rejected: one high ladder, which assumes where the interesting region is.
 10. Telemetry stays on and gets recorded as cost. Rejected: turning it off, which gives a cleaner app number at the price of the deployed configuration.
 11. The model stubbed for the sweep. Rejected: real generation, where the ceiling is the provider's quota and not this one.
 12. No autoscaler. One replica is the experiment, not a limitation to work around.
 13. Direct host, not the pooler. A `-pooler` DSN flips `statement_cache_size`, a different code path than prod runs.
 14. SLO gates derived from the baseline, not set in advance. Rejected: provisional thresholds, which are numbers chosen before the measurement they are supposed to judge.
+15. The sweep runs under its own identity, named by `DEV_USER_SUB`. Rejected: leaving it as `dev-user`, which puts the run's rows and its daily turn counter on the same account dev uses, and makes the cleanup inseparable from real data.
 
 ## Open
 
