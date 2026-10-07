@@ -36,6 +36,8 @@ export function BillingPage() {
 
 // Figures come from lib/plans (MONETIZATION §0): the docs page quotes the numbers, the pitch does not.
 // Subscriptions are PHP-only, so the price is in pesos.
+// Ratio across every metered cap (turns, resumes, redos); read from turns rather than typed again.
+const PLAN_RATIO = PLANS.premium.turns / PLANS.free.turns;
 
 function PlanCard({ tier, usage }: { tier: "free" | "premium"; usage: Usage | null }) {
     const { start, busy, error: checkoutError, modal } = useQrCheckout();
@@ -118,7 +120,10 @@ function PlanCard({ tier, usage }: { tier: "free" | "premium"; usage: Usage | nu
         <Card className="flex flex-col">
             <CardHeader>
                 <div className="flex items-center justify-between gap-2">
-                    <CardTitle>{plan.name}</CardTitle>
+                    <CardTitle className="flex items-center gap-2">
+                        {plan.name}
+                        {isPremium && <Badge variant="secondary">{PLAN_RATIO}x</Badge>}
+                    </CardTitle>
                     {isCurrent && <Badge variant={isPremium ? "default" : "secondary"}>Your plan</Badge>}
                 </div>
             </CardHeader>

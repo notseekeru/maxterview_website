@@ -5,7 +5,6 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { getUsage, turnsToday, type Usage } from "@/lib/api";
 import { clerkEnabled } from "@/lib/config";
-import { PLANS } from "@/lib/plans";
 
 // Quota-status badge (GET /usage, MONETIZATION §3).
 export function UsageBadge() {
@@ -31,19 +30,7 @@ export function UsageBadge() {
     // `dev` is only reachable in no-Clerk mode (resolve_tier grants it solely to the
     // DEV_USER identity).
     const isDev = usage.tier === "dev";
-    // Plan-wide ratio: turns, resumes and redos all scale 10x (PLANS), so the badge reads it from the
-    // one field instead of typing the number again.
-    const ratio = PLANS.premium.turns / PLANS.free.turns;
-    const tierBadge =
-        usage.tier === "premium" ? (
-            <Badge>
-                {PLANS.premium.name} {ratio}x
-            </Badge>
-        ) : isDev ? (
-            <Badge variant="outline">DEV</Badge>
-        ) : (
-            <Badge variant="outline">{PLANS.free.name}</Badge>
-        );
+    const tierBadge = usage.tier === "premium" ? <Badge>Pro</Badge> : isDev ? <Badge variant="outline">DEV</Badge> : <Badge variant="outline">Free</Badge>;
     // The cap is a hard gate (402 mid-interview, no warning), so the remaining count belongs in
     // the shell rather than only on the billing page.
     const today = turnsToday(usage);
