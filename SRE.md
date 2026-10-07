@@ -91,18 +91,18 @@ A step passes when, for that step, p95 latency stays under the gate, the error r
 
 Everything else that comes back has a class, so the error rate is a count rather than a judgement made after the fact.
 
-| Result                                 | Class                                        |
-| -------------------------------------- | -------------------------------------------- |
-| 402 from the turn quota                | my config                                    |
-| 409 from a cap, or the arc-spent 409   | my config                                    |
-| 422 from a malformed test payload      | test bug, and the script is the fix          |
-| 429                                    | whichever limiter produced it, so config     |
-| 5xx                                    | app failure                                  |
-| timeout                                | capacity                                     |
-| a stream that ends without `done`      | app or network failure                       |
-| a dropped k6 iteration                 | the runner is the suspect                    |
-| a pool acquire timeout                 | dependency saturation                        |
-| a pod restart                          | the 256Mi limit, which is not node capacity  |
+| Result                               | Class                                       |
+| ------------------------------------ | ------------------------------------------- |
+| 402 from the turn quota              | my config                                   |
+| 409 from a cap, or the arc-spent 409 | my config                                   |
+| 422 from a malformed test payload    | test bug, and the script is the fix         |
+| 429                                  | whichever limiter produced it, so config    |
+| 5xx                                  | app failure                                 |
+| timeout                              | capacity                                    |
+| a stream that ends without `done`    | app or network failure                      |
+| a dropped k6 iteration               | the runner is the suspect                   |
+| a pool acquire timeout               | dependency saturation                       |
+| a pod restart                        | the 256Mi limit, which is not node capacity |
 
 The gates, one per indicator that can fail a step:
 
@@ -117,7 +117,7 @@ The rule for setting them: run the baseline at a load the box is comfortably not
 
 Until then this table stays empty on purpose. A threshold invented before the measurement is a threshold I would then spend the sweep trying to justify.
 
-Stop conditions: I stop at the first step where the error rate moves for a reason that is not my own config, and I call it saturated when two consecutive steps show a latency inflection with the resource that moved first identified.
+A step fails on a gate, on a failed correctness check, or on a hard resource failure, and the first failure stops the sweep. The latency inflection and the resource that moved first are the explanation of a failure, not its definition: a step can fail on correctness with a perfectly flat curve, and a clean inflection with everything still under the gate is a step that passed.
 
 ## What one virtual user does
 
@@ -171,11 +171,13 @@ The pod is not patched with `kubectl set env`. Argo reconciles the prod overlay 
 
 `APP_ENV=test` does two things beyond letting Clerk off, and I am accepting both. `/api/billing/webhook/simulate` becomes reachable and calls `payments.handle_webhook_event` with no auth, so that route is open for the window. And structlog switches to `ConsoleRenderer`, so Loki loses its structured fields: the log-based Grafana rules stop matching, one of them reads `event="browser.error"`, and the derived `trace_id` field goes with them, so log-to-trace linking is dark until the revert. The log volume I record for the window is therefore console output and is not prod's telemetry cost. Analysis during the window comes from the metrics and the k6 output, and Loki is for reading by eye.
 
-The window ends by reverting the commit and waiting for the sync, then reading the running pod's env directly to confirm `CLERK_ENABLED` is true, `RATE_LIMIT` is not `off`, and `APP_ENV` is production. A sync that reports success is not a pod on the real config, and a revert that silently fails leaves prod with the billing simulate route open and no login.
+Opening the window is four steps: commit the perf values, see the sync land, confirm the pod was replaced, and read its env to watch the perf values go live before any load.
+
+Closing it is the same four mirrored, and it is not closed until all of them hold. The last is `POST /api/billing/webhook/simulate` answering 404, which is the reason the check exists at all: a revert that reports success while that route still answers has left an unauthenticated endpoint that grants entitlement reachable on the public path.
 
 The sweep runs as its own identity. `DEV_USER_SUB` names it and `auth.py` reads it, so the run holds its own interviews and its own `turn_usage` row instead of moving `dev-user`'s. Prod's dev rows and that account's daily turn counter stay where they are, and the cleanup deletes a set of rows that is known to be the sweep's.
 
-The stub is read at import. Confirm it is live before the sweep rather than after.
+The stub is read at import, so a pod that never restarted is a window that never opened.
 
 ## Configuration
 
@@ -244,18 +246,18 @@ The sweep runs against prod's default branch, so it spends prod's own budget and
 
 ### The app
 
-| Layer         | What                                                                |
-| ------------- | ------------------------------------------------------------------- |
-| Runtime       | Python 3.13, FastAPI, uvicorn with a single worker                  |
-| Data          | asyncpg against Postgres, yoyo for migrations                       |
-| Validation    | Pydantic                                                            |
-| Logging       | structlog, one JSON access line per request                         |
-| Telemetry     | OpenTelemetry SDK, OTLP over HTTP to the in-cluster collector       |
-| Auth          | PyJWT verified against Clerk's JWKS, with a cached key set          |
-| HTTP client   | httpx, for the model provider and for Workers AI                    |
-| Rate limiting | limits, in-process memory storage, so the budget is per replica     |
-| Documents     | pypdf for resume import                                             |
-| Frontend      | React 19, Vite, TypeScript, Tailwind, Clerk React, axios, recharts  |
+| Layer         | What                                                               |
+| ------------- | ------------------------------------------------------------------ |
+| Runtime       | Python 3.13, FastAPI, uvicorn with a single worker                 |
+| Data          | asyncpg against Postgres, yoyo for migrations                      |
+| Validation    | Pydantic                                                           |
+| Logging       | structlog, one JSON access line per request                        |
+| Telemetry     | OpenTelemetry SDK, OTLP over HTTP to the in-cluster collector      |
+| Auth          | PyJWT verified against Clerk's JWKS, with a cached key set         |
+| HTTP client   | httpx, for the model provider and for Workers AI                   |
+| Rate limiting | limits, in-process memory storage, so the budget is per replica    |
+| Documents     | pypdf for resume import                                            |
+| Frontend      | React 19, Vite, TypeScript, Tailwind, Clerk React, axios, recharts |
 
 ### The experiment
 
@@ -266,7 +268,7 @@ The sweep runs against prod's default branch, so it spends prod's own budget and
 | Orchestration         | k3s, ingress-nginx, Argo CD, Kustomize              |
 | Public edge           | Cloudflare and cloudflared                          |
 | Metrics, logs, traces | Grafana Cloud, with Alloy as the in-cluster shipper |
-| Database              | Neon, prod's default branch, direct host             |
+| Database              | Neon, prod's default branch, direct host            |
 | Voice                 | Cloudflare Workers AI                               |
 | Secrets               | Infisical                                           |
 | Images                | GHCR, built in GitHub Actions, scanned with Trivy   |
@@ -277,14 +279,14 @@ Warm the database. `min_size=0` means the first requests pay pool creation and a
 
 Every step runs the same four phases and only the third is data: a 30 second ramp to the target, a 60 second warm-up that is discarded, a 300 second measurement window, and a stop. Seven minutes of wall clock, five minutes of measurement, and the warm-up never becomes part of a number.
 
-The ladder is 10, 25, 50, 100, 200 and 400 VUs. Fine-grained at the bottom, where a pool of ten is the expected wall, and coarser above it. The first failing step brackets the answer, the ladder bisects that interval until one rung is left, and then the candidate is confirmed rather than declared: the baseline, the candidate and the first failing step each run three times, and results that differ materially get investigated rather than averaged.
+The ladder is 10, 25, 50, 100, 200 and 400 VUs. The first four are validation rather than search: they cost almost nothing, and they are where a broken workload, a broken generator or an already-violated gate turns up before the interesting region. The last two are the search, and the pool of ten is the expected wall near the top. The first failing step brackets the answer, the ladder bisects that interval until one rung is left, and then the candidate is confirmed rather than declared: the baseline, the candidate and the first failing step each run three times, and results that differ materially get investigated rather than averaged.
 
 ## Decisions
 
 1. k3s only, no host run. I am keeping k8s, so host-versus-k3s had no decision attached. Rejected: the host run, which answers a question I am no longer asking.
 2. The prod pod patched, not a second Deployment. On a single node a second pod fights the prod pod for the same four cores, so its number is not prod's number. Rejected: a parallel Deployment, which measures a pod no user will hit.
 3. The values go through the gitops overlay. Argo self-heals drift, so `kubectl set env` is a race with the reconciler. Rejected: patching the running pod.
-4. Prod's default branch, not a Neon branch. Every VU is one `dev-user` either way, so a branch would isolate rows and change nothing about contention, at the cost of a second compute and a Secret swap. This is a deliberate override of D11, which says branches are for PR and migration rehearsal and that prod's default branch is never used for this. D11 needs a carve-out, or the override needs recording there.
+4. Prod's default branch, not a Neon branch. Every VU is one identity either way, so a branch would isolate rows and change nothing about contention, at the cost of a second compute and a Secret swap. This is a deliberate override of D11, which says branches are for PR and migration rehearsal and that prod's default branch is never used for this. D11 needs a carve-out, or the override needs recording there.
 5. The Cloudflare run first and separate, 5 VUs. Rejected: Cloudflare in the capacity path, where the number measures Cloudflare.
 6. Bot protection off for that run. Rejected: leaving it on, which makes the run an observation about Cloudflare rather than a latency figure.
 7. `APP_ENV=test` with Clerk off, and the simulate route left open. Both side effects accepted and recorded above. Rejected: staying on production with minted Clerk tokens, which keeps JWT verification in the measured path but makes Clerk a dependency of the sweep.
@@ -296,6 +298,7 @@ The ladder is 10, 25, 50, 100, 200 and 400 VUs. Fine-grained at the bottom, wher
 13. Direct host, not the pooler. A `-pooler` DSN flips `statement_cache_size`, a different code path than prod runs.
 14. SLO gates derived from the baseline, not set in advance. Rejected: provisional thresholds, which are numbers chosen before the measurement they are supposed to judge.
 15. The sweep runs under its own identity, named by `DEV_USER_SUB`. Rejected: leaving it as `dev-user`, which puts the run's rows and its daily turn counter on the same account dev uses, and makes the cleanup inseparable from real data.
+16. The workload stays defined by whatever a signed-in user can reach, with no version pinned to it. Rejected: pinning it to the image revision, which would date the drift but costs a fact to maintain. The consequence is that a new route joins the workload silently, so two runs are only comparable when they share a revision.
 
 ## Open
 
@@ -306,8 +309,8 @@ The ladder is 10, 25, 50, 100, 200 and 400 VUs. Fine-grained at the bottom, wher
 
 1. **The runner sampler is not built.** CPU and network on the Windows box, per step, recorded with the summary, is the method. Nothing produces it yet.
 2. **Prod's schema has to be current before the sweep.** With no branch there is nothing to inspect but prod, so confirm `0019_review_redos` is in yoyo's version table first. If prod is behind, the run measures a schema the deployed app does not expect.
-3. **Argo self-heal is unconfirmed.** The revert assumes the sync puts the pod back, and the start of the window assumes the same mechanism applies the perf commit. Both directions depend on one setting nobody has read yet.
+3. **Argo self-heal is unconfirmed.** The revert assumes the sync puts the pod back, and the opening assumes the same mechanism applies the perf commit. Both directions depend on one setting nobody has read yet, so it gets read before anything else in this file happens.
 
 ## AI HERE
 
-One replica, no autoscaler, model stubbed, JWT verification out of the path. Ceiling: the sweep gives this app's capacity with the external generation replaced and the database at whatever RTT the network gives, and it is not a user count. Upgrade path: HPA or KEDA only after this baseline exists, so their effect has something to be measured against.
+One replica, no autoscaler, model stubbed, JWT verification out of the path. So the number is the deployed configuration's capacity against prod's own Neon environment, with a controlled identity and a bounded dataset. It is not the Pi's intrinsic capacity, and it is not a user count. Upgrade path: HPA or KEDA only after this baseline exists, so their effect has something to be measured against.
