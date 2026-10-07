@@ -3,7 +3,6 @@ import { useState } from "react";
 import { Page } from "@/components/PagePrimitives";
 import { PlanPitch } from "@/components/PlanPitch";
 import { useQrCheckout } from "@/components/QrCheckout";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { useUsage } from "@/hooks/useUsage";
@@ -14,7 +13,6 @@ import { PLANS } from "@/lib/plans";
 // Free vs Pro cards. The CTA posts to /billing/checkout, which answers with a QR to scan. PayMongo has no
 // billing portal, so our own copy carries the billing terms.
 // The cards sell; PlanPitch inside them carries the prices and the feature lists.
-// The current plan itself is stated on /settings/account and in the shell badge, so this page compares
 // the two tiers and nothing else. What the caller is on only decides which CTA a card shows.
 // GET /usage reports the live mode: `period` is a one-time top-up that never renews, so show the expiry
 // and offer no cancel; `subscription` is provider-managed and cancel is ours. `dev` gets a read-only
@@ -120,11 +118,10 @@ function PlanCard({ tier, usage }: { tier: "free" | "premium"; usage: Usage | nu
         <Card className="flex flex-col">
             <CardHeader>
                 <div className="flex items-center justify-between gap-2">
-                    <CardTitle className="flex items-center gap-2">
+                    <CardTitle className="flex flex-1 items-center justify-between gap-2">
                         {plan.name}
-                        {isPremium && <Badge variant="secondary">{PLAN_RATIO}x</Badge>}
+                        {isPremium && <p className="text-md">{PLAN_RATIO}x</p>}
                     </CardTitle>
-                    {isCurrent && <Badge variant={isPremium ? "default" : "secondary"}>Your plan</Badge>}
                 </div>
             </CardHeader>
             <CardContent className="flex-1 pb-6">
@@ -132,7 +129,6 @@ function PlanCard({ tier, usage }: { tier: "free" | "premium"; usage: Usage | nu
             </CardContent>
             <CardFooter className="flex-col items-stretch gap-2 pt-0">
                 {cta}
-                {/* The one billing term period mode must state: nothing renews. */}
                 {isPremium && periodMode && onPremium && <p className="text-xs text-muted-foreground">One payment, no auto-renew. Buy again when it ends.</p>}
                 {ctaError && <p className="text-xs text-destructive">{ctaError}</p>}
                 {modal}
