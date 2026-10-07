@@ -27,6 +27,7 @@ LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
 # cheaper than a Collector rule, and it never reaches the free-tier stream cap.
 SKIP_PATH = f"{API_PREFIX}/health"
 
+
 def _stamp_env(_, __, event_dict: dict) -> dict:
     """Tag every record with the environment. The OTel resource tags spans and metrics, not lines."""
     event_dict["env"] = APP_ENV
