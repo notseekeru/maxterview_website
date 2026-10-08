@@ -27,15 +27,14 @@ from app.models import ClerkUser
 # Daily GLOBAL chat-turn credits PER OWNER, across all interviews in one UTC day (MONETIZATION.md §0).
 FREE_CHAT_TURNS = int(os.getenv("FREE_CHAT_TURNS", "10"))
 PREMIUM_CHAT_TURNS = int(os.getenv("PREMIUM_CHAT_TURNS", "100"))
-DEV_CHAT_TURNS = int(os.getenv("DEV_CHAT_TURNS", "500"))  # dev > premium
-# Per tier, not flat: a flat ceiling would hand Pro's allowance back to the owner of a key.
+DEV_CHAT_TURNS = int(os.getenv("DEV_CHAT_TURNS", "1000000"))
 BYOK_CHAT_TURNS = int(os.getenv("BYOK_CHAT_TURNS", "300"))
 BYOK_PREMIUM_CHAT_TURNS = int(os.getenv("BYOK_PREMIUM_CHAT_TURNS", "5000"))
-# Free is a teaser cap, premium the real ceiling; `dev` tracks premium.
+
 FREE_RESUMES = int(os.getenv("FREE_RESUMES", "1"))
 PREMIUM_RESUMES = int(os.getenv("PREMIUM_RESUMES", "10"))
 DEV_RESUMES = int(os.getenv("DEV_RESUMES", "10"))
-# Per RUN, unlike the three limits above.
+
 FREE_REDOS = int(os.getenv("FREE_REDOS", "1"))
 PREMIUM_REDOS = int(os.getenv("PREMIUM_REDOS", "10"))
 DEV_REDOS = int(os.getenv("DEV_REDOS", "10"))
