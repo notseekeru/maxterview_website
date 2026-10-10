@@ -82,6 +82,7 @@ RPi5, 8 GB, four Cortex-A76 cores.
 | Setting          | Value                                                                                 |
 | ---------------- | ------------------------------------------------------------------------------------- |
 | replicas         | 1, no autoscaler, no HPA, no KEDA                                                     |
+| ingress-limit    | 30 and 20 burst, raised to 1M(both) for the duration                                  |
 | pod memory limit | 256Mi                                                                                 |
 | telemetry        | OTLP to the in-cluster Alloy receiver, which is the only holder of a write credential |
 | database         | Neon direct host, not `-pooler`, TLS required                                         |
@@ -96,7 +97,6 @@ These bound what one client can do, so they set the roof on the loop.
 | ------------------------ | -------------------------------------------------------- |
 | DB pool                  | `max_size=10`, `min_size=0`                              |
 | app rate limit           | 120/minute per client IP by default, `off` in the window |
-| ingress-limit            | 30 and 20 burst, raised to 1M(both) for the duration     |
 | templates                | 20, a module constant                                    |
 | resume parse concurrency | 2                                                        |
 | feedback attempts        | 3 attempts, 800ms apart                                  |
@@ -117,7 +117,7 @@ The public path has two external dependencies I do not own: the tunnel that exis
 
 | Layer           | What                                                               |
 | --------------- | ------------------------------------------------------------------ |
-| Runtime         | Python 3.13, FastAPI, uvicorn with a single worker                 |
+| Runtime         | Python 3.13, FastAPI                                               |
 | uvicorn workers | 1, the Dockerfile passes no `--workers`                            |
 | Data            | asyncpg against Postgres, yoyo for migrations                      |
 | Logging         | structlog, one JSON access line per request                        |
