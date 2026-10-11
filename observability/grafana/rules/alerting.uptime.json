@@ -1,34 +1,35 @@
 {
   "rules": [
     {
-      "title": "{{PROJECT}}: site down",
+      "title": "{{PROJECT}}: site unreachable",
       "condition": "C",
       "data": [
         {
           "refId": "A",
-          "queryType": "range",
+          "queryType": "",
           "relativeTimeRange": {
-            "from": 900,
+            "from": 300,
             "to": 0
           },
-          "datasourceUid": "{{DS_PROM}}",
+          "datasourceUid": "{{DS_INFINITY}}",
           "model": {
-            "editorMode": "code",
-            "expr": "min(probe_success{job=\"{{PROBE_JOB}}\"})",
-            "instant": false,
-            "legendFormat": "probe_success",
-            "range": true,
             "refId": "A",
-            "queryType": "range",
-            "intervalMs": 1000,
-            "maxDataPoints": 43200
+            "type": "infinity",
+            "source": "url",
+            "format": "json",
+            "url": "{{PROBE_URL}}",
+            "url_options": {
+              "method": "GET"
+            },
+            "parser": "backend",
+            "root_selector": ""
           }
         },
         {
           "refId": "B",
           "queryType": "",
           "relativeTimeRange": {
-            "from": 900,
+            "from": 300,
             "to": 0
           },
           "datasourceUid": "__expr__",
@@ -45,7 +46,7 @@
           "refId": "C",
           "queryType": "",
           "relativeTimeRange": {
-            "from": 900,
+            "from": 300,
             "to": 0
           },
           "datasourceUid": "__expr__",
@@ -68,13 +69,13 @@
           }
         }
       ],
-      "noDataState": "Alerting",
+      "noDataState": "OK",
       "execErrState": "Error",
       "for": "2m",
       "keep_firing_for": "0s",
       "annotations": {
-        "description": "A Grafana Cloud probe could not fetch the app's pulse route twice in a row. This is the only rule whose data does not come off the node, so it is the one that still fires when the pod, the tunnel or the network is gone. NoData is Alerting on purpose: if the probe metric itself stops arriving then the only external observer is gone, which is worse than a failed request and should not be silent.",
-        "summary": "{{PROJECT}}: site down"
+        "description": "The alerting engine runs this HTTP GET from Grafana Cloud, not from the node, so it is the only rule that tests the path a visitor takes: DNS, the edge, the tunnel, the ingress and the app. It fires on the query failing (non-2xx, TLS, DNS, timeout) and not on a value: a 200 whose body parses to nothing is the healthy answer here, which is why `noDataState` is `OK` and the target is the telemetry-exempt `/api/health` rather than the pulse route.",
+        "summary": "{{PROJECT}}: site unreachable"
       },
       "labels": {
         "severity": "critical"

@@ -8,13 +8,10 @@ five rules: 5xx and model failures counted from the OTLP metrics, error-level tr
 errors read from the logs. The dashboard covers logs and both metric groups, so a project that only
 ships logs still gets a usable board with three dead metric panels.
 `app-label` defaults to `<project>-backend`.
-`--uptime` appends `rules/alerting.uptime.json`: one rule on the external probe (`probe_success`,
-job `<project>-health`). Off by default for the same reason as `--payments`: a project with no
-Synthetic Monitoring check would get a rule that fires on empty data. `synthetic.py` creates the
-check it reads.
-`--heartbeat` appends `rules/alerting.heartbeat.json`: one rule that alerts when no request has been
-sampled for 15 minutes, which needs a caller that never stops (gitops `base/heartbeat.yaml`). Also off
-by default: without a pulse a quiet night is indistinguishable from a dead exporter.
+`--uptime` appends `rules/alerting.uptime.json`: one rule that GETs `--probe-url` from Grafana
+Cloud's own alerting engine, so it observes the site from outside the node with no probe service, no
+check and no second token. Off by default, and `--probe-url` must be given with it: a rule pointed at
+a host with nothing behind it pages immediately.
 `--payments` appends `rules/alerting.payments.json` to the same group: five rules over the PayMongo
 events an app logs as `event="paymongo.*"`. Off by default, because a project that never emits those
 rows gets rules that neither fire nor complain.
@@ -57,6 +54,7 @@ HERE = Path(__file__).resolve().parent
 DEFAULT_URL = "https://sturdypoplar3317.grafana.net"
 DEFAULT_DATASOURCE = "grafanacloud-logs"
 DEFAULT_PROMETHEUS_DATASOURCE = "grafanacloud-prom"
+DEFAULT_INFINITY_DATASOURCE = "grafanacloud-infinity"
 DEFAULT_RECEIVER = "slack-maxterview"
 
 
@@ -120,7 +118,8 @@ def load(name, values):
 def install(args, app):
     # The Alloy pod carries app=<project>-alloy, and it is the only place a dropped export is visible.
     values = {"PROJECT": args.project, "APP": app, "ALLOY_APP": f"{args.project}-alloy",
-              "PROBE_JOB": f"{args.project}-health",
+              "PROBE_URL": args.probe_url or "",
+              "DS_INFINITY": args.infinity_datasource,
               "DATASOURCE": args.datasource,
               "DS_PROM": args.prometheus_datasource,
               "RECEIVER": args.receiver}
@@ -129,8 +128,6 @@ def install(args, app):
         rules["rules"] += load("rules/alerting.payments.json", values)["rules"]
     if args.uptime:
         rules["rules"] += load("rules/alerting.uptime.json", values)["rules"]
-    if args.heartbeat:
-        rules["rules"] += load("rules/alerting.heartbeat.json", values)["rules"]
     dashboard = load("dashboards/logs.json", values)
     group = f"{args.project}-logs"
 
@@ -216,13 +213,15 @@ def main():
                         help="add the PayMongo rules (rules/alerting.payments.json) to the group; they "
                              "read event=\"paymongo.*\" rows only this project's app emits")
     parser.add_argument("--uptime", action="store_true",
-                        help="add the uptime rule (rules/alerting.uptime.json) to the group; it reads "
-                             "the external check synthetic.py creates, so a project without one would "
-                             "get a rule that fires on empty data")
-    parser.add_argument("--heartbeat", action="store_true",
-                        help="add the silence rule (rules/alerting.heartbeat.json) to the group; it "
-                             "needs a caller that never stops, or a quiet night reads as a dead "
-                             "pipeline")
+                        help="add the external probe rule (rules/alerting.uptime.json) to the group; "
+                             "Grafana Cloud fetches --probe-url itself, so it needs no check and no "
+                             "second token")
+    parser.add_argument("--probe-url", default=os.environ.get("GRAFANA_PROBE_URL"),
+                        help="absolute URL the uptime rule fetches, answering JSON with a numeric "
+                             "`up` field (required with --uptime)")
+    parser.add_argument("--infinity-datasource", default=DEFAULT_INFINITY_DATASOURCE,
+                        help=f"Infinity datasource uid the probe runs through (default "
+                             f"{DEFAULT_INFINITY_DATASOURCE})")
     parser.add_argument("--dry-run", action="store_true", help="print the payloads, send nothing")
     parser.add_argument("--delete", action="store_true",
                         help="delete the folder with forceDeleteRules=true, which takes its rules and "
@@ -234,6 +233,8 @@ def main():
     app = args.app_label or f"{args.project}-backend"
     if not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9_.-]{0,62}", app):
         fail("app label must be a Loki label value: [a-zA-Z0-9_.-], max 63 chars")
+    if args.uptime and not (args.probe_url or "").startswith("http"):
+        fail("--uptime needs --probe-url, an absolute http(s) URL the alerting engine fetches")
 
     if args.delete:
         if args.dry_run:
