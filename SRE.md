@@ -211,7 +211,7 @@ Each level passes or fails. If it passes, we go up. If it fails on an SLO, we st
 
 ## Audit, 2026-10-11
 
-Against `f67f7cf` (app), `3a11278` (gitops), `864fbaf` (harness). Every claim above re-checked at those revisions and none deviates, including the dev cap at 100000000 in the code default, `.env.example` and the prod overlay.
+Against `1a20eb4` (app), `520257b` (gitops), `a7a71a5` (harness): the findings below re-checked and rewritten, and the dev cap at 100000000 re-confirmed in the code default, `.env.example` and the prod overlay. The rest of this document still stands on its `f67f7cf`/`3a11278`/`864fbaf` re-check.
 
 | Finding                                                                                                                                                                                                                                             | Evidence                                                                                                             | Severity |
 | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- | -------- |
