@@ -97,7 +97,7 @@ These bound what one client can do, so they set the roof on the loop.
 | ------------------------ | -------------------------------------------------------- |
 | DB pool                  | `max_size=10`, `min_size=0`                              |
 | app rate limit           | 120/minute per client IP by default, `off` in the window |
-| daily turn cap           | `DEV_CHAT_TURNS`, 500 on dev today                       |
+| daily turn cap           | `DEV_CHAT_TURNS`, 100000000 in dev and prod              |
 | templates                | 20, a module constant                                    |
 | resume parse concurrency | 2                                                        |
 | feedback attempts        | 3 attempts, 800ms apart                                  |
@@ -223,46 +223,43 @@ Against the source at `d80cbf9` and gitops at `185b6e1`. Severity is the cost if
 
 ### The spec against the source
 
-| Claim here                             | Verdict | Evidence                                                                  |
-| -------------------------------------- | ------- | ------------------------------------------------------------------------- |
-| Buckets pinned, 0.01 to 120s           | holds   | `telemetry.py:35`                                                         |
-| Pool wait and query duration, one apart | holds   | `db.py:77,80`                                                             |
-| Query label is the first keyword       | holds   | `db.py:59-65`, else `other`                                               |
-| Route label is the matched template    | holds   | `logs.py:139-142`, unmatched paths land on `unmatched`                    |
-| Access line fields                     | holds   | `logs.py:93-133`                                                          |
-| Indicators only exist with the endpoint | holds  | `telemetry.py:41,76`                                                      |
-| Pool 10 / 0, non-pooler DSN            | holds   | `db.py:29-33`                                                             |
-| Limiter 120/minute per client IP       | holds   | `ratelimit.py:25`                                                         |
-| Templates 20, resume parses 2, feedback 3 at 800ms | holds | `main.py:390,63-64`, `resumes.py:29`                         |
-| One worker, replicas 1, 256Mi          | holds   | `backend/Dockerfile` CMD, gitops `base/backend.yaml:6,50`                 |
-| Daily cap 500 on dev                   | drifted | `billing.py:30` defaults to 1,000,000, raised by `f94a23b`. The live value is in the Secret and not readable from here |
-| Ingress 30 / 20 raised to 1M for the duration | drifted | the raise sits in the env-neutral base, gitops `base/ingress.yaml:17-18` at `f0b4a5f`, so prod inherits it permanently on the next push. Pushed main still reads 30 and 20 |
-| D11 carve-out for the prod-branch override | missing | `PLAN.md:14` still says prod's default branch is never used for this |
+| Claim here                                         | Verdict | Evidence                                                                                                                                                                   |
+| -------------------------------------------------- | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Buckets pinned, 0.01 to 120s                       | holds   | `telemetry.py:35`                                                                                                                                                          |
+| Pool wait and query duration, one apart            | holds   | `db.py:77,80`                                                                                                                                                              |
+| Query label is the first keyword                   | holds   | `db.py:59-65`, else `other`                                                                                                                                                |
+| Route label is the matched template                | holds   | `logs.py:139-142`, unmatched paths land on `unmatched`                                                                                                                     |
+| Access line fields                                 | holds   | `logs.py:93-133`                                                                                                                                                           |
+| Indicators only exist with the endpoint            | holds   | `telemetry.py:41,76`                                                                                                                                                       |
+| Pool 10 / 0, non-pooler DSN                        | holds   | `db.py:29-33`                                                                                                                                                              |
+| Limiter 120/minute per client IP                   | holds   | `ratelimit.py:25`                                                                                                                                                          |
+| Templates 20, resume parses 2, feedback 3 at 800ms | holds   | `main.py:390,63-64`, `resumes.py:29`                                                                                                                                       |
+| One worker, replicas 1, 256Mi                      | holds   | `backend/Dockerfile` CMD, gitops `base/backend.yaml:6,50`                                                                                                                  |
+| D11 carve-out for the prod-branch override         | missing | `PLAN.md:14` still says prod's default branch is never used for this                                                                                                       |
 
 ### Reliability
 
-| Finding                                                                                                       | Evidence                                              | Severity |
-| ------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------- | -------- |
-| One replica on one node. Any pod restart, image pull or node loss is a full outage, and nothing states that ceiling | gitops `base/backend.yaml:6`, no PDB, no second node | high     |
-| A 1.74GB peak from one authenticated PDF against a 256Mi limit kills the only replica, in-flight SSE included, and no alert or probe sees it | `PLAN.md:26`, gitops `base/backend.yaml:50`, no restart rule | high |
-| No backup or point-in-time restore anywhere in the repo. The only recovery path is a manual Neon snapshot (`README.md:122`), so the ceiling is the plan's retention and an operator's memory | no `backup`/`restore`/`PITR` outside `PLAN.md` | high     |
-| No CPU limit, only a 10m request. The 90s CPU-bound parse path can starve the frontend and ingress-nginx on the same four cores | gitops `base/backend.yaml:52-55`                        | med      |
-| Liveness and readiness are the same shallow `/api/health`, no `timeoutSeconds`, `periodSeconds` or `failureThreshold`, so the defaults decide. An event-loop-starved pod is restarted rather than degraded | gitops `base/backend.yaml:37-46`                   | med      |
-| No `terminationGracePeriodSeconds` and no `preStop`, so replacing the pod cuts in-flight streams mid-turn, which is the object being measured | gitops `base/backend.yaml`                          | med      |
-| Migrations run as a PreSync hook and yoyo only goes forward. There is no path back over a schema change that the running code cannot read | gitops `base/migration-job.yaml`, `README.md:122`     | med      |
-| Argo syncs with `selfHeal: true` from GitHub main, so the overlay's own `kubectl apply -k` alternative reverts itself. Opening the window that way needs the app paused first | gitops `apps-of-apps/maxterview.yaml`, `overlays/perf/kustomization.yaml` | med |
-| Limiter state is in-process `MemoryStorage`: a restart clears every window, and a second replica would double the effective limit | `ratelimit.py:8,26`                                 | low      |
-| `min_size=0` plus Neon scale-to-zero means the first request after idle pays wake, TLS and pool creation, and no SLO carve-out exists for that request | `db.py:29`, this file `## Between steps` | low |
-| The whole `maxterview-secrets` Secret arrives through one `envFrom`, so one malformed key blocks the pod from starting | gitops `base/backend.yaml:31-34`          | low      |
+| Finding                                                                                                                                                                                                    | Evidence                                                                  | Severity |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- | -------- |
+| One replica on one node. Any pod restart, image pull or node loss is a full outage, and nothing states that ceiling                                                                                        | gitops `base/backend.yaml:6`, no PDB, no second node                      | high     |
+| A 1.74GB peak from one authenticated PDF against a 256Mi limit kills the only replica, in-flight SSE included, and no alert or probe sees it                                                               | `PLAN.md:26`, gitops `base/backend.yaml:50`, no restart rule              | high     |
+| No backup or point-in-time restore anywhere in the repo. The only recovery path is a manual Neon snapshot (`README.md:122`), so the ceiling is the plan's retention and an operator's memory               | no `backup`/`restore`/`PITR` outside `PLAN.md`                            | high     |
+| No CPU limit, only a 10m request. The 90s CPU-bound parse path can starve the frontend and ingress-nginx on the same four cores                                                                            | gitops `base/backend.yaml:52-55`                                          | med      |
+| Liveness and readiness are the same shallow `/api/health`, no `timeoutSeconds`, `periodSeconds` or `failureThreshold`, so the defaults decide. An event-loop-starved pod is restarted rather than degraded | gitops `base/backend.yaml:37-46`                                          | med      |
+| No `terminationGracePeriodSeconds` and no `preStop`, so replacing the pod cuts in-flight streams mid-turn, which is the object being measured                                                              | gitops `base/backend.yaml`                                                | med      |
+| Migrations run as a PreSync hook and yoyo only goes forward. There is no path back over a schema change that the running code cannot read                                                                  | gitops `base/migration-job.yaml`, `README.md:122`                         | med      |
+| Argo syncs with `selfHeal: true` from GitHub main, so the overlay's own `kubectl apply -k` alternative reverts itself. Opening the window that way needs the app paused first                              | gitops `apps-of-apps/maxterview.yaml`, `overlays/perf/kustomization.yaml` | med      |
+| Limiter state is in-process `MemoryStorage`: a restart clears every window, and a second replica would double the effective limit                                                                          | `ratelimit.py:8,26`                                                       | low      |
+| `min_size=0` plus Neon scale-to-zero means the first request after idle pays wake, TLS and pool creation, and no SLO carve-out exists for that request                                                     | `db.py:29`, this file `## Between steps`                                  | low      |
+| The whole `maxterview-secrets` Secret arrives through one `envFrom`, so one malformed key blocks the pod from starting                                                                                     | gitops `base/backend.yaml:31-34`                                          | low      |
 
 ### Observability
 
-| Finding                                                                                                                | Evidence                                                            | Severity |
-| ---------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- | -------- |
-| Nothing watches the node or the pod. Ten rules read what the app emits, so a restart, an OOMKill or a CrashLoop is silent until it becomes a 5xx | `observability/grafana/rules/alerting.json` titles, no restart rule | high     |
-| The SLO gates exist only as prose. The dashboard has p95 panels but no rule fires on 1s, 5s or 1%, so nothing holds the line between sweeps | `dashboards/logs.json:172,188`, no latency expression in any rule | high     |
-| Every signal leaves through the same node, the same Alloy Deployment and the same outbound path, and no check comes from outside. Node or tunnel death blinds all ten rules at once, and TLS expiry is unobserved | `alloy.yaml:4-5,48-50`, no uptime or cert rule | high     |
-| No host metrics at all: no node-exporter, Alloy tails through the API, `kubectl top` is broken, so disk, thermal and CPU headroom on the only node are unmeasured | `alloy.yaml:4-5,48-50`, this file `## Open` | med      |
-| `db.pool.wait.duration` only sees the pool. The lock waits named here as the first suspect behind a bend in the turn counter have no pipeline, and reading them is a manual Neon query | `db.py:77`, this file `## What is measured` | med      |
-| If Alloy stops, the pipeline goes quiet and the one rule that watches it reads a stream that is no longer being written | `alloy.yaml`, `alerting.json` dropped-batch rule | med |
-
+| Finding                                                                                                                                                                                                           | Evidence                                                            | Severity |
+| ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- | -------- |
+| Nothing watches the node or the pod. Ten rules read what the app emits, so a restart, an OOMKill or a CrashLoop is silent until it becomes a 5xx                                                                  | `observability/grafana/rules/alerting.json` titles, no restart rule | high     |
+| The SLO gates exist only as prose. The dashboard has p95 panels but no rule fires on 1s, 5s or 1%, so nothing holds the line between sweeps                                                                       | `dashboards/logs.json:172,188`, no latency expression in any rule   | high     |
+| Every signal leaves through the same node, the same Alloy Deployment and the same outbound path, and no check comes from outside. Node or tunnel death blinds all ten rules at once, and TLS expiry is unobserved | `alloy.yaml:4-5,48-50`, no uptime or cert rule                      | high     |
+| No host metrics at all: no node-exporter, Alloy tails through the API, `kubectl top` is broken, so disk, thermal and CPU headroom on the only node are unmeasured                                                 | `alloy.yaml:4-5,48-50`, this file `## Open`                         | med      |
+| `db.pool.wait.duration` only sees the pool. The lock waits named here as the first suspect behind a bend in the turn counter have no pipeline, and reading them is a manual Neon query                            | `db.py:77`, this file `## What is measured`                         | med      |
+| If Alloy stops, the pipeline goes quiet and the one rule that watches it reads a stream that is no longer being written                                                                                           | `alloy.yaml`, `alerting.json` dropped-batch rule                    | med      |
