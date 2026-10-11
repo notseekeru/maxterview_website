@@ -27,7 +27,7 @@ from app.models import ClerkUser
 # Daily GLOBAL chat-turn credits PER OWNER, across all interviews in one UTC day (MONETIZATION.md §0).
 FREE_CHAT_TURNS = int(os.getenv("FREE_CHAT_TURNS", "10"))
 PREMIUM_CHAT_TURNS = int(os.getenv("PREMIUM_CHAT_TURNS", "100"))
-DEV_CHAT_TURNS = int(os.getenv("DEV_CHAT_TURNS", "1000000"))
+DEV_CHAT_TURNS = int(os.getenv("DEV_CHAT_TURNS", "100000000"))
 BYOK_CHAT_TURNS = int(os.getenv("BYOK_CHAT_TURNS", "300"))
 BYOK_PREMIUM_CHAT_TURNS = int(os.getenv("BYOK_PREMIUM_CHAT_TURNS", "5000"))
 

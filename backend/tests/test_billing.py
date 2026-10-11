@@ -31,7 +31,7 @@ async def _async_none(*_args, **_kwargs):
 def test_quota_defaults():
     assert _quota("free", "chat_turns") == 10
     assert _quota("premium", "chat_turns") == 100
-    assert _quota("dev", "chat_turns") == 1000000
+    assert _quota("dev", "chat_turns") == 100000000
 
 
 def test_byok_ceiling_swaps_the_tier_cap_in():
