@@ -13,30 +13,30 @@ prod backend writes. There is no cluster access from this workspace; this is the
 
 ## Measured facts
 
-- Project `purple-base-79730983` (`neon_maxterview_website`, aws-ap-southeast-1), org
-  `org-spring-wind-56300230` ("Stephen"). Default branch, db `neondb`.
-- The Neon MCP is wired in `.mcp.json` (`https://mcp.neon.tech/mcp`, bearer from repo `.env`
-  `NEON_API_KEY`, destructive tools gated by approveTools).
+- Project `purple-base-79730983` (`neon_maxterview_website`, aws-ap-southeast-1, PG 18), org
+  `org-spring-wind-56300230` ("Stephen"). Default branch `production`, db `neondb`, role
+  `neondb_owner`.
+- The Neon MCP is wired in `.pi/mcp.json`: `https://mcp.neon.tech/mcp`, bearer header built from
+  repo `.env` `NEON_API_KEY`. It serves `run_sql` alongside project, branch, role and snapshot
+  admin tools, `delete_project` and `reset_from_parent` among them. Pi gates none of them:
+  `approveTools` is not a pi config key and does nothing.
+- Neon's tool arguments are snake_case (`project_id`, not `projectId`).
 - The raw API v2 (`console.neon.tech/api/v2/projects`) 400s without `org_id`, and there is no
-  orgs endpoint, so drive the MCP, not the API. Handshake that works: `initialize`
-  (protocolVersion `2025-03-26`) → `notifications/initialized` → `tools/call` `run_sql`
-  `{project_id, sql}`. Responses are SSE (`event: message` / `data: {...}`); reuse the
-  `Mcp-Session-Id` response header across calls. `run_sql_transaction` takes
-  `{sql_statements: [...]}` for multi-statement reads.
-- One-command kit: `scripts/neon-sql.py '<SQL>'` from repo root (reads the key from `.env`
-  itself; SELECT-only unless `--allow-write`).
+  orgs endpoint, so drive the MCP.
+- One-command kit: `.pi/skills/neon-operator/scripts/neon-sql.py '<SQL>'` from repo root. It
+  carries its own MCP handshake (`initialize`, `notifications/initialized`, `tools/call run_sql`),
+  reads the key from `.env` itself, and refuses non-SELECT unless `--allow-write`. Use it when the
+  MCP tools are not loaded in the session.
 
 ## Schema source of truth
 
-`backend/migrations/*.sql`. Key tables:
-
-- `interviews` (owner_id, role, topic, status, level, created_at)
-- `messages` (interview_id, role, content, created_at, move_class, comment)
-- `feedback` (interview_id UNIQUE, scores jsonb, verdict, tips jsonb, decision, certainty, accuracy)
+`backend/migrations/*.sql`. Prod tables worth knowing by name: `interviews`, `messages`
+(transcript), `feedback` (scores, verdict, tips), `subscriptions`, `turn_usage`,
+`llm_credentials`, `offers`, `resumes`, `interview_templates`, `template_seeds`.
 
 ## Known prod owners
 
-- `user_3JL9fJezMFKuM5rPUPy69x4nuvQ` — seekeru (Stephen), the bulk of interviews
+- `user_3JL9fJezMFKuM5rPUPy69x4nuvQ`: seekeru (Stephen), the bulk of interviews
 - `user_3JFRNgZpOXEBTBBaVwjxv53IlGg`
 
 ## Proven queries
@@ -52,8 +52,8 @@ SELECT scores, verdict, tips, decision, certainty, accuracy FROM feedback WHERE 
 
 ## Rules
 
-- SELECT-only by default. Any write goes through the human first; the script's guard is the
-  second line of defense behind the MCP's approveTools.
+- SELECT-only by default. Any write goes through the human first; the script's guard is the only
+  enforcement, since the MCP has none.
 - Never print `NEON_API_KEY`; presence check only (`grep -c`).
 - Transcripts are private user data: never commit them, log them, or paste them into docs.
 - Feedback audits: diff the verdict against the transcript. A claim about an answer that does
