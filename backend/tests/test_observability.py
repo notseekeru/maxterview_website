@@ -59,22 +59,6 @@ def test_access_log_skips_health():
     assert "duration_ms" in access[0]
 
 
-def test_ping_is_instrumented():
-    """The synthetic probe's target must keep its access line: that line is the pipeline's pulse, so
-    the uptime rule reads a dead Alloy as missing data instead of as quiet."""
-    handler, lines, _ = _capture_json()
-    root = logging.getLogger()
-    root.addHandler(handler)
-    try:
-        with TestClient(app) as client:
-            assert client.get("/api/ping").status_code == 200
-    finally:
-        root.removeHandler(handler)
-
-    access = [line for line in lines if line.get("event") == "http.request"]
-    assert [line["path"] for line in access] == ["/api/ping"]
-
-
 def test_client_error_beacon_is_capped_and_logged():
     """Browser error capture: message, path, and a render crash's component stack."""
     handler, lines, _ = _capture_json()

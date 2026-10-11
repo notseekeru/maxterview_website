@@ -122,13 +122,6 @@ async def health() -> dict:
     return {"status": "ok"}
 
 
-@api.get("/ping")
-async def ping() -> dict:
-    """The synthetic probe's target. `/health` is exempt from logging, sampling and spans, so it can
-    never show that the export path died; this one is instrumented like any other route."""
-    return {"status": "ok"}
-
-
 @api.post("/client-errors", status_code=status.HTTP_204_NO_CONTENT)
 async def client_errors(request: Request) -> Response:
     """Browser errors from EVERY page, signed in or not. Message, path, and the component stack of a
