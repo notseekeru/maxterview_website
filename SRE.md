@@ -203,7 +203,7 @@ Each level passes or fails. If it passes, we go up. If it fails on an SLO, we st
 
 1. k3s only, no host run. I am keeping k8s, so host-versus-k3s had no decision attached. Rejected: the host run, which answers a question I am no longer asking.
 2. The prod pod patched, not a second Deployment. On a single node a second pod fights the prod pod for the same four cores, so its number is not prod's number. Rejected: a parallel Deployment, which measures a pod no user will hit.
-3. Prod's default branch, not a Neon branch. Every VU is one identity either way, so a branch would isolate rows and change nothing about contention, at the cost of a second compute and a Secret swap. This is a deliberate override of D11, which says branches are for PR and migration rehearsal and that prod's default branch is never used for this. D11 needs a carve-out, or the override needs recording there.
+3. Prod's default branch, not a Neon branch. Every VU is one identity either way, so a branch would isolate rows and change nothing about contention, at the cost of a second compute and a Secret swap.
 4. Use Tailscale instead of cloudflare due to BFM.
 5. `APP_ENV=test` with Clerk off, and the simulate route left open. Both side effects accepted and recorded above. Rejected: staying on production with minted Clerk tokens, which keeps JWT verification in the measured path but makes Clerk a dependency of the sweep.
 6. A full run per virtual user with a randomized turn count, plus any other endpoint a signed-in user can reach. Rejected: a fixed count, which makes every virtual user do identical work and has to be tuned to sit inside the arc; and a reads-only loop, which never touches the streaming path.
@@ -235,7 +235,6 @@ Against the source at `d80cbf9` and gitops at `185b6e1`. Severity is the cost if
 | Limiter 120/minute per client IP                   | holds   | `ratelimit.py:25`                                                                                                                                                          |
 | Templates 20, resume parses 2, feedback 3 at 800ms | holds   | `main.py:390,63-64`, `resumes.py:29`                                                                                                                                       |
 | One worker, replicas 1, 256Mi                      | holds   | `backend/Dockerfile` CMD, gitops `base/backend.yaml:6,50`                                                                                                                  |
-| D11 carve-out for the prod-branch override         | missing | `PLAN.md:14` still says prod's default branch is never used for this                                                                                                       |
 
 ### Reliability
 
