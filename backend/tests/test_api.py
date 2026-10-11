@@ -8,7 +8,7 @@ import pytest
 from fastapi.testclient import TestClient
 from test_resumes import encrypted, mini_pdf
 
-from app import rating, resumes
+from app import billing, rating, resumes
 from app.main import app
 
 # Integration tests hit a real Postgres. `DATABASE_URL` is provided by CI (Postgres
@@ -864,7 +864,7 @@ def test_interviews_unlimited_at_creation(client):
     body = u.json()
     assert "daily_interviews" not in body
     assert body["tier"] == "dev"  # no-Clerk dev-fallback -> dev tier
-    assert body["chat_turns_per_day_dev"] == 500
+    assert body["chat_turns_per_day_dev"] == billing.DEV_CHAT_TURNS
     assert body["chat_turns_used_today"] >= 0
     assert body["chat_turns_remaining_today"] >= 0
 
@@ -874,7 +874,7 @@ def test_interviews_unlimited_at_creation(client):
 
 def test_usage_tracks_global_daily_counter(client):
     # A turn in one interview advances the shared per-owner daily counter that all of the
-    # owner's interviews draw from (cap math is unit-tested; dev cap 500 keeps this under it).
+    # owner's interviews draw from (cap math is unit-tested; the dev cap is far above one turn).
     c = client
     iv = c.post("/api/interviews", json={"role": "Cap Probe"}).json()
     iid = iv["id"]
