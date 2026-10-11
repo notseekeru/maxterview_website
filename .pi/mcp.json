@@ -7,11 +7,7 @@
     },
     "neon": {
       "url": "https://mcp.neon.tech/mcp",
-      "auth": "bearer",
-      "bearerToken": "!sed -n 's/^NEON_API_KEY=//p' .env | head -1",
-      "protocolVersion": "auto",
-      "lifecycle": "lazy",
-      "approveTools": ["*delete*", "*drop*", "*reset*", "*truncate*"]
+      "headers": { "Authorization": "!sed -n 's|^NEON_API_KEY=|Bearer |p' .env | head -1" }
     },
     "grafana": {
       "command": "docker",
