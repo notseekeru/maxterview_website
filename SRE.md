@@ -10,14 +10,14 @@ At what load does the prod deployment stop behaving acceptably, and which resour
 
 ## What is measured
 
-| Indicator         | Source                                                       | Carries               |
-| ----------------- | ------------------------------------------------------------ | --------------------- |
-| Request latency   | `http.server.request.duration`, and k6 on the client side    | method, route, status |
-| Error rate        | the same histogram, plus k6 broken down by status code       | status                |
-| Throughput        | k6 RPS, and the server histogram's own sample count          | route                 |
-| Database pressure | connections in use against a pool of 10                      |                       |
-| Saturation        | CPU, frequency, temperature, load, memory                    |                       |
-| Architecture      | Architecture of machine/optimization framework or tools used | baseline              |
+| Indicator         | Source                                                                         | Carries               |
+| ----------------- | ------------------------------------------------------------------------------ | --------------------- |
+| Request latency   | `http.server.request.duration`, and k6 on the client side                      | method, route, status |
+| Error rate        | the same histogram, plus k6 broken down by status code                         | status                |
+| Throughput        | k6 RPS, and the server histogram's own sample count                            | route                 |
+| Database pressure | connections in use against a pool of 10                                        |                       |
+| Saturation        | CPU and memory for the node and its pods from `kubectl top` and host on `htop` |                       |
+| Architecture      | Architecture of machine/optimization framework or tools used                   | baseline              |
 
 Windows machine is the load generating machine, which could minimally be monitored by myself, though it isnt systematic, that would be enough for my purpose of the test since we dont really expect the load generating machine to saturate much. Focus on the application you're about to load not overcomplicate by other concerns, though we could use something like csv metrics.
 
@@ -208,10 +208,6 @@ Each level passes or fails. If it passes, we go up. If it fails on an SLO, we st
 9. Direct host, not the pooler. A `-pooler` DSN flips `statement_cache_size`, a different code path than prod runs.
 10. The sweep runs under its own identity, named by `DEV_USER_SUB`. Rejected: leaving it as `dev-user`, which puts the run's rows and its daily turn counter on the same account dev uses, and makes the cleanup inseparable from real data.
 11. The workload stays defined by whatever a signed-in user can reach, with no version pinned to it. Rejected: pinning it to the image revision, which would date the drift but costs a fact to maintain. The consequence is that a new route joins the workload silently, so two runs are only comparable when they share a revision.
-
-## Open
-
-- `kubectl top` fails on a kubelet certificate SAN. Fix is `--tls-san` plus a brief apiserver restart. Until then host CPU and temperature come from `vmstat` and `htop`.
 
 ## Audit, 2026-10-11
 

@@ -30,9 +30,11 @@ Labels are `namespace/pod/container/app` plus the external `cluster`/`app`.
 | Config changes  | same                                                      | The `maxterview/config-hash` pod annotation. Argo updating a ConfigMap restarts nothing and Alloy reads its config at startup, so the hash must be bumped together with the config to roll the pod.                                                                                          |
 | Credential      | Terraform `maxterview-logs` Secret, values from Infisical | `LOKI_URL`/`LOKI_USER`/`LOKI_TOKEN`/`OTLP_URL`: one access-policy token, scoped `logs:write`, `metrics:write`, `traces:write`. Both pipelines authenticate with it; only the username differs (next table). The app never holds it, and it is the only write credential either pipeline has. |
 
-Independent of all of the above: k3s ships `metrics-server`, and `kubectl top` fails on a kubelet
-certificate SAN. Fixing that (`--tls-san`, brief apiserver restart) unblocks the load test with no
-new pipeline at all.
+Independent of all of the above: k3s ships `metrics-server`, and `kubectl top` answers for the node and
+its pods, so the load test reads host and container CPU and memory with no new pipeline at all. Nothing
+retains it, 15s resolution in memory only, which is why the load test is the only thing that can use it.
+The kubelet certificate carries `piserver`, `localhost`, `127.0.0.1`, `::1` and `192.168.100.6` rather
+than the Tailscale address, and metrics-server dials `InternalIP`, so that gap is never hit.
 
 ## Shipped — tier 3, OTLP
 
