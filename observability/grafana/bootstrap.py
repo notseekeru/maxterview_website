@@ -4,15 +4,16 @@
   ./bootstrap.py <project> [app-label] [--datasource UID] [--prometheus-datasource UID] [--receiver NAME] [--url URL] [--payments] [--dry-run] [--delete]
 
 Creates folder `<project>`, rule group `<project>-logs` and dashboard `<project>-logs`. The group holds
-five rules: 5xx and model failures counted from the OTLP metrics, error-level tracebacks and browser
-errors read from the logs. The dashboard covers logs and both metric groups, so a project that only
+eight rules: 5xx, model failures and liveness counted from the OTLP metrics, and error-level
+tracebacks, browser errors, swallowed `llm.feedback.*` failures and the voice/Clerk dependency
+failures read from the logs. The dashboard covers logs and both metric groups, so a project that only
 ships logs still gets a usable board with three dead metric panels.
 `app-label` defaults to `<project>-backend`.
 `--uptime` appends `rules/alerting.uptime.json`: one rule that GETs `--probe-url` from Grafana
 Cloud's own alerting engine, so it observes the site from outside the node with no probe service, no
 check and no second token. Off by default, and `--probe-url` must be given with it: a rule pointed at
 a host with nothing behind it pages immediately.
-`--payments` appends `rules/alerting.payments.json` to the same group: five rules over the PayMongo
+`--payments` appends `rules/alerting.payments.json` to the same group: four rules over the PayMongo
 events an app logs as `event="paymongo.*"`. Off by default, because a project that never emits those
 rows gets rules that neither fire nor complain.
 Reruns converge by uid: the live rule group is read

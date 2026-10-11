@@ -82,7 +82,8 @@
       },
       "isPaused": false,
       "notification_settings": {
-        "receiver": "{{RECEIVER}}"
+        "receiver": "{{RECEIVER}}",
+        "repeat_interval": "1h"
       }
     }
   ]

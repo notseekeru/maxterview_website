@@ -84,7 +84,8 @@
       },
       "isPaused": false,
       "notification_settings": {
-        "receiver": "{{RECEIVER}}"
+        "receiver": "{{RECEIVER}}",
+        "repeat_interval": "1h"
       }
     },
     {
@@ -168,7 +169,93 @@
       },
       "isPaused": false,
       "notification_settings": {
-        "receiver": "{{RECEIVER}}"
+        "receiver": "{{RECEIVER}}",
+        "repeat_interval": "1h"
+      }
+    },
+    {
+      "title": "{{PROJECT}}: app not reporting",
+      "condition": "C",
+      "data": [
+        {
+          "refId": "A",
+          "queryType": "range",
+          "relativeTimeRange": {
+            "from": 600,
+            "to": 0
+          },
+          "datasourceUid": "{{DS_PROM}}",
+          "model": {
+            "editorMode": "code",
+            "expr": "absent(target_info{service_name=\"{{APP}}\"})",
+            "instant": false,
+            "legendFormat": "no samples",
+            "range": true,
+            "refId": "A",
+            "queryType": "range",
+            "intervalMs": 1000,
+            "maxDataPoints": 43200
+          }
+        },
+        {
+          "refId": "B",
+          "queryType": "",
+          "relativeTimeRange": {
+            "from": 600,
+            "to": 0
+          },
+          "datasourceUid": "__expr__",
+          "model": {
+            "expression": "A",
+            "intervalMs": 1000,
+            "maxDataPoints": 43200,
+            "reducer": "last",
+            "refId": "B",
+            "type": "reduce"
+          }
+        },
+        {
+          "refId": "C",
+          "queryType": "",
+          "relativeTimeRange": {
+            "from": 600,
+            "to": 0
+          },
+          "datasourceUid": "__expr__",
+          "model": {
+            "conditions": [
+              {
+                "evaluator": {
+                  "type": "gt",
+                  "params": [
+                    0
+                  ]
+                }
+              }
+            ],
+            "expression": "B",
+            "intervalMs": 1000,
+            "maxDataPoints": 43200,
+            "refId": "C",
+            "type": "threshold"
+          }
+        }
+      ],
+      "noDataState": "OK",
+      "execErrState": "Error",
+      "for": "5m",
+      "keep_firing_for": "0s",
+      "annotations": {
+        "description": "The app has pushed no metric sample for 5 minutes: absent(target_info) is 1 once the series is gone, and NoData (healthy, which is why noDataState is OK) while it is there. target_info is the only backend series that exists with zero traffic, so it is the one liveness marker this stack has. Every metric rule otherwise reads a counter that only appears on activity, and every log rule is noDataState=OK, so without this rule a dead OTLP export and an idle app look identical. Fires roughly 10 minutes after the last sample: 5 for Prometheus staleness plus 5 of `for`.",
+        "summary": "{{PROJECT}}: app not reporting"
+      },
+      "labels": {
+        "severity": "warning"
+      },
+      "isPaused": false,
+      "notification_settings": {
+        "receiver": "{{RECEIVER}}",
+        "repeat_interval": "1h"
       }
     },
     {
@@ -249,7 +336,8 @@
       },
       "isPaused": false,
       "notification_settings": {
-        "receiver": "{{RECEIVER}}"
+        "receiver": "{{RECEIVER}}",
+        "repeat_interval": "1h"
       }
     },
     {
@@ -330,7 +418,8 @@
       },
       "isPaused": false,
       "notification_settings": {
-        "receiver": "{{RECEIVER}}"
+        "receiver": "{{RECEIVER}}",
+        "repeat_interval": "1h"
       }
     },
     {
@@ -411,7 +500,172 @@
       },
       "isPaused": false,
       "notification_settings": {
-        "receiver": "{{RECEIVER}}"
+        "receiver": "{{RECEIVER}}",
+        "repeat_interval": "1h"
+      }
+    },
+    {
+      "title": "{{PROJECT}}: feedback path failing",
+      "condition": "C",
+      "data": [
+        {
+          "refId": "A",
+          "queryType": "range",
+          "relativeTimeRange": {
+            "from": 1800,
+            "to": 0
+          },
+          "datasourceUid": "{{DATASOURCE}}",
+          "model": {
+            "editorMode": "code",
+            "expr": "sum(count_over_time({app=\"{{APP}}\"} | json | event=~\"llm[.](feedback|hardcore)[.](formatter_unavailable|grader_unavailable|moves_unavailable|judge_unavailable|shout_unavailable|transport_error|no_json|schema_mismatch|empty_output|decision_drift|moves_mismatch|judge_mismatch)\" [30m]))",
+            "intervalMs": 1000,
+            "maxDataPoints": 43200,
+            "queryType": "range",
+            "refId": "A"
+          }
+        },
+        {
+          "refId": "B",
+          "queryType": "",
+          "relativeTimeRange": {
+            "from": 1800,
+            "to": 0
+          },
+          "datasourceUid": "__expr__",
+          "model": {
+            "expression": "A",
+            "intervalMs": 1000,
+            "maxDataPoints": 43200,
+            "reducer": "last",
+            "refId": "B",
+            "type": "reduce"
+          }
+        },
+        {
+          "refId": "C",
+          "queryType": "",
+          "relativeTimeRange": {
+            "from": 1800,
+            "to": 0
+          },
+          "datasourceUid": "__expr__",
+          "model": {
+            "conditions": [
+              {
+                "evaluator": {
+                  "type": "gt",
+                  "params": [
+                    1
+                  ]
+                }
+              }
+            ],
+            "expression": "B",
+            "intervalMs": 1000,
+            "maxDataPoints": 43200,
+            "refId": "C",
+            "type": "threshold"
+          }
+        }
+      ],
+      "noDataState": "OK",
+      "execErrState": "Error",
+      "for": "5m",
+      "keep_firing_for": "0s",
+      "annotations": {
+        "description": "The model failures that cost a user their feedback or their grade, over 30 minutes: judge, grader, formatter and moves unavailable, transport errors, unparseable JSON, a response that did not match the schema, empty output, and a decision or move set that drifted from the transcript. Left out on purpose: no_material and empty_transcript are what a candidate hears when there was nothing to grade, and stub_deterministic is stub mode. Fires above 1 event. The metric rule cannot see any of this: llm_outcome=\"error\" only counts a failed call at the chat stages.",
+        "summary": "{{PROJECT}}: feedback path failing"
+      },
+      "labels": {
+        "severity": "warning"
+      },
+      "isPaused": false,
+      "notification_settings": {
+        "receiver": "{{RECEIVER}}",
+        "repeat_interval": "1h"
+      }
+    },
+    {
+      "title": "{{PROJECT}}: outside dependency failing",
+      "condition": "C",
+      "data": [
+        {
+          "refId": "A",
+          "queryType": "range",
+          "relativeTimeRange": {
+            "from": 1800,
+            "to": 0
+          },
+          "datasourceUid": "{{DATASOURCE}}",
+          "model": {
+            "editorMode": "code",
+            "expr": "sum(count_over_time({app=\"{{APP}}\"} | json | event=~\"voice[.](unreachable|unauthorized)|clerk[.]user_lookup_failed\" [30m]))",
+            "intervalMs": 1000,
+            "maxDataPoints": 43200,
+            "queryType": "range",
+            "refId": "A"
+          }
+        },
+        {
+          "refId": "B",
+          "queryType": "",
+          "relativeTimeRange": {
+            "from": 1800,
+            "to": 0
+          },
+          "datasourceUid": "__expr__",
+          "model": {
+            "expression": "A",
+            "intervalMs": 1000,
+            "maxDataPoints": 43200,
+            "reducer": "last",
+            "refId": "B",
+            "type": "reduce"
+          }
+        },
+        {
+          "refId": "C",
+          "queryType": "",
+          "relativeTimeRange": {
+            "from": 1800,
+            "to": 0
+          },
+          "datasourceUid": "__expr__",
+          "model": {
+            "conditions": [
+              {
+                "evaluator": {
+                  "type": "gt",
+                  "params": [
+                    1
+                  ]
+                }
+              }
+            ],
+            "expression": "B",
+            "intervalMs": 1000,
+            "maxDataPoints": 43200,
+            "refId": "C",
+            "type": "threshold"
+          }
+        }
+      ],
+      "noDataState": "OK",
+      "execErrState": "Error",
+      "for": "5m",
+      "keep_firing_for": "0s",
+      "annotations": {
+        "description": "The two third parties the app cannot serve without: the speech-to-text provider, unreachable or rejecting the key, and Clerk, where a failed user lookup blocks sign-in. voice.quota_exhausted is left out because that is a candidate using up their own minutes, not a fault. Fires above 1 event in 30 minutes.",
+        "summary": "{{PROJECT}}: outside dependency failing"
+      },
+      "labels": {
+        "severity": "warning"
+      },
+      "isPaused": false,
+      "notification_settings": {
+        "receiver": "{{RECEIVER}}",
+        "repeat_interval": "1h"
       }
     }
   ]
