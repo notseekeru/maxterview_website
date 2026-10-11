@@ -23,7 +23,7 @@ Windows machine is the load generating machine, which could minimally be monitor
 
 Bucket boundaries are pinned in the SDK rather than left to its defaults, and they run from 0.01 to 120 seconds.
 
-Four more are recorded for this experiment. `db.pool.wait.duration` and `db.query.duration` are sampled apart inside `db.py`, so a queued connection and a slow query are distinguishable, and the query label is the statement's first keyword, which keeps the label set bounded and the query text off the metric.
+Two more are recorded for this experiment. `db.pool.wait.duration` and `db.query.duration` are sampled apart inside `db.py`, so a queued connection and a slow query are distinguishable, and the query label is the statement's first keyword, which keeps the label set bounded and the query text off the metric.
 
 Three properties of the instrumentation matter to this experiment.
 
@@ -34,8 +34,6 @@ The server histogram covers the whole response body, which means an SSE turn's s
 The access line carries `request_id`, `trace_id`, `span_id`, `status` and `duration_ms`, and it is the join between a k6 failure and the server's own account of what happened.
 
 The server-side indicators only exist when `OTEL_EXPORTER_OTLP_ENDPOINT` is set. With it unset the SDK is never installed.
-
-The turn counter's contention has no app metric. If the curve bends before the hardware explains it, `turn_usage` is the first suspect, and the evidence is lock waits on the Neon side rather than anything in the dashboards.
 
 ## SLO
 
@@ -193,9 +191,9 @@ Warm the database. `min_size=0` means the first requests pay pool creation and a
 
 Every step runs the same four phases and only the third is data: a 30 second ramp to the target, a 60 second warm-up that is discarded, a 300 second measurement window, and a stop. The warm-up never becomes part of a number.
 
-We start at 25 VUs and double from there, 25, 50, 100, 200, 400, and we keep going past 400 if needed. The first four are just checks. They are simple and they catch a broken test so like basically a smoke test where we just first check the application or a broken generator that was already broken before the load even got high.
+We start at 25 VUs and double from there, 25, 50, 100, 200, 400, and we keep going past 400 if needed. The first three are just checks. They are simple and they catch a broken test so like basically a smoke test where we just first check the application or a broken generator that was already broken before the load even got high.
 
-If one of the first four fails, that is not a load problem, so we stop and fix it instead of searching. The search only starts at 200 and above.
+If one of the first three fails, that is not a load problem, so we stop and fix it instead of searching. The search only starts at 200 and above.
 
 Each level passes or fails. If it passes, we go up. If it fails on an SLO, we stop going up, but the run keeps going. That failure becomes the top of the range, and we split the gap between the last pass and that failure to find the highest level that still passes. If 200 passes and 400 fails, try 300; if 300 passes, try 350. That is a binary search. We only need the boundary between pass and fail, not an exact number, because the boundary itself moves about 10% between runs. If we land on 2500 today, a rerun could land at 2400 or 2600 and that is the same answer.
 
@@ -219,46 +217,13 @@ Each level passes or fails. If it passes, we go up. If it fails on an SLO, we st
 
 ## Audit, 2026-10-11
 
-Against the source at `d80cbf9` and gitops at `185b6e1`. Severity is the cost if it fires unattended.
+Against `f67f7cf` (app), `3a11278` (gitops), `864fbaf` (harness). Every claim above re-checked at those revisions and none deviates, including the dev cap at 100000000 in the code default, `.env.example` and the prod overlay.
 
-### The spec against the source
-
-| Claim here                                         | Verdict | Evidence                                                                                                                                                                   |
-| -------------------------------------------------- | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Buckets pinned, 0.01 to 120s                       | holds   | `telemetry.py:35`                                                                                                                                                          |
-| Pool wait and query duration, one apart            | holds   | `db.py:77,80`                                                                                                                                                              |
-| Query label is the first keyword                   | holds   | `db.py:59-65`, else `other`                                                                                                                                                |
-| Route label is the matched template                | holds   | `logs.py:139-142`, unmatched paths land on `unmatched`                                                                                                                     |
-| Access line fields                                 | holds   | `logs.py:93-133`                                                                                                                                                           |
-| Indicators only exist with the endpoint            | holds   | `telemetry.py:41,76`                                                                                                                                                       |
-| Pool 10 / 0, non-pooler DSN                        | holds   | `db.py:29-33`                                                                                                                                                              |
-| Limiter 120/minute per client IP                   | holds   | `ratelimit.py:25`                                                                                                                                                          |
-| Templates 20, resume parses 2, feedback 3 at 800ms | holds   | `main.py:390,63-64`, `resumes.py:29`                                                                                                                                       |
-| One worker, replicas 1, 256Mi                      | holds   | `backend/Dockerfile` CMD, gitops `base/backend.yaml:6,50`                                                                                                                  |
-
-### Reliability
-
-| Finding                                                                                                                                                                                                    | Evidence                                                                  | Severity |
-| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- | -------- |
-| One replica on one node. Any pod restart, image pull or node loss is a full outage, and nothing states that ceiling                                                                                        | gitops `base/backend.yaml:6`, no PDB, no second node                      | high     |
-| A 1.74GB peak from one authenticated PDF against a 256Mi limit kills the only replica, in-flight SSE included, and no alert or probe sees it                                                               | `PLAN.md:26`, gitops `base/backend.yaml:50`, no restart rule              | high     |
-| No backup or point-in-time restore anywhere in the repo. The only recovery path is a manual Neon snapshot (`README.md:122`), so the ceiling is the plan's retention and an operator's memory               | no `backup`/`restore`/`PITR` outside `PLAN.md`                            | high     |
-| No CPU limit, only a 10m request. The 90s CPU-bound parse path can starve the frontend and ingress-nginx on the same four cores                                                                            | gitops `base/backend.yaml:52-55`                                          | med      |
-| Liveness and readiness are the same shallow `/api/health`, no `timeoutSeconds`, `periodSeconds` or `failureThreshold`, so the defaults decide. An event-loop-starved pod is restarted rather than degraded | gitops `base/backend.yaml:37-46`                                          | med      |
-| No `terminationGracePeriodSeconds` and no `preStop`, so replacing the pod cuts in-flight streams mid-turn, which is the object being measured                                                              | gitops `base/backend.yaml`                                                | med      |
-| Migrations run as a PreSync hook and yoyo only goes forward. There is no path back over a schema change that the running code cannot read                                                                  | gitops `base/migration-job.yaml`, `README.md:122`                         | med      |
-| Argo syncs with `selfHeal: true` from GitHub main, so the overlay's own `kubectl apply -k` alternative reverts itself. Opening the window that way needs the app paused first                              | gitops `apps-of-apps/maxterview.yaml`, `overlays/perf/kustomization.yaml` | med      |
-| Limiter state is in-process `MemoryStorage`: a restart clears every window, and a second replica would double the effective limit                                                                          | `ratelimit.py:8,26`                                                       | low      |
-| `min_size=0` plus Neon scale-to-zero means the first request after idle pays wake, TLS and pool creation, and no SLO carve-out exists for that request                                                     | `db.py:29`, this file `## Between steps`                                  | low      |
-| The whole `maxterview-secrets` Secret arrives through one `envFrom`, so one malformed key blocks the pod from starting                                                                                     | gitops `base/backend.yaml:31-34`                                          | low      |
-
-### Observability
-
-| Finding                                                                                                                                                                                                           | Evidence                                                            | Severity |
-| ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- | -------- |
-| Nothing watches the node or the pod. Ten rules read what the app emits, so a restart, an OOMKill or a CrashLoop is silent until it becomes a 5xx                                                                  | `observability/grafana/rules/alerting.json` titles, no restart rule | high     |
-| The SLO gates exist only as prose. The dashboard has p95 panels but no rule fires on 1s, 5s or 1%, so nothing holds the line between sweeps                                                                       | `dashboards/logs.json:172,188`, no latency expression in any rule   | high     |
-| Every signal leaves through the same node, the same Alloy Deployment and the same outbound path, and no check comes from outside. Node or tunnel death blinds all ten rules at once, and TLS expiry is unobserved | `alloy.yaml:4-5,48-50`, no uptime or cert rule                      | high     |
-| No host metrics at all: no node-exporter, Alloy tails through the API, `kubectl top` is broken, so disk, thermal and CPU headroom on the only node are unmeasured                                                 | `alloy.yaml:4-5,48-50`, this file `## Open`                         | med      |
-| `db.pool.wait.duration` only sees the pool. The lock waits named here as the first suspect behind a bend in the turn counter have no pipeline, and reading them is a manual Neon query                            | `db.py:77`, this file `## What is measured`                         | med      |
-| If Alloy stops, the pipeline goes quiet and the one rule that watches it reads a stream that is no longer being written                                                                                           | `alloy.yaml`, `alerting.json` dropped-batch rule                    | med      |
+| Finding                                                                                                                                                                                                  | Evidence                                                          | Severity |
+| -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- | -------- |
+| One replica on one node. A restart, an image pull or node loss is a full outage, and nothing says that out loud                                                                                          | gitops `base/backend.yaml:7`, no PDB, no second node              | high     |
+| No backup or restore path in any repo. Recovery is a manual Neon snapshot, so the ceiling is the plan's retention plus an operator's memory                                                              | `README.md:122`                                                   | high     |
+| The one known crash is the resume parse (1.74GB peak against 256Mi). It takes the only replica with it, and no rule or probe observes the restart                                                        | `PLAN.md:25`, gitops `base/backend.yaml:50`                       | high     |
+| Nothing observes from outside the node. Every signal shares one Alloy pod and one outbound path, there are no host metrics, and all ten rules are `noDataState: OK`, so a dead pipeline reads as healthy | `alloy.yaml:4-5,48-50`, `alerting.json`, `alerting.payments.json` | high     |
+| Migrations are PreSync and yoyo only goes forward, so a schema change has no path back over code that cannot read it                                                                                     | gitops `base/migration-job.yaml`                                  | med      |
+| The gates run only inside a sweep. No rule fires on latency, so between runs nothing holds p95, p99 or the error rate                                                                                    | `main.js:43-75`, `dashboards/logs.json:172,188`                   | med      |
