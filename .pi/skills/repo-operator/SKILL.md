@@ -73,7 +73,7 @@ via one SSH hop that asks first; see below.
   `playwright` MCP server (nixpkgs `playwright-mcp` via `.pi/mcp.json`; ref-based
   `mcp__playwright__browser_*`, or codemode for multi-step). Secondary: host-direct canned runners `e2e.cjs` (asserts
   onboarding+Complete, PASS/FAIL; `--feedback`) and `inspect.cjs` (dumps DOM per stage), sharing
-  `scripts/store.cjs`. Use MCP for interactivity, runners for deterministic assertions. Hermetic
+  `scripts/store.cjs` (in `hermetic-e2e`). Use MCP for interactivity, runners for deterministic assertions. Hermetic
   DEV_USER needs backend at CLERK_ENABLED=false; real-Clerk stacks sign in headlessly first
   (paymongo-operator). (Not a deterministic CI spec.)
 - **grafana-operator** → the Grafana Cloud stack behind the alerts: folder / rule / contact-point
@@ -89,17 +89,31 @@ Bring the stack up (if already up this is idempotent-ish):
 
 ```bash
 make up                 # docker compose up -d (project maxterview-dev)
-docker compose -f compose.yml -f compose.dev.yml ps    # status
+make ps                 # status; raw equivalent needs the project name:
+docker compose -p maxterview-dev -f compose.yml -f compose.dev.yml ps   # without -p, compose derives
+                                                                       # another project name and lists nothing
 make logs               # both services, tail 100; or:
 docker logs --tail 200 maxterview_backend_dev
 docker logs --tail 200 maxterview_frontend_dev
 make psql               # open a DB shell
 ```
 
+**Dependency changes need a rebuilt image AND a renewed volume.** `/app/node_modules` is an anonymous
+volume (`compose.dev.yml`), so a stale one keeps shadowing the image, and the image itself can predate
+`package-lock.json`. Symptoms: Vite 500 on one module (`Failed to resolve import ...`), `#root` with 0
+children, locator timeouts, `npm ls <pkg>` empty inside the container. Fix both halves:
+
+```bash
+docker compose -p maxterview-dev -f compose.yml -f compose.dev.yml build frontend
+docker compose -p maxterview-dev -f compose.yml -f compose.dev.yml up -d --force-recreate -V frontend
+```
+
+`-V` renews the anonymous volumes; without it the stale `node_modules` returns.
+
 One-shot context gather (read-only): confirm which services are up + hit `/api/health` + `/api/usage`:
 
 ```bash
-docker compose -f compose.yml -f compose.dev.yml ps
+docker compose -p maxterview-dev -f compose.yml -f compose.dev.yml ps
 curl -s http://localhost:8000/api/health; echo
 curl -s http://localhost:8000/api/usage; echo     # tier for the current (DEV_USER) caller if no __session
 ```
@@ -193,7 +207,7 @@ from the flake devShell; needs pi running inside `nix develop`). Use ref-based
 - **Real-Clerk headless sign-in:** use the `paymongo-operator` skill → `@clerk/testing/playwright`
   (`clerkSetup` + `clerk.signIn`) with a throwaway minted user, then render the auth-gated route.
   A real QR Ph payment still needs real keys and a human at the wallet step — see
-  `references/qrph-checkout.md`; do NOT loop-automate that handoff (and use
+  `references/qrph-checkout.md` (in `paymongo-operator`); do NOT loop-automate that handoff (and use
   `webhook-driver.sh --simulate` when you only need the entitlement assertion).
 
 Never hand-roll a brand-new browser harness when the committed runner / clerk skill cover it.

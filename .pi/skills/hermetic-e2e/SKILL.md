@@ -2,6 +2,10 @@
 name: hermetic-e2e
 description: >-
   Drive a REAL headless browser against maxterview's running frontend. Primary path is the wired
+  `playwright` MCP server (element refs from `browser_snapshot`); secondary is the committed
+  host-direct runners `e2e.cjs` (PASS/FAIL journeys) and `inspect.cjs` (DOM dumps per stage). Load
+  when a UI change must be seen in a real browser, an onboarding/chat flow must be driven end to end,
+  or a rendering bug needs repro-ing with no human at the keyboard.
 ---
 
 # Hermetic E2E — drive a live headless browser
@@ -127,6 +131,10 @@ Wired via `.pi/mcp.json` → nixpkgs `playwright-mcp`. Facts worth not re-derivi
 - `exposure` decides how tools reach the model, not whether the server runs. `playwright` is
   `codemode` exposure, so reach it from a codemode script as `tools.mcp__playwright__browser_*(...)`;
   `grafana` is `direct`, so its tools are declared.
+- A locator timeout on the landing page usually means the SPA never mounted, not a stale selector.
+  Check before rewriting the runner: `curl -s -o /dev/null -w '%{http_code}' localhost:5173/src/pages/Landing.tsx`
+  (500 = an import Vite cannot resolve, such as a dependency missing from the container), then
+  `browser_evaluate` `document.getElementById('root').childElementCount`.
 - `command: "playwright-mcp"` is a PATH lookup: it works only inside the flake shell. Outside
   `nix develop` the connection fails at session start.
 - `args` must be an array of strings. A wrong shape is a config error that `pi mcp list` reports,
