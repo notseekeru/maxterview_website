@@ -6,8 +6,8 @@ SPA → `payment.paid` → 30 days of premium. Nothing redirects. `POST /api/bil
 webhook flips the tier. A redirect method answers `{"url": …}` and would need nothing new here, but
 none is enabled on this account (Maya and cards need KYB) — see SKILL.md §1.
 
-Drive the browser with the `playwright` MCP server declared in `.mcp.json`
-(`browser_navigate`/`browser_snapshot`/`browser_click`) or host-direct with `playwright-core` +
+Drive the browser with the `playwright` MCP server declared in `.pi/mcp.json`
+(`mcp__playwright__browser_*`) or host-direct with `playwright-core` +
 chromium resolved from `/nix/store` exactly as the `hermetic-e2e` skill documents (no host
 `npm install`, no `node_modules` in local storage).
 

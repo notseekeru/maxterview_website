@@ -9,11 +9,11 @@ description: >-
 Browse maxterview's REAL running frontend with a real (headless) Chromium. Two paths, different
 strengths — pick per task:
 
-- **MCP (primary, interactive):** the `playwright` MCP server is wired in `.mcp.json` and exposes the
-  23 `browser_*` tools. Act on **element refs from `browser_snapshot`**, not CSS selectors — you read
-  the accessibility tree, then click/type by ref. Best for exploring an unfamiliar route, repro-ing a
-  rendering bug, or when you want to adapt mid-run without writing a script. Batch multi-step or
-  conditional work with `mcpScript` (see below).
+- **MCP (primary, interactive):** the `playwright` MCP server is wired in `.pi/mcp.json` and exposes
+  the 23 `browser_*` tools as `mcp__playwright__*`. Act on **element refs from `browser_snapshot`**,
+  not CSS selectors: you read the accessibility tree, then click/type by ref. Best for exploring an
+  unfamiliar route, repro-ing a rendering bug, or when you want to adapt mid-run without writing a
+  script. Batch multi-step or conditional work in one codemode script (see below).
 - **Host-direct runners (secondary, deterministic):** committed journeys driven by `playwright-core`
   resolved from the nix store. `e2e.cjs` asserts onboarding + chat + Finish-scoring (PASS/FAIL).
   `inspect.cjs` dumps the live DOM at each stage so you can SEE what rendered.
@@ -44,30 +44,17 @@ DOM, real network, DEV_USER.
 ## MCP path (primary)
 
 The server is `playwright-mcp` from **nixpkgs** (not npx), provided by the repo flake's devShell, so
-pi must run inside `nix develop`/direnv for the command to resolve. `.mcp.json`:
+pi must run inside `nix develop`/direnv for the command to resolve. Declared in `.pi/mcp.json`.
 
-```json
-{
-  "mcpServers": {
-    "playwright": {
-      "command": "playwright-mcp",
-      "args": ["--headless", "--isolated", "--browser", "chromium"],
-      "lifecycle": "lazy"
-    }
-  }
-}
-```
-
-Typical drive. **Tool names are namespaced `playwright_*`** — bare `browser_navigate` fails with
-"Tool not found" (the adapter prefixes by server name; `toolPrefix: "none"` in adapter settings would
-remove it). `target` accepts **either** a snapshot ref (`e8`) **or** a unique CSS selector, so the
+Typical drive. **Tool names are `mcp__playwright__browser_*`** — a bare `browser_navigate` fails with
+"Tool not found". `target` accepts **either** a snapshot ref (`e8`) **or** a unique CSS selector, so the
 journey selectors in the runners section work unchanged:
 
 **Don't snapshot-spam.** `browser_snapshot` is the token sink; each call dumps a full YAML tree.
 Snapshot once to get refs, then act, then prefer `browser_wait_for` (`{text}` / `{textGone}` /
-`{time}`) to gate the next read. For multi-step/conditional runs use `mcpScript` (plain JS, loops +
-chaining) rather than N sequential `mcp` calls. `lifecycle: "lazy"` means the browser does not spawn
-until the first tool call.
+`{time}`) to gate the next read. For multi-step/conditional runs use a codemode script calling
+`tools.mcp__playwright__browser_*(...)` (loops + chaining) rather than N sequential calls. The server
+process starts with the session; the browser itself spawns on the first tool call.
 
 **Costs to know:** every `browser_snapshot` ships a YAML accessibility tree into context (token-heavy
 vs. a targeted `page.locator(...)` assertion); the tool surface is a fixed 23 verbs (no `page.route`,
@@ -130,24 +117,20 @@ then tear down (`clerk-mint.sh --admin-destroy --teardown --user=<id>`). Don't m
 
 ## Browser MCP — wired, and the traps that cost time
 
-Wired via `.mcp.json` → nixpkgs `playwright-mcp`. Facts worth not re-deriving:
+Wired via `.pi/mcp.json` → nixpkgs `playwright-mcp`. Facts worth not re-deriving:
 
-- pi has **no built-in MCP**; it works because `npm:pi-mcp-adapter` is installed (settings.json
-  `packages`). The adapter is the consumer — raw `.mcp.json` alone does nothing without it.
-- The adapter reads (low→high precedence): `~/.config/mcp/mcp.json`, `~/.agents/mcp.json`,
-  `~/.agents/mcp/mcp.json`, `<pi agent dir>/mcp.json`, `.mcp.json`, `.pi/mcp.json`. Project
-  `.mcp.json` is the right home for a repo-scoped browser server.
-- Config is read at session start, but the adapter **hot-reloads**: a session that began before
-  `.mcp.json` existed picked the server up mid-session (`MCP: 0/1 servers, 23 tools` = registered but
-  not yet listening, since `lifecycle: lazy`). `0/0 servers` means no config was found — not a
-  restart requirement.
-- `~/.pi/agent/mcp-cache.json` caches tool metadata. A **stale cache can advertise servers that no
-  longer exist** in config (and omit new tools). If status and cache disagree, delete the cache file
-  and restart pi.
+- MCP is built into pi. It reads user servers from `~/.pi/agent/mcp.json` and project servers from
+  `.pi/mcp.json` (project config needs project trust). The `pi-mcp-adapter` package and its
+  `.mcp.json` lookup order are gone; `~/.pi/agent/mcp-cache.json` is a leftover with no reader.
+- Every enabled server connects in the background at session start, so the `playwright-mcp` process
+  is up before any tool call. Adding or changing a server mid-session needs `/reload`.
+- `exposure` decides how tools reach the model, not whether the server runs. `playwright` is
+  `codemode` exposure, so reach it from a codemode script as `tools.mcp__playwright__browser_*(...)`;
+  `grafana` is `direct`, so its tools are declared.
 - `command: "playwright-mcp"` is a PATH lookup: it works only inside the flake shell. Outside
-  `nix develop`, the server fails to launch on first call (lazy = fails at call time, not startup).
-- Args must be object-shaped on the wire; a wrong shape surfaces as
-  `expected string, received undefined` in the tool result, not as a crash.
+  `nix develop` the connection fails at session start.
+- `args` must be an array of strings. A wrong shape is a config error that `pi mcp list` reports,
+  not a runtime failure.
 - The nixpkgs wrapper already sets `PLAYWRIGHT_BROWSERS_PATH` to the pinned driver browsers and forces
   `PLAYWRIGHT_MCP_ISOLATED=1` when no user-data-dir is given — so **do not** add `playwright install`
   or a browser-path env var. Pin stays deliberately frozen (`skipBulkUpdate`), so it lags upstream.

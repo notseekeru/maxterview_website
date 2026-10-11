@@ -26,7 +26,7 @@ and are the log-field contract. **Do not restate those here.**
 
 ## Auth
 
-Token is `GRAFANA_SERVICE_ACCOUNT_TOKEN` in the repo-root `.env`. `.mcp.json` injects it into the
+Token is `GRAFANA_SERVICE_ACCOUNT_TOKEN` in the repo-root `.env`. `.pi/mcp.json` injects it into the
 `grafana/mcp-grafana:latest` docker container (`--transport stdio`, lazy, tools
 `alerting,dashboard,loki,prometheus,datasource,search,navigation`) — so MCP calls need no token
 handling at all. For raw curl:
@@ -203,8 +203,8 @@ assuming.
 
 ## MCP server
 
-`grafana/mcp-grafana:latest` via `.mcp.json`, lazy: connect with `mcp({ connect: "grafana" })`, then
-`mcpScript` for multi-call work. Use it for reads and single-rule edits; the tool set has no
+`grafana/mcp-grafana:latest` via `.pi/mcp.json`, exposure `direct`: its tools are declared as
+`mcp__grafana__*`, and codemode covers multi-call work. Use it for reads and single-rule edits; the tool set has no
 rule-**group** operation (no interval, no atomic multi-rule PUT), so group-shaped changes belong to
 `bootstrap.py`.
 

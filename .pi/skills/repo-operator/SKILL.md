@@ -70,8 +70,8 @@ via one SSH hop that asks first; see below.
   live-key refusal and `--admin-destroy` gating. Use for "set up a test user", "show
   webhooks/customers/plan", "make it premium", "tear that test user down".
 - **hermetic-e2e** → drive a real headless browser against the running frontend. Primary: wired
-  `playwright` MCP server (nixpkgs `playwright-mcp` via `.mcp.json`; ref-based `browser_*`, or
-  `mcpScript` for multi-step). Secondary: host-direct canned runners `e2e.cjs` (asserts
+  `playwright` MCP server (nixpkgs `playwright-mcp` via `.pi/mcp.json`; ref-based
+  `mcp__playwright__browser_*`, or codemode for multi-step). Secondary: host-direct canned runners `e2e.cjs` (asserts
   onboarding+Complete, PASS/FAIL; `--feedback`) and `inspect.cjs` (dumps DOM per stage), sharing
   `scripts/store.cjs`. Use MCP for interactivity, runners for deterministic assertions. Hermetic
   DEV_USER needs backend at CLERK_ENABLED=false; real-Clerk stacks sign in headlessly first
@@ -177,9 +177,9 @@ it refuses `*_live_*`, and anything destructive requires `--admin-destroy`. Repr
 
 ## Browser drive (see hermetic-e2e for full detail)
 
-Two paths. Primary: the **playwright MCP server** is wired in `.mcp.json` (nixpkgs `playwright-mcp`
-from the flake devShell; needs pi running inside `nix develop`). Use ref-based `browser_*` tools, or
-`mcpScript` for multi-step runs. It cannot assert — drop to the runners for a pass/fail verdict.
+Two paths. Primary: the **playwright MCP server** is wired in `.pi/mcp.json` (nixpkgs `playwright-mcp`
+from the flake devShell; needs pi running inside `nix develop`). Use ref-based
+`mcp__playwright__browser_*` tools, or codemode for multi-step runs. It cannot assert — drop to the runners for a pass/fail verdict.
 
 - **Host-direct runners (deterministic assertions):** `hermetic-e2e`'s canned journeys resolved from
   `/nix/store` at runtime (no host npm install / no `node_modules`):
