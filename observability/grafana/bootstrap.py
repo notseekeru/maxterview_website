@@ -8,6 +8,10 @@ five rules: 5xx and model failures counted from the OTLP metrics, error-level tr
 errors read from the logs. The dashboard covers logs and both metric groups, so a project that only
 ships logs still gets a usable board with three dead metric panels.
 `app-label` defaults to `<project>-backend`.
+`--uptime` appends `rules/alerting.uptime.json`: one rule on the external probe (`probe_success`,
+job `<project>-health`) and one on the app's silence. Both are off by default for the same reason as
+`--payments`: a project with no Synthetic Monitoring check, or no pulse route the pipeline can see,
+would get rules that fire on a quiet night. `synthetic.py` creates the check they read.
 `--payments` appends `rules/alerting.payments.json` to the same group: five rules over the PayMongo
 events an app logs as `event="paymongo.*"`. Off by default, because a project that never emits those
 rows gets rules that neither fire nor complain.
@@ -57,8 +61,8 @@ def fail(msg):
     sys.exit(f"FAIL: {msg}")
 
 
-def token():
-    env = os.environ.get("GRAFANA_SERVICE_ACCOUNT_TOKEN")
+def token(name="GRAFANA_SERVICE_ACCOUNT_TOKEN"):
+    env = os.environ.get(name)
     if env:
         return env.strip()
     for base in (Path.cwd(), HERE):
@@ -66,11 +70,11 @@ def token():
             envfile = parent / ".env"
             if envfile.is_file():
                 for line in envfile.read_text().splitlines():
-                    if line.startswith("GRAFANA_SERVICE_ACCOUNT_TOKEN="):
+                    if line.startswith(f"{name}="):
                         value = line.split("=", 1)[1].strip()
                         if value:
                             return value
-    fail("GRAFANA_SERVICE_ACCOUNT_TOKEN not in the environment or any .env up the tree")
+    fail(f"{name} not in the environment or any .env up the tree")
 
 
 def api(url, tok, path, method="GET", body=None):
@@ -113,12 +117,15 @@ def load(name, values):
 def install(args, app):
     # The Alloy pod carries app=<project>-alloy, and it is the only place a dropped export is visible.
     values = {"PROJECT": args.project, "APP": app, "ALLOY_APP": f"{args.project}-alloy",
+              "PROBE_JOB": f"{args.project}-health",
               "DATASOURCE": args.datasource,
               "DS_PROM": args.prometheus_datasource,
               "RECEIVER": args.receiver}
     rules = load("rules/alerting.json", values)
     if args.payments:
         rules["rules"] += load("rules/alerting.payments.json", values)["rules"]
+    if args.uptime:
+        rules["rules"] += load("rules/alerting.uptime.json", values)["rules"]
     dashboard = load("dashboards/logs.json", values)
     group = f"{args.project}-logs"
 
@@ -203,6 +210,10 @@ def main():
     parser.add_argument("--payments", action="store_true",
                         help="add the PayMongo rules (rules/alerting.payments.json) to the group; they "
                              "read event=\"paymongo.*\" rows only this project's app emits")
+    parser.add_argument("--uptime", action="store_true",
+                        help="add the uptime rules (rules/alerting.uptime.json) to the group; they read "
+                             "the external check synthetic.py creates, so a project without one would "
+                             "get rules that fire on a quiet night")
     parser.add_argument("--dry-run", action="store_true", help="print the payloads, send nothing")
     parser.add_argument("--delete", action="store_true",
                         help="delete the folder with forceDeleteRules=true, which takes its rules and "
