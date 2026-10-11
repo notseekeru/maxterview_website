@@ -140,9 +140,7 @@ The sweep runs against prod's default branch, so it spends prod's own budget and
 | `nginx.ingress.kubernetes.io/limit-rps`   | `1000000`    |
 | `nginx.ingress.kubernetes.io/limit-burst` | `1000000`    |
 
-it cann be automated using a script with infisical changing values in prod and auto sed with commits, or by doing it manually.
-
-Opening the window is four steps: commit the perf values, see the sync land, confirm the pod was replaced, and read its env to watch the perf values go live before any load.
+Really simple to change values, commit the perf values, see the sync land in argocd, confirm the pod was replaced with maybe kubectl or the gui, and read its env to watch the perf values go live before any load. overlays override infisical values like `LLM_BASE_URL`.
 
 ## What one virtual user does
 
