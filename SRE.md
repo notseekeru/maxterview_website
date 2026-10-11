@@ -1,30 +1,29 @@
 # SRE
 
-This file owns the run: the architecture it measures, the indicators it produces, the workload, the config the app runs under, and the decisions behind all of it.
+Minimal SRE path for loading metrics and load testing application by generating randomized structured request with k6
 
-Some tables below restate owners that already exist, on purpose, so a run can be read from one file: the manifests hold the dependency lists, the modules hold the constants, `OBSERVABILITY.md` holds the metrics, README holds the request path. Those stay the owners. This file is the copy that goes stale.
+Inspired by Arjay McCandless load testing videos, usually known for system design with informative detailed videos.
 
 ## The question
 
 At what load does the prod deployment stop behaving acceptably, and which resource runs out first.
 
-Not a user count, because that is not answerable without fixing what a user does. Not a host-versus-k3s comparison either, since I am keeping k3s and that run had no decision attached to it.
-
 ## What is measured
 
-| Indicator         | Source                                                    | Carries               |
-| ----------------- | --------------------------------------------------------- | --------------------- |
-| Request latency   | `http.server.request.duration`, and k6 on the client side | method, route, status |
-| Error rate        | the same histogram, plus k6 broken down by status code    | status                |
-| Throughput        | k6 RPS, and the server histogram's own sample count       | route                 |
-| Database pressure | connections in use against a pool of 10                   |                       |
-| Saturation        | CPU, frequency, temperature, load, memory                 |                       |
+| Indicator         | Source                                                       | Carries               |
+| ----------------- | ------------------------------------------------------------ | --------------------- |
+| Request latency   | `http.server.request.duration`, and k6 on the client side    | method, route, status |
+| Error rate        | the same histogram, plus k6 broken down by status code       | status                |
+| Throughput        | k6 RPS, and the server histogram's own sample count          | route                 |
+| Database pressure | connections in use against a pool of 10                      |                       |
+| Saturation        | CPU, frequency, temperature, load, memory                    |                       |
+| Architecture      | Architecture of machine/optimization framework or tools used | baseline              |
 
-Load generating machine could minimally be monitored by myself, though it isnt systematic, that would be enough for my purpose of the test since I dont really expect the load generating machine to saturate much. Focus on the application you're about to load not overcomplicate by other concerns.
+Windows machine is the load generating machine, which could minimally be monitored by myself, though it isnt systematic, that would be enough for my purpose of the test since we dont really expect the load generating machine to saturate much. Focus on the application you're about to load not overcomplicate by other concerns, though we could use something like csv metrics.
 
 Bucket boundaries are pinned in the SDK rather than left to its defaults, and they run from 0.01 to 120 seconds.
 
-Four more are recorded for this experiment. `db.pool.wait.duration` and `db.query.duration` are sampled apart inside `db.py`, so a queued connection and a slow query are distinguishable, and the query label is the statement's first keyword, which keeps the label set bounded and the query text off the metric. The pod's restart count and last termination reason say whether a failure was the 256Mi limit rather than the node. Alloy's own CPU and its dropped-batch signal, which already feeds a Grafana alert, say whether the collector became the bottleneck.
+Four more are recorded for this experiment. `db.pool.wait.duration` and `db.query.duration` are sampled apart inside `db.py`, so a queued connection and a slow query are distinguishable, and the query label is the statement's first keyword, which keeps the label set bounded and the query text off the metric.
 
 Three properties of the instrumentation matter to this experiment.
 
@@ -40,16 +39,17 @@ The turn counter's contention has no app metric. If the curve bends before the h
 
 ## SLO
 
-One gate shape, and the gates themselves come from the baseline.
+| Indicator   | Gate           |
+| ----------- | -------------- |
+| p50 latency | none, reported |
+| p95 latency | <1s            |
+| p99 latency | <5s            |
+| error rate  | <1%            |
+| correctness | check pass     |
 
-| Indicator                          | Gate                                               |
-| ---------------------------------- | -------------------------------------------------- |
-| p95 latency, plain reads           | from the baseline                                  |
-| p95 time-to-last-byte, SSE turns   | from the baseline                                  |
-| error rate, my own config excluded | from the baseline                                  |
-| throughput                         | none. It is the experiment's output, not a target. |
+established my baseline of acceptable for this particular architecture since latency can be dependent on programming language and the framework it's using, this is much more important than it seem especially if were testing application performance.
 
-A step fails on a gate, on a failed correctness check, or on a hard resource failure, and the first failure stops the sweep. The latency inflection and the resource that moved first are the explanation of a failure, not its definition: a step can fail on correctness with a perfectly flat curve, and a clean inflection with everything still under the gate is a step that passed.
+p50 is there for reporting, no gate added since it can be considered redundant since p95 would fail first, but for the sake it, i just added p50 latency.
 
 ## Architecture
 
@@ -97,19 +97,10 @@ These bound what one client can do, so they set the roof on the loop.
 | ------------------------ | -------------------------------------------------------- |
 | DB pool                  | `max_size=10`, `min_size=0`                              |
 | app rate limit           | 120/minute per client IP by default, `off` in the window |
+| daily turn cap           | `DEV_CHAT_TURNS`, 500 on dev today                       |
 | templates                | 20, a module constant                                    |
 | resume parse concurrency | 2                                                        |
 | feedback attempts        | 3 attempts, 800ms apart                                  |
-
-## The vendors
-
-### Neon
-
-The sweep runs against prod's default branch, so it spends prod's own budget and its rows land in prod's data. The cleanup between steps is what keeps that bounded instead of accumulating.
-
-### Cloudflare
-
-The public path has two external dependencies I do not own: the tunnel that exists because of CGNAT, and Cloudflare's bot protection, which on Free cannot be skipped — the only lever is an IP Access rule, and any IP Access rule disables BFM zone-wide, not just for the runner. So I just simplified my Architecture, just using Tailscale for connection of load machine and application machine. While using cloudflare could measure PROD like latency, the plan itself was just really touching on SRE principles rather than focusing on what real users feel.
 
 ## Tools
 
@@ -117,7 +108,7 @@ The public path has two external dependencies I do not own: the tunnel that exis
 
 | Layer           | What                                                               |
 | --------------- | ------------------------------------------------------------------ |
-| Runtime         | Python 3.13, FastAPI                                               |
+| Runtime         | Python 3.14-slim, FastAPI                                          |
 | uvicorn workers | 1, the Dockerfile passes no `--workers`                            |
 | Data            | asyncpg against Postgres, yoyo for migrations                      |
 | Logging         | structlog, one JSON access line per request                        |
@@ -127,28 +118,33 @@ The public path has two external dependencies I do not own: the tunnel that exis
 
 ### The experiment
 
-| Purpose               | Tool                                                |
-| --------------------- | --------------------------------------------------- |
-| Load generation       | k6, on the Windows box                              |
-| Private path          | Tailscale                                           |
-| Orchestration         | k3s, ingress-nginx, Argo CD, Kustomize              |
-| Metrics, logs, traces | Grafana Cloud, with Alloy as the in-cluster shipper |
-| Database              | Neon, prod's default branch, direct host            |
+| Purpose               | Tool                                                                               |
+| --------------------- | ---------------------------------------------------------------------------------- |
+| Load generation       | k6, on the Windows box                                                             |
+| Private path          | Tailscale                                                                          |
+| Orchestration         | k3s, ingress-nginx, Argo CD, Kustomize                                             |
+| Metrics, logs, traces | Grafana Cloud, with Alloy as the in-cluster shipper                                |
+| Harness               | `~/k6-load-testing`: `main.js` the workload, `sweep.py` the ladder and the cleanup |
+| Database              | Neon, prod's default branch, direct host                                           |
+
+## Neon
+
+The sweep runs against prod's default branch, so it spends prod's own budget and its rows land in prod's data. The cleanup between steps is what keeps that bounded instead of accumulating.
 
 ## Perf window
 
-| Change          | Value        |
-| --------------- | ------------ |
-| `LLM_BASE_URL`  | unset (stub) |
-| `RATE_LIMIT`    | `off`        |
-| `CLERK_ENABLED` | `false`      |
-| `APP_ENV`       | `test`       |
+| Change                                    | Value        |
+| ----------------------------------------- | ------------ |
+| `LLM_BASE_URL`                            | unset (stub) |
+| `RATE_LIMIT`                              | `off`        |
+| `CLERK_ENABLED`                           | `false`      |
+| `APP_ENV`                                 | `test`       |
+| `nginx.ingress.kubernetes.io/limit-rps`   | `1000000`    |
+| `nginx.ingress.kubernetes.io/limit-burst` | `1000000`    |
+
+it cann be automated using a script with infisical changing values in prod and auto sed with commits, or by doing it manually.
 
 Opening the window is four steps: commit the perf values, see the sync land, confirm the pod was replaced, and read its env to watch the perf values go live before any load.
-
-Closing it is the same four mirrored, and it is not closed until all of them hold. The last is `POST /api/billing/webhook/simulate` answering 404, which is the reason the check exists at all: a revert that reports success while that route still answers has left an unauthenticated endpoint that grants entitlement reachable on the public path.
-
-The sweep runs as its own identity. `DEV_USER_SUB` names it and `auth.py` reads it, so the run holds its own interviews and its own `turn_usage` row instead of moving `dev-user`'s. Prod's dev rows and that account's daily turn counter stay where they are, and the cleanup deletes a set of rows that is known to be the sweep's.
 
 ## What one virtual user does
 
@@ -160,7 +156,13 @@ The number of turns is a structured but randomized actions run per VU, with each
 
 Exclusions, for different reasons.
 
-NvidiaNIM(Stubbed) and Voice is out. Outside Generation, vendor that could fail the experiment due to free tier and rate limits.
+NvidiaNIM(LLM Output) and Cloudflare Workers AI(Voice) is out.
+
+These vendors uses credit and will only limit the workload, this is why NvidiaNIM is stubbed and Cloudflare Workers AI is off.
+
+Outside Generation, vendor that could fail the experiment due to free tier and rate limits.
+
+For the edge tunneling, the tunnel that exists because of CGNAT, and Cloudflare's bot protection, which on Free cannot be skipped — the only lever is an IP Access rule, and any IP Access rule disables BFM zone-wide, not just for the runner. So I just simplified my Architecture, just using Tailscale for connection of load machine and application machine. While using cloudflare could measure PROD like latency, the plan itself was just really touching on SRE principles rather than focusing on what real users feel.
 
 **PDF import is out of the loop.** `PLAN.md` has the measurement: a 40MB `/Contents` peaks 1.74GB for zero characters of text against a 256Mi pod limit, so one upload can OOMKill the only replica. That would read as a capacity failure when it is a known unfixed bug, and it is its own piece of work.
 
@@ -191,7 +193,11 @@ Warm the database. `min_size=0` means the first requests pay pool creation and a
 
 Every step runs the same four phases and only the third is data: a 30 second ramp to the target, a 60 second warm-up that is discarded, a 300 second measurement window, and a stop. The warm-up never becomes part of a number.
 
-The ladder is 10, 25, 50, 100, 200 and 400 VUs. The first four are validation rather than search: they cost almost nothing, and they are where a broken workload, a broken generator or an already-violated gate turns up before the interesting region. The last two are the search, and the pool of ten is the expected wall near the top. The first failing step brackets the answer, the ladder bisects that interval until we find the appropriate pass, if 200 pass and 400 fail then go 300, and so on with self explanatory methods.
+We start at 25 VUs and double from there, 25, 50, 100, 200, 400, and we keep going past 400 if needed. The first four are just checks. They are simple and they catch a broken test so like basically a smoke test where we just first check the application or a broken generator that was already broken before the load even got high.
+
+If one of the first four fails, that is not a load problem, so we stop and fix it instead of searching. The search only starts at 200 and above.
+
+Each level passes or fails. If it passes, we go up. If it fails on an SLO, we stop going up, but the run keeps going. That failure becomes the top of the range, and we split the gap between the last pass and that failure to find the highest level that still passes. If 200 passes and 400 fails, try 300; if 300 passes, try 350. That is a binary search. We only need the boundary between pass and fail, not an exact number, because the boundary itself moves about 10% between runs. If we land on 2500 today, a rerun could land at 2400 or 2600 and that is the same answer.
 
 ## Decisions
 
@@ -210,4 +216,3 @@ The ladder is 10, 25, 50, 100, 200 and 400 VUs. The first four are validation ra
 ## Open
 
 - `kubectl top` fails on a kubelet certificate SAN. Fix is `--tls-san` plus a brief apiserver restart. Until then host CPU and temperature come from `vmstat` and `htop`.
-- The baseline run itself, which produces every SLO gate.
