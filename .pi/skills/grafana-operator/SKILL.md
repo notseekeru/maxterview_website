@@ -76,7 +76,7 @@ two folders, and they are not this project's:
 | Folder | What the app puts there |
 | --- | --- |
 | `alerting-tprwygwwerdz` ("knowledge-graph") | ~186 `AssertBase*` / `asserts:*` rules over the app metrics, every one with `notification_settings.receiver = grafana-insight-processor`, so they never reach Slack |
-| `frontend-observability-asserts` | 14 `asserts:feo11y_*` rules over Loki `{kind="measurement"|"exception"|"event"}`, the Faro streams, which nothing writes (`{kind=~".+"}` held 0 streams over 7 days) |
+| `frontend-observability-asserts` | 14 `asserts:feo11y_*` **recording** rules over Loki `{kind="measurement"|"exception"|"event"}`, the Faro streams, which nothing writes (`{kind=~".+"}` held 0 streams over 7 days). Measured: `rule_type=recording` returns all 14, `rule_type=alerting` returns 0, and they are the only recording rules on the stack. A recording rule has no condition and no notifier, so this folder can never fire or reach Slack |
 
 Both were deleted 2026-10-11 with `DELETE /api/folders/<uid>?forceDeleteRules=true`. The frontend one
 was back within 15 minutes carrying 14 new uids, beginning `ag0wnnefvnk00a`: deleting is undone, so delete
@@ -88,9 +88,22 @@ POST /api/plugins/grafana-asserts-app/settings {"enabled": false}   # same 400 f
 ```
 
 `enabled: true, autoEnabled: true` is stack provisioning, so a UI disable does not survive a restart
-either. The off switch is the Cloud portal (stack-level Application Observability / Knowledge Graph),
-which the service-account token cannot reach. While it is on, the cost is a rules list that reads 27
-where 13 are ours; the vendor rules are inert, not noisy.
+either. The configuration the generator obeys is not reachable from the Grafana API at all, measured
+2026-10-11: `/api/plugins/grafana-asserts-app/resources/<any path>` answers a literal `null` (a dozen
+paths tried, including `v1/datasets` and `api-server/v1/config`), `grafana-kowalski-app` (Frontend
+Observability, the app whose alerting owns these recording rules) answers **500 plugin.unavailable**,
+and `/api/datasources/proxy/uid/grafanacloud-knowledgegraph/...` answers **502**. Nothing here reads or
+writes dataset configuration; that page is rendered by the Asserts service, not by Grafana.
+
+Frontend Observability's own Configuration page is the wrong button too: its `Disable alerts` governs
+seven out-of-the-box application alerts (Errors Count, New Errors, five Web Vitals) and every app row
+on it reads `None enabled`. The same page states the recording rules "cannot be manually enabled or
+disabled from this page" and are recreated "on a later eligible check".
+
+The off switch is the Cloud portal (stack-level Frontend Observability or Application Observability),
+which the service-account token cannot reach. Until someone flips it there, the cost is a rules list
+that reads 27 where 13 are ours, and those 14 cannot notify, cannot write a series without Faro input,
+and come back if deleted. Do not spend another call on them.
 
 Unrelated delta measured the same day: the `grafana-synthetic-monitoring-app` folder is gone from
 `/api/folders` (it held no dashboards) while its datasource `fg0wdur2pa9kwc` remains. Nothing here
