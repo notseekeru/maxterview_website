@@ -20,7 +20,7 @@
         "GRAFANA_URL": "https://sturdypoplar3317.grafana.net",
         "GRAFANA_SERVICE_ACCOUNT_TOKEN": "!sed -n \"s/^GRAFANA_SERVICE_ACCOUNT_TOKEN=//p\" .env | head -1"
       },
-      "lifecycle": "lazy"
+      "exposure": "direct"
     }
   }
 }
