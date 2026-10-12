@@ -85,87 +85,6 @@
       "isPaused": false
     },
     {
-      "title": "{{PROJECT}}: llm failures",
-      "condition": "C",
-      "data": [
-        {
-          "refId": "A",
-          "queryType": "range",
-          "relativeTimeRange": {
-            "from": 900,
-            "to": 0
-          },
-          "datasourceUid": "{{DS_PROM}}",
-          "model": {
-            "editorMode": "code",
-            "expr": "sum(increase(llm_client_call_duration_seconds_count{service_name=\"{{APP}}\", llm_outcome=\"error\"}[15m]))",
-            "instant": false,
-            "legendFormat": "model errors in 15m",
-            "range": true,
-            "refId": "A",
-            "queryType": "range",
-            "intervalMs": 1000,
-            "maxDataPoints": 43200
-          }
-        },
-        {
-          "refId": "B",
-          "queryType": "",
-          "relativeTimeRange": {
-            "from": 900,
-            "to": 0
-          },
-          "datasourceUid": "__expr__",
-          "model": {
-            "expression": "A",
-            "intervalMs": 1000,
-            "maxDataPoints": 43200,
-            "reducer": "last",
-            "refId": "B",
-            "type": "reduce"
-          }
-        },
-        {
-          "refId": "C",
-          "queryType": "",
-          "relativeTimeRange": {
-            "from": 900,
-            "to": 0
-          },
-          "datasourceUid": "__expr__",
-          "model": {
-            "conditions": [
-              {
-                "evaluator": {
-                  "type": "gt",
-                  "params": [
-                    2
-                  ]
-                }
-              }
-            ],
-            "expression": "B",
-            "intervalMs": 1000,
-            "maxDataPoints": 43200,
-            "refId": "C",
-            "type": "threshold"
-          }
-        }
-      ],
-      "noDataState": "OK",
-      "execErrState": "Error",
-      "for": "1m",
-      "keep_firing_for": "0s",
-      "annotations": {
-        "description": "More than 2 failed model calls in 15 minutes, across every stage. A cancelled stream (the browser left) does not count: only the provider failing.",
-        "summary": "{{PROJECT}}: llm failures"
-      },
-      "labels": {
-        "severity": "warning"
-      },
-      "isPaused": false
-    },
-    {
       "title": "{{PROJECT}}: app not reporting",
       "condition": "C",
       "data": [
@@ -260,7 +179,7 @@
           "datasourceUid": "{{DATASOURCE}}",
           "model": {
             "editorMode": "code",
-            "expr": "sum(count_over_time({app=\"{{APP}}\"} | json | level=\"error\" [10m]))",
+            "expr": "sum(count_over_time({app=\"{{APP}}\"} | json | level=\"error\" | event!~\"llm[.]\" [10m]))",
             "intervalMs": 1000,
             "maxDataPoints": 43200,
             "queryType": "range",
@@ -316,7 +235,7 @@
       "for": "2m",
       "keep_firing_for": "0s",
       "annotations": {
-        "description": "sum(count_over_time({app=\"{{APP}}\"} | json | level=\"error\" [10m])) \u2014 fires above 3",
+        "description": "Fires above 3 on error-level lines that are not a model failure: sum(count_over_time({app=\"{{APP}}\"} | json | level=\"error\" | event!~\"llm[.]\" [10m])). What is left there is uvicorn's unhandled tracebacks and a BYOK key that failed to load; the model failures that also log at error level belong to {{PROJECT}}: model failures, so excluding them keeps one failure out of two rules.",
         "summary": "{{PROJECT}}: backend tracebacks"
       },
       "labels": {
@@ -481,7 +400,7 @@
       "isPaused": false
     },
     {
-      "title": "{{PROJECT}}: feedback path failing",
+      "title": "{{PROJECT}}: model failures",
       "condition": "C",
       "data": [
         {
@@ -494,7 +413,7 @@
           "datasourceUid": "{{DATASOURCE}}",
           "model": {
             "editorMode": "code",
-            "expr": "sum(count_over_time({app=\"{{APP}}\"} | json | event=~\"llm[.](feedback|hardcore)[.](formatter_unavailable|grader_unavailable|moves_unavailable|judge_unavailable|shout_unavailable|transport_error|no_json|schema_mismatch|empty_output|decision_drift|moves_mismatch|judge_mismatch)\" [30m]))",
+            "expr": "sum(count_over_time({app=\"{{APP}}\"} | json | event=~\"llm[.](feedback|hardcore|chat)[.](formatter_unavailable|grader_unavailable|moves_unavailable|judge_unavailable|shout_unavailable|transport_error|no_json|schema_mismatch|empty_output|decision_drift|moves_mismatch|judge_mismatch|failed)\") [30m]))",
             "intervalMs": 1000,
             "maxDataPoints": 43200,
             "queryType": "range",
@@ -550,8 +469,8 @@
       "for": "5m",
       "keep_firing_for": "0s",
       "annotations": {
-        "description": "The model failures that cost a user their feedback or their grade, over 30 minutes: judge, grader, formatter and moves unavailable, transport errors, unparseable JSON, a response that did not match the schema, empty output, and a decision or move set that drifted from the transcript. Left out on purpose: no_material and empty_transcript are what a candidate hears when there was nothing to grade, and stub_deterministic is stub mode. Fires above 1 event. The metric rule cannot see any of this: llm_outcome=\"error\" only counts a failed call at the chat stages.",
-        "summary": "{{PROJECT}}: feedback path failing"
+        "description": "The model failures that cost a user their chat turn, their feedback or their grade, over 30 minutes: a chat turn that died mid-stream, judge, grader, formatter and moves unavailable, transport errors, unparseable JSON, a response that did not match the schema, empty output, and a decision or move set that drifted from the transcript. Left out on purpose: no_material and empty_transcript are what a candidate hears when there was nothing to grade, and stub_deterministic is stub mode. Fires above 1 event. Read from the log lines and not from llm_outcome=\"error\": only the line names the stage that failed, and it counts a retried call once where the metric counted it twice.",
+        "summary": "{{PROJECT}}: model failures"
       },
       "labels": {
         "severity": "warning"
