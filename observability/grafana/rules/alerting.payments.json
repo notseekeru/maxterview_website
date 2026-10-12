@@ -79,7 +79,7 @@
       "isPaused": false
     },
     {
-      "title": "{{PROJECT}}: payment webhook rejected",
+      "title": "{{PROJECT}}: payment webhook dropped",
       "condition": "C",
       "data": [
         {
@@ -92,7 +92,7 @@
           "datasourceUid": "{{DATASOURCE}}",
           "model": {
             "editorMode": "code",
-            "expr": "sum(count_over_time({app=\"{{APP}}\"} | json | event=~\"paymongo[.]webhook_signature[.][a-z]+\" [15m]))",
+            "expr": "sum(count_over_time({app=\"{{APP}}\"} | json | event=\"paymongo.webhook_signature.stale\" [15m]))",
             "intervalMs": 1000,
             "maxDataPoints": 43200,
             "queryType": "range",
@@ -145,14 +145,92 @@
       ],
       "noDataState": "OK",
       "execErrState": "Error",
-      "for": "1m",
+      "for": "0s",
       "keep_firing_for": "0s",
       "annotations": {
-        "description": "More than 2 deliveries refused by `verify_signature` in 15 minutes. The event on the line names the reason: `malformed` is a header missing its timestamp or signature slot, `mismatch` is the wrong secret or a forger (`livemode_slot` says which slot the provider did send), `stale` is a real event outside the 300s tolerance, which is a genuine delivery dropped. Premium is only ever written from a delivery that verifies, so this is money arriving with nothing credited behind it.",
-        "summary": "{{PROJECT}}: payment webhook rejected"
+        "description": "A genuine PayMongo delivery that arrived outside the 300 second signature tolerance, so the handler refused it and premium was never written while the money moved: `age_s` and `tolerance_s` are on the line. `stale` is the only signature reason that means a real payment was lost. `malformed` and `mismatch` are a header or a secret problem and belong to the webhook rejected rule. Fires on the first one.",
+        "summary": "{{PROJECT}}: payment webhook dropped"
       },
       "labels": {
         "severity": "critical"
+      },
+      "isPaused": false
+    },
+    {
+      "title": "{{PROJECT}}: payment webhook rejected",
+      "condition": "C",
+      "data": [
+        {
+          "refId": "A",
+          "queryType": "range",
+          "relativeTimeRange": {
+            "from": 900,
+            "to": 0
+          },
+          "datasourceUid": "{{DATASOURCE}}",
+          "model": {
+            "editorMode": "code",
+            "expr": "sum(count_over_time({app=\"{{APP}}\"} | json | event=~\"paymongo[.]webhook_signature[.](malformed|mismatch)\" [15m]))",
+            "intervalMs": 1000,
+            "maxDataPoints": 43200,
+            "queryType": "range",
+            "refId": "A"
+          }
+        },
+        {
+          "refId": "B",
+          "queryType": "",
+          "relativeTimeRange": {
+            "from": 900,
+            "to": 0
+          },
+          "datasourceUid": "__expr__",
+          "model": {
+            "expression": "A",
+            "intervalMs": 1000,
+            "maxDataPoints": 43200,
+            "reducer": "last",
+            "refId": "B",
+            "type": "reduce"
+          }
+        },
+        {
+          "refId": "C",
+          "queryType": "",
+          "relativeTimeRange": {
+            "from": 900,
+            "to": 0
+          },
+          "datasourceUid": "__expr__",
+          "model": {
+            "conditions": [
+              {
+                "evaluator": {
+                  "type": "gt",
+                  "params": [
+                    2
+                  ]
+                }
+              }
+            ],
+            "expression": "B",
+            "intervalMs": 1000,
+            "maxDataPoints": 43200,
+            "refId": "C",
+            "type": "threshold"
+          }
+        }
+      ],
+      "noDataState": "OK",
+      "execErrState": "Error",
+      "for": "1m",
+      "keep_firing_for": "0s",
+      "annotations": {
+        "description": "Deliveries refused before the payload was trusted: `malformed` is a header missing its timestamp or signature slot, `mismatch` is the wrong secret or a forger (`livemode_slot` says which slot the provider did send), and the event on the line names the reason. Fires above 2 in 15 minutes: one probe should not page, a sustained mismatch is a secret that drifted. A real delivery that merely arrived late is `stale`, which the dropped rule pages on. 400 `payment_method_not_allowed` is a mode mismatch rather than an outage and is not logged as a signature failure.",
+        "summary": "{{PROJECT}}: payment webhook rejected"
+      },
+      "labels": {
+        "severity": "warning"
       },
       "isPaused": false
     },
@@ -231,84 +309,6 @@
       },
       "labels": {
         "severity": "critical"
-      },
-      "isPaused": false
-    },
-    {
-      "title": "{{PROJECT}}: money back",
-      "condition": "C",
-      "data": [
-        {
-          "refId": "A",
-          "queryType": "range",
-          "relativeTimeRange": {
-            "from": 3600,
-            "to": 0
-          },
-          "datasourceUid": "{{DATASOURCE}}",
-          "model": {
-            "editorMode": "code",
-            "expr": "sum(count_over_time({app=\"{{APP}}\"} | json | event=\"paymongo.webhook.revoke\" [1h]))",
-            "intervalMs": 1000,
-            "maxDataPoints": 43200,
-            "queryType": "range",
-            "refId": "A"
-          }
-        },
-        {
-          "refId": "B",
-          "queryType": "",
-          "relativeTimeRange": {
-            "from": 3600,
-            "to": 0
-          },
-          "datasourceUid": "__expr__",
-          "model": {
-            "expression": "A",
-            "intervalMs": 1000,
-            "maxDataPoints": 43200,
-            "reducer": "last",
-            "refId": "B",
-            "type": "reduce"
-          }
-        },
-        {
-          "refId": "C",
-          "queryType": "",
-          "relativeTimeRange": {
-            "from": 3600,
-            "to": 0
-          },
-          "datasourceUid": "__expr__",
-          "model": {
-            "conditions": [
-              {
-                "evaluator": {
-                  "type": "gt",
-                  "params": [
-                    0
-                  ]
-                }
-              }
-            ],
-            "expression": "B",
-            "intervalMs": 1000,
-            "maxDataPoints": 43200,
-            "refId": "C",
-            "type": "threshold"
-          }
-        }
-      ],
-      "noDataState": "OK",
-      "execErrState": "Error",
-      "for": "0s",
-      "keep_firing_for": "0s",
-      "annotations": {
-        "description": "A refund or a chargeback ended a paid period now, by design (MONETIZATION \u00a75): `status` on the line is `refunded` or `disputed`, and `event_type` says which delivery carried it. `revoked: false` means the event found no premium row to take, so nothing changed. Only a provider delivery reaches this rule: a hand revocation (`revoke.sh`) writes the row itself and is silent here.",
-        "summary": "{{PROJECT}}: money back"
-      },
-      "labels": {
-        "severity": "warning"
       },
       "isPaused": false
     }
