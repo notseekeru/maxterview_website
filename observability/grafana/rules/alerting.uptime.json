@@ -80,11 +80,7 @@
       "labels": {
         "severity": "critical"
       },
-      "isPaused": false,
-      "notification_settings": {
-        "receiver": "{{RECEIVER}}",
-        "repeat_interval": "1h"
-      }
+      "isPaused": false
     }
   ]
 }

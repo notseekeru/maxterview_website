@@ -4,10 +4,14 @@
   ./bootstrap.py <project> [app-label] [--datasource UID] [--prometheus-datasource UID] [--receiver NAME] [--url URL] [--payments] [--dry-run] [--delete]
 
 Creates folder `<project>`, rule group `<project>-logs` and dashboard `<project>-logs`. The group holds
-eight rules: 5xx, model failures and liveness counted from the OTLP metrics, and error-level
-tracebacks, browser errors, swallowed `llm.feedback.*` failures and the voice/Clerk dependency
-failures read from the logs. The dashboard covers logs and both metric groups, so a project that only
-ships logs still gets a usable board with three dead metric panels.
+seven rules: 5xx and liveness counted from the OTLP metrics, and error-level tracebacks, browser
+errors, swallowed model failures and the voice/Clerk dependency failures read from the logs. The
+dashboard covers logs and both metric groups, so a project that only ships logs still gets a usable
+board with three dead metric panels.
+
+The notification tree is written by the same run: one root receiver, and a route per severity so a
+critical repeats hourly and a warning every six. No rule carries a receiver of its own, because a
+rule-level one wins over the tree and would bypass the split.
 `app-label` defaults to `<project>-backend`.
 `--uptime` appends `rules/alerting.uptime.json`: one rule that GETs `--probe-url` from Grafana
 Cloud's own alerting engine, so it observes the site from outside the node with no probe service, no
@@ -116,6 +120,26 @@ def load(name, values):
     return render(json.loads((HERE / name).read_text()), values)
 
 
+def install_policy(args):
+    """Overwrite the org notification tree with one root receiver and a route per severity.
+
+    Written whole, not patched: the tree is org-wide and this is the only writer, so a route left out
+    here is a route deleted. Critical repeats hourly, warning every six; both group by folder and
+    alertname. Vendor rules on the stack carry their own receiver and never reach this tree.
+    """
+    tok = token()
+    api(args.url, tok, "/api/v1/provisioning/policies", "PUT", {
+        "receiver": args.receiver,
+        "group_by": ["grafana_folder", "alertname"],
+        "routes": [
+            {"receiver": args.receiver, "object_matchers": [["severity", "=", "critical"]],
+             "group_wait": "10s", "group_interval": "5m", "repeat_interval": "1h"},
+            {"receiver": args.receiver, "object_matchers": [["severity", "=", "warning"]],
+             "group_wait": "30s", "group_interval": "5m", "repeat_interval": "6h"},
+        ],
+    })
+
+
 def install(args, app):
     # The Alloy pod carries app=<project>-alloy, and it is the only place a dropped export is visible.
     values = {"PROJECT": args.project, "APP": app, "ALLOY_APP": f"{args.project}-alloy",
@@ -164,6 +188,9 @@ def install(args, app):
           + ("uids unchanged " if preserved else "created ")
           + str(list(after.values())))
 
+    install_policy(args)
+    print(f"notification tree: root + routes on severity -> {args.receiver} (critical 1h, warning 6h)")
+
     result = api(args.url, tok, "/api/dashboards/db", "POST",
                  {"dashboard": dashboard, "folderUid": args.project, "overwrite": True})
     print(f"dashboard {result['uid']}: version {result['version']} -> {args.url}{result['url']}")
@@ -207,8 +234,8 @@ def main():
                         help=f"Prometheus datasource uid for the metric panels and rules "
                              f"(default {DEFAULT_PROMETHEUS_DATASOURCE}, shared by the stack)")
     parser.add_argument("--receiver", default=DEFAULT_RECEIVER,
-                        help=f"contact point set on each rule, so the global notification tree stays "
-                             f"untouched (default {DEFAULT_RECEIVER})")
+                        help=f"contact point the notification tree routes to; no rule sets its own "
+                             f"or the tree would be bypassed (default {DEFAULT_RECEIVER})")
     parser.add_argument("--url", default=os.environ.get("GRAFANA_URL") or DEFAULT_URL)
     parser.add_argument("--payments", action="store_true",
                         help="add the PayMongo rules (rules/alerting.payments.json) to the group; they "

@@ -82,11 +82,7 @@
       "labels": {
         "severity": "critical"
       },
-      "isPaused": false,
-      "notification_settings": {
-        "receiver": "{{RECEIVER}}",
-        "repeat_interval": "1h"
-      }
+      "isPaused": false
     },
     {
       "title": "{{PROJECT}}: llm failures",
@@ -167,11 +163,7 @@
       "labels": {
         "severity": "warning"
       },
-      "isPaused": false,
-      "notification_settings": {
-        "receiver": "{{RECEIVER}}",
-        "repeat_interval": "1h"
-      }
+      "isPaused": false
     },
     {
       "title": "{{PROJECT}}: app not reporting",
@@ -252,11 +244,7 @@
       "labels": {
         "severity": "warning"
       },
-      "isPaused": false,
-      "notification_settings": {
-        "receiver": "{{RECEIVER}}",
-        "repeat_interval": "1h"
-      }
+      "isPaused": false
     },
     {
       "title": "{{PROJECT}}: backend tracebacks",
@@ -334,11 +322,7 @@
       "labels": {
         "severity": "warning"
       },
-      "isPaused": false,
-      "notification_settings": {
-        "receiver": "{{RECEIVER}}",
-        "repeat_interval": "1h"
-      }
+      "isPaused": false
     },
     {
       "title": "{{PROJECT}}: browser errors",
@@ -416,11 +400,7 @@
       "labels": {
         "severity": "warning"
       },
-      "isPaused": false,
-      "notification_settings": {
-        "receiver": "{{RECEIVER}}",
-        "repeat_interval": "1h"
-      }
+      "isPaused": false
     },
     {
       "title": "{{PROJECT}}: telemetry export failing",
@@ -498,11 +478,7 @@
       "labels": {
         "severity": "warning"
       },
-      "isPaused": false,
-      "notification_settings": {
-        "receiver": "{{RECEIVER}}",
-        "repeat_interval": "1h"
-      }
+      "isPaused": false
     },
     {
       "title": "{{PROJECT}}: feedback path failing",
@@ -580,11 +556,7 @@
       "labels": {
         "severity": "warning"
       },
-      "isPaused": false,
-      "notification_settings": {
-        "receiver": "{{RECEIVER}}",
-        "repeat_interval": "1h"
-      }
+      "isPaused": false
     },
     {
       "title": "{{PROJECT}}: outside dependency failing",
@@ -662,11 +634,7 @@
       "labels": {
         "severity": "warning"
       },
-      "isPaused": false,
-      "notification_settings": {
-        "receiver": "{{RECEIVER}}",
-        "repeat_interval": "1h"
-      }
+      "isPaused": false
     }
   ]
 }

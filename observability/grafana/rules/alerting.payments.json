@@ -76,11 +76,7 @@
       "labels": {
         "severity": "warning"
       },
-      "isPaused": false,
-      "notification_settings": {
-        "receiver": "{{RECEIVER}}",
-        "repeat_interval": "1h"
-      }
+      "isPaused": false
     },
     {
       "title": "{{PROJECT}}: payment webhook rejected",
@@ -158,11 +154,7 @@
       "labels": {
         "severity": "critical"
       },
-      "isPaused": false,
-      "notification_settings": {
-        "receiver": "{{RECEIVER}}",
-        "repeat_interval": "1h"
-      }
+      "isPaused": false
     },
     {
       "title": "{{PROJECT}}: money unattributable",
@@ -240,11 +232,7 @@
       "labels": {
         "severity": "critical"
       },
-      "isPaused": false,
-      "notification_settings": {
-        "receiver": "{{RECEIVER}}",
-        "repeat_interval": "1h"
-      }
+      "isPaused": false
     },
     {
       "title": "{{PROJECT}}: money back",
@@ -322,11 +310,7 @@
       "labels": {
         "severity": "warning"
       },
-      "isPaused": false,
-      "notification_settings": {
-        "receiver": "{{RECEIVER}}",
-        "repeat_interval": "1h"
-      }
+      "isPaused": false
     }
   ]
 }
