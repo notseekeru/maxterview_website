@@ -2,18 +2,7 @@
 name: grafana-operator
 description: >-
   Operates the Grafana Cloud stack behind maxterview (sturdypoplar3317) through its HTTP API and the
-  grafana MCP server, so nothing has to be clicked in grafana.com. Holds the measured facts: live
-  folder / rule-group / rule / contact-point uids, which verb each object needs (folder PUT needs
-  overwrite, DELETE needs forceDeleteRules, rule-group POST is 404), why a rule uid is a GLOBAL
-  primary key and how to never move someone else's rules, where rule health and provenance actually
-  live, Loki access through the datasource proxy, and the one-command portable kit at
-  observability/grafana/bootstrap.py. Also carries the verdicts: the MCP alerting tool's
-  disable_provenance default silently decides whether rules stay editable in the UI, Grizzly / gcx /
-  Git Sync / the alpha rules API / Terraform were each checked as config-as-code, and the vendor
-  Asserts app cannot be switched off through the API (400 Cannot disable auto-enabled plugin) so it
-  regenerates the two rule folders it owns. Load when
-  the user asks about dashboards, alert rules, Loki queries, why an alert did or did not fire, or how
-  to give a new project observability.
+  grafana MCP server, so nothing has to be clicked in grafana.com.
 ---
 
 # Grafana operator (maxterview)
@@ -38,17 +27,17 @@ URL=https://sturdypoplar3317.grafana.net
 
 ## Where things live
 
-| Object | uid / name |
-| --- | --- |
-| Folder, project | `maxterview` — rule group + dashboard |
-| Folder, Grafana's own | `afys5ycv6iv40b` — the 11 Cloud dashboards, all `provisioned: true` with `provisionedExternalId: dashboard.json`, so they are the stack's whole board set beside `maxterview-logs`; leave them |
-| Folder, vendor | `frontend-observability-asserts`, 14 inert `asserts:feo11y_*` rules the Asserts app recreates; see Not yours |
-| Rule group | `maxterview-logs`, interval 60s, 13 rules: the 8 kit rules (3 Prometheus: 5xx, model failures, liveness via `absent(target_info)`; 5 Loki: tracebacks, browser errors, dropped OTLP batches from the Alloy stream, swallowed `llm.feedback.*` failures, voice/Clerk dependency failures) plus the 4 payment rules `--payments` appends |
-| Dashboard | `maxterview-logs` (uid = same slug), 6 panels (3 Loki, 3 Prometheus); traces are reached from a log line's `trace_id` instead of a panel |
-| Rule uids | 5xx `cfys2cemal24ga`, llm failures `efys2cf010ykgc`, app not reporting `eg0wndbltmakgc`, tracebacks `afys2cfcxi2v4e`, browser errors `afystat9eb1tsb`, telemetry export failing `cfz9q0s3wfncwb`, feedback path failing `ag0wndblw46wwe`, outside dependency failing `eg0wndblw46wxc`, site unreachable `fg0wgbrl0dhxcb`; payments: provider failing `cfziwcmzy4r28c`, webhook rejected `efziwcn00mneob`, unattributable `afziwcn034jr4f`, money back `dfziwcn05mg3kb` |
-| Contact point | `slack-maxterview` (uid `dfys2agrrsr9ce`, type slack; webhook is a secret in Infisical) |
-| Root notification policy | receiver `slack-maxterview`, `group_by = [grafana_folder, alertname]`, `provenance: api` |
-| Loki datasource | `grafanacloud-logs` (also `grafanacloud-prom`, `-traces`, `-profiles`) |
+| Object                   | uid / name                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Folder, project          | `maxterview` — rule group + dashboard                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| Folder, Grafana's own    | `afys5ycv6iv40b` — the 11 Cloud dashboards, all `provisioned: true` with `provisionedExternalId: dashboard.json`, so they are the stack's whole board set beside `maxterview-logs`; leave them                                                                                                                                                                                                                                                                         |
+| Folder, vendor           | `frontend-observability-asserts`, 14 inert `asserts:feo11y_*` rules the Asserts app recreates; see Not yours                                                                                                                                                                                                                                                                                                                                                           |
+| Rule group               | `maxterview-logs`, interval 60s, 13 rules: the 8 kit rules (3 Prometheus: 5xx, model failures, liveness via `absent(target_info)`; 5 Loki: tracebacks, browser errors, dropped OTLP batches from the Alloy stream, swallowed `llm.feedback.*` failures, voice/Clerk dependency failures) plus the 4 payment rules `--payments` appends                                                                                                                                 |
+| Dashboard                | `maxterview-logs` (uid = same slug), 6 panels (3 Loki, 3 Prometheus); traces are reached from a log line's `trace_id` instead of a panel                                                                                                                                                                                                                                                                                                                               |
+| Rule uids                | 5xx `cfys2cemal24ga`, llm failures `efys2cf010ykgc`, app not reporting `eg0wndbltmakgc`, tracebacks `afys2cfcxi2v4e`, browser errors `afystat9eb1tsb`, telemetry export failing `cfz9q0s3wfncwb`, feedback path failing `ag0wndblw46wwe`, outside dependency failing `eg0wndblw46wxc`, site unreachable `fg0wgbrl0dhxcb`; payments: provider failing `cfziwcmzy4r28c`, webhook rejected `efziwcn00mneob`, unattributable `afziwcn034jr4f`, money back `dfziwcn05mg3kb` |
+| Contact point            | `slack-maxterview` (uid `dfys2agrrsr9ce`, type slack; webhook is a secret in Infisical)                                                                                                                                                                                                                                                                                                                                                                                |
+| Root notification policy | receiver `slack-maxterview`, `group_by = [grafana_folder, alertname]`, `provenance: api`                                                                                                                                                                                                                                                                                                                                                                               |
+| Loki datasource          | `grafanacloud-logs` (also `grafanacloud-prom`, `-traces`, `-profiles`)                                                                                                                                                                                                                                                                                                                                                                                                 |
 
 Datasources belong to the **stack** and are shared by every project on it. There is no per-project
 datasource and none should be created: a project is isolated by folder + the `app` label on logs and
@@ -73,10 +62,10 @@ absence fires roughly 10 minutes after the last sample (Prometheus staleness plu
 `grafana-asserts-app` ("Knowledge graph", 1.31.0) generates rules from whatever telemetry it sees, into
 two folders, and they are not this project's:
 
-| Folder | What the app puts there |
-| --- | --- |
+| Folder                                      | What the app puts there                                                                                                                                             |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `alerting-tprwygwwerdz` ("knowledge-graph") | ~186 `AssertBase*` / `asserts:*` rules over the app metrics, every one with `notification_settings.receiver = grafana-insight-processor`, so they never reach Slack |
-| `frontend-observability-asserts` | 14 `asserts:feo11y_*` **recording** rules over Loki `{kind="measurement"|"exception"|"event"}`, the Faro streams, which nothing writes (`{kind=~".+"}` held 0 streams over 7 days). Measured: `rule_type=recording` returns all 14, `rule_type=alerting` returns 0, and they are the only recording rules on the stack. A recording rule has no condition and no notifier, so this folder can never fire or reach Slack |
+| `frontend-observability-asserts`            | 14 `asserts:feo11y_*` **recording** rules over Loki `{kind="measurement"                                                                                            | "exception" | "event"}`, the Faro streams, which nothing writes (`{kind=~".+"}`held 0 streams over 7 days). Measured:`rule_type=recording`returns all 14,`rule_type=alerting` returns 0, and they are the only recording rules on the stack. A recording rule has no condition and no notifier, so this folder can never fire or reach Slack |
 
 Both were deleted 2026-10-11 with `DELETE /api/folders/<uid>?forceDeleteRules=true`. The frontend one
 was back within 15 minutes carrying 14 new uids, beginning `ag0wnnefvnk00a`: deleting is undone, so delete
@@ -111,15 +100,15 @@ deleted it.
 
 ## Verb semantics (each one measured; guessing moves other people's rules)
 
-| Call | Behaviour |
-| --- | --- |
-| `POST /api/folders` | creates; a second POST with the same uid → **412** |
-| `PUT /api/folders/<uid>` | **412 unless** the body has `"overwrite": true` |
-| `DELETE /api/folders/<uid>` | **400 unless** `?forceDeleteRules=true`; without it folder and rules survive |
-| `PUT /api/v1/provisioning/folder/<f>/rule-groups/<g>` | the upsert — 200 whether it created or updated |
-| `POST` to that same path | **404**, it serves GET/PUT/DELETE only |
-| `POST /api/dashboards/db` | `{"dashboard": {...}, "folderUid": "<f>", "overwrite": true}`; dashboards round-trip **byte-identical** apart from `id`/`version` |
-| `DELETE /api/dashboards/uid/<uid>` | 200 unless the board is Cloud-provisioned, which answers **400 `provisioned dashboard cannot be deleted`** although its own `meta.canDelete` reads `true`; a non-provisioned board (the unfiled Insight ones) deletes fine |
+| Call                                                  | Behaviour                                                                                                                                                                                                                  |
+| ----------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `POST /api/folders`                                   | creates; a second POST with the same uid → **412**                                                                                                                                                                         |
+| `PUT /api/folders/<uid>`                              | **412 unless** the body has `"overwrite": true`                                                                                                                                                                            |
+| `DELETE /api/folders/<uid>`                           | **400 unless** `?forceDeleteRules=true`; without it folder and rules survive                                                                                                                                               |
+| `PUT /api/v1/provisioning/folder/<f>/rule-groups/<g>` | the upsert — 200 whether it created or updated                                                                                                                                                                             |
+| `POST` to that same path                              | **404**, it serves GET/PUT/DELETE only                                                                                                                                                                                     |
+| `POST /api/dashboards/db`                             | `{"dashboard": {...}, "folderUid": "<f>", "overwrite": true}`; dashboards round-trip **byte-identical** apart from `id`/`version`                                                                                          |
+| `DELETE /api/dashboards/uid/<uid>`                    | 200 unless the board is Cloud-provisioned, which answers **400 `provisioned dashboard cannot be deleted`** although its own `meta.canDelete` reads `true`; a non-provisioned board (the unfiled Insight ones) deletes fine |
 
 Rule `uid` is a **global primary key, not per-folder**. Omitting uids from a group PUT regenerates
 all of them (losing alert state, silences, resolved/unresolved history); echoing another folder's
@@ -160,7 +149,7 @@ curl -s -H "Authorization: Bearer $TOKEN" "$URL/api/datasources/proxy/uid/grafan
   shape measured: 3 rows.
 - `| json` on `{app="maxterview-backend"}` **400s the whole query** when the window holds a line
   Alloy wrote instead of a log line (`unable to retrieve container logs for containerd://…`, 4 in 2
-days), because that line is not JSON: `pipeline error: 'JSONParserErr' … Value looks like object`.
+  days), because that line is not JSON: `pipeline error: 'JSONParserErr' … Value looks like object`.
   A filter after `| json` suppresses it (`| json | level="error"`, `| json | event="…"` all fine, so
   every alert rule is immune), but a bare `| json` with no filter needs `| __error__=""`; that is why
   the log-volume panel carries it.
@@ -191,11 +180,11 @@ deleted in the Grafana UI**; `X-Disable-Provenance: true` (`disable_provenance` 
 leaves them UI-editable. Measured on this stack, 3 rules created by
 `grafana_alerting_manage_rules`:
 
-| Call | resulting provenance | UI |
-| --- | --- | --- |
-| `disable_provenance` omitted (schema default `true`) | `none` | editable |
-| `disable_provenance: true` | `none` | editable |
-| `disable_provenance: false` | `api` | locked |
+| Call                                                 | resulting provenance | UI       |
+| ---------------------------------------------------- | -------------------- | -------- |
+| `disable_provenance` omitted (schema default `true`) | `none`               | editable |
+| `disable_provenance: true`                           | `none`               | editable |
+| `disable_provenance: false`                          | `api`                | locked   |
 
 The four live `maxterview` rules read `provenance: api`, i.e. **locked** — so any claim that they are
 UI-editable because the MCP created them is wrong. After any write, read provenance back rather than
@@ -250,11 +239,11 @@ them.
 
 ## Config-as-code, already researched — do not reopen
 
-| Path | Verdict |
-| --- | --- |
-| Grizzly | removed |
-| `grafanactl` | superseded by `gcx` |
-| Git Sync | dashboards and folders only, no alert rules |
-| `grafana_apps_rules_alertrule_v0alpha1` | alpha, feature-gated |
-| Terraform | correct but a second system for thirteen rules; if that ever pays off, `terraform import grafana_rule_group.x "maxterview:maxterview-logs"` imports today's group |
-| `bootstrap.py` + this repo | the shipped answer: PUT-based provisioning, folder + label isolation, repo is the only writer |
+| Path                                    | Verdict                                                                                                                                                           |
+| --------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Grizzly                                 | removed                                                                                                                                                           |
+| `grafanactl`                            | superseded by `gcx`                                                                                                                                               |
+| Git Sync                                | dashboards and folders only, no alert rules                                                                                                                       |
+| `grafana_apps_rules_alertrule_v0alpha1` | alpha, feature-gated                                                                                                                                              |
+| Terraform                               | correct but a second system for thirteen rules; if that ever pays off, `terraform import grafana_rule_group.x "maxterview:maxterview-logs"` imports today's group |
+| `bootstrap.py` + this repo              | the shipped answer: PUT-based provisioning, folder + label isolation, repo is the only writer                                                                     |
