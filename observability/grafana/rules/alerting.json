@@ -413,7 +413,7 @@
           "datasourceUid": "{{DATASOURCE}}",
           "model": {
             "editorMode": "code",
-            "expr": "sum(count_over_time({app=\"{{APP}}\"} | json | event=~\"llm[.](feedback|hardcore|chat)[.](formatter_unavailable|grader_unavailable|moves_unavailable|judge_unavailable|shout_unavailable|transport_error|no_json|schema_mismatch|empty_output|decision_drift|moves_mismatch|judge_mismatch|failed)\") [30m]))",
+            "expr": "sum(count_over_time({app=\"{{APP}}\"} | json | event=~\"llm[.](feedback|hardcore|chat)[.](formatter_unavailable|grader_unavailable|moves_unavailable|judge_unavailable|shout_unavailable|transport_error|no_json|schema_mismatch|empty_output|decision_drift|moves_mismatch|judge_mismatch|failed)\" [30m]))",
             "intervalMs": 1000,
             "maxDataPoints": 43200,
             "queryType": "range",
