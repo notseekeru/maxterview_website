@@ -166,6 +166,168 @@
       "isPaused": false
     },
     {
+      "title": "{{PROJECT}}: db pool starved",
+      "condition": "C",
+      "data": [
+        {
+          "refId": "A",
+          "queryType": "range",
+          "relativeTimeRange": {
+            "from": 21600,
+            "to": 0
+          },
+          "datasourceUid": "{{DS_PROM}}",
+          "model": {
+            "editorMode": "code",
+            "expr": "sum(increase(db_pool_wait_duration_seconds_bucket{le=\"+Inf\"}[6h])) - sum(increase(db_pool_wait_duration_seconds_bucket{le=\"5\"}[6h]))",
+            "instant": false,
+            "legendFormat": "waits over 5s",
+            "range": true,
+            "refId": "A",
+            "queryType": "range",
+            "intervalMs": 1000,
+            "maxDataPoints": 43200
+          }
+        },
+        {
+          "refId": "B",
+          "queryType": "",
+          "relativeTimeRange": {
+            "from": 21600,
+            "to": 0
+          },
+          "datasourceUid": "__expr__",
+          "model": {
+            "expression": "A",
+            "intervalMs": 1000,
+            "maxDataPoints": 43200,
+            "reducer": "last",
+            "refId": "B",
+            "type": "reduce"
+          }
+        },
+        {
+          "refId": "C",
+          "queryType": "",
+          "relativeTimeRange": {
+            "from": 21600,
+            "to": 0
+          },
+          "datasourceUid": "__expr__",
+          "model": {
+            "conditions": [
+              {
+                "evaluator": {
+                  "type": "gt",
+                  "params": [
+                    0.5
+                  ]
+                }
+              }
+            ],
+            "expression": "B",
+            "intervalMs": 1000,
+            "maxDataPoints": 43200,
+            "refId": "C",
+            "type": "threshold"
+          }
+        }
+      ],
+      "noDataState": "OK",
+      "execErrState": "Error",
+      "for": "5m",
+      "keep_firing_for": "0s",
+      "annotations": {
+        "description": "A request waited more than 5 seconds for a database connection, in the last 6 hours, above 0.5 (one wait). Neon scales to zero and the pool is lazy, so a short wait is normal here: the p95 is 0.94s and the p99 is 2.8s, and the 2 second line is crossed in ordinary cold start weeks (5 waits in one 6 hour window on 2026-10-09). A wait past 5 seconds means starvation instead: the pool is exhausted, a connection leaked, or Neon is not answering. Query execution is measured apart from the wait (db_query_duration_seconds) deliberately, because only one of the two is the database's.",
+        "summary": "{{PROJECT}}: db pool starved"
+      },
+      "labels": {
+        "severity": "warning"
+      },
+      "isPaused": false
+    },
+    {
+      "title": "{{PROJECT}}: app routes slow",
+      "condition": "C",
+      "data": [
+        {
+          "refId": "A",
+          "queryType": "range",
+          "relativeTimeRange": {
+            "from": 3600,
+            "to": 0
+          },
+          "datasourceUid": "{{DS_PROM}}",
+          "model": {
+            "editorMode": "code",
+            "expr": "sum(increase(http_server_request_duration_seconds_bucket{le=\"+Inf\", http_route!~\".*(chat/stream|chat/kickoff|feedback/generate|voice/stt|voice/tts)\"}[1h])) - sum(increase(http_server_request_duration_seconds_bucket{le=\"5\", http_route!~\".*(chat/stream|chat/kickoff|feedback/generate|voice/stt|voice/tts)\"}[1h]))",
+            "instant": false,
+            "legendFormat": "requests over 5s",
+            "range": true,
+            "refId": "A",
+            "queryType": "range",
+            "intervalMs": 1000,
+            "maxDataPoints": 43200
+          }
+        },
+        {
+          "refId": "B",
+          "queryType": "",
+          "relativeTimeRange": {
+            "from": 3600,
+            "to": 0
+          },
+          "datasourceUid": "__expr__",
+          "model": {
+            "expression": "A",
+            "intervalMs": 1000,
+            "maxDataPoints": 43200,
+            "reducer": "last",
+            "refId": "B",
+            "type": "reduce"
+          }
+        },
+        {
+          "refId": "C",
+          "queryType": "",
+          "relativeTimeRange": {
+            "from": 3600,
+            "to": 0
+          },
+          "datasourceUid": "__expr__",
+          "model": {
+            "conditions": [
+              {
+                "evaluator": {
+                  "type": "gt",
+                  "params": [
+                    0.5
+                  ]
+                }
+              }
+            ],
+            "expression": "B",
+            "intervalMs": 1000,
+            "maxDataPoints": 43200,
+            "refId": "C",
+            "type": "threshold"
+          }
+        }
+      ],
+      "noDataState": "OK",
+      "execErrState": "Error",
+      "for": "5m",
+      "keep_firing_for": "0s",
+      "annotations": {
+        "description": "An app-owned request took more than 5 seconds, in the last hour, above 0.5 (one request). The four routes excluded here have their duration set by something else: chat/stream and chat/kickoff by how long the model writes, feedback/generate by four model calls in a row, and the voice routes by the transcription and speech providers. Those are measured and never alerted on, because the number is the provider's and no threshold on it is yours to act on. What is left is the request path this repo owns: its own code and the database behind it. p95 across just those routes is 1.77s, nearly all of it the wait for a Neon connection, so 5 seconds is a fault and not a cold start.",
+        "summary": "{{PROJECT}}: app routes slow"
+      },
+      "labels": {
+        "severity": "warning"
+      },
+      "isPaused": false
+    },
+    {
       "title": "{{PROJECT}}: backend tracebacks",
       "condition": "C",
       "data": [
