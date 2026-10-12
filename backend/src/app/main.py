@@ -119,7 +119,9 @@ CLIENT_ERROR_MAX_BYTES = 4096
 @api.get("/health")
 async def health() -> dict:
     # No DB call — CD smoke runs with a dummy DATABASE_URL and no Postgres.
-    return {"status": "ok"}
+    # `up` is the field the Grafana uptime rule reads (bootstrap.py --probe-url); `status` is what
+    # scripts/llm-smoke.py asserts. Dropping either one costs a rule or a check.
+    return {"status": "ok", "up": 1}
 
 
 @api.post("/client-errors", status_code=status.HTTP_204_NO_CONTENT)
