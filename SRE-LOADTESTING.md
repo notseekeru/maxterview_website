@@ -23,7 +23,7 @@ Windows machine is the load generating machine, which could minimally be monitor
 
 Bucket boundaries are pinned in the SDK rather than left to its defaults, and they run from 0.01 to 120 seconds.
 
-Two more are recorded for this experiment. `db.pool.wait.duration` and `db.query.duration` are sampled apart inside `db.py`, so a queued connection and a slow query are distinguishable, and the query label is the statement's first keyword, which keeps the label set bounded and the query text off the metric.
+Two more are recorded for this experiment. `db.pool.wait.duration` and `db.query.duration` are sampled apart inside `db.py`, so a queued connection and a slow query are distinguishable, and the `db.operation` label is the statement's first keyword, which keeps the label set bounded and the query text off the metric.
 
 Three properties of the instrumentation matter to this experiment.
 
@@ -146,7 +146,7 @@ Really simple to change values, commit the perf values, see the sync land in arg
 
 Every virtual user is the same identity and they all share one account.
 
-A virtual user drives the app the way a person would. It creates an interview, answers it, finishes it, reads the review, then moves on to whatever else the app offers. Any endpoint a signed-in user can reach is in scope, so this measures the app's surface and not one route.
+A virtual user drives the app the way a person would. It creates an interview, answers it, finishes it, reads the review, then walks the rest of the signed-in surface, so the run measures the app and not one route.
 
 The number of turns is a structured but randomized actions run per VU, with each going through thinking to simulate how a real user would behave.
 
@@ -189,9 +189,9 @@ Warm the database. `min_size=0` means the first requests pay pool creation and a
 
 Every step runs the same four phases and only the third is data: a 30 second ramp to the target, a 60 second warm-up that is discarded, a 300 second measurement window, and a stop. The warm-up never becomes part of a number.
 
-We start at 25 VUs and double from there, 25, 50, 100, 200, 400, and we keep going past 400 if needed. The first three are just checks. They are simple and they catch a broken test so like basically a smoke test where we just first check the application or a broken generator that was already broken before the load even got high.
+We start at 25 VUs and double from there. The first levels are just checks: simple, a smoke test for an app or a generator that was already broken before the load got high.
 
-If one of the first three fails, that is not a load problem, so we stop and fix it instead of searching. The search only starts at 200 and above.
+If one of them fails, that is not a load problem, so we stop and fix it instead of searching. The search only starts above the smoke levels.
 
 Each level passes or fails. If it passes, we go up. If it fails on an SLO, we stop going up, but the run keeps going. That failure becomes the top of the range, and we split the gap between the last pass and that failure to find the highest level that still passes. If 200 passes and 400 fails, try 300; if 300 passes, try 350. That is a binary search. We only need the boundary between pass and fail, not an exact number, because the boundary itself moves about 10% between runs. If we land on 2500 today, a rerun could land at 2400 or 2600 and that is the same answer.
 
@@ -207,13 +207,4 @@ Each level passes or fails. If it passes, we go up. If it fails on an SLO, we st
 8. The model stubbed for the sweep. Rejected: real generation, where the ceiling is the provider's quota and not this one.
 9. Direct host, not the pooler. A `-pooler` DSN flips `statement_cache_size`, a different code path than prod runs.
 10. The sweep runs under its own identity, named by `DEV_USER_SUB`. Rejected: leaving it as `dev-user`, which puts the run's rows and its daily turn counter on the same account dev uses, and makes the cleanup inseparable from real data.
-11. The workload stays defined by whatever a signed-in user can reach, with no version pinned to it. Rejected: pinning it to the image revision, which would date the drift but costs a fact to maintain. The consequence is that a new route joins the workload silently, so two runs are only comparable when they share a revision.
-
-## Audit, 2026-10-11
-
-Against `1a20eb4` (app), `520257b` (gitops), `a7a71a5` (harness): the findings below re-checked and rewritten, and the dev cap at 100000000 re-confirmed in the code default, `.env.example` and the prod overlay. The rest of this document still stands on its `f67f7cf`/`3a11278`/`864fbaf` re-check.
-
-| Finding                                                                                                                                                                                                                                             | Evidence                                                                                                             | Severity |
-| --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- | -------- |
-| No host, pod or k3s metrics anywhere in the pipeline. metrics-server answers `kubectl top` on demand and nothing retains it, so a full disk, an OOMKill or a crash loop gets no early warning: the downtime probe only fires once the site is already unreachable | gitops `base/alloy.yaml` has no scrape config, `observability/grafana/rules/` no rule over node or container metrics | med      |
-| The gates run only inside a sweep. No rule fires on latency, so between runs nothing holds p95, p99 or the error rate                                                                                                                               | `main.js:43-75`, `dashboards/logs.json:172,188`                                                                      | med      |
+11. The workload is what `main.js` walks, with no version pinned to it. Rejected: pinning it to the image revision, which would date the drift but costs a fact to maintain. The consequence is that a new route joins the workload silently, so two runs are only comparable when they share a revision.
