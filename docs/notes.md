@@ -11,10 +11,6 @@
 
 # FEATURES
 
-/res, yes i feel like p95 and p99 but the problem is those latency can cost attribute to due to llm generation or voice of nvidianim or cloudflare which are out of my control which could swing latency metrics
-
-so what is the audit for good metrics for my particular scale where i dont expect much users but still wanna cosplay as an sre
-
 are we not using instrumentation or some instrumentation or sdks?
 
 - feat: diagram architecture just like how infisical does it in landing page somewhere
