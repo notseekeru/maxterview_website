@@ -11,7 +11,6 @@
 
 # FEATURES
 
-are we not using instrumentation or some instrumentation or sdks?
 
 - feat: diagram architecture just like how infisical does it in landing page somewhere
 - feat: higher tier models for pro
