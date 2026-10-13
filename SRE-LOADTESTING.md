@@ -15,7 +15,7 @@ At what load does the prod deployment stop behaving acceptably, and which resour
 | Request latency   | `http.server.request.duration`, and k6 on the client side                      | method, route, status |
 | Error rate        | the same histogram, plus k6 broken down by status code                         | status                |
 | Throughput        | k6 RPS, and the server histogram's own sample count                            | route                 |
-| Database pressure | connections in use against a pool of 10                                        |                       |
+| Database pressure | `db.pool.size` against `db.pool.idle`, a pool of 10                            | connections held      |
 | Saturation        | CPU and memory for the node and its pods from `kubectl top` and host on `htop` |                       |
 | Architecture      | Architecture of machine/optimization framework or tools used                   | baseline              |
 

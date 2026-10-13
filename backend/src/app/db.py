@@ -70,11 +70,14 @@ assert _operation("\n  SELECT 1") == "SELECT" and _operation("EXPLAIN 1") == "ot
 
 async def _query(method: str, query: str, args: tuple):
     """Wait and execution are sampled apart, because a queued connection and a slow query are
-    different faults and only one of them is the database's."""
+    different faults and only one of them is the database's. The pool's own size is read with the
+    wait: "queued" means something different at 3 connections than at the 10 it caps at."""
     pool = get_pool()
     queued = time.perf_counter()
     async with pool.acquire() as conn:
         telemetry.record("db.pool.wait.duration", time.perf_counter() - queued)
+        telemetry.gauge("db.pool.size", pool.get_size())
+        telemetry.gauge("db.pool.idle", pool.get_idle_size())
         running = time.perf_counter()
         result = await getattr(conn, method)(query, *args)
         telemetry.record("db.query.duration", time.perf_counter() - running, **{"db.operation": _operation(query)})

@@ -73,6 +73,15 @@ def record(name: str, value: float, **attributes) -> None:
     instrument.record(value, _set(attributes))
 
 
+def gauge(name: str, value: float, **attributes) -> None:
+    """One gauge sample, unit 1, for a quantity that only has a current value. Unit 1 keeps the
+    Prometheus name free of a suffix."""
+    instrument = _instruments.get(name)
+    if instrument is None:
+        instrument = _instruments[name] = metrics.get_meter("maxterview").create_gauge(name, unit="1")
+    instrument.set(value, _set(attributes))
+
+
 def configure() -> bool:
     if not ENDPOINT or _providers:
         return False
