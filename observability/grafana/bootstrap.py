@@ -7,7 +7,7 @@ Creates folder `<project>`, rule group `<project>-logs` and dashboard `<project>
 seven rules: 5xx and liveness counted from the OTLP metrics, and error-level tracebacks, browser
 errors, swallowed model failures and the voice/Clerk dependency failures read from the logs. The
 dashboard covers logs and both metric groups, so a project that only ships logs still gets a usable
-board with three dead metric panels.
+board with five dead metric panels.
 
 The notification tree is written by the same run: one root receiver, and a route per severity so a
 critical repeats hourly and a warning every six. No rule carries a receiver of its own, because a

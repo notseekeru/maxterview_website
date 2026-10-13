@@ -369,6 +369,140 @@
       "title": "LLM latency and failures by stage",
       "type": "timeseries",
       "description": "`cancelled` is the browser closing the stream; `error` is the provider failing."
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROM}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "fillOpacity": 10,
+            "lineWidth": 1
+          },
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 25
+      },
+      "id": 7,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROM}"
+          },
+          "editorMode": "code",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(db_pool_wait_duration_seconds_bucket{service_name=\"$app\"}[$__rate_interval])))",
+          "legendFormat": "pool wait p95",
+          "refId": "A",
+          "range": true
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROM}"
+          },
+          "editorMode": "code",
+          "expr": "histogram_quantile(0.95, sum by (le, db_operation) (rate(db_query_duration_seconds_bucket{service_name=\"$app\"}[$__rate_interval])))",
+          "legendFormat": "query p95 {{db_operation}}",
+          "refId": "B",
+          "range": true
+        }
+      ],
+      "title": "Database wait and query",
+      "type": "timeseries",
+      "description": "The two halves of database time, sampled apart on purpose: waiting for a pooled connection, and running the query. The rule that fires on a 5 second wait is pointed at this panel, which is why it exists. Baseline here is a pool wait p95 near 0.9s against a query p95 under 0.32s, because Neon scales to zero and the pool starts empty, so a slow request is usually the wait and not the work."
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROM}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {},
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 25
+      },
+      "id": 8,
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "none",
+        "graphMode": "none",
+        "textMode": "value_and_name"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROM}"
+          },
+          "editorMode": "code",
+          "expr": "sum(increase(http_server_request_duration_seconds_count{service_name=\"$app\"}[$__range])) or vector(0)",
+          "legendFormat": "requests",
+          "refId": "A",
+          "instant": true,
+          "range": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROM}"
+          },
+          "editorMode": "code",
+          "expr": "sum(increase(http_server_request_duration_seconds_count{service_name=\"$app\", http_route=\"/api/interviews\", http_request_method=\"POST\"}[$__range])) or vector(0)",
+          "legendFormat": "interviews created",
+          "refId": "B",
+          "instant": true,
+          "range": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROM}"
+          },
+          "editorMode": "code",
+          "expr": "sum(increase(http_server_request_duration_seconds_count{service_name=\"$app\", http_route=\"/api/interviews/{interview_id}/feedback/generate\"}[$__range])) or vector(0)",
+          "legendFormat": "feedback runs",
+          "refId": "C",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "title": "Usage",
+      "type": "stat",
+      "description": "Whether anyone is using it, over whatever range the dashboard shows: requests that reached the app, interviews actually created, and feedback runs. The log volume panel is only a proxy for this, at roughly 1.5 to 2 lines per request. Read, never alerted on: a quiet week is not a fault here."
     }
   ],
   "refresh": "1m",
