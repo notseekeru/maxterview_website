@@ -24,7 +24,7 @@ Reruns converge by uid: the live rule group is read
 first and its rule uids are merged back, so alert state, silences and resolved/unresolved
 progression survive.
 
-The metric panels and the two metric rules select `service_name="<app-label>"`, which only matches an
+The metric panels and every metric rule select `service_name="<app-label>"`, which only matches an
 app whose OTLP `service.name` is the same string as its pod label (the backend sets it in
 telemetry.py).
 

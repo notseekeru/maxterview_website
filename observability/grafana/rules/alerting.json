@@ -179,7 +179,7 @@
           "datasourceUid": "{{DS_PROM}}",
           "model": {
             "editorMode": "code",
-            "expr": "sum(increase(db_pool_wait_duration_seconds_bucket{le=\"+Inf\"}[6h])) - sum(increase(db_pool_wait_duration_seconds_bucket{le=\"5\"}[6h]))",
+            "expr": "sum(increase(db_pool_wait_duration_seconds_bucket{service_name=\"{{APP}}\", le=\"+Inf\"}[6h])) - sum(increase(db_pool_wait_duration_seconds_bucket{service_name=\"{{APP}}\", le=\"5\"}[6h]))",
             "instant": false,
             "legendFormat": "waits over 5s",
             "range": true,
@@ -260,7 +260,7 @@
           "datasourceUid": "{{DS_PROM}}",
           "model": {
             "editorMode": "code",
-            "expr": "sum(increase(http_server_request_duration_seconds_bucket{le=\"+Inf\", http_route!~\".*(chat/stream|chat/kickoff|feedback/generate|voice/stt|voice/tts)\"}[1h])) - sum(increase(http_server_request_duration_seconds_bucket{le=\"5\", http_route!~\".*(chat/stream|chat/kickoff|feedback/generate|voice/stt|voice/tts)\"}[1h]))",
+            "expr": "sum(increase(http_server_request_duration_seconds_bucket{service_name=\"{{APP}}\", le=\"+Inf\", http_route!~\".*(chat/stream|chat/kickoff|feedback/generate|voice/stt|voice/tts)\"}[1h])) - sum(increase(http_server_request_duration_seconds_bucket{service_name=\"{{APP}}\", le=\"5\", http_route!~\".*(chat/stream|chat/kickoff|feedback/generate|voice/stt|voice/tts)\"}[1h]))",
             "instant": false,
             "legendFormat": "requests over 5s",
             "range": true,
