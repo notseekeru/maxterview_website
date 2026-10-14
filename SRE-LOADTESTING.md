@@ -71,9 +71,24 @@ The app's own request path, its middleware order and the layer breakdown are in 
 
 ## Configuration
 
-### The box
+### Windows load generator(The one who runs k6)
 
-RPi5, 8 GB, four Cortex-A76 cores.
+| Component  | Specification                                                                                                              |
+| ---------- | -------------------------------------------------------------------------------------------------------------------------- |
+| CPU        | AMD Ryzen 5 3600 (6 cores / 12 threads)                                                                                    |
+| RAM        | 32 GB                                                                                                                      |
+| Monitoring | Lightweight/manual monitoring initially; observe CPU, memory, and k6 process behavior if generator saturation is suspected |
+
+If the generator approaches sustained CPU or memory pressure or can't maintain the intended VU load, the measured capacity ceiling could generator limitations rather than application limitations.
+
+### The box(The main machine we're testing)
+
+| Component  | Specification                      |
+| ---------- | ---------------------------------- |
+| Device     | Raspberry Pi 5                     |
+| RAM        | 8 GB                               |
+| CPU        | Four Cortex-A76 cores              |
+| Deployment | k3s, single replica, no autoscaler |
 
 ### Deploy
 
