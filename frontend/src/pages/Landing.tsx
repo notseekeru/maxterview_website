@@ -88,6 +88,25 @@ const RUN_LOG: { date: string; role: string; accuracy: string; grade: "S" | "A" 
 const VERDICT_CELL = { glyph: "%", label: "Verdict", hint: "Accuracy, a letter grade, a hire or reject call, and the fixes that would move it." };
 const VOCAB = [...MOVE_CLASSES, VERDICT_CELL];
 
+// Terse by design: these bodies point at artifacts the grades section already renders.
+const FLOW_IN = [
+    { label: "Resume", body: "One PDF. What you've shipped." },
+    { label: "Setup", body: "Role, level, company size. A cynicism dial." },
+    { label: "Presets", body: "Save a setup. Replay it cold." },
+];
+const FLOW_OUT = [
+    { label: "Turn log", body: "Every answer annotated in place." },
+    { label: "Verdict", body: "Accuracy, a letter, a hire call." },
+    { label: "Trend", body: "Accuracy across runs." },
+];
+
+// Specimen prompts, composed around TURN_LOG's verbatim rows.
+const FLOW_TICK: { q: string; row: (typeof TURN_LOG)[number] }[] = [
+    { q: "Walk me through the billing service.", row: TURN_LOG[0] },
+    { q: "How would you cut over the new schema?", row: TURN_LOG[1] },
+    { q: "Why Kafka, given you already run both?", row: TURN_LOG[2] },
+];
+
 const STEPS = [
     { title: "Set the interview", body: "Pick the role, level and company size. Add a topic, or dial how cynical and how brutally honest the interviewer should be." },
     { title: "Answer in the chat", body: "One question at a time: chitchat, then behavioral, then technical, until the arc is spent." },
@@ -114,6 +133,58 @@ function Reveal({ children, className, delay = 0 }: { children: ReactNode; class
         <m.div className={className} initial={{ opacity: 0, y: 22 }} whileInView={{ opacity: 1, y: 0 }} viewport={VIEWPORT} transition={{ duration: 0.7, ease: GLIDE, delay }}>
             {children}
         </m.div>
+    );
+}
+
+// The card is inverted color space: the page's own foreground is white-on-white there (a bug
+// this diagram's first pass shipped). Labels re-point at background; the tight variant fits
+// two cells in one footer row.
+const LABEL_INVERT = cn(LABEL, "text-background/70");
+const QLABEL_INVERT = cn(LABEL_INVERT, "text-[0.6rem] tracking-[0.12em]");
+
+/* Pulses ride zero-length round-capped lines, not <circle>: a stretched viewBox turns a
+ * circle into an ellipse (the trap the trend chart notes). The vertical twin exists because
+ * the mobile grid is a single column. */
+function Connector() {
+    return (
+        <div aria-hidden className="flex h-full items-center justify-center">
+            <svg viewBox="0 0 40 40" preserveAspectRatio="none" aria-hidden="true" className="hidden h-full w-full md:block">
+                {/* y 6/20/34 = the three card rows, track-relative so the stretch holds shape. */}
+                <line x1={0} y1={6} x2={40} y2={6} stroke="var(--muted-foreground)" strokeDasharray="4 4" vectorEffect="non-scaling-stroke" className="animate-dash" />
+                <line x1={0} y1={20} x2={40} y2={20} stroke="var(--muted-foreground)" strokeDasharray="4 4" vectorEffect="non-scaling-stroke" className="animate-dash" />
+                <line x1={0} y1={34} x2={40} y2={34} stroke="var(--muted-foreground)" strokeDasharray="4 4" vectorEffect="non-scaling-stroke" className="animate-dash" />
+                {[6, 20, 34].map((y, i) => (
+                    <m.line
+                        key={y}
+                        initial={{ x1: 0, x2: 0.001 }}
+                        animate={{ x1: 40, x2: 40 }}
+                        transition={{ duration: 2.4, ease: "linear", repeat: Infinity, delay: 0.9 + i * 0.8, repeatDelay: 7.2 }}
+                        stroke="currentColor"
+                        strokeWidth={5}
+                        strokeLinecap="round"
+                        vectorEffect="non-scaling-stroke"
+                        className="opacity-80"
+                        y1={y}
+                        y2={y}
+                    />
+                ))}
+            </svg>
+            <svg viewBox="0 0 4 24" preserveAspectRatio="none" aria-hidden="true" className="block h-10 w-1 md:hidden">
+                <line x1={2} y1={0} x2={2} y2={24} stroke="var(--muted-foreground)" strokeDasharray="4 4" vectorEffect="non-scaling-stroke" className="animate-dash" />
+                <m.line initial={{ y1: 0, y2: 0.001 }} animate={{ y1: 24, y2: 24 }} transition={{ duration: 1.4, ease: "linear", repeat: Infinity, delay: 0.9, repeatDelay: 1.2 }} stroke="currentColor" strokeWidth={4} strokeLinecap="round" vectorEffect="non-scaling-stroke" className="opacity-80" />
+            </svg>
+        </div>
+    );
+}
+
+function LoopArc() {
+    return (
+        <div aria-hidden className="relative h-10">
+            <svg viewBox="0 0 1200 40" preserveAspectRatio="none" aria-hidden="true" className="block h-full w-full">
+                <path d="M1038 4 C1038 30 138 30 138 4" fill="none" stroke="var(--muted-foreground)" strokeDasharray="4 4" vectorEffect="non-scaling-stroke" className="animate-dash" />
+                <path d="M132 12 L138 2 L144 12" fill="none" stroke="var(--muted-foreground)" vectorEffect="non-scaling-stroke" />
+            </svg>
+        </div>
     );
 }
 
@@ -370,25 +441,125 @@ export function Landing() {
                             </Reveal>
                         </section>
 
-                        <section id="how" className={cn(SHELL, SECTION, "scroll-mt-24")}>
-                            <Reveal>
-                                <Folio n="02" label="How it works" />
-                                <h2 className="mt-10 max-w-[24ch] font-serif text-[clamp(1.9rem,3.4vw,3.25rem)] leading-[1.06] tracking-[-0.025em] text-balance">How it works</h2>
-                            </Reveal>
-                            <ol className="mt-14 grid gap-px border-y bg-border md:grid-cols-3">
-                                {STEPS.map((s, i) => (
-                                    <m.li key={s.title} initial={{ opacity: 0, y: 24 }} whileInView={{ opacity: 1, y: 0 }} viewport={VIEWPORT} transition={{ duration: 0.7, ease: GLIDE, delay: i * 0.1 }} className="bg-background px-6 py-10">
-                                        <span aria-hidden className={cn(LABEL, "font-serif text-5xl tabular-nums leading-none tracking-[-0.03em] text-foreground")}>
-                                            {String(i + 1).padStart(2, "0")}
-                                        </span>
-                                        <h3 className="mt-8 font-serif text-xl tracking-[-0.015em]">{s.title}</h3>
-                                        <p className="mt-3 max-w-[42ch] text-sm leading-[1.8] text-muted-foreground">{s.body}</p>
-                                    </m.li>
-                                ))}
-                            </ol>
+                        <section id="how" className="scroll-mt-24 border-y bg-muted/40">
+                            <div className={cn(SHELL, SECTION, "pb-24 sm:pb-32 lg:pb-40")}>
+                                <Reveal>
+                                    <Folio n="02" label="How it works" />
+                                    <h2 className="mt-10 max-w-[24ch] font-serif text-[clamp(1.9rem,3.4vw,3.25rem)] leading-[1.06] tracking-[-0.025em] text-balance">How it works</h2>
+                                </Reveal>
+                                <ol className="mt-14 grid gap-px border-y bg-border md:grid-cols-3">
+                                    {STEPS.map((s, i) => (
+                                        <m.li key={s.title} initial={{ opacity: 0, y: 24 }} whileInView={{ opacity: 1, y: 0 }} viewport={VIEWPORT} transition={{ duration: 0.7, ease: GLIDE, delay: i * 0.1 }} className="bg-background px-6 py-10">
+                                            <span aria-hidden className={cn(LABEL, "font-serif text-5xl tabular-nums leading-none tracking-[-0.03em] text-foreground")}>
+                                                {String(i + 1).padStart(2, "0")}
+                                            </span>
+                                            <h3 className="mt-8 font-serif text-xl tracking-[-0.015em]">{s.title}</h3>
+                                            <p className="mt-3 max-w-[42ch] text-sm leading-[1.8] text-muted-foreground">{s.body}</p>
+                                        </m.li>
+                                    ))}
+                                </ol>
+
+                                <Reveal delay={0.15} className="mt-12">
+                                    <figure aria-label="The flow: a resume, a setup and saved presets feed the interview run; every run is graded in place and leaves a turn log, a verdict and a trend; a preset loops the trend back into the next run.">
+                                        <figcaption className="flex items-baseline justify-between gap-6 rounded-t-xl border border-b-0 px-3 py-3 sm:px-5">
+                                            <span className={LABEL}>The flow</span>
+                                            <span className={cn(LABEL, "opacity-70")}>Answers in, grades out</span>
+                                        </figcaption>
+                                        <div className="relative rounded-xl border p-3 sm:p-5">
+                                            <div aria-hidden className="dotgrid pointer-events-none absolute inset-0 rounded-xl opacity-60 [mask-image:radial-gradient(80%_90%_at_50%_50%,#000_20%,transparent_85%)]" />
+
+                                            <div aria-hidden className="relative mb-3 flex justify-between md:grid md:grid-cols-[1fr_6rem_minmax(0,26rem)_6rem_1fr]">
+                                                <span className={cn(LABEL, "md:col-start-1 opacity-70")}>Inputs</span>
+                                                <span className={cn(LABEL, "hidden text-center md:col-start-3 md:block")}>The run</span>
+                                                <span className={cn(LABEL, "text-right opacity-70 md:col-start-5")}>After every run</span>
+                                            </div>
+
+                                            <div className="relative flex flex-col items-stretch gap-2 md:grid md:grid-cols-[1fr_6rem_minmax(0,26rem)_6rem_1fr] md:items-center md:gap-0">
+                                                <div className="flex flex-col justify-between gap-3">
+                                                    {FLOW_IN.map((f) => (
+                                                        <div key={f.label} className="rounded-xl border bg-background px-4 py-3">
+                                                            <p className={LABEL}>{f.label}</p>
+                                                            <p className="mt-1.5 text-sm leading-[1.6] text-muted-foreground">{f.body}</p>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                                <Connector />
+                                                {/* Stretched grid item: an auto-sized one inherits min-content widths and
+                                                spills off its track. */}
+                                                <div className="w-full rounded-xl bg-foreground px-4 py-4 text-background sm:px-5">
+                                                    <p className="flex items-center gap-2 font-mono text-[0.65rem] uppercase tracking-[0.18em] text-background/70">
+                                                        <span aria-hidden className="size-1.5 rounded-full bg-background animate-breathe" />
+                                                        The run
+                                                    </p>
+                                                    <p className="mt-2.5 font-serif text-xl leading-[1.25] tracking-[-0.015em]">One question at a time, reacting to what you just gave.</p>
+                                                    <div className="mt-3 flex flex-wrap gap-1.5">
+                                                        {["behavioral", "technical", "case"].map((r) => (
+                                                            <span key={r} className="rounded-md border border-background/30 px-1.5 py-0.5 font-mono text-[0.6rem] uppercase tracking-[0.14em] text-background/70">
+                                                                {r}
+                                                            </span>
+                                                        ))}
+                                                    </div>
+                                                    {/* One turn at a time. background tokens only: the card is inverted color space,
+                                                    and page tokens (muted-foreground et al.) go white-on-white here. */}
+                                                    <div className="mt-3 overflow-hidden rounded-lg border border-background/20">
+                                                        {/* Track = 3x wrapper: -33.333% is exactly one slide; keyframe holds never
+                                                        show a neighbor. */}
+                                                        <div className="flex w-[300%] animate-ticker">
+                                                            {FLOW_TICK.map((t) => {
+                                                                const meta = moveClassMeta(t.row.note);
+                                                                return (
+                                                                    <div key={t.q} className="w-1/3 shrink-0 px-3 py-2.5">
+                                                                        <p className="truncate font-mono text-[0.65rem] uppercase tracking-[0.14em] text-background/70">Q · {t.q}</p>
+                                                                        <p className="mt-1.5 line-clamp-2 font-serif text-sm leading-[1.35] tracking-[-0.01em]">“{t.row.answer}”</p>
+                                                                        <div className="mt-2 flex items-center justify-between">
+                                                                            {/* AI HERE: classes render as glyph + word, not the turn log's tone chips:
+                                                                            those tones go opaque on an inverted card. Ceiling: no per-class color
+                                                                            coding here. Upgrade: tone pairs in background-token space if the
+                                                                            grader's color coding must land on this card. */}
+                                                                            <span aria-hidden className="inline-flex items-center gap-1.5 rounded-md border border-background/30 px-1.5 py-0.5 font-mono text-[0.6rem] uppercase tracking-[0.12em] text-background/70">
+                                                                                {meta?.glyph}
+                                                                                {meta?.label}
+                                                                            </span>
+                                                                            <span className={cn("font-mono text-xs tabular-nums", t.row.delta.startsWith("+") ? "text-background" : "text-background/60")}>{t.row.delta}</span>
+                                                                        </div>
+                                                                    </div>
+                                                                );
+                                                            })}
+                                                        </div>
+                                                    </div>
+                                                    <div className="mt-3 flex items-center justify-between gap-3 border-t border-background/20 pt-2.5">
+                                                        <span className={QLABEL_INVERT}>Your model or ours</span>
+                                                        <span className={cn(QLABEL_INVERT, "hidden md:block")}>No training on your answers</span>
+                                                    </div>
+                                                </div>
+                                                <Connector />
+                                                <div className="flex flex-col justify-between gap-3">
+                                                    {FLOW_OUT.map((f) => (
+                                                        <div key={f.label} className="rounded-xl border bg-background px-4 py-3">
+                                                            <p className={LABEL}>{f.label}</p>
+                                                            <p className="mt-1.5 text-sm leading-[1.6] text-muted-foreground">{f.body}</p>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            </div>
+
+                                            {/* Arc only where the lanes exist; the caption carries the loop on mobile. */}
+                                            <p aria-hidden className={cn(LABEL, "mt-3 flex items-center justify-center gap-2 md:hidden")}>
+                                                Preset it · rerun · the trend shifts
+                                            </p>
+                                            <div aria-hidden className="relative mt-4 hidden h-10 md:block">
+                                                <LoopArc />
+                                                <span className="absolute inset-x-0 top-4 flex justify-center">
+                                                    <span className={cn(LABEL, "bg-background px-2 opacity-70")}>Preset it · rerun · the trend shifts</span>
+                                                </span>
+                                            </div>
+                                        </div>
+                                    </figure>
+                                </Reveal>
+                            </div>
                         </section>
 
-                        {/* The lexicon, run edge to edge on the one dark band: the page's single full-bleed moment
+                        {/* The lexicon, run edge to edge on the one dark band: the page's only dark full-bleed
                             and its only rendering of the vocabulary that the turn log prints as bare glyphs. The list
                             itself drifts through the frame on a loop rather than a light passing over a static one. */}
                         <div className="relative mt-24 border-y bg-[#111111] text-white sm:mt-32 lg:mt-40">

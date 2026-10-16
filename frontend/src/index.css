@@ -69,6 +69,8 @@
        distance: the loop is half the track, so the same 60s reads as the same px/s on a phone and on a
        wide card. Linear, because any easing would pulse once per lap. */
     --animate-vocab-marquee: vocab-marquee 60s linear infinite;
+    /* Loop = one dash pitch (dasharray 4 4 → offset 8): no seam at any line length. */
+    --animate-dash: dash-flow 1.2s linear infinite;
     @keyframes breathe {
         0%,
         100% {
@@ -84,6 +86,30 @@
         }
         to {
             transform: translateX(-50%);
+        }
+    }
+    @keyframes dash-flow {
+        to {
+            stroke-dashoffset: -8;
+        }
+    }
+    /* Holds ~3s, quick slide between; the tail snaps to a frame identical to the opening. */
+    --animate-ticker: flow-ticker 9s linear infinite;
+    @keyframes flow-ticker {
+        0%,
+        31% {
+            transform: translateX(0);
+        }
+        34%,
+        64% {
+            transform: translateX(-33.333%);
+        }
+        67%,
+        99.9% {
+            transform: translateX(-66.666%);
+        }
+        100% {
+            transform: translateX(0);
         }
     }
 }
