@@ -2,7 +2,7 @@
 
 Minimal SRE path for loading metrics and load testing application by generating randomized structured request with k6
 
-Inspired by Arjay McCandless load testing videos, usually known for system design with informative detailed videos.
+Inspired by Arjay McCandless $12 VPS load testing videos, usually known for system design with informative detailed videos.
 
 ## The question
 
@@ -28,8 +28,6 @@ Two more are recorded for this experiment. `db.pool.wait.duration` and `db.query
 Three properties of the instrumentation matter to this experiment.
 
 The route label is the matched template and never the raw path, so the label set stays bounded and a scanner sweeping URLs cannot mint a series per URL.
-
-The server histogram covers the whole response body, which means an SSE turn's sample is time-to-last-byte. That is why streams report separately from the plain reads.
 
 The access line carries `request_id`, `trace_id`, `span_id`, `status` and `duration_ms`, and it is the join between a k6 failure and the server's own account of what happened.
 
@@ -59,15 +57,6 @@ Capacity path
   pod -> Neon (direct host, TLS)
   pod -> Alloy (in-cluster) -> Grafana Cloud
 ```
-
-The app's own request path, its middleware order and the layer breakdown are in the README's `## Architecture` section. What matters here is the composition of a single turn.
-
-- two reads to open the session, the interview row and then its transcript
-- one read and one upsert for the turn credit
-- sometimes a delete and an insert, the trailing-user-turn repair
-- one insert for the reply
-
-**Every one of those reads is a network round trip to Neon, not a local call.** That is the material the number is made of.
 
 ## Configuration
 
@@ -110,7 +99,6 @@ These bound what one client can do, so they set the roof on the loop.
 | ------------------------ | -------------------------------------------------------- |
 | DB pool                  | `max_size=10`, `min_size=0`                              |
 | app rate limit           | 120/minute per client IP by default, `off` in the window |
-| daily turn cap           | `DEV_CHAT_TURNS`, 100000000 in dev and prod              |
 | templates                | 20, a module constant                                    |
 | resume parse concurrency | 2                                                        |
 | feedback attempts        | 3 attempts, 800ms apart                                  |
@@ -144,6 +132,8 @@ These bound what one client can do, so they set the roof on the loop.
 
 The sweep runs against prod's default branch, so it spends prod's own budget and its rows land in prod's data. The cleanup between steps is what keeps that bounded instead of accumulating.
 
+Uses scale-to-zero so we don't pay for compute when the application is not used. This has tradeoffs like coldstarts but for this particular scale I decided to still just don't touch it since we're gonna be warming up our Neon database anyways.
+
 ## Perf window
 
 | Change                                    | Value        |
@@ -157,27 +147,29 @@ The sweep runs against prod's default branch, so it spends prod's own budget and
 
 Really simple to change values, commit the perf values, see the sync land in argocd, confirm the pod was replaced with maybe kubectl or the gui, and read its env to watch the perf values go live before any load. overlays override infisical values like `LLM_BASE_URL`.
 
-## What one virtual user does
+## What each VUs does
+
+| Operation                                  | Type         | When           | Per turn |
+| ------------------------------------------ | ------------ | -------------- | -------- |
+| Interview row read                         | Read         | Session open   | 1        |
+| Transcript read                            | Read         | Session open   | 1        |
+| Reply insert                               | Write        | Every turn     | 1        |
+| Trailing-user-turn repair: delete + insert | Write        | Sometimes      | 0 or 2   |
+| Turn credit read + upsert                  | Read + write | Turn credit on | 0 or 2   |
 
 Every virtual user is the same identity and they all share one account.
-
-A virtual user drives the app the way a person would. It creates an interview, answers it, finishes it, reads the review, then walks the rest of the signed-in surface, so the run measures the app and not one route.
 
 The number of turns is a structured but randomized actions run per VU, with each going through thinking to simulate how a real user would behave.
 
 Exclusions, for different reasons.
 
-NvidiaNIM(LLM Output) and Cloudflare Workers AI(Voice) is out.
-
-These vendors uses credit and will only limit the workload, this is why NvidiaNIM is stubbed and Cloudflare Workers AI is off.
-
-Outside Generation, vendor that could fail the experiment due to free tier and rate limits.
+NvidiaNIM(LLM Output) and Cloudflare Workers AI(Voice) is out. These vendors uses credit and will only limit the workload, this is why NvidiaNIM is stubbed and Cloudflare Workers AI is off. These Outside Generation, vendor that could fail the experiment due to free tier and rate limits.
 
 For the edge tunneling, the tunnel that exists because of CGNAT, and Cloudflare's bot protection, which on Free cannot be skipped — the only lever is an IP Access rule, and any IP Access rule disables BFM zone-wide, not just for the runner. So I just simplified my Architecture, just using Tailscale for connection of load machine and application machine. While using cloudflare could measure PROD like latency, the plan itself was just really touching on SRE principles rather than focusing on what real users feel.
 
 **PDF import is out of the loop.** `PLAN.md` has the measurement: a 40MB `/Contents` peaks 1.74GB for zero characters of text against a 256Mi pod limit, so one upload can OOMKill the only replica. That would read as a capacity failure when it is a known unfixed bug, and it is its own piece of work.
 
-## What each iteration asserts
+## Correctness (k6 checks)
 
 Latency says nothing about whether the app worked, so each iteration checks, as k6 checks, that a failure lands in the same report as the timings.
 
@@ -200,15 +192,21 @@ So the rows go between steps. Every other test here cleans up after itself and t
 
 ## Between steps
 
-Warm the database. `min_size=0` means the first requests pay pool creation and a fresh TLS handshake, and Neon scale-to-zero means the first request after an idle gap pays the compute wake.
+A sweep is the whole experiment: warm the database, climb the ladder, bracket the failure, binary search, confirm, and record the boundary for estimated max users. A step is one level inside it. The sweep is automated end to end, so there are no human gaps between steps. That matters here, because let's say I forgetting to actually run the test for a certain period, it will eventually close because theres no one using the application. A gap long enough would let the asyncpg pool close its idle connections and Neon return to scale-to-zero, and the next step would pay the wake again before any number is taken.
 
-Every step runs the same four phases and only the third is data: a 30 second ramp to the target, a 60 second warm-up that is discarded, a 300 second measurement window, and a stop. The warm-up never becomes part of a number.
+So first, we warm the database. `min_size=0` means the first requests pay pool creation and a fresh TLS handshake, and Neon scale-to-zero means the first request after an idle gap pays the compute wake.
 
-We start at 25 VUs and double from there. The first levels are just checks: simple, a smoke test for an app or a generator that was already broken before the load got high.
+Then every step is a ramp to the target VUs, a 1min quiet gap with no requests which separates one step from the next in the metrics or in a dashboard like grafana., then a 5minute measurement window. Specifically, only the measurement window counts.
 
-If one of them fails, that is not a load problem, so we stop and fix it instead of searching. The search only starts above the smoke levels.
+The database is warmed once before the first step, so pool creation and the Neon wake we already paid before any number is taken.
+
+We start at 100 VUs and double from there. This is first level where we are checking and warming up: initialize our database, a smoke test for an app or a generator that was already broken before the load got high.
+
+If one of them fails, then that is not a load problem, so we stop and fix it instead of searching since it will be very unsual to have my test fail at such a low number. The search only starts above the smoke levels.
 
 Each level passes or fails. If it passes, we go up. If it fails on an SLO, we stop going up, but the run keeps going. That failure becomes the top of the range, and we split the gap between the last pass and that failure to find the highest level that still passes. If 200 passes and 400 fails, try 300; if 300 passes, try 350. That is a binary search. We only need the boundary between pass and fail, not an exact number, because the boundary itself moves about 10% between runs. If we land on 2500 today, a rerun could land at 2400 or 2600 and that is the same answer.
+
+Confirm the highest passing level by re-running it 3 times, and again since the boundary moves about 10% this becomes more important to evaluating between runs and a single pass is not proof.
 
 ## Decisions
 
@@ -217,9 +215,9 @@ Each level passes or fails. If it passes, we go up. If it fails on an SLO, we st
 3. Prod's default branch, not a Neon branch. Every VU is one identity either way, so a branch would isolate rows and change nothing about contention, at the cost of a second compute and a Secret swap.
 4. Use Tailscale instead of cloudflare due to BFM.
 5. `APP_ENV=test` with Clerk off, and the simulate route left open. Both side effects accepted and recorded above. Rejected: staying on production with minted Clerk tokens, which keeps JWT verification in the measured path but makes Clerk a dependency of the sweep.
-6. A full run per virtual user with a randomized turn count, plus any other endpoint a signed-in user can reach. Rejected: a fixed count, which makes every virtual user do identical work and has to be tuned to sit inside the arc; and a reads-only loop, which never touches the streaming path.
+6. A full run per virtual user with a randomized turn count, plus any other endpoint a signed-in user can reach. Rejected: a fixed count, which makes every virtual user do identical work and has to be tuned to sit inside the arc;
 7. Telemetry stays on and gets recorded as cost. Rejected: turning it off, which gives a cleaner app number at the price of the deployed configuration.
 8. The model stubbed for the sweep. Rejected: real generation, where the ceiling is the provider's quota and not this one.
 9. Direct host, not the pooler. A `-pooler` DSN flips `statement_cache_size`, a different code path than prod runs.
-10. The sweep runs under its own identity, named by `DEV_USER_SUB`. Rejected: leaving it as `dev-user`, which puts the run's rows and its daily turn counter on the same account dev uses, and makes the cleanup inseparable from real data.
+10. The sweep runs under its own identity, named by `DEV_USER_SUB`.
 11. The workload is what `main.js` walks, with no version pinned to it. Rejected: pinning it to the image revision, which would date the drift but costs a fact to maintain. The consequence is that a new route joins the workload silently, so two runs are only comparable when they share a revision.
