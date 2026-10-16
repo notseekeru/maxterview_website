@@ -18,7 +18,7 @@ per family). CSS declares and range-gates them in frontend/src/index.css.
 symbols.woff2                                 the grade marks, U+25A4/25CB/2605/2713/2715/2717
     1.3KB subset of Noto Sans Symbols 2 (SIL OFL 1.1, github.com/google/fonts/ofl/notosanssymbols2).
     None of the three text families carries these codepoints, so without it every mark (the lexicon,
-    the class tiles, the turn log) is drawn by whatever symbol font the OS happens to ship and the
+    the class tiles, the flow ticker) is drawn by whatever symbol font the OS happens to ship and the
     page looks different on each platform. Rebuild:
     curl -sSLO https://raw.githubusercontent.com/google/fonts/main/ofl/notosanssymbols2/NotoSansSymbols2-Regular.ttf
     pyftsubset NotoSansSymbols2-Regular.ttf \
