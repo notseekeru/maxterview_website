@@ -5,6 +5,11 @@ import { cn } from "@/lib/utils";
 
 const BADGE = "inline-flex size-6 shrink-0 items-center justify-center rounded-full border text-[11px] font-semibold leading-none";
 
+// Dy that lands each disc glyph's ink box on the disc center, measured off the rendered badge: the
+// line box centers the em, not the ink, so most glyphs sit 0.5px high. Re-measure if the symbol
+// font or a class changes.
+const GLYPH_DY: Record<string, string> = { "★": "1px", "✓": "0px", "•": "-0.5px" };
+
 /** The reviewer's verdict on one candidate turn, beside that turn's bubble: a chess-annotation
  *  disc, glyph only, whose note opens while the pointer is on it. The class name lives in the
  *  tooltip and the aria-label. */
@@ -32,7 +37,9 @@ export function MoveBadge({ moveClass, comment }: { moveClass: string; comment?:
         // biome-ignore lint/a11y/noStaticElementInteractions: hover is the only way into the note, so the handlers sit on the plain wrapper. The disc keeps the class in its aria-label and title, which is all a non-pointer reader gets.
         <div ref={ref} onMouseEnter={() => comment && setOpen(true)} onMouseLeave={() => setOpen(false)} className="relative flex shrink-0">
             <span title={title} role="img" aria-label={name} className={cn(BADGE, meta?.tone ?? "border-dashed border-border text-muted-foreground")}>
-                <span aria-hidden>{meta?.glyph ?? "•"}</span>
+                <span aria-hidden style={{ translate: `0 ${GLYPH_DY[meta?.glyph ?? "•"] ?? "0.5px"}` }}>
+                    {meta?.glyph ?? "•"}
+                </span>
             </span>
             {/* Above the disc and over the answer it grades. AI HERE: a row at the very top of the
                 scroller would clip it, which needs a measure-and-flip; not worth the layout read yet. */}
