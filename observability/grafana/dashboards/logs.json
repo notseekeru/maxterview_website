@@ -544,7 +544,7 @@
             "uid": "${DS_PROM}"
           },
           "editorMode": "code",
-          "expr": "db_pool_size{service_name=\"$app\"}",
+          "expr": "db_pool_size_ratio{service_name=\"$app\"}",
           "legendFormat": "size",
           "refId": "A",
           "range": true
@@ -555,7 +555,7 @@
             "uid": "${DS_PROM}"
           },
           "editorMode": "code",
-          "expr": "db_pool_idle{service_name=\"$app\"}",
+          "expr": "db_pool_idle_ratio{service_name=\"$app\"}",
           "legendFormat": "idle",
           "refId": "B",
           "range": true
