@@ -503,6 +503,67 @@
       "title": "Usage",
       "type": "stat",
       "description": "Whether anyone is using it, over whatever range the dashboard shows: requests that reached the app, interviews actually created, and feedback runs. The log volume panel is only a proxy for this, at roughly 1.5 to 2 lines per request. Read, never alerted on: a quiet week is not a fault here."
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROM}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "fillOpacity": 10,
+            "lineWidth": 1
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 33
+      },
+      "id": 9,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROM}"
+          },
+          "editorMode": "code",
+          "expr": "db_pool_size{service_name=\"$app\"}",
+          "legendFormat": "size",
+          "refId": "A",
+          "range": true
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROM}"
+          },
+          "editorMode": "code",
+          "expr": "db_pool_idle{service_name=\"$app\"}",
+          "legendFormat": "idle",
+          "refId": "B",
+          "range": true
+        }
+      ],
+      "title": "Database pool",
+      "type": "timeseries",
+      "description": "Connections the pool holds and how many of them are idle, read with each query. In use is the gap between the two, and idle at zero is the pool at its cap, which is when the wait climbs."
     }
   ],
   "refresh": "1m",
