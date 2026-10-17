@@ -375,7 +375,9 @@ export function cloudTranscriber(upload: (clip: Blob) => Promise<string>, sink: 
     // The analyser needs a context, and a context holds an audio thread until it is closed. One per
     // take with nothing closing them accumulates for the life of the page.
     let audio: AudioContext | null = null;
+    let mediaType: string | undefined;
     let settled = false;
+    let handed = false;
 
     const release = () => {
         cancelAnimationFrame(meter);
@@ -399,12 +401,29 @@ export function cloudTranscriber(upload: (clip: Blob) => Promise<string>, sink: 
      *  seconds of audio, since Whisper is batch (VOICE.md latency). `upload` rejects with a message
      *  written for the applicant: this file stays API-free and the caller owns that translation. */
     const deliver = async (clip: Blob) => {
+        // One clip, one upload: stop twice and the second press must not bill a second transcription.
+        if (handed) return;
+        handed = true;
         try {
             sink.onWords(await upload(clip));
             finish(null);
         } catch (e: unknown) {
             finish(e instanceof Error && e.message ? e.message : "The recording could not be transcribed. Try again, or type your answer.");
         }
+    };
+
+    /** The take is over: the recorder is stopped, so the clip is whatever it buffered. An inactive
+     *  recorder fires no stop event, and a take that never settles is a stuck screen. */
+    const finishClip = () => {
+        // Already handed off, or the take ended some other way: one press, one clip, one upload.
+        if (handed || settled) return;
+        const clip = new Blob(chunks, { type: recorder?.mimeType || mediaType || "audio/webm" });
+        chunks = [];
+        if (!clip.size) {
+            finish("Nothing was recorded, so nothing was added to your answer. Try again, or type it.");
+            return;
+        }
+        void deliver(clip);
     };
 
     return {
@@ -421,8 +440,13 @@ export function cloudTranscriber(upload: (clip: Blob) => Promise<string>, sink: 
                     finish(permissionMessage(e));
                     return;
                 }
-                if (settled) return; // cancelled while the prompt was up
-                const mediaType = pickRecordingType();
+                if (settled) {
+                    // The take ended while the prompt was up, so nothing will release these tracks.
+                    for (const track of stream.getTracks()) track.stop();
+                    stream = null;
+                    return;
+                }
+                mediaType = pickRecordingType();
                 try {
                     recorder = new MediaRecorder(stream, mediaType ? { mimeType: mediaType } : undefined);
                 } catch {
@@ -433,15 +457,7 @@ export function cloudTranscriber(upload: (clip: Blob) => Promise<string>, sink: 
                     if (e.data.size) chunks.push(e.data);
                 };
                 recorder.onerror = () => finish("The recording stopped early. Try again, or type your answer.");
-                recorder.onstop = () => {
-                    const clip = new Blob(chunks, { type: recorder?.mimeType || mediaType || "audio/webm" });
-                    chunks = [];
-                    if (!clip.size) {
-                        finish("Nothing was recorded, so nothing was added to your answer. Try again, or type it.");
-                        return;
-                    }
-                    void deliver(clip);
-                };
+                recorder.onstop = finishClip;
                 // Guarded: a stream the recorder will not accept throws here, and an uncaught throw left
                 // the take looking live until the cap.
                 try {
@@ -467,11 +483,22 @@ export function cloudTranscriber(upload: (clip: Blob) => Promise<string>, sink: 
             })();
         },
         stop() {
+            // Nothing more is metered: the take is over the moment it is asked to be.
+            cancelAnimationFrame(meter);
+            meter = 0;
+            const take = recorder;
+            const live = take !== null && take.state !== "inactive";
+            if (live) {
+                try {
+                    take.stop();
+                } catch {
+                    undefined; // raced with the recorder going inactive: the clip still has to settle
+                }
+            }
             // Stop the tracks with the recorder: a live microphone after the take is a lit indicator
             // for nothing (VOICE.md gotcha 8).
-            recorder?.stop();
-            if (!recorder) finish(null);
             for (const track of stream?.getTracks() ?? []) track.stop();
+            if (!live) finishClip();
         },
         cancel() {
             settled = true;

@@ -87,17 +87,19 @@ export function InterviewChat({ interviewId, onExit }: Props) {
     const micProblem = mic.blocked ?? mic.error;
     const placeholder = mic.recording
         ? "Listening: press Stop to put your words here"
-        : status === "completed"
-          ? "Review above"
-          : interviewOver
-            ? "Interview finished. Press ✓ at the top right for your feedback"
-            : confirmFinish
-              ? "Ending here skips the rest"
-              : status === "ready"
-                ? "Type your answer, or press the microphone to speak"
-                : status === "streaming"
-                  ? "Waiting for the interviewer..."
-                  : "Starting…";
+        : mic.transcribing
+          ? "Transcribing: your words land here in a moment"
+          : status === "completed"
+            ? "Review above"
+            : interviewOver
+              ? "Interview finished. Press ✓ at the top right for your feedback"
+              : confirmFinish
+                ? "Ending here skips the rest"
+                : status === "ready"
+                  ? "Type your answer, or press the microphone to speak"
+                  : status === "streaming"
+                    ? "Waiting for the interviewer..."
+                    : "Starting…";
 
     const loadMessages = useCallback(async () => {
         try {
@@ -419,7 +421,7 @@ export function InterviewChat({ interviewId, onExit }: Props) {
                     aria-label={interviewOver ? "Finish and get your feedback" : "End this interview"}
                     title={interviewOver ? "Finish and get your feedback" : "End this interview"}
                     onClick={() => (interviewOver ? void finishRun() : setConfirmFinish(true))}
-                    disabled={isFinishing || status === "streaming" || status === "completed" || !answered || mic.recording}
+                    disabled={isFinishing || status === "streaming" || status === "completed" || !answered || mic.busy}
                 >
                     {isFinishing ? <Spinner label="Reviewing" className="size-3.5" /> : <Icon name="complete" />}
                 </Button>
@@ -508,8 +510,14 @@ export function InterviewChat({ interviewId, onExit }: Props) {
                             Recording · {clock(mic.elapsed)} of {clock(MAX_TAKE_S)}
                         </p>
                     )}
-                    {!mic.recording && mic.notice && <p className="mb-1.5 px-2 text-xs text-muted-foreground">{mic.notice}</p>}
-                    {!mic.recording && micProblem && <p className="mb-1.5 px-2 text-xs text-destructive">{micProblem}</p>}
+                    {mic.transcribing && (
+                        <p role="status" className="mb-1.5 flex items-center gap-1.5 px-2 text-xs text-muted-foreground">
+                            <Spinner label="Transcribing your answer" className="size-3" />
+                            Transcribing what you said...
+                        </p>
+                    )}
+                    {!mic.busy && mic.notice && <p className="mb-1.5 px-2 text-xs text-muted-foreground">{mic.notice}</p>}
+                    {!mic.busy && micProblem && <p className="mb-1.5 px-2 text-xs text-destructive">{micProblem}</p>}
                     <div className="flex items-end gap-1 rounded-3xl border bg-card p-1 pl-2 shadow-sm transition-shadow focus-within:border-ring focus-within:shadow-md">
                         <Textarea
                             ref={inputRef}
@@ -528,7 +536,7 @@ export function InterviewChat({ interviewId, onExit }: Props) {
                                     void send();
                                 }
                             }}
-                            disabled={status === "completed" || interviewOver || mic.recording}
+                            disabled={status === "completed" || interviewOver || mic.busy}
                         />
                         {/* Disabled while the interviewer is replying: an open microphone would
                             transcribe our own voice back into the answer (VOICE.md gotcha 7). */}
@@ -547,12 +555,12 @@ export function InterviewChat({ interviewId, onExit }: Props) {
                                     mic.start();
                                 }
                             }}
-                            disabled={!mic.recording && (!mic.ready || status !== "ready" || interviewOver || Boolean(mic.blocked))}
+                            disabled={!mic.recording && (!mic.ready || status !== "ready" || interviewOver || Boolean(mic.blocked) || mic.busy)}
                             title={mic.recording ? "Stop and put what you said into your answer" : "Speak your answer instead of typing it"}
                         >
                             <Icon name={mic.recording ? "stop" : "mic"} />
                         </Button>
-                        <Button size="icon" className="shrink-0 rounded-full" aria-label="Send your answer" title="Send your answer" onClick={() => void send()} disabled={status !== "ready" || !draft.trim() || interviewOver || mic.recording}>
+                        <Button size="icon" className="shrink-0 rounded-full" aria-label="Send your answer" title="Send your answer" onClick={() => void send()} disabled={status !== "ready" || !draft.trim() || interviewOver || mic.busy}>
                             <Icon name="send" />
                         </Button>
                     </div>
@@ -567,7 +575,7 @@ export function InterviewChat({ interviewId, onExit }: Props) {
                     <Button variant="outline" size="sm" onClick={() => setConfirmFinish(false)}>
                         Keep going
                     </Button>
-                    <Button variant="destructive" size="sm" onClick={() => void finishRun()} disabled={isFinishing || mic.recording}>
+                    <Button variant="destructive" size="sm" onClick={() => void finishRun()} disabled={isFinishing || mic.busy}>
                         {isFinishing && <Spinner label="Ending the interview" className="size-3.5" />}
                         End it
                     </Button>

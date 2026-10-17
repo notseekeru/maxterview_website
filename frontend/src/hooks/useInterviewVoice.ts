@@ -115,6 +115,9 @@ const NO_STT = "Speech can't be transcribed here: this server has no transcripti
  *  answer box for the applicant to confirm or edit: the transcript is what gets scored (V5). */
 export function useRecorder(capability: VoiceCapability | null, onWords: (text: string) => void) {
     const [recording, setRecording] = useState(false);
+    // The microphone is off and the clip is with the server. Separate from `recording` because the wait
+    // is 7-18s of Whisper (VOICE.md latency) and counting it as a take is a screen that looks stuck.
+    const [transcribing, setTranscribing] = useState(false);
     const [level, setLevel] = useState(0);
     const [elapsed, setElapsed] = useState(0);
     const [error, setError] = useState<string | null>(null);
@@ -135,6 +138,7 @@ export function useRecorder(capability: VoiceCapability | null, onWords: (text: 
     const finish = useCallback((failure: string | null) => {
         rec.current = null;
         setRecording(false);
+        setTranscribing(false);
         setLevel(0);
         setElapsed(0);
         setError(failure);
@@ -157,6 +161,20 @@ export function useRecorder(capability: VoiceCapability | null, onWords: (text: 
         [finish],
     );
 
+    /** Press stop. The take ends here and the microphone is released: the words are already on their
+     *  way, so the screen says what is being waited on instead of still counting a take that is over. */
+    const stop = useCallback(() => {
+        const take = rec.current;
+        if (!take) return;
+        take.stop();
+        // A take that ended inside stop() (an empty clip) has already said so and cleared the ref.
+        if (rec.current === take) {
+            setRecording(false);
+            setTranscribing(true);
+            setLevel(0);
+        }
+    }, []);
+
     useEffect(() => {
         if (!recording) return;
         const timer = setInterval(() => {
@@ -164,11 +182,11 @@ export function useRecorder(capability: VoiceCapability | null, onWords: (text: 
             setElapsed(Math.min(secs, MAX_TAKE_S));
             if (secs >= MAX_TAKE_S && !capped.current) {
                 capped.current = true;
-                rec.current?.stop();
+                stop();
             }
         }, 1000);
         return () => clearInterval(timer);
-    }, [recording]);
+    }, [recording, stop]);
 
     // Leaving the route: the microphone stays lit until it is told to let go.
     useEffect(
@@ -185,6 +203,7 @@ export function useRecorder(capability: VoiceCapability | null, onWords: (text: 
         setNotice(null);
         if (blocked) return;
         capped.current = false;
+        setTranscribing(false);
         startedAt.current = Date.now();
         setElapsed(0);
         setLevel(0);
@@ -209,12 +228,16 @@ export function useRecorder(capability: VoiceCapability | null, onWords: (text: 
         /** Non-null when no take can run here: the button is dead, and this says why. */
         blocked,
         recording,
+        /** The take is over and the clip is with the server. */
+        transcribing,
+        /** Either half of a take is still this screen's to finish, so nothing may be sent until it is not. */
+        busy: recording || transcribing,
         level,
         elapsed,
         error,
         notice,
         start,
-        stop: useCallback(() => rec.current?.stop(), []),
+        stop,
         /** The answer went out: the last take's note stops being news. */
         clear: useCallback(() => {
             setError(null);
