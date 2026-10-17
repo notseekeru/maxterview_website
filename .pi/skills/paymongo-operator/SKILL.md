@@ -59,9 +59,10 @@ unavailable.
 
 ## 2. Where keys and state live
 
-- `backend/.env` (git-ignored) is the runtime source: `PAYMONGO_SECRET_KEY`, `PAYMONGO_WEBHOOK_SECRET`,
+- `backend/.env` (git-ignored) is the runtime source: `PAYMONGO_WEBHOOK_SECRET`,
   `FRONTEND_BASE_URL`, `BILLING_MODE`, `PREMIUM_PRICE_CENTAVOS`, `PREMIUM_PERIOD_DAYS`, plus `CLERK_*`
-  and quotas. `PAYMONGO_PLAN_ID` is **subscription mode only**.
+  and quotas. `PAYMONGO_SECRET_KEY` and `CLERK_SECRET_KEY` come from `.env.secrets` (`make env-pull`).
+  `PAYMONGO_PLAN_ID` is **subscription mode only**.
 - The scripts load it via `scripts/_env.sh`, which exports **names only** — it never prints a value.
   Process env wins over the file, matching compose semantics.
 - Entitlement state is the `subscriptions` row (owner_id → provider ids, `plan`, `status`,

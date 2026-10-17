@@ -26,9 +26,12 @@ via one SSH hop that asks first; see below.
     via `compose.yml` + `compose.dev.yml`/`compose.prod.yml`. Project name `maxterview-dev`.
   - Makefile conveniences: `make up`, `down`, `logs`, `psql`, `shell`, `exec`, `migrate`, `test-llm`.
   - Host ports: backend `8000`, frontend `5173`, postgres `5432`.
-- **Config**: Clerk/PayMongo/LLM live in git-ignored `backend/.env` (backend reads it via compose).
-  Frontend `VITE_CLERK_PUBLISHABLE_KEY` lives in `frontend/.env` (git-ignored). Root `.env` is
-  infra-only (POSTGRES_*, ports, APP_ENV).
+- **Config**: the credentials (CLERK_SECRET_KEY, LLM_API_KEY, BYOK_ENCRYPTION_KEY,
+  PAYMONGO_SECRET_KEY, CLOUDFLARE_ACCOUNT_ID/API_TOKEN, NEON_API_KEY, GRAFANA_SERVICE_ACCOUNT_TOKEN)
+  live in git-ignored `.env.secrets`, written by `make env-pull` from Infisical's dev env at
+  `/consumers/maxterview` (the only target that needs the network); `.envrc` loads it so the Neon and
+  Grafana MCP servers get their two. Hand-edited: `backend/.env` (runtime config), root `.env`
+  (POSTGRES_*, ports, APP_ENV), `frontend/.env` (`VITE_CLERK_PUBLISHABLE_KEY`).
 - **Cluster reach is one SSH hop, and it asks first.** The k3s kubeconfig (and therefore `kubectl`,
   `argo`, Helm) lives on the node, not here (`~/.kube` holds only caches). The node is
   `seeker@100.64.1.1` over Tailscale, opened with `~/.ssh/piserver`, a key that logs into the node

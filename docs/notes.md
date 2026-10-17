@@ -23,7 +23,6 @@
 
 # REFACTOR
 
-- refactor: how about we make development vars put into development env of infisical? but that would be creating a dependency to use internet just to fill the vars? but what if we boot strap and injected to .env so it works offline?
 
 # INFRA
 
