@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# _env.sh — sourced-by operator scripts; loads backend/.env and root .env into the shell so keys the
+# _env.sh: sourced-by operator scripts; loads backend/.env and root .env into the shell so keys the
 # user pastes there are honored by scripts that run on the HOST (not just in the compose container,
 # where `env_file` already injects them).
 #

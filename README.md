@@ -68,9 +68,8 @@ make up                     # builds + starts postgres, backend, frontend   (dev
 
 ### What to initialize to use each feature
 
-Everything below reads git-ignored env in `backend/.env` (backend) or `frontend/.env` (frontend), with
-the credential lines filled by `make env-pull`; you only need the vars for the features you actually
-use. Check which are set (names only) with
+Everything below reads git-ignored env in `backend/.env` (backend) or `frontend/.env` (frontend); you
+only need the vars for the features you actually use. Check which are set (names only) with
 `./.pi/skills/paymongo-operator/scripts/need-keys.sh`.
 
 | Want this feature                          | Set in `backend/.env`                                               | plus                                                   | how to run/verify                                                                                                                      |
