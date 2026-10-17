@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+"""End-to-end LLM smoke test: one real interview turn plus /finish against a running stack.
+
+Creates a throwaway interview through the API (removed the same way, never SQL) and fails if the
+model does not answer. Needs the stack up; an empty LLM_BASE_URL only exercises STUB_MODE.
+"""
 from __future__ import annotations
 
 import argparse

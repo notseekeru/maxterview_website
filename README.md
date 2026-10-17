@@ -59,7 +59,7 @@ Requires Docker + Docker Compose v2. Copy the example env and (optionally) fill 
 cp .env.example .env                  # compose/infra only: APP_ENV, POSTGRES_*, ports
 cp backend/.env.example backend/.env  # backend runtime: CLERK, LLM, quotas, PAYMONGO
 cp frontend/.env.example frontend/.env # VITE_* frontend vars
-make env-pull               # the credentials, from Infisical dev -> git-ignored .env.secrets
+make env-pull               # credentials from Infisical dev -> .env.secrets (needs `infisical login` once)
 make up                     # builds + starts postgres, backend, frontend   (dev only — prod uses Neon)
 ```
 
