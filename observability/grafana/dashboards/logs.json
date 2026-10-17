@@ -383,7 +383,40 @@
           },
           "unit": "s"
         },
-        "overrides": []
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "pool size"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "short"
+              },
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "pool idle"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "short"
+              },
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              }
+            ]
+          }
+        ]
       },
       "gridPos": {
         "h": 8,
@@ -425,11 +458,33 @@
           "legendFormat": "query p95 {{db_operation}}",
           "refId": "B",
           "range": true
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROM}"
+          },
+          "editorMode": "code",
+          "expr": "db_pool_size_ratio{service_name=\"$app\"}",
+          "legendFormat": "pool size",
+          "refId": "C",
+          "range": true
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROM}"
+          },
+          "editorMode": "code",
+          "expr": "db_pool_idle_ratio{service_name=\"$app\"}",
+          "legendFormat": "pool idle",
+          "refId": "D",
+          "range": true
         }
       ],
-      "title": "Database wait and query",
+      "title": "Database: wait, query, pool",
       "type": "timeseries",
-      "description": "The two halves of database time, sampled apart on purpose: waiting for a pooled connection, and running the query. The rule that fires on a 5 second wait is pointed at this panel, which is why it exists. Baseline here is a pool wait p95 near 0.9s against a query p95 under 0.32s, because Neon scales to zero and the pool starts empty, so a slow request is usually the wait and not the work."
+      "description": "Database time and database connections in one place: the two halves of a query's cost, waiting for a pooled connection and running it, plus the pool's size and idle count. Waiting is measured apart from working on purpose, because only one of the two is the database's. The pool's series are on the right axis."
     },
     {
       "datasource": {
@@ -503,67 +558,6 @@
       "title": "Usage",
       "type": "stat",
       "description": "Whether anyone is using it, over whatever range the dashboard shows: requests that reached the app, interviews actually created, and feedback runs. The log volume panel is only a proxy for this, at roughly 1.5 to 2 lines per request. Read, never alerted on: a quiet week is not a fault here."
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${DS_PROM}"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "custom": {
-            "fillOpacity": 10,
-            "lineWidth": 1
-          },
-          "unit": "short"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 0,
-        "y": 33
-      },
-      "id": 9,
-      "options": {
-        "legend": {
-          "displayMode": "list",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${DS_PROM}"
-          },
-          "editorMode": "code",
-          "expr": "db_pool_size_ratio{service_name=\"$app\"}",
-          "legendFormat": "size",
-          "refId": "A",
-          "range": true
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${DS_PROM}"
-          },
-          "editorMode": "code",
-          "expr": "db_pool_idle_ratio{service_name=\"$app\"}",
-          "legendFormat": "idle",
-          "refId": "B",
-          "range": true
-        }
-      ],
-      "title": "Database pool",
-      "type": "timeseries",
-      "description": "Connections the pool holds and how many of them are idle, read with each query. In use is the gap between the two, and idle at zero is the pool at its cap, which is when the wait climbs."
     },
     {
       "datasource": {
@@ -677,7 +671,7 @@
             "uid": "${DS_PROM}"
           },
           "editorMode": "code",
-          "expr": "max by (pod, container) (container_memory_working_set_bytes{namespace=\"{{PROJECT}}\", container!=\"\"}) / max by (pod, container) (kube_pod_container_resource_limits{namespace=\"{{PROJECT}}\", resource=\"memory\"})",
+          "expr": "max by (pod, container) (container_memory_working_set_bytes{namespace=\"{{PROJECT}}\", container!=\"\"}) / max by (pod, container) (container_spec_memory_limit_bytes{namespace=\"{{PROJECT}}\", container!=\"\"})",
           "legendFormat": "{{pod}} of its limit",
           "refId": "B",
           "range": true
@@ -688,7 +682,7 @@
             "uid": "${DS_PROM}"
           },
           "editorMode": "code",
-          "expr": "container_memory_rss{id=\"/\"} / on() group_left kube_node_status_capacity{resource=\"memory\"}",
+          "expr": "container_memory_rss{id=\"/\"} / on() group_left machine_memory_bytes",
           "legendFormat": "node memory (anonymous)",
           "refId": "C",
           "range": true
@@ -696,7 +690,7 @@
       ],
       "title": "Saturation: disk and pod memory",
       "type": "timeseries",
-      "description": "The ceilings a run can hit: free space on the node's filesystems, each container's working set against its declared memory limit, and the node's anonymous memory against its capacity. The rules fire at 15% free, 90% of a container limit, and 90% of node memory."
+      "description": "The ceilings a run can hit: free space on the node's filesystems, each container's working set against the limit its cgroup was given, and the node's anonymous memory against its capacity. All from the kubelet. The rules fire at 15% free, 90% of a container limit, and 90% of node memory."
     }
   ],
   "refresh": "1m",

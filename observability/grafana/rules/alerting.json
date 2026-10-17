@@ -725,7 +725,7 @@
       "for": "10m",
       "keep_firing_for": "0s",
       "annotations": {
-        "description": "A container in {{PROJECT}} has been above 90% of its declared memory limit for 10 minutes. It is still answering, which is the point of this rule: it is the warning that a limit is about to be reached, and the restart rule is the one that reports it was. Containers with no declared limit produce no series on the right side and so cannot fire.",
+        "description": "A container in {{PROJECT}} has been above 90% of its declared memory limit for 10 minutes. Both numbers now come from the kubelet: the working set and the cgroup's own limit, so this rule needs no second exporter and no join across sources. Containers with no declared limit divide by a value near the node's capacity and cannot fire.",
         "summary": "{{PROJECT}}: container near its memory limit"
       },
       "labels": {
@@ -743,7 +743,7 @@
           "datasourceUid": "{{DS_PROM}}",
           "model": {
             "editorMode": "code",
-            "expr": "max by (namespace, pod, container) (container_memory_working_set_bytes{namespace=\"{{PROJECT}}\", container!=\"\"}) / max by (namespace, pod, container) (kube_pod_container_resource_limits{namespace=\"{{PROJECT}}\", resource=\"memory\"})",
+            "expr": "max by (namespace, pod, container) (container_memory_working_set_bytes{namespace=\"{{PROJECT}}\", container!=\"\"}) / max by (namespace, pod, container) (container_spec_memory_limit_bytes{namespace=\"{{PROJECT}}\", container!=\"\"})",
             "instant": false,
             "legendFormat": "working set / limit",
             "range": true,
@@ -799,15 +799,15 @@
       ]
     },
     {
-      "title": "{{PROJECT}}: pod restarting",
+      "title": "{{PROJECT}}: container oom killed",
       "condition": "C",
       "noDataState": "OK",
       "execErrState": "Error",
       "for": "0s",
       "keep_firing_for": "0s",
       "annotations": {
-        "description": "A container in {{PROJECT}} restarted inside the last 15 minutes. On one replica that is an outage whether the cause was an OOMKill, a failed probe or a crash. The counter lives in kube-state-metrics, so it reports a restart whose container logs and metrics stopped at the moment of death.",
-        "summary": "{{PROJECT}}: pod restarting"
+        "description": "A container in {{PROJECT}} was killed by the kernel out-of-memory killer inside the last 15 minutes. On one replica that is an outage. This reads the cgroup's own OOM counter rather than a restart total, so it names the cause; a crash that is not an OOM is reported by the app's own absent(target_info) rule and by the uptime probe.",
+        "summary": "{{PROJECT}}: container oom killed"
       },
       "labels": {
         "severity": "critical"
@@ -824,9 +824,9 @@
           "datasourceUid": "{{DS_PROM}}",
           "model": {
             "editorMode": "code",
-            "expr": "sum(increase(kube_pod_container_status_restarts_total{namespace=\"{{PROJECT}}\"}[15m]))",
+            "expr": "sum(increase(container_oom_events_total{namespace=\"{{PROJECT}}\", container!=\"\"}[15m]))",
             "instant": false,
-            "legendFormat": "restarts",
+            "legendFormat": "oom events",
             "range": true,
             "refId": "A",
             "queryType": "range",
@@ -961,87 +961,6 @@
       ]
     },
     {
-      "title": "{{PROJECT}}: saturation scrape down",
-      "condition": "C",
-      "noDataState": "Alerting",
-      "execErrState": "Error",
-      "for": "10m",
-      "keep_firing_for": "0s",
-      "annotations": {
-        "summary": "{{PROJECT}}: saturation scrape down",
-        "description": "One of the two scrapes that carry saturation is not answering. The query returns 1 while both are up and 0 when either fails, so a healthy stack holds a value rather than returning nothing; noDataState is Alerting because the case where the series vanish entirely, the collector itself being gone, is the failure this rule is for. Without it a dead kubelet scrape blanks the memory and disk rules in silence, and NoData reads as healthy on every one of them."
-      },
-      "labels": {
-        "severity": "warning"
-      },
-      "isPaused": false,
-      "data": [
-        {
-          "refId": "A",
-          "queryType": "range",
-          "relativeTimeRange": {
-            "from": 900,
-            "to": 0
-          },
-          "datasourceUid": "{{DS_PROM}}",
-          "model": {
-            "editorMode": "code",
-            "expr": "min(up{job=~\"prometheus.scrape.*\"})",
-            "instant": false,
-            "legendFormat": "down",
-            "range": true,
-            "refId": "A",
-            "queryType": "range",
-            "intervalMs": 1000,
-            "maxDataPoints": 43200
-          }
-        },
-        {
-          "refId": "B",
-          "queryType": "",
-          "relativeTimeRange": {
-            "from": 900,
-            "to": 0
-          },
-          "datasourceUid": "__expr__",
-          "model": {
-            "expression": "A",
-            "intervalMs": 1000,
-            "maxDataPoints": 43200,
-            "reducer": "last",
-            "refId": "B",
-            "type": "reduce"
-          }
-        },
-        {
-          "refId": "C",
-          "queryType": "",
-          "relativeTimeRange": {
-            "from": 900,
-            "to": 0
-          },
-          "datasourceUid": "__expr__",
-          "model": {
-            "conditions": [
-              {
-                "evaluator": {
-                  "type": "lt",
-                  "params": [
-                    1
-                  ]
-                }
-              }
-            ],
-            "expression": "B",
-            "intervalMs": 1000,
-            "maxDataPoints": 43200,
-            "refId": "C",
-            "type": "threshold"
-          }
-        }
-      ]
-    },
-    {
       "title": "{{PROJECT}}: node memory pressure",
       "condition": "C",
       "noDataState": "OK",
@@ -1050,7 +969,7 @@
       "keep_firing_for": "0s",
       "annotations": {
         "summary": "{{PROJECT}}: node memory pressure",
-        "description": "Anonymous memory on the node has been above 90% of its capacity for 10 minutes. rss is the part the kernel cannot reclaim; the cache-inflated working set reads much higher at rest, which is why the rule uses rss and why a working-set threshold would fire on page cache. Above 90% the kernel starts choosing victims, and the only replica is not the process it will spare."
+        "description": "Anonymous memory on the node has been above 90% of its capacity for 10 minutes. rss is the part the kernel cannot reclaim and machine_memory_bytes is the node's own total, both from the same kubelet scrape; the cache-inflated working set reads much higher at rest, which is why this rule does not use it. Above 90% the kernel starts choosing victims, and the only replica is not the process it will spare."
       },
       "labels": {
         "severity": "warning"
@@ -1067,7 +986,7 @@
           "datasourceUid": "{{DS_PROM}}",
           "model": {
             "editorMode": "code",
-            "expr": "container_memory_rss{id=\"/\"} / on() group_left kube_node_status_capacity{resource=\"memory\"}",
+            "expr": "container_memory_rss{id=\"/\"} / on() group_left machine_memory_bytes",
             "instant": false,
             "legendFormat": "anonymous / capacity",
             "range": true,
