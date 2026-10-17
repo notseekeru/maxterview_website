@@ -59,7 +59,7 @@ Requires Docker + Docker Compose v2. Copy the example env and (optionally) fill 
 cp .env.example .env                  # compose/infra only: APP_ENV, POSTGRES_*, ports
 cp backend/.env.example backend/.env  # backend runtime: CLERK, LLM, quotas, PAYMONGO
 cp frontend/.env.example frontend/.env # VITE_* frontend vars
-make env-pull               # credentials from Infisical dev -> .env.secrets (needs `infisical login` once)
+make env-pull               # fills the credential lines in .env + backend/.env (needs `infisical login` once)
 make up                     # builds + starts postgres, backend, frontend   (dev only — prod uses Neon)
 ```
 
@@ -68,9 +68,9 @@ make up                     # builds + starts postgres, backend, frontend   (dev
 
 ### What to initialize to use each feature
 
-Everything below reads git-ignored env in `backend/.env` (backend), `.env.secrets` (the credentials
-`make env-pull` writes) or `frontend/.env` (frontend); you only need the vars for the features you
-actually use. Check which are set (names only) with
+Everything below reads git-ignored env in `backend/.env` (backend) or `frontend/.env` (frontend), with
+the credential lines filled by `make env-pull`; you only need the vars for the features you actually
+use. Check which are set (names only) with
 `./.pi/skills/paymongo-operator/scripts/need-keys.sh`.
 
 | Want this feature                          | Set in `backend/.env`                                               | plus                                                   | how to run/verify                                                                                                                      |

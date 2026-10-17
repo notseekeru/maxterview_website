@@ -27,8 +27,8 @@ seed-wipe: ## Same, replacing this owner's existing rows.
 test-llm: ## End-to-end LLM smoke test (needs live model + running stack). See scripts/llm-smoke.py.
 	@nix shell nixpkgs#python3 --command python3 -u scripts/llm-smoke.py
 probe-llm: ## Measure the LLM_* target: rate-limit cliff, prompt caching, stage latency. See scripts/llm-probe.py.
-	@set -a; . ./backend/.env; . ./.env.secrets; set +a; nix shell nixpkgs#python3 --command python3 -u scripts/llm-probe.py
-env-pull: ## Refresh .env.secrets from Infisical dev. The only target that needs the network.
+	@set -a; . ./backend/.env; set +a; nix shell nixpkgs#python3 --command python3 -u scripts/llm-probe.py
+env-pull: ## Fill the credential lines in .env and backend/.env from Infisical dev. The only target that needs the network.
 	@scripts/env-pull.sh
 # DEV
 check-ports:

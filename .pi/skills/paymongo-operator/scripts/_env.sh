@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# _env.sh — sourced-by operator scripts; loads backend/.env, root .env and .env.secrets into the
-# shell so keys the user pastes there are honored by scripts that run on the HOST (not just in the
-# compose container, where `env_file` already injects them).
+# _env.sh — sourced-by operator scripts; loads backend/.env and root .env into the shell so keys the
+# user pastes there are honored by scripts that run on the HOST (not just in the compose container,
+# where `env_file` already injects them).
 #
 # Git-ignored secrets are read as *names* here. This loader NEVER prints a value. It only exports
 # whatever is already in the file unchanged, and only when the var is not already set (process env
@@ -16,7 +16,6 @@
 _ENGINE_CORE_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../../../.." && pwd)"
 _ENGINE_ROOT_ENV="$_ENGINE_CORE_DIR/.env"
 _ENGINE_BACKEND_ENV="$_ENGINE_CORE_DIR/backend/.env"
-_ENGINE_SECRETS_ENV="$_ENGINE_CORE_DIR/.env.secrets"
 
 # Load a dotenv file into env, without printing values and only if var not already set.
 _engine_load_env() {
@@ -46,5 +45,4 @@ _engine_load_env() {
 
 _engine_load_env "$_ENGINE_ROOT_ENV"
 _engine_load_env "$_ENGINE_BACKEND_ENV"
-_engine_load_env "$_ENGINE_SECRETS_ENV"
-unset _engine_load_env _ENGINE_CORE_DIR _ENGINE_ROOT_ENV _ENGINE_BACKEND_ENV _ENGINE_SECRETS_ENV _k _rest
+unset _engine_load_env _ENGINE_CORE_DIR _ENGINE_ROOT_ENV _ENGINE_BACKEND_ENV _k _rest

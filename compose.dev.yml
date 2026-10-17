@@ -10,7 +10,6 @@ services:
     env_file:
       - .env
       - ./backend/.env
-      - ./.env.secrets
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-maxterview}:${POSTGRES_PASSWORD:-maxterview}@postgres:5432/${POSTGRES_DB:-maxterview}
       APP_ENV: ${APP_ENV:-development}
