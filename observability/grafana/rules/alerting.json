@@ -887,7 +887,7 @@
       "for": "10m",
       "keep_firing_for": "0s",
       "annotations": {
-        "description": "A filesystem on the node has been under 15% free for 10 minutes. An image pull or a log burst filling the root filesystem is otherwise noticed only when the node stops answering, so this is the earliest warning this pipeline can give. NoData means the kubelet does not expose the filesystem family on this cluster, and then the rule is silent rather than wrong.",
+        "description": "A filesystem on the node has been under 15% free for 10 minutes. Read from the cAdvisor root cgroup, which is the node itself and needs no host mount: the kubelet already reports the host's device stats. An image pull or a log burst filling the root filesystem is otherwise noticed only when the node stops answering. NoData means the device regex matched no filesystem on this host.",
         "summary": "{{PROJECT}}: disk filling"
       },
       "labels": {
@@ -905,7 +905,7 @@
           "datasourceUid": "{{DS_PROM}}",
           "model": {
             "editorMode": "code",
-            "expr": "min by (instance) (node_filesystem_avail_bytes{fstype=~\"ext4|xfs\"} / node_filesystem_size_bytes{fstype=~\"ext4|xfs\"})",
+            "expr": "min by (device) ((container_fs_limit_bytes{id=\"/\", device=~\"/dev/(sd|nvme|mmcblk|vd)[a-z0-9]*\"} - container_fs_usage_bytes{id=\"/\", device=~\"/dev/(sd|nvme|mmcblk|vd)[a-z0-9]*\"}) / container_fs_limit_bytes{id=\"/\", device=~\"/dev/(sd|nvme|mmcblk|vd)[a-z0-9]*\"})",
             "instant": false,
             "legendFormat": "free",
             "range": true,
