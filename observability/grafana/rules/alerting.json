@@ -497,7 +497,7 @@
           "datasourceUid": "{{DATASOURCE}}",
           "model": {
             "editorMode": "code",
-            "expr": "sum(count_over_time({app=\"{{ALLOY_APP}}\"} |= \"Exporting failed\" [15m]))",
+            "expr": "sum(count_over_time({app=\"{{ALLOY_APP}}\"} |~ \"Exporting failed|Partial success\" [15m]))",
             "intervalMs": 1000,
             "maxDataPoints": 43200,
             "queryType": "range",
@@ -553,7 +553,7 @@
       "for": "5m",
       "keep_firing_for": "0s",
       "annotations": {
-        "description": "More than 2 dropped OTLP batches in 15 minutes from Alloy, so traces and metric samples for that window are gone and a batch burst is how a DNS hiccup looks: 103 failures in one hour on 2026-09-25. The cause is on Alloy's own line, either an HTTP status (401 = the gateway wants its own basic-auth user, not the Loki one) or `lookup ... server misbehaving`, a CoreDNS SERVFAIL that lasts as long as the cluster resolver does. Nothing else reports either: the receiver accepts, the exporter drops, and the panels go quiet.",
+        "description": "Alloy could not hand a batch to Grafana Cloud, either outright or in part. The partial case is the one that bit: the tenant's active series limit rejects some data points from an otherwise accepted request, and the app's own metrics ride the same batch, so a scrape that mints too many series starts costing app samples. Exporting failed alone missed it.",
         "summary": "{{PROJECT}}: telemetry export failing"
       },
       "labels": {

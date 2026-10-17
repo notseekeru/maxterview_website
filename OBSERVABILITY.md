@@ -37,10 +37,11 @@ taking app metrics with them. kube-state-metrics supplies the pod state the kube
 (restarts and declared limits), from its own `observability` namespace in gitops `infra/`, so an app
 prune cannot take cluster monitoring with it. The scrape dials the node's `InternalIP`, which the
 serving certificate lists (`piserver`, `localhost`, `127.0.0.1`, `::1`, `192.168.100.6`), so it verifies
-against the cluster CA without `insecure_skip_verify`. Host disk and node-level CPU have no source yet:
-k3s's kubelet exposes its own `kubelet_*` internals and cadvisor, not `node_filesystem_*`, so the disk
-rule stays silent until node-exporter or an equivalent exists. `metrics-server` still answers
-`kubectl top` from memory at 15s and retains nothing.
+against the cluster CA without `insecure_skip_verify`. Node CPU, memory and disk come from the same scrape: cAdvisor's root cgroup (`id="/"`) is the node
+itself and already carries the host's device stats, so no host mount, no node-exporter and no DaemonSet
+is needed. The disk rule reads `container_fs_usage_bytes` against `container_fs_limit_bytes` per device,
+and inodes alongside them. `metrics-server` still answers `kubectl top` from memory at 15s and retains
+nothing.
 
 ## Shipped — tier 3, OTLP
 
