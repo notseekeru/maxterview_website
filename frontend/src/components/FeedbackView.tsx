@@ -29,10 +29,7 @@ export function FeedbackView({ feedback, messages = [], offer, onRedo, redoing, 
     return (
         <Card className={failed ? "border-destructive" : undefined}>
             <CardHeader className="flex-row items-start justify-between gap-3 space-y-0">
-                <div>
-                    <CardTitle>{failed ? "Review failed" : "Review"}</CardTitle>
-                    <CardDescription>Every answer you gave is annotated in the transcript below</CardDescription>
-                </div>
+                <CardTitle>{failed ? "Review failed" : "Review"}</CardTitle>
                 {onRedo && (
                     <div className="flex flex-col items-end gap-1">
                         <Button variant="outline" size="sm" onClick={onRedo} disabled={redoing}>

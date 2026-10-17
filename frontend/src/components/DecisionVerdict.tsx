@@ -19,12 +19,6 @@ function toneClass(decision: Decision): string {
 }
 
 /** Certainty bands. Keeps 41% from reading like 89% without inventing a second score. */
-function certaintyBand(pct: number): string {
-    if (pct < 34) return "Low: the transcript leaves a lot unanswered.";
-    if (pct < 67) return "Moderate: real evidence, with gaps.";
-    return "High: backed by concrete, role-specific answers.";
-}
-
 export function DecisionVerdict({ decision, certainty, className }: { decision: Decision; certainty?: number | null; className?: string }) {
     const pct = typeof certainty === "number" ? certainty : null;
     const active = DECISIONS.findIndex((d) => d.value === decision);
@@ -46,7 +40,6 @@ export function DecisionVerdict({ decision, certainty, className }: { decision: 
             </div>
 
             {pct !== null && <Progress className="h-1.5" value={pct} />}
-            <p className="text-xs text-muted-foreground">{pct === null ? "The model picked a decision but not a confidence level for it." : `${certaintyBand(pct)} Certainty measures how much evidence backs the call, not how good it is.`}</p>
         </div>
     );
 }
