@@ -688,15 +688,15 @@
             "uid": "${DS_PROM}"
           },
           "editorMode": "code",
-          "expr": "container_memory_working_set_bytes{id=\"/\"} / on() group_left kube_node_status_capacity{resource=\"memory\"}",
-          "legendFormat": "node memory",
+          "expr": "container_memory_rss{id=\"/\"} / on() group_left kube_node_status_capacity{resource=\"memory\"}",
+          "legendFormat": "node memory (anonymous)",
           "refId": "C",
           "range": true
         }
       ],
       "title": "Saturation: disk and pod memory",
       "type": "timeseries",
-      "description": "The ceilings a run can hit: free space on the node's filesystems, each container's working set against its declared memory limit, and the node's own working set against its capacity. The rules fire at 15% free and 90% of a container limit; this is the approach."
+      "description": "The ceilings a run can hit: free space on the node's filesystems, each container's working set against its declared memory limit, and the node's anonymous memory against its capacity. The rules fire at 15% free, 90% of a container limit, and 90% of node memory."
     }
   ],
   "refresh": "1m",
