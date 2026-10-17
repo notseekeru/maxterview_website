@@ -31,7 +31,7 @@ Labels are `namespace/pod/container/app` plus the external `cluster`/`app`.
 | Credential      | Terraform `maxterview-logs` Secret, values from Infisical | `LOKI_URL`/`LOKI_USER`/`LOKI_TOKEN`/`OTLP_URL`: one access-policy token, scoped `logs:write`, `metrics:write`, `traces:write`. Both pipelines authenticate with it; only the username differs (next table). The app never holds it, and it is the only write credential either pipeline has. |
 
 Saturation comes off the node rather than an operator's terminal. Alloy scrapes the kubelet's cadvisor
-for per-container CPU and memory, filtered to those two families: unfiltered, cAdvisor's 66 families are
+for per-container CPU and memory, filtered to six families: unfiltered, cAdvisor's 66 families are
 3,259 series against a tenant cap of 15,000, and the gateway rejects whole batches once it is crossed,
 taking app metrics with them. kube-state-metrics supplies the pod state the kubelet cannot report
 (restarts and declared limits), from its own `observability` namespace in gitops `infra/`, so an app

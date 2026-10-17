@@ -959,6 +959,87 @@
           }
         }
       ]
+    },
+    {
+      "title": "{{PROJECT}}: saturation scrape down",
+      "condition": "C",
+      "noDataState": "Alerting",
+      "execErrState": "Error",
+      "for": "10m",
+      "keep_firing_for": "0s",
+      "annotations": {
+        "summary": "{{PROJECT}}: saturation scrape down",
+        "description": "One of the two scrapes that carry saturation has stopped answering, or its collector is gone. This rule exists because the rules that read that data go NoData when it disappears, and NoData is OK on all of them: a dead kubelet scrape would otherwise blank the memory and disk rules in perfect silence. Check the Alloy pod first, then the target: the kubelet on the node's InternalIP, and kube-state-metrics in the observability namespace."
+      },
+      "labels": {
+        "severity": "warning"
+      },
+      "isPaused": false,
+      "data": [
+        {
+          "refId": "A",
+          "queryType": "range",
+          "relativeTimeRange": {
+            "from": 900,
+            "to": 0
+          },
+          "datasourceUid": "{{DS_PROM}}",
+          "model": {
+            "editorMode": "code",
+            "expr": "(min by (job) (up{job=~\"prometheus.scrape.*\"}) == 0) or (absent(up{job=~\"prometheus.scrape.*\"}) == 1)",
+            "instant": false,
+            "legendFormat": "down",
+            "range": true,
+            "refId": "A",
+            "queryType": "range",
+            "intervalMs": 1000,
+            "maxDataPoints": 43200
+          }
+        },
+        {
+          "refId": "B",
+          "queryType": "",
+          "relativeTimeRange": {
+            "from": 900,
+            "to": 0
+          },
+          "datasourceUid": "__expr__",
+          "model": {
+            "expression": "A",
+            "intervalMs": 1000,
+            "maxDataPoints": 43200,
+            "reducer": "last",
+            "refId": "B",
+            "type": "reduce"
+          }
+        },
+        {
+          "refId": "C",
+          "queryType": "",
+          "relativeTimeRange": {
+            "from": 900,
+            "to": 0
+          },
+          "datasourceUid": "__expr__",
+          "model": {
+            "conditions": [
+              {
+                "evaluator": {
+                  "type": "gt",
+                  "params": [
+                    0
+                  ]
+                }
+              }
+            ],
+            "expression": "B",
+            "intervalMs": 1000,
+            "maxDataPoints": 43200,
+            "refId": "C",
+            "type": "threshold"
+          }
+        }
+      ]
     }
   ]
 }
