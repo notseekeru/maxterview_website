@@ -1,4 +1,4 @@
-# Real QR Ph payment via a host-direct browser (the "upgrade" leg)
+# Real QR Ph payment through the browser (the "upgrade" leg)
 
 The shipping rail is `BILLING_MODE=period` on **QR Ph**: one-time Payment Intent → a QR drawn in the
 SPA → `payment.paid` → 30 days of premium. Nothing redirects. `POST /api/billing/checkout` answers
@@ -7,9 +7,7 @@ webhook flips the tier. A redirect method answers `{"url": …}` and would need 
 none is enabled on this account (Maya and cards need KYB) — see SKILL.md §1.
 
 Drive the browser with the `playwright` MCP server declared in `.pi/mcp.json`
-(`mcp__playwright__browser_*`) or host-direct with `playwright-core` +
-chromium resolved from `/nix/store` exactly as the `hermetic-e2e` skill documents (no host
-`npm install`, no `node_modules` in local storage).
+(`mcp__playwright__browser_*`, called from a codemode script) as the `hermetic-e2e` skill documents.
 
 > **Human-in-the-loop only where a wallet is.** TEST mode: the QR comes with
 > `next_action.code.test_url`, a sandbox page that completes the payment with no wallet, so the leg is

@@ -71,13 +71,12 @@ via one SSH hop that asks first; see below.
   plan/customer/subscription/webhook/state — gives you API hands on both accounts (curl), with
   live-key refusal and `--admin-destroy` gating. Use for "set up a test user", "show
   webhooks/customers/plan", "make it premium", "tear that test user down".
-- **hermetic-e2e** → drive a real headless browser against the running frontend. Primary: wired
-  `playwright` MCP server (nixpkgs `playwright-mcp` via `.pi/mcp.json`; ref-based
-  `mcp__playwright__browser_*`, or codemode for multi-step). Secondary: host-direct canned runners `e2e.cjs` (asserts
-  onboarding+Complete, PASS/FAIL; `--feedback`) and `inspect.cjs` (dumps DOM per stage), sharing
-  `scripts/store.cjs` (in `hermetic-e2e`). Use MCP for interactivity, runners for deterministic assertions. Hermetic
-  DEV_USER needs backend at CLERK_ENABLED=false; real-Clerk stacks sign in headlessly first
-  (paymongo-operator). (Not a deterministic CI spec.)
+- **hermetic-e2e** → drive a real headless browser against the running frontend through the wired
+  `playwright` MCP server (nixpkgs `playwright-mcp` via `.pi/mcp.json`), reached from codemode as
+  `tools.mcp__playwright__browser_*`. It returns observations, not assertions: read the snapshot, the
+  waited-for text, or a `browser_evaluate` result and judge it yourself (not a deterministic CI spec).
+  Hermetic DEV_USER needs backend at CLERK_ENABLED=false; real-Clerk stacks sign in first
+  (paymongo-operator).
 - **grafana-operator** → the Grafana Cloud stack behind the alerts: folder / rule / contact-point
   uids, the measured API verb semantics that keep one project's write from moving another's rules,
   the `provenance` switch that decides UI-editability, Loki through the datasource proxy, and
@@ -193,26 +192,21 @@ it refuses `*_live_*`, and anything destructive requires `--admin-destroy`. Repr
 
 ## Browser drive (see hermetic-e2e for full detail)
 
-Two paths. Primary: the **playwright MCP server** is wired in `.pi/mcp.json` (nixpkgs `playwright-mcp`
-from the flake devShell; needs pi running inside `nix develop`). Use ref-based
-`mcp__playwright__browser_*` tools, or codemode for multi-step runs. It cannot assert — drop to the runners for a pass/fail verdict.
+The **playwright MCP server** is wired in `.pi/mcp.json` (nixpkgs `playwright-mcp` from the flake
+devShell; needs pi running inside `nix develop`). It is `codemode` exposure, so call the ref-based
+`mcp__playwright__browser_*` tools from a codemode script. There is no host runner: a verdict is a
+snapshot, a waited-for text, or a `browser_evaluate` result you judge yourself.
 
-- **Host-direct runners (deterministic assertions):** `hermetic-e2e`'s canned journeys resolved from
-  `/nix/store` at runtime (no host npm install / no `node_modules`):
-  ```bash
-  nix develop . -c node .pi/skills/hermetic-e2e/scripts/e2e.cjs             # onboarding/nav
-  nix develop . -c node .pi/skills/hermetic-e2e/scripts/e2e.cjs --feedback  # + chat + Complete
-  nix develop . -c node .pi/skills/hermetic-e2e/scripts/inspect.cjs         # dump live DOM per stage
-  ```
-  Backend must be `CLERK_ENABLED=false`. Check posture first: `curl -s -o /dev/null -w "%{http_code}" localhost:8000/api/usage`
-  → 200 means DEV_USER (hermetic); 401 means real-Clerk (not hermetic).
+Check posture before driving: `curl -s -o /dev/null -w "%{http_code}" localhost:8000/api/usage`
+→ 200 means DEV_USER (backend `CLERK_ENABLED=false`, hermetic); 401 means real-Clerk (not hermetic).
+
 - **Real-Clerk headless sign-in:** use the `paymongo-operator` skill → `@clerk/testing/playwright`
   (`clerkSetup` + `clerk.signIn`) with a throwaway minted user, then render the auth-gated route.
   A real QR Ph payment still needs real keys and a human at the wallet step — see
   `references/qrph-checkout.md` (in `paymongo-operator`); do NOT loop-automate that handoff (and use
   `webhook-driver.sh --simulate` when you only need the entitlement assertion).
 
-Never hand-roll a brand-new browser harness when the committed runner / clerk skill cover it.
+Never hand-roll a brand-new browser harness: the MCP server and the clerk skill cover it.
 
 ## Workflow guidance (how to reason as the infra-hands)
 
@@ -243,9 +237,9 @@ make exec      # full gate: frontend npm ci + biome + typecheck + build; backend
 - `make exec` is the closest single command to the repo's local pre-merge gate (mirrors what
   `.github/workflows/ci-pipeline.yml` runs). Treat a non-zero exit as a blocker on committing.
 - If `make exec` fails, fix the surfaced failure and re-run before moving on.
-- (Optional, for flows touching auth-gated UI): drive the application once with the
-  `hermetic-e2e` onboarding/navigation walkthrough (host-direct playwright-core browser) so behavior
-  is exercised, since `make exec` is static checks + unit tests, not a browser.
+- (Optional, for flows touching auth-gated UI): drive the application once through the
+  `hermetic-e2e` browser walkthrough so behavior is exercised, since `make exec` is static checks +
+  unit tests, not a browser.
 
 Then commit per the repo's `AGENTS.md` commit policy (conventional prefixes, atomic scope, amend
 don't farm, never `git add -A` blindly, never push unprompted).
