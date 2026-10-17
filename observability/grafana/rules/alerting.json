@@ -716,6 +716,249 @@
         "severity": "warning"
       },
       "isPaused": false
+    },
+    {
+      "title": "{{PROJECT}}: container near its memory limit",
+      "condition": "C",
+      "noDataState": "OK",
+      "execErrState": "Error",
+      "for": "10m",
+      "keep_firing_for": "0s",
+      "annotations": {
+        "description": "A container in {{PROJECT}} has been above 90% of its declared memory limit for 10 minutes. It is still answering, which is the point of this rule: it is the warning that a limit is about to be reached, and the restart rule is the one that reports it was. Containers with no declared limit produce no series on the right side and so cannot fire.",
+        "summary": "{{PROJECT}}: container near its memory limit"
+      },
+      "labels": {
+        "severity": "warning"
+      },
+      "isPaused": false,
+      "data": [
+        {
+          "refId": "A",
+          "queryType": "range",
+          "relativeTimeRange": {
+            "from": 600,
+            "to": 0
+          },
+          "datasourceUid": "{{DS_PROM}}",
+          "model": {
+            "editorMode": "code",
+            "expr": "max by (namespace, pod, container) (container_memory_working_set_bytes{namespace=\"{{PROJECT}}\", container!=\"\"}) / max by (namespace, pod, container) (kube_pod_container_resource_limits{namespace=\"{{PROJECT}}\", resource=\"memory\"})",
+            "instant": false,
+            "legendFormat": "working set / limit",
+            "range": true,
+            "refId": "A",
+            "queryType": "range",
+            "intervalMs": 1000,
+            "maxDataPoints": 43200
+          }
+        },
+        {
+          "refId": "B",
+          "queryType": "",
+          "relativeTimeRange": {
+            "from": 600,
+            "to": 0
+          },
+          "datasourceUid": "__expr__",
+          "model": {
+            "expression": "A",
+            "intervalMs": 1000,
+            "maxDataPoints": 43200,
+            "reducer": "last",
+            "refId": "B",
+            "type": "reduce"
+          }
+        },
+        {
+          "refId": "C",
+          "queryType": "",
+          "relativeTimeRange": {
+            "from": 600,
+            "to": 0
+          },
+          "datasourceUid": "__expr__",
+          "model": {
+            "conditions": [
+              {
+                "evaluator": {
+                  "type": "gt",
+                  "params": [
+                    0.9
+                  ]
+                }
+              }
+            ],
+            "expression": "B",
+            "intervalMs": 1000,
+            "maxDataPoints": 43200,
+            "refId": "C",
+            "type": "threshold"
+          }
+        }
+      ]
+    },
+    {
+      "title": "{{PROJECT}}: pod restarting",
+      "condition": "C",
+      "noDataState": "OK",
+      "execErrState": "Error",
+      "for": "0s",
+      "keep_firing_for": "0s",
+      "annotations": {
+        "description": "A container in {{PROJECT}} restarted inside the last 15 minutes. On one replica that is an outage whether the cause was an OOMKill, a failed probe or a crash. The counter lives in kube-state-metrics, so it reports a restart whose container logs and metrics stopped at the moment of death.",
+        "summary": "{{PROJECT}}: pod restarting"
+      },
+      "labels": {
+        "severity": "critical"
+      },
+      "isPaused": false,
+      "data": [
+        {
+          "refId": "A",
+          "queryType": "range",
+          "relativeTimeRange": {
+            "from": 900,
+            "to": 0
+          },
+          "datasourceUid": "{{DS_PROM}}",
+          "model": {
+            "editorMode": "code",
+            "expr": "sum(increase(kube_pod_container_status_restarts_total{namespace=\"{{PROJECT}}\"}[15m]))",
+            "instant": false,
+            "legendFormat": "restarts",
+            "range": true,
+            "refId": "A",
+            "queryType": "range",
+            "intervalMs": 1000,
+            "maxDataPoints": 43200
+          }
+        },
+        {
+          "refId": "B",
+          "queryType": "",
+          "relativeTimeRange": {
+            "from": 900,
+            "to": 0
+          },
+          "datasourceUid": "__expr__",
+          "model": {
+            "expression": "A",
+            "intervalMs": 1000,
+            "maxDataPoints": 43200,
+            "reducer": "last",
+            "refId": "B",
+            "type": "reduce"
+          }
+        },
+        {
+          "refId": "C",
+          "queryType": "",
+          "relativeTimeRange": {
+            "from": 900,
+            "to": 0
+          },
+          "datasourceUid": "__expr__",
+          "model": {
+            "conditions": [
+              {
+                "evaluator": {
+                  "type": "gt",
+                  "params": [
+                    0
+                  ]
+                }
+              }
+            ],
+            "expression": "B",
+            "intervalMs": 1000,
+            "maxDataPoints": 43200,
+            "refId": "C",
+            "type": "threshold"
+          }
+        }
+      ]
+    },
+    {
+      "title": "{{PROJECT}}: disk filling",
+      "condition": "C",
+      "noDataState": "OK",
+      "execErrState": "Error",
+      "for": "10m",
+      "keep_firing_for": "0s",
+      "annotations": {
+        "description": "A filesystem on the node has been under 15% free for 10 minutes. An image pull or a log burst filling the root filesystem is otherwise noticed only when the node stops answering, so this is the earliest warning this pipeline can give. NoData means the kubelet does not expose the filesystem family on this cluster, and then the rule is silent rather than wrong.",
+        "summary": "{{PROJECT}}: disk filling"
+      },
+      "labels": {
+        "severity": "warning"
+      },
+      "isPaused": false,
+      "data": [
+        {
+          "refId": "A",
+          "queryType": "range",
+          "relativeTimeRange": {
+            "from": 600,
+            "to": 0
+          },
+          "datasourceUid": "{{DS_PROM}}",
+          "model": {
+            "editorMode": "code",
+            "expr": "min by (instance) (node_filesystem_avail_bytes{fstype=~\"ext4|xfs\"} / node_filesystem_size_bytes{fstype=~\"ext4|xfs\"})",
+            "instant": false,
+            "legendFormat": "free",
+            "range": true,
+            "refId": "A",
+            "queryType": "range",
+            "intervalMs": 1000,
+            "maxDataPoints": 43200
+          }
+        },
+        {
+          "refId": "B",
+          "queryType": "",
+          "relativeTimeRange": {
+            "from": 600,
+            "to": 0
+          },
+          "datasourceUid": "__expr__",
+          "model": {
+            "expression": "A",
+            "intervalMs": 1000,
+            "maxDataPoints": 43200,
+            "reducer": "last",
+            "refId": "B",
+            "type": "reduce"
+          }
+        },
+        {
+          "refId": "C",
+          "queryType": "",
+          "relativeTimeRange": {
+            "from": 600,
+            "to": 0
+          },
+          "datasourceUid": "__expr__",
+          "model": {
+            "conditions": [
+              {
+                "evaluator": {
+                  "type": "lt",
+                  "params": [
+                    0.15
+                  ]
+                }
+              }
+            ],
+            "expression": "B",
+            "intervalMs": 1000,
+            "maxDataPoints": 43200,
+            "refId": "C",
+            "type": "threshold"
+          }
+        }
+      ]
     }
   ]
 }

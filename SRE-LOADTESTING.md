@@ -16,7 +16,7 @@ At what load does the prod deployment stop behaving acceptably, and which resour
 | Error rate        | the same histogram, plus k6 broken down by status code                         | status                |
 | Throughput        | k6 RPS, and the server histogram's own sample count                            | route                 |
 | Database pressure | `db.pool.size` against `db.pool.idle`, a pool of 10                            | connections held      |
-| Saturation        | CPU and memory for the node and its pods from `kubectl top` and host on `htop` |                       |
+| Saturation        | `container_*` and `node_*` from the kubelet, pod state from kube-state-metrics |                       |
 | Architecture      | Architecture of machine/optimization framework or tools used                   | baseline              |
 
 Windows machine is the load generating machine, which could minimally be monitored by myself, though it isnt systematic, that would be enough for my purpose of the test since we dont really expect the load generating machine to saturate much. Focus on the application you're about to load not overcomplicate by other concerns, though we could use something like csv metrics.
