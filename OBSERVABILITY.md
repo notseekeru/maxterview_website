@@ -31,22 +31,20 @@ Labels are `namespace/pod/container/app` plus the external `cluster`/`app`.
 | Credential      | Terraform `maxterview-logs` Secret, values from Infisical | `LOKI_URL`/`LOKI_USER`/`LOKI_TOKEN`/`OTLP_URL`: one access-policy token, scoped `logs:write`, `metrics:write`, `traces:write`. Both pipelines authenticate with it; only the username differs (next table). The app never holds it, and it is the only write credential either pipeline has. |
 
 Saturation comes off the node rather than an operator's terminal. Alloy scrapes the kubelet's cadvisor
-through a keep-list of ten names: CPU and memory per container, the cgroup limit each container was
-given, OOM events, filesystem usage and size, the root cgroup's `rss`, the node's capacity, and `up` so
-the scrape can report its own failure. Unfiltered, cAdvisor's 66 families are 3,259 series against a
-tenant cap of 15,000, and the gateway rejects whole batches once it is crossed, taking app metrics with
-them. One source and one pod: no second exporter, no namespace of its own, no host mount, no DaemonSet.
-The scrape dials the node's `InternalIP`, which the serving certificate lists (`piserver`, `localhost`,
-`127.0.0.1`, `::1`, `192.168.100.6`), so it verifies against the cluster CA without
-`insecure_skip_verify`. Node CPU, memory and disk come from the same scrape: cAdvisor's root cgroup
-(`id="/"`) is the node itself and carries the host's device stats, while `machine_memory_bytes` and
-`machine_cpu_cores` are its capacity. Pressure is read from `container_memory_rss`, not the working set:
-the working set counts active page cache and sits near 82% at rest, while rss is the anonymous memory
-the kernel cannot reclaim. The disk rule reads `container_fs_usage_bytes` against
-`container_fs_limit_bytes` per device. What is deliberately absent is pod phase and restart counts,
-which needed a second exporter to report; an OOM kill is read from the cgroup's own counter instead,
-and a crash that is not an OOM is caught by the app's own liveness rule and the uptime probe.
-`metrics-server` still answers `kubectl top` from memory at 15s and retains nothing.
+through a keep-list that lives in `apps/maxterview/base/alloy.yaml`, and that file is the list: the names
+there are the ones a panel or a rule reads. Unfiltered, one scrape alone crosses the tenant's active-series
+cap, and the gateway then rejects whole batches, app metrics included. One source and one pod: no second
+exporter, no namespace of its own, no host mount, no DaemonSet. The scrape dials the node's `InternalIP`,
+which the serving certificate lists (`piserver`, `localhost`, `127.0.0.1`, `::1`, `192.168.100.6`), so it
+verifies against the cluster CA without `insecure_skip_verify`. Node CPU, memory and disk come from the
+same scrape: cAdvisor's root cgroup (`id="/"`) is the node itself and carries the host's device stats,
+while `machine_memory_bytes` and `machine_cpu_cores` are its capacity. Pressure is read from
+`container_memory_rss`, not the working set: the working set counts active page cache and reads high at
+rest, while rss is the anonymous memory the kernel cannot reclaim. The disk rule reads
+`container_fs_usage_bytes` against `container_fs_limit_bytes` per device. What is deliberately absent is
+pod phase and restart counts, which needed a second exporter to report; an OOM kill is read from the
+cgroup's own counter instead, and a crash that is not an OOM is caught by the app's own liveness rule and
+the uptime probe. `metrics-server` still answers `kubectl top` from memory and retains nothing.
 
 ## Shipped — tier 3, OTLP
 

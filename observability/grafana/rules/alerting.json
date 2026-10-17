@@ -725,7 +725,7 @@
       "for": "10m",
       "keep_firing_for": "0s",
       "annotations": {
-        "description": "A container in {{PROJECT}} has been above 90% of its declared memory limit for 10 minutes. Both numbers now come from the kubelet: the working set and the cgroup's own limit, so this rule needs no second exporter and no join across sources. Containers with no declared limit divide by a value near the node's capacity and cannot fire.",
+        "description": "A container in {{PROJECT}} has been sitting above its declared memory limit. Both numbers come from the kubelet, the working set and the cgroup's own limit, so this rule needs no second exporter and no join across sources. Containers with no declared limit divide by a value near the node's capacity and cannot fire.",
         "summary": "{{PROJECT}}: container near its memory limit"
       },
       "labels": {
@@ -806,7 +806,7 @@
       "for": "0s",
       "keep_firing_for": "0s",
       "annotations": {
-        "description": "A container in {{PROJECT}} was killed by the kernel out-of-memory killer inside the last 15 minutes. On one replica that is an outage. This reads the cgroup's own OOM counter rather than a restart total, so it names the cause; a crash that is not an OOM is reported by the app's own absent(target_info) rule and by the uptime probe.",
+        "description": "A container in {{PROJECT}} was killed by the kernel out-of-memory killer. On one replica that is an outage. This reads the cgroup's own OOM counter rather than a restart total, so it names the cause; a crash that is not an OOM is reported by the app's own absent(target_info) rule and by the uptime probe.",
         "summary": "{{PROJECT}}: container oom killed"
       },
       "labels": {
@@ -887,7 +887,7 @@
       "for": "10m",
       "keep_firing_for": "0s",
       "annotations": {
-        "description": "A filesystem on the node has been under 15% free for 10 minutes. Read from the cAdvisor root cgroup, which is the node itself and needs no host mount: the kubelet already reports the host's device stats. An image pull or a log burst filling the root filesystem is otherwise noticed only when the node stops answering. NoData means the device regex matched no filesystem on this host.",
+        "description": "A filesystem on the node is running out of free space. Read from the cAdvisor root cgroup, which is the node itself and needs no host mount: the kubelet already reports the host's device stats. An image pull or a log burst filling the root filesystem is otherwise noticed only when the node stops answering. NoData means the device pattern matched no filesystem on this host.",
         "summary": "{{PROJECT}}: disk filling"
       },
       "labels": {
@@ -969,7 +969,7 @@
       "keep_firing_for": "0s",
       "annotations": {
         "summary": "{{PROJECT}}: node memory pressure",
-        "description": "Anonymous memory on the node has been above 90% of its capacity for 10 minutes. rss is the part the kernel cannot reclaim and machine_memory_bytes is the node's own total, both from the same kubelet scrape; the cache-inflated working set reads much higher at rest, which is why this rule does not use it. Above 90% the kernel starts choosing victims, and the only replica is not the process it will spare."
+        "description": "Anonymous memory on the node is close to its capacity. rss is the part the kernel cannot reclaim and machine_memory_bytes is the node's own total, both from the same kubelet scrape; the cache-inflated working set reads much higher at rest, which is why this rule does not use it. Above the line the kernel starts choosing victims, and the only replica is not the process it will spare."
       },
       "labels": {
         "severity": "warning"

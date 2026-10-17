@@ -690,7 +690,7 @@
       ],
       "title": "Saturation: disk and pod memory",
       "type": "timeseries",
-      "description": "The ceilings a run can hit: free space on the node's filesystems, each container's working set against the limit its cgroup was given, and the node's anonymous memory against its capacity. All from the kubelet. The rules fire at 15% free, 90% of a container limit, and 90% of node memory."
+      "description": "The ceilings a run can hit: free space on the node's filesystems, each container's working set against the limit its cgroup was given, and the node's anonymous memory against its capacity. All from the kubelet; the rules that read these carry their own thresholds."
     }
   ],
   "refresh": "1m",
