@@ -26,11 +26,11 @@ via one SSH hop that asks first; see below.
     via `compose.yml` + `compose.dev.yml`/`compose.prod.yml`. Project name `maxterview-dev`.
   - Makefile conveniences: `make up`, `down`, `logs`, `psql`, `shell`, `exec`, `migrate`, `test-llm`.
   - Host ports: backend `8000`, frontend `5173`, postgres `5432`.
-- **Config**: three git-ignored `.env` files, one per consumer: root (POSTGRES_*, ports, APP_ENV, plus
-  the two MCP tokens `.envrc` exports to the shell), `backend/.env` (runtime config), `frontend/.env`
-  (`VITE_*`). `make env-pull` fills the credential lines in the first two from Infisical's dev env at
-  `/consumers/maxterview`, inside a marked block at the end of each file; it is the only target that
-  needs the network.
+- Config lives in three git-ignored `.env` files, one per consumer: root (POSTGRES_*, ports, APP_ENV,
+  plus the two MCP tokens `.envrc` exports to the shell), `backend/.env` (runtime config),
+  `frontend/.env` (`VITE_*`). `make env-sync-dev` fills the credential lines in the first two from
+  Infisical's dev env at `/consumers/maxterview`, inside a marked block at the end of each file; it is
+  the only target that needs the network.
 - **Cluster reach is one SSH hop, and it asks first.** The k3s kubeconfig (and therefore `kubectl`,
   `argo`, Helm) lives on the node, not here (`~/.kube` holds only caches). The node is
   `seeker@100.64.1.1` over Tailscale, opened with `~/.ssh/piserver`, a key that logs into the node

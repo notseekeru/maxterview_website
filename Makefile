@@ -28,8 +28,8 @@ test-llm: ## End-to-end LLM smoke test (needs live model + running stack). See s
 	@nix shell nixpkgs#python3 --command python3 -u scripts/llm-smoke.py
 probe-llm: ## Measure the LLM_* target: rate-limit cliff, prompt caching, stage latency. See scripts/llm-probe.py.
 	@set -a; . ./backend/.env; set +a; nix shell nixpkgs#python3 --command python3 -u scripts/llm-probe.py
-env-pull: ## Fill the credential lines in .env and backend/.env from Infisical dev. The only target that needs the network.
-	@scripts/env-pull.sh
+env-sync-dev: ## Pull the credential lines into .env and backend/.env from Infisical dev, then sync-check both against their templates. The only target that needs the network.
+	@scripts/env-sync-dev.sh
 # DEV
 check-ports:
 	@scripts/port-claimer.sh --self $(DEV_PROJECT) $(PORTS)

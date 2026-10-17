@@ -61,7 +61,7 @@ unavailable.
 
 - `backend/.env` (git-ignored) is the runtime source: `PAYMONGO_WEBHOOK_SECRET`,
   `FRONTEND_BASE_URL`, `BILLING_MODE`, `PREMIUM_PRICE_CENTAVOS`, `PREMIUM_PERIOD_DAYS`, plus `CLERK_*`
-  and quotas. `PAYMONGO_SECRET_KEY` and `CLERK_SECRET_KEY` are filled in by `make env-pull`
+  and quotas. `PAYMONGO_SECRET_KEY` and `CLERK_SECRET_KEY` are filled in by `make env-sync-dev`
   (Infisical dev), inside the marked block at the end of this file.
   `PAYMONGO_PLAN_ID` is **subscription mode only**.
 - The scripts load it via `scripts/_env.sh`, which exports **names only** — it never prints a value.
