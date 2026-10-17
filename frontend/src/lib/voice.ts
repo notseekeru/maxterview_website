@@ -412,10 +412,8 @@ export function cloudTranscriber(upload: (clip: Blob) => Promise<string>, sink: 
         }
     };
 
-    /** The take is over: the recorder is stopped, so the clip is whatever it buffered. An inactive
-     *  recorder fires no stop event, and a take that never settles is a stuck screen. */
+    /** An inactive recorder fires no stop event, so a take that is already over still has to settle. */
     const finishClip = () => {
-        // Already handed off, or the take ended some other way: one press, one clip, one upload.
         if (handed || settled) return;
         const clip = new Blob(chunks, { type: recorder?.mimeType || mediaType || "audio/webm" });
         chunks = [];
@@ -441,7 +439,7 @@ export function cloudTranscriber(upload: (clip: Blob) => Promise<string>, sink: 
                     return;
                 }
                 if (settled) {
-                    // The take ended while the prompt was up, so nothing will release these tracks.
+                    // Nothing else releases these tracks once the take has ended.
                     for (const track of stream.getTracks()) track.stop();
                     stream = null;
                     return;
@@ -483,7 +481,6 @@ export function cloudTranscriber(upload: (clip: Blob) => Promise<string>, sink: 
             })();
         },
         stop() {
-            // Nothing more is metered: the take is over the moment it is asked to be.
             cancelAnimationFrame(meter);
             meter = 0;
             const take = recorder;
@@ -492,7 +489,7 @@ export function cloudTranscriber(upload: (clip: Blob) => Promise<string>, sink: 
                 try {
                     take.stop();
                 } catch {
-                    undefined; // raced with the recorder going inactive: the clip still has to settle
+                    undefined; // already inactive: the clip still settles below
                 }
             }
             // Stop the tracks with the recorder: a live microphone after the take is a lit indicator

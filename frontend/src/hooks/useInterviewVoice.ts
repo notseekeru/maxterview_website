@@ -115,8 +115,6 @@ const NO_STT = "Speech can't be transcribed here: this server has no transcripti
  *  answer box for the applicant to confirm or edit: the transcript is what gets scored (V5). */
 export function useRecorder(capability: VoiceCapability | null, onWords: (text: string) => void) {
     const [recording, setRecording] = useState(false);
-    // The microphone is off and the clip is with the server. Separate from `recording` because the wait
-    // is 7-18s of Whisper (VOICE.md latency) and counting it as a take is a screen that looks stuck.
     const [transcribing, setTranscribing] = useState(false);
     const [level, setLevel] = useState(0);
     const [elapsed, setElapsed] = useState(0);
@@ -161,8 +159,6 @@ export function useRecorder(capability: VoiceCapability | null, onWords: (text: 
         [finish],
     );
 
-    /** Press stop. The take ends here and the microphone is released: the words are already on their
-     *  way, so the screen says what is being waited on instead of still counting a take that is over. */
     const stop = useCallback(() => {
         const take = rec.current;
         if (!take) return;
@@ -228,9 +224,9 @@ export function useRecorder(capability: VoiceCapability | null, onWords: (text: 
         /** Non-null when no take can run here: the button is dead, and this says why. */
         blocked,
         recording,
-        /** The take is over and the clip is with the server. */
+        /** The take is over and the clip is with the server: the wait is Whisper's (VOICE.md latency). */
         transcribing,
-        /** Either half of a take is still this screen's to finish, so nothing may be sent until it is not. */
+        /** A take is still unfinished, so nothing may be sent until it is not. */
         busy: recording || transcribing,
         level,
         elapsed,
