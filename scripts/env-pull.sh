@@ -1,10 +1,10 @@
 #!/bin/sh
-# Fill the credential lines in `.env` (the two MCP tokens) and `backend/.env` (the six the backend
-# container needs) from Infisical's dev env. The only dev command that needs the network.
-#
-# Each file gets one marked block, replaced wholesale. A hand edit on one of those lines, or a stray
-# copy of the same key elsewhere in the file, is removed and reported: two owners for one key is how
-# a value silently loses to the other one.
+# The credentials block at the end of each target file is owned here. Two owners for one key means
+# one value wins with no signal, so a stray line for a managed key is replaced too.
+# AI HERE: the two files are written one after the other, so a failure between them updates .env and
+# leaves backend/.env alone. Re-running is safe. Upgrade path: stage both, then move them together.
+# AI HERE: the block is appended, so a managed key does not sit in its own section. Upgrade path:
+# rewrite the line where `cp *.env.example` puts it.
 set -eu
 umask 077
 
@@ -16,7 +16,10 @@ BEGIN="# >>> credentials: make env-pull (Infisical dev $DEV_PATH)"
 END="# <<< credentials"
 
 vault=$(mktemp)
-trap 'rm -f "$vault" "$target.tmp" "$block" "$strays"' EXIT
+block=""
+strays=""
+target_tmp=""
+trap 'rm -f "$vault" "$block" "$strays" "$target_tmp" 2>/dev/null || true' EXIT
 infisical export --silent --env dev --path "$DEV_PATH" --format dotenv >"$vault"
 
 empty=$(sed "s/^\([A-Z0-9_]*\)='\(.*\)'$/\1=\2/" "$vault" | awk -F= '$2==""{print $1}')
@@ -33,8 +36,16 @@ fill() {
         exit 1
     }
 
+    opens=$(grep -Fxc "$BEGIN" "$target" || true)
+    closes=$(grep -Fxc "$END" "$target" || true)
+    [ "$opens" = "$closes" ] || {
+        echo "env-pull: $target has $opens opening and $closes closing markers. Repair the block by hand first." >&2
+        exit 1
+    }
+
     block=$(mktemp)
     strays=$(mktemp)
+    target_tmp="$target.tmp"
     {
         printf '%s\n' "$BEGIN"
         for k in $keys; do
@@ -57,16 +68,23 @@ fill() {
             if (substr($0, 1, index($0, "=") - 1) in managed) { print substr($0, 1, index($0, "=") - 1) >> strays; next }
         }
         { print }
-    ' "$target" >"$target.tmp"
+    ' "$target" >"$target_tmp"
 
     if [ -s "$strays" ]; then
         echo "env-pull: $target had $(tr '\n' ' ' <"$strays")outside the block; removed, the block wins" >&2
     fi
 
-    cat "$block" >>"$target.tmp"
-    chmod --reference="$target" "$target.tmp" 2>/dev/null || chmod 600 "$target.tmp"
-    mv "$target.tmp" "$target"
+    cat "$block" >>"$target_tmp"
+    chmod --reference="$target" "$target_tmp" 2>/dev/null || chmod 600 "$target_tmp"
+    mv "$target_tmp" "$target"
     rm -f "$block" "$strays"
+    block=""
+    strays=""
+
+    [ "$(grep -Fxc "$BEGIN" "$target")" = 1 ] || {
+        echo "env-pull: $target does not hold exactly one credentials block after the pull" >&2
+        exit 1
+    }
     echo "env-pull: $target <- $(printf '%s\n' $keys | wc -l) keys"
 }
 
