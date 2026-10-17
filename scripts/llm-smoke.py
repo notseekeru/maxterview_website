@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""End-to-end LLM smoke test: one real interview turn plus /finish against a running stack.
+"""End-to-end LLM smoke test: two real interview turns plus /finish against a running stack.
 
 Creates a throwaway interview through the API (removed the same way, never SQL) and fails if the
 model does not answer. Needs the stack up; an empty LLM_BASE_URL only exercises STUB_MODE.
@@ -21,6 +21,13 @@ from typing import Any
 CONTAINER = "maxterview_backend_dev"
 ROLE = "LLM Smoke"  # identifies test rows; removal is the API's own DELETE, never SQL
 TURN = "I write code and ship features."
+# The second turn is what makes the run gradeable: feedback only scores answers that follow at least
+# one interviewer question (llm.py::_graded_answers), and the opener question comes back with turn one.
+ANSWER = (
+    "Last quarter I moved our checkout to a second payment provider. I owned the cutover, ran a week "
+    "of dual writes, and the one incident was a stale balance read that I fixed by pinning the "
+    "session to the primary."
+)
 
 def log(msg: str) -> None:
     print(f"[llm-smoke] {msg}", flush=True)
@@ -57,9 +64,9 @@ def _call(base: str, token: str, method: str, path: str, body: Any = None, timeo
     except ValueError:
         return status, raw[:400].decode("utf-8", "replace")
 
-def stream_turn(base: str, token: str, iid: str, timeout: float) -> tuple[str, float]:
+def stream_turn(base: str, token: str, iid: str, timeout: float, content: str = TURN) -> tuple[str, float]:
     """POST one candidate turn, read SSE until done/error. Returns (sse, seconds)."""
-    body = json.dumps({"interview_id": iid, "content": TURN}).encode()
+    body = json.dumps({"interview_id": iid, "content": content}).encode()
     req = urllib.request.Request(f"{base}/api/interviews/{iid}/chat/stream", data=body, method="POST", headers={"Content-Type": "application/json"})
     if token:
         req.add_header("Authorization", f"Bearer {token}")
@@ -111,9 +118,12 @@ def run_inside(args: argparse.Namespace) -> None:
         sse, elapsed = stream_turn(base, token, iid, args.stream_timeout)
         log(f"stream ok ({elapsed:.1f}s, {len(sse)} bytes, done present)")
 
+        sse, elapsed = stream_turn(base, token, iid, args.stream_timeout, content=ANSWER)
+        log(f"answer turn ok ({elapsed:.1f}s, {len(sse)} bytes)")
+
         status, msgs = _call(base, token, "GET", f"/api/interviews/{iid}/messages")
         roles = [m["role"] for m in msgs or []]
-        check(status == 200 and "user" in roles and "assistant" in roles, "transcript persisted", roles or status)
+        check(status == 200 and roles.count("user") >= 2 and roles.count("assistant") >= 2, "two turns persisted", roles or status)
         log(f"transcript persisted: {', '.join(roles)}")
 
         status, body = _call(base, token, "POST", f"/api/interviews/{iid}/finish", timeout=args.finish_timeout)
@@ -122,7 +132,7 @@ def run_inside(args: argparse.Namespace) -> None:
         status, fb = _call(base, token, "GET", f"/api/interviews/{iid}/feedback")
         check(status == 200 and isinstance(fb, dict), "GET /feedback", fb or status)
         check(bool(fb.get("verdict")), "feedback verdict present")
-        check(bool(fb.get("scores")), "feedback scores present")
+        check(bool(fb.get("scores")), "feedback scores present", fb.get("verdict"))
         check(set(fb["scores"]) <= set(FEEDBACK_DIMS), "score keys are real dims", sorted(fb["scores"]))
         check(bool(fb.get("tips")), "feedback tips present")
         log(f"feedback ok: {len(fb['scores'])} dims, accuracy={fb.get('accuracy')}, {len(fb['tips'])} tips")
