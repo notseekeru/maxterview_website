@@ -2,20 +2,39 @@
   "mcpServers": {
     "playwright": {
       "command": "playwright-mcp",
-      "args": ["--headless", "--isolated", "--browser", "chromium"]
+      "args": [
+        "--headless",
+        "--isolated",
+        "--browser",
+        "chromium"
+      ]
     },
     "neon": {
       "url": "https://mcp.neon.tech/mcp",
-      "headers": { "Authorization": "!sed -n 's|^NEON_API_KEY=|Bearer |p' .env | head -1" }
+      "headers": {
+        "Authorization": "!sed -n 's|^NEON_API_KEY=|Bearer |p' .env | head -1"
+      }
     },
     "grafana": {
       "command": "docker",
-      "args": ["run", "--rm", "-i", "-e", "GRAFANA_URL", "-e", "GRAFANA_SERVICE_ACCOUNT_TOKEN", "grafana/mcp-grafana:latest", "--transport", "stdio", "--enabled-tools", "alerting,dashboard,loki,prometheus,datasource,search,navigation"],
+      "args": [
+        "run",
+        "--rm",
+        "-i",
+        "-e",
+        "GRAFANA_URL",
+        "-e",
+        "GRAFANA_SERVICE_ACCOUNT_TOKEN",
+        "grafana/mcp-grafana:latest",
+        "--transport",
+        "stdio",
+        "--enabled-tools",
+        "alerting,dashboard,loki,prometheus,datasource,search,navigation"
+      ],
       "env": {
         "GRAFANA_URL": "https://sturdypoplar3317.grafana.net",
         "GRAFANA_SERVICE_ACCOUNT_TOKEN": "!sed -n \"s/^GRAFANA_SERVICE_ACCOUNT_TOKEN=//p\" .env | head -1"
-      },
-      "exposure": "direct"
+      }
     }
   }
 }
