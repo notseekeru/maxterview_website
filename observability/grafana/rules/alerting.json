@@ -969,7 +969,7 @@
       "keep_firing_for": "0s",
       "annotations": {
         "summary": "{{PROJECT}}: saturation scrape down",
-        "description": "One of the two scrapes that carry saturation has stopped answering, or its collector is gone. This rule exists because the rules that read that data go NoData when it disappears, and NoData is OK on all of them: a dead kubelet scrape would otherwise blank the memory and disk rules in perfect silence. Check the Alloy pod first, then the target: the kubelet on the node's InternalIP, and kube-state-metrics in the observability namespace."
+        "description": "One of the two scrapes that carry saturation is not answering. The query returns 1 while both are up and 0 when either fails, so a healthy stack holds a value rather than returning nothing; noDataState is Alerting because the case where the series vanish entirely, the collector itself being gone, is the failure this rule is for. Without it a dead kubelet scrape blanks the memory and disk rules in silence, and NoData reads as healthy on every one of them."
       },
       "labels": {
         "severity": "warning"
@@ -986,7 +986,7 @@
           "datasourceUid": "{{DS_PROM}}",
           "model": {
             "editorMode": "code",
-            "expr": "(min by (job) (up{job=~\"prometheus.scrape.*\"}) == 0) or (absent(up{job=~\"prometheus.scrape.*\"}) == 1)",
+            "expr": "min(up{job=~\"prometheus.scrape.*\"})",
             "instant": false,
             "legendFormat": "down",
             "range": true,
@@ -1025,9 +1025,9 @@
             "conditions": [
               {
                 "evaluator": {
-                  "type": "gt",
+                  "type": "lt",
                   "params": [
-                    0
+                    1
                   ]
                 }
               }
