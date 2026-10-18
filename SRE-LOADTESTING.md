@@ -19,20 +19,6 @@ At what load does the prod deployment stop behaving acceptably, and which resour
 | Saturation        | `container_*` from the kubelet, root cgroup for the node and pod cgroups for pods; `machine_*` for capacity |                       |
 | Architecture      | Architecture of machine/optimization framework or tools used                                                | baseline              |
 
-Windows machine is the load generating machine, which could minimally be monitored by myself, though it isnt systematic, that would be enough for my purpose of the test since we dont really expect the load generating machine to saturate much. Focus on the application you're about to load not overcomplicate by other concerns, though we could use something like csv metrics.
-
-Bucket boundaries are pinned in the SDK rather than left to its defaults, and they run from 0.01 to 120 seconds.
-
-Two more are recorded for this experiment. `db.pool.wait.duration` and `db.query.duration` are sampled apart inside `db.py`, so a queued connection and a slow query are distinguishable, and the `db.operation` label is the statement's first keyword, which keeps the label set bounded and the query text off the metric.
-
-Three properties of the instrumentation matter to this experiment.
-
-The route label is the matched template and never the raw path, so the label set stays bounded and a scanner sweeping URLs cannot mint a series per URL.
-
-The access line carries `request_id`, `trace_id`, `span_id`, `status` and `duration_ms`, and it is the join between a k6 failure and the server's own account of what happened.
-
-The server-side indicators only exist when `OTEL_EXPORTER_OTLP_ENDPOINT` is set. With it unset the SDK is never installed.
-
 ## SLO
 
 | Indicator   | Gate           |
@@ -67,6 +53,8 @@ Capacity path
 | CPU        | AMD Ryzen 5 3600 (6 cores / 12 threads)                                                                                    |
 | RAM        | 32 GB                                                                                                                      |
 | Monitoring | Lightweight/manual monitoring initially; observe CPU, memory, and k6 process behavior if generator saturation is suspected |
+
+Windows machine is the load generating machine, which could minimally be monitored by myself, though it isnt systematic, that would be enough for my purpose of the test since we dont really expect the load generating machine to saturate much. Focus on the application you're about to load not overcomplicate by other concerns, though we could use something like csv metrics.
 
 If the generator approaches sustained CPU or memory pressure or can't maintain the intended VU load, the measured capacity ceiling could generator limitations rather than application limitations.
 
@@ -149,13 +137,13 @@ Really simple to change values, commit the perf values, see the sync land in arg
 
 ## What each VUs does
 
-| Operation                                  | Type  | When         | Per turn |
-| ------------------------------------------ | ----- | ------------ | -------- |
-| Interview row read                         | Read  | Session open | 1        |
-| Transcript read                            | Read  | Session open | 1        |
-| Reply insert                               | Write | Every turn   | 1        |
+| Operation                                  | Type         | When         | Per turn |
+| ------------------------------------------ | ------------ | ------------ | -------- |
+| Interview row read                         | Read         | Session open | 1        |
+| Transcript read                            | Read         | Session open | 1        |
+| Reply insert                               | Write        | Every turn   | 1        |
 | Turn credit read + upsert                  | Read + write | Every turn   | 1        |
-| Trailing-user-turn repair: delete + insert | Write | Sometimes    | 0 or 2   |
+| Trailing-user-turn repair: delete + insert | Write        | Sometimes    | 0 or 2   |
 
 Every virtual user is the same identity and they all share one account.
 
