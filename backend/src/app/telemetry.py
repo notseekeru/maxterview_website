@@ -9,7 +9,9 @@ The root span lives in `logs.RequestContextMiddleware`, which is what puts `trac
 line. The Loki datasource already carries the derived field, so that id is the link to the trace.
 """
 
+import asyncio
 import os
+import time
 from contextlib import contextmanager
 
 from opentelemetry import metrics, trace
@@ -29,6 +31,8 @@ APP_ENV = os.getenv("APP_ENV", "development")
 # unreachable collector costs the request path nothing. The timeout only bounds shutdown.
 EXPORT_TIMEOUT_S = 5.0
 METRIC_EXPORT_INTERVAL_MS = 60_000
+HEARTBEAT_INTERVAL_S = 30
+_STARTED = time.monotonic()
 
 # The SDK's default boundaries are written for milliseconds but applied whatever the unit, so with
 # unit="s" every request under the largest one lands in a single bucket. These span the real range.
@@ -96,6 +100,16 @@ def configure() -> bool:
     metrics.set_meter_provider(samples)
     _providers.extend((spans, samples))
     return True
+
+
+async def heartbeat() -> None:
+    """One sample per interval, forever. A process that has recorded nothing exports nothing to
+    OTLP, and an idle deployment only ever receives `/api/health`, which records no sample: without
+    this loop a freshly deployed app publishes no series at all and `absent(target_info)` reads it as
+    dead."""
+    while True:
+        gauge("app.uptime", time.monotonic() - _STARTED)
+        await asyncio.sleep(HEARTBEAT_INTERVAL_S)
 
 
 def shutdown() -> None:

@@ -4,7 +4,7 @@ import os
 import time
 from collections import Counter
 from collections.abc import AsyncIterator, Awaitable, Callable
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from statistics import fmean, median
 from typing import Annotated
 
@@ -87,8 +87,13 @@ LLMConfigDep = Annotated[llm.LLMConfig, Depends(_llm_config)]
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     telemetry.configure()
+    beat = asyncio.create_task(telemetry.heartbeat()) if telemetry.enabled() else None
     await init_pool()
     yield
+    if beat is not None:
+        beat.cancel()
+        with suppress(asyncio.CancelledError):
+            await beat
     await voice.aclose()
     await close_pool()
     telemetry.shutdown()

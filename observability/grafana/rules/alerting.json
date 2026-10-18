@@ -157,7 +157,7 @@
       "for": "5m",
       "keep_firing_for": "0s",
       "annotations": {
-        "description": "The app has pushed no metric sample for 5 minutes: absent(target_info) is 1 once the series is gone, and NoData (healthy, which is why noDataState is OK) while it is there. target_info is the only backend series that exists with zero traffic, so it is the one liveness marker this stack has. Every metric rule otherwise reads a counter that only appears on activity, and every log rule is noDataState=OK, so without this rule a dead OTLP export and an idle app look identical. Fires roughly 10 minutes after the last sample: 5 for Prometheus staleness plus 5 of `for`.",
+        "description": "The app has pushed no metric sample for 5 minutes: absent(target_info) is 1 once the series is gone, and NoData (healthy, which is why noDataState is OK) while it is there. target_info and the app's heartbeat gauge are the only backend series that exist with zero traffic, so they are the liveness markers this stack has. Every metric rule otherwise reads a counter that only appears on activity, and every log rule is noDataState=OK, so without this rule a dead OTLP export and an idle app look identical. Fires roughly 10 minutes after the last sample: 5 for Prometheus staleness plus 5 of `for`.",
         "summary": "{{PROJECT}}: app not reporting"
       },
       "labels": {

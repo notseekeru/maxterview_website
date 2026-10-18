@@ -53,9 +53,12 @@ which is how this pipeline looked dead on 2026-09-27 while the same day held 14,
 through a lookback:
 `sum(increase(http_server_request_duration_seconds_count{service_name="maxterview-backend"}[24h]))`.
 Every metric rule reads NoData as OK, so the two counters catch a burst of 5xx while traffic flows and
-cannot notice an outage. `absent(target_info)` is the one that can: `target_info` is the only backend
-series that exists with zero traffic, NoData is what `absent()` returns while it is healthy, and a real
-absence fires roughly 10 minutes after the last sample (Prometheus staleness plus the rule's `for`).
+cannot notice an outage. `absent(target_info)` is the one that can: `target_info` and the app's
+heartbeat gauge are the only backend series that exist with zero traffic, and only because the app
+re-sets that gauge faster than the SDK's export interval (a process that has taken no request exports
+nothing at all, which is how this rule fired on every idle deploy). NoData is what `absent()` returns
+while it is healthy, and a real absence fires roughly 10 minutes after the last sample (Prometheus
+staleness plus the rule's `for`).
 
 ## Not yours (the vendor app's rule folders)
 

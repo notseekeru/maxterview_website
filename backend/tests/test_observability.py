@@ -1,10 +1,12 @@
 """M13 tier 1/3: one access line per request, none for the probe path, X-Request-ID on the response,
 and the OTLP span that makes the line and the trace the same event."""
 
+import asyncio
 import json
 import logging
 import re
 import uuid
+from contextlib import suppress
 
 import structlog
 from fastapi.testclient import TestClient
@@ -150,3 +152,21 @@ def test_unmatched_paths_and_the_probe_never_become_a_metric_label():
 
     durations = [point for resource in reader.get_metrics_data().resource_metrics for scope in resource.scope_metrics for metric in scope.metrics for point in metric.data.data_points]
     assert [(point.attributes["http.route"], point.attributes["http.response.status_code"]) for point in durations] == [("unmatched", 404)]
+
+
+def test_the_heartbeat_records_a_sample_with_no_request(monkeypatch):
+    """A deploy nobody uses receives only the probe path, which records nothing, so this loop is the
+    only thing putting a sample, and with it target_info, in front of the liveness rule."""
+    samples = []
+    monkeypatch.setattr(telemetry, "gauge", lambda name, value, **attributes: samples.append(name))
+    monkeypatch.setattr(telemetry, "HEARTBEAT_INTERVAL_S", 0)
+
+    async def ticks():
+        task = asyncio.create_task(telemetry.heartbeat())
+        await asyncio.sleep(0.01)
+        task.cancel()
+        with suppress(asyncio.CancelledError):
+            await task
+
+    asyncio.run(ticks())
+    assert len(samples) > 1 and set(samples) == {"app.uptime"}
