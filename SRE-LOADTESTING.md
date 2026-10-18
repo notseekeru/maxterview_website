@@ -29,6 +29,8 @@ At what load does the prod deployment stop behaving acceptably, and which resour
 | error rate  | <1%            |
 | correctness | check pass     |
 
+The latency gates cover the app-owned routes. The model-bearing ones are excluded, the same set the alert rules exclude: `chat/stream`, `chat/kickoff`, `feedback/generate`, `voice/stt`, `voice/tts`, and `finish`, which runs the whole feedback pipeline inside the request rather than returning a read.
+
 established my baseline of acceptable for this particular architecture since latency can be dependent on programming language and the framework it's using, this is much more important than it seem especially if were testing application performance.
 
 p50 is there for reporting, no gate added since it can be considered redundant since p95 would fail first, but for the sake it, i just added p50 latency.
@@ -137,19 +139,28 @@ Really simple to change values, commit the perf values, see the sync land in arg
 
 ## What each VUs does
 
-| Operation                                  | Type         | When         | Per turn |
-| ------------------------------------------ | ------------ | ------------ | -------- |
-| Interview row read                         | Read         | Session open | 1        |
-| Transcript read                            | Read         | Session open | 1        |
-| Reply insert                               | Write        | Every turn   | 1        |
-| Turn credit read + upsert                  | Read + write | Every turn   | 1        |
-| Trailing-user-turn repair: delete + insert | Write        | Sometimes    | 0 or 2   |
+| Operation                                        | Type         | When          | Count     |
+| ------------------------------------------------ | ------------ | ------------- | --------- |
+| Interview row read + attached resume             | Read         | Every turn    | 1         |
+| Transcript read                                  | Read         | Every turn    | 1         |
+| User message insert                              | Write        | Every turn    | 1         |
+| Turn credit read + upsert                        | Read + write | Every turn    | 1         |
+| Assistant reply insert                           | Write        | Every turn    | 1         |
+| Trailing-user-turn repair: delete the stale turn | Write        | Sometimes     | 0 or 1    |
+| Interview insert                                 | Write        | Run start     | 1 per run |
+| Interview status update                          | Write        | Start, finish | 2 per run |
+| Feedback transcript + dials read                 | Read         | Run end       | 2 per run |
+| Feedback upsert                                  | Write        | Run end       | 1 per run |
+
+The two reads at every turn are both `_chat_session`: the interview with its resume text, and the whole transcript, so the transcript read grows with the run and is re-paid on every turn rather than once at session open.
 
 Every virtual user is the same identity and they all share one account.
 
-The number of turns is a structured but randomized actions run per VU, with each going through thinking to simulate how a real user would behave.
+The number of turns is a structured but randomized actions run per VU, with each going through thinking to simulate how a real user would behave. The random count is drawn against the run's own plan: the chitchat, behavioural and technical mix dials set how many questions the interviewer will ask, so a VU stops at the last planned question instead of asking past it and collecting a refusal.
 
 Exclusions, for different reasons.
+
+Hardcore stays off in the loop. A run that fails the judge refuses every later turn, so it would end early for a reason that has nothing to do with capacity, and the turns after it would arrive as refusals rather than as load.
 
 NvidiaNIM(LLM Output) and Cloudflare Workers AI(Voice) is out. These vendors uses credit and will only limit the workload, this is why NvidiaNIM is stubbed and Cloudflare Workers AI is off. These Outside Generation, vendor that could fail the experiment due to free tier and rate limits.
 
