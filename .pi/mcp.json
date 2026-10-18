@@ -12,7 +12,7 @@
     "neon": {
       "url": "https://mcp.neon.tech/mcp",
       "headers": {
-        "Authorization": "!sed -n 's|^NEON_API_KEY=|Bearer |p' .env | head -1"
+        "Authorization": "!sed -n 's|^NEON_API_KEY=||p' .env | head -1 | xargs -I{} echo \"Bearer {}\""
       }
     },
     "grafana": {
@@ -33,7 +33,7 @@
       ],
       "env": {
         "GRAFANA_URL": "https://sturdypoplar3317.grafana.net",
-        "GRAFANA_SERVICE_ACCOUNT_TOKEN": "!sed -n \"s/^GRAFANA_SERVICE_ACCOUNT_TOKEN=//p\" .env | head -1"
+        "GRAFANA_SERVICE_ACCOUNT_TOKEN": "!sed -n 's|^GRAFANA_SERVICE_ACCOUNT_TOKEN=||p' .env | head -1 | xargs"
       }
     }
   }

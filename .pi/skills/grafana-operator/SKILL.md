@@ -21,7 +21,8 @@ Token is `GRAFANA_SERVICE_ACCOUNT_TOKEN` in the repo-root `.env`. `.pi/mcp.json`
 handling at all. For raw curl:
 
 ```sh
-TOKEN=$(sed -n 's/^GRAFANA_SERVICE_ACCOUNT_TOKEN=//p' .env | head -1)   # never echo it
+# .env stores the value quoted; xargs strips the quotes (a bare sed read answers 401)
+TOKEN=$(sed -n 's/^GRAFANA_SERVICE_ACCOUNT_TOKEN=//p' .env | head -1 | xargs)   # never echo it
 URL=https://sturdypoplar3317.grafana.net
 ```
 
