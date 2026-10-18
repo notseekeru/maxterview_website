@@ -154,6 +154,25 @@ Really simple to change values, commit the perf values, see the sync land in arg
 
 The two reads at every turn are both `_chat_session`: the interview with its resume text, and the whole transcript, so the transcript read grows with the run and is re-paid on every turn rather than once at session open.
 
+| Request                                                              | Phase                  |
+| -------------------------------------------------------------------- | ---------------------- |
+| `POST /interviews`                                                   | Run start              |
+| `POST /interviews/{id}/start`                                        | Run start              |
+| `POST /interviews/{id}/chat/kickoff`                                 | Opener                 |
+| `POST /interviews/{id}/chat/stream`                                  | Every turn             |
+| `POST /interviews/{id}/finish`                                       | Run end                |
+| `GET /interviews/{id}/feedback`                                      | Run end                |
+| `GET /interviews/{id}/messages`                                      | Run end                |
+| `GET /interviews`, `/stats/dimensions`, `/stats/analytics`            | After the run          |
+| `GET /usage`, `/templates`, `/resumes`, `/settings/llm`, `/voice`     | After the run          |
+| `GET /interviews/{id}/offer`                                         | After the run          |
+| `POST` and `DELETE /interviews/{id}/archive`                         | After the run          |
+| `POST /resumes`, `POST /templates`, each deleted in the same run     | After the run          |
+| `POST /client-errors`                                                | After the run          |
+
+Three of those rows are model-bearing, `chat/kickoff`, `chat/stream` and `finish`, and they are the
+rows the latency gates exclude; the gates cover the rest.
+
 Every virtual user is the same identity and they all share one account.
 
 The number of turns is a structured but randomized actions run per VU, with each going through thinking to simulate how a real user would behave. The random count is drawn against the run's own plan: the chitchat, behavioural and technical mix dials set how many questions the interviewer will ask, so a VU stops at the last planned question instead of asking past it and collecting a refusal.
