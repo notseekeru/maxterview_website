@@ -10,14 +10,14 @@ At what load does the prod deployment stop behaving acceptably, and which resour
 
 ## What is measured
 
-| Indicator         | Source                                                                         | Carries               |
-| ----------------- | ------------------------------------------------------------------------------ | --------------------- |
-| Request latency   | `http.server.request.duration`, and k6 on the client side                      | method, route, status |
-| Error rate        | the same histogram, plus k6 broken down by status code                         | status                |
-| Throughput        | k6 RPS, and the server histogram's own sample count                            | route                 |
-| Database pressure | `db.pool.size` against `db.pool.idle`, a pool of 10                            | connections held      |
+| Indicator         | Source                                                                                                      | Carries               |
+| ----------------- | ----------------------------------------------------------------------------------------------------------- | --------------------- |
+| Request latency   | `http.server.request.duration`, and k6 on the client side                                                   | method, route, status |
+| Error rate        | the same histogram, plus k6 broken down by status code                                                      | status                |
+| Throughput        | k6 RPS, and the server histogram's own sample count                                                         | route                 |
+| Database pressure | `db.pool.size` against `db.pool.idle`, a pool of 10                                                         | connections held      |
 | Saturation        | `container_*` from the kubelet, root cgroup for the node and pod cgroups for pods; `machine_*` for capacity |                       |
-| Architecture      | Architecture of machine/optimization framework or tools used                   | baseline              |
+| Architecture      | Architecture of machine/optimization framework or tools used                                                | baseline              |
 
 Windows machine is the load generating machine, which could minimally be monitored by myself, though it isnt systematic, that would be enough for my purpose of the test since we dont really expect the load generating machine to saturate much. Focus on the application you're about to load not overcomplicate by other concerns, though we could use something like csv metrics.
 
@@ -149,13 +149,13 @@ Really simple to change values, commit the perf values, see the sync land in arg
 
 ## What each VUs does
 
-| Operation                                  | Type         | When           | Per turn |
-| ------------------------------------------ | ------------ | -------------- | -------- |
-| Interview row read                         | Read         | Session open   | 1        |
-| Transcript read                            | Read         | Session open   | 1        |
-| Reply insert                               | Write        | Every turn     | 1        |
-| Trailing-user-turn repair: delete + insert | Write        | Sometimes      | 0 or 2   |
-| Turn credit read + upsert                  | Read + write | Turn credit on | 0 or 2   |
+| Operation                                  | Type  | When         | Per turn |
+| ------------------------------------------ | ----- | ------------ | -------- |
+| Interview row read                         | Read  | Session open | 1        |
+| Transcript read                            | Read  | Session open | 1        |
+| Reply insert                               | Write | Every turn   | 1        |
+| Turn credit read + upsert                  | Read + write | Every turn   | 1        |
+| Trailing-user-turn repair: delete + insert | Write | Sometimes    | 0 or 2   |
 
 Every virtual user is the same identity and they all share one account.
 
@@ -186,25 +186,32 @@ The stub is read at import, so a pod that never restarted is a window that never
 
 ## What the reads cost
 
-The reads that scale with history are in the loop, so the loop's own writes change them. `GET /api/interviews` returns every run for the owner with no limit, and the stats endpoints re-scan the full history. Left alone, a later step reads a bigger account than an earlier one did, and part of any curve is data the test itself created. I could use Pagination and Redis but for a simplicty and not to deviate much before some current non-optimized architecture.
+The reads that scale with history are in the loop, so the loop's own writes change them. GET /api/interviews returns every run for the owner with no limit, and the stats endpoints re-scan the full history.
 
-So the rows go between steps. Every other test here cleans up after itself and this one does the same, which holds the account at a constant size and stops growth from presenting itself as capacity loss.
+The first draft left pagination and Redis out, to stay close to the current unoptimized architecture. But on second thought I opt in the pagination goes in, first and foremost without coupling it to Redis or any more optimization strategies. A LIMIT and OFFSET is a minimal change to the query itself, not a dependency to run, so it comes before anything else is added or measured. Not shipped yet: the list query still reads the owner's full history, so every run so far is the unpaginated architecture.
+
+I'll still measure without pagination, since it will probably fail SLO(specifically our latency) at low VU counts. The cost is low because it fails early and we can afford to measure it without sacrificing much time. It will be a separate run and data from with pagination since it is a different architectural run.
+
+Redis stays out: it is a different tier, a second compute and a cache to invalidate, and does not belong in the same step as a LIMIT.
 
 ## Between steps
 
-A sweep is the whole experiment: warm the database, climb the ladder, bracket the failure, binary search, confirm, and record the boundary for estimated max users. A step is one level inside it. The sweep is automated end to end, so there are no human gaps between steps. That matters here, because let's say I forgetting to actually run the test for a certain period, it will eventually close because theres no one using the application. A gap long enough would let the asyncpg pool close its idle connections and Neon return to scale-to-zero, and the next step would pay the wake again before any number is taken.
+A sweep is the whole experiment: warm the database, climb the ladder, bracket the failure, binary search, confirm, and record the boundary for estimated max users per relative to RPS. A step is one level inside it. The sweep is automated end to end, so there are no human gaps between steps. That matters here, because let's say I forgetting to actually run the test for a certain period, it will eventually close because theres no one using the application. A gap long enough would let the asyncpg pool close its idle connections and Neon return to scale-to-zero, and the next step would pay the wake again before any number is taken.
 
 So first, we warm the database. `min_size=0` means the first requests pay pool creation and a fresh TLS handshake, and Neon scale-to-zero means the first request after an idle gap pays the compute wake.
 
-Then every step is a ramp to the target VUs, a 1min quiet gap with no requests which separates one step from the next in the metrics or in a dashboard like grafana., then a 5minute measurement window. Specifically, only the measurement window counts.
+Then every step is a ramp to the target VUs, then a 5 minute measurement window. Only the window counts. After it, a 60 second gap separates this step from the next: 15 seconds of
+silence, up to 30 seconds of cleanup, 15 seconds of silence again. 60 seconds stays well inside asyncpg's idle close and Neon's scale-to-zero, so the gap costs neither the pool nor the wake.
+
+The cleanup deletes this step's rows to a floor, not to zero — prior steps' rows stay — so each window starts at F and ends at F+Δ rather than at 0 and N, which is the maximum possible drift and the one the test itself creates. It runs until the row count is at the floor rather than for a fixed 30 seconds: a cascading delete outlasts the budget on a large account, and a timeout that bleeds into the next ramp is a step that started with un-deleted rows. Account size is emitted as a gauge at window start and window end, so intra-window drift is reported rather than assumed.
 
 The database is warmed once before the first step, so pool creation and the Neon wake we already paid before any number is taken.
 
 We start at 100 VUs and double from there. This is first level where we are checking and warming up: initialize our database, a smoke test for an app or a generator that was already broken before the load got high.
 
-If one of them fails, then that is not a load problem, so we stop and fix it instead of searching since it will be very unsual to have my test fail at such a low number. The search only starts above the smoke levels.
+If one of them fails, then that probable is not a load problem, so we stop and fix it instead of searching since it will be very unsual to have my test fail at such a low number. Rerun it again with the same workload but lesser VUs like say for example 10 VUs.
 
-Each level passes or fails. If it passes, we go up. If it fails on an SLO, we stop going up, but the run keeps going. That failure becomes the top of the range, and we split the gap between the last pass and that failure to find the highest level that still passes. If 200 passes and 400 fails, try 300; if 300 passes, try 350. That is a binary search. We only need the boundary between pass and fail, not an exact number, because the boundary itself moves about 10% between runs. If we land on 2500 today, a rerun could land at 2400 or 2600 and that is the same answer.
+Each level passes or fails. If it passes, we go up. If it fails on an SLO, we stop going up, but the run keeps going. That failure becomes the top of the range, and we split the gap between the last pass and that failure to find the highest level that still passes. If 200 passes and 400 fails, try 300; if 300 passes, try 350. That is a binary search. We only need the boundary between pass and fail, not an exact number.
 
 Confirm the highest passing level by re-running it 3 times, and again since the boundary moves about 10% this becomes more important to evaluating between runs and a single pass is not proof.
 
@@ -215,9 +222,9 @@ Confirm the highest passing level by re-running it 3 times, and again since the 
 3. Prod's default branch, not a Neon branch. Every VU is one identity either way, so a branch would isolate rows and change nothing about contention, at the cost of a second compute and a Secret swap.
 4. Use Tailscale instead of cloudflare due to BFM.
 5. `APP_ENV=test` with Clerk off, and the simulate route left open. Both side effects accepted and recorded above. Rejected: staying on production with minted Clerk tokens, which keeps JWT verification in the measured path but makes Clerk a dependency of the sweep.
-6. A full run per virtual user with a randomized turn count, plus any other endpoint a signed-in user can reach. Rejected: a fixed count, which makes every virtual user do identical work and has to be tuned to sit inside the arc;
+6. A full run per virtual user with a randomized turn count, plus any other endpoint a signed-in user can reach. Rejected: a fixed count, which makes every virtual user do identical work and has to be tuned to sit inside the arc.
 7. Telemetry stays on and gets recorded as cost. Rejected: turning it off, which gives a cleaner app number at the price of the deployed configuration.
 8. The model stubbed for the sweep. Rejected: real generation, where the ceiling is the provider's quota and not this one.
 9. Direct host, not the pooler. A `-pooler` DSN flips `statement_cache_size`, a different code path than prod runs.
 10. The sweep runs under its own identity, named by `DEV_USER_SUB`.
-11. The workload is what `main.js` walks, with no version pinned to it. Rejected: pinning it to the image revision, which would date the drift but costs a fact to maintain. The consequence is that a new route joins the workload silently, so two runs are only comparable when they share a revision.
+11. Capacity sweep at a small fixed floor; the unbounded read on its own N-sweep. Rejected: letting N grow inside the ladder, which conflates read cost with concurrency and makes a failure at 100 VUs unattributable.
