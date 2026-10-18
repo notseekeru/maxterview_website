@@ -41,22 +41,26 @@ One path, ending in the same pod.
 
 ```
 Capacity path
-  k6 (Windows box) -> Tailscale -> ingress-nginx -> pod
+  k6 (desktop or laptop) -> Tailscale -> ingress-nginx -> pod
   pod -> Neon (direct host, TLS)
   pod -> Alloy (in-cluster) -> Grafana Cloud
 ```
 
 ## Configuration
 
-### Windows load generator(The one who runs k6)
+### Load generator(The one who runs k6)
 
-| Component  | Specification                                                                                                              |
-| ---------- | -------------------------------------------------------------------------------------------------------------------------- |
-| CPU        | AMD Ryzen 5 3600 (6 cores / 12 threads)                                                                                    |
-| RAM        | 32 GB                                                                                                                      |
-| Monitoring | Lightweight/manual monitoring initially; observe CPU, memory, and k6 process behavior if generator saturation is suspected |
+The desktop is the box the plan was written against; the laptop is the second one, measured doing it.
 
-Windows machine is the load generating machine, which could minimally be monitored by myself, though it isnt systematic, that would be enough for my purpose of the test since we dont really expect the load generating machine to saturate much. Focus on the application you're about to load not overcomplicate by other concerns, though we could use something like csv metrics.
+| Component  | Desktop                                                                                                                    | Laptop                                      |
+| ---------- | -------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------- |
+| CPU        | AMD Ryzen 5 3600 (6 cores / 12 threads)                                                                                    | Intel i7-10610U (4 cores / 8 threads, 15 W) |
+| RAM        | 32 GB                                                                                                                      | 16 GB                                       |
+| Monitoring | Lightweight/manual monitoring initially; observe CPU, memory, and k6 process behavior if generator saturation is suspected | Same                                        |
+
+Windows machine is the load generating machine and so is the laptop, which could minimally be monitored by myself, though it isnt systematic, that would be enough for my purpose of the test since we dont really expect the load generating machine to saturate much. Focus on the application you're about to load not overcomplicate by other concerns, though we could use something like csv metrics.
+
+The laptop measured about a quarter of one core at 240 RPS, 1.15 CPU-seconds per 1,000 requests, on the same workload the ladder runs. Neither box is the expected ceiling.
 
 If the generator approaches sustained CPU or memory pressure or can't maintain the intended VU load, the measured capacity ceiling could generator limitations rather than application limitations.
 
@@ -111,7 +115,7 @@ These bound what one client can do, so they set the roof on the loop.
 
 | Purpose               | Tool                                                                               |
 | --------------------- | ---------------------------------------------------------------------------------- |
-| Load generation       | k6, on the Windows box                                                             |
+| Load generation       | k6, on the desktop or the laptop                                                   |
 | Private path          | Tailscale                                                                          |
 | Orchestration         | k3s, ingress-nginx, Argo CD, Kustomize                                             |
 | Metrics, logs, traces | Grafana Cloud, with Alloy as the in-cluster shipper                                |
