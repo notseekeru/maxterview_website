@@ -1,6 +1,6 @@
 import { LABEL } from "@/components/PagePrimitives";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { Decision, Feedback, Message, Offer } from "@/lib/api";
 import { ALL_DIMS, dimLabel, groupDims } from "@/lib/dimensions";
 import { MOVE_CLASSES } from "@/lib/moveClasses";
