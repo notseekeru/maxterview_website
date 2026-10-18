@@ -154,21 +154,21 @@ Really simple to change values, commit the perf values, see the sync land in arg
 
 The two reads at every turn are both `_chat_session`: the interview with its resume text, and the whole transcript, so the transcript read grows with the run and is re-paid on every turn rather than once at session open.
 
-| Request                                                              | Phase                  |
-| -------------------------------------------------------------------- | ---------------------- |
-| `POST /interviews`                                                   | Run start              |
-| `POST /interviews/{id}/start`                                        | Run start              |
-| `POST /interviews/{id}/chat/kickoff`                                 | Opener                 |
-| `POST /interviews/{id}/chat/stream`                                  | Every turn             |
-| `POST /interviews/{id}/finish`                                       | Run end                |
-| `GET /interviews/{id}/feedback`                                      | Run end                |
-| `GET /interviews/{id}/messages`                                      | Run end                |
-| `GET /interviews`, `/stats/dimensions`, `/stats/analytics`            | After the run          |
-| `GET /usage`, `/templates`, `/resumes`, `/settings/llm`, `/voice`     | After the run          |
-| `GET /interviews/{id}/offer`                                         | After the run          |
-| `POST` and `DELETE /interviews/{id}/archive`                         | After the run          |
-| `POST /resumes`, `POST /templates`, each deleted in the same run     | After the run          |
-| `POST /client-errors`                                                | After the run          |
+| Request                                                           | Phase         |
+| ----------------------------------------------------------------- | ------------- |
+| `POST /interviews`                                                | Run start     |
+| `POST /interviews/{id}/start`                                     | Run start     |
+| `POST /interviews/{id}/chat/kickoff`                              | Opener        |
+| `POST /interviews/{id}/chat/stream`                               | Every turn    |
+| `POST /interviews/{id}/finish`                                    | Run end       |
+| `GET /interviews/{id}/feedback`                                   | Run end       |
+| `GET /interviews/{id}/messages`                                   | Run end       |
+| `GET /interviews`, `/stats/dimensions`, `/stats/analytics`        | After the run |
+| `GET /usage`, `/templates`, `/resumes`, `/settings/llm`, `/voice` | After the run |
+| `GET /interviews/{id}/offer`                                      | After the run |
+| `POST` and `DELETE /interviews/{id}/archive`                      | After the run |
+| `POST /resumes`, `POST /templates`, each deleted in the same run  | After the run |
+| `POST /client-errors`                                             | After the run |
 
 Three of those rows are model-bearing, `chat/kickoff`, `chat/stream` and `finish`, and they are the
 rows the latency gates exclude; the gates cover the rest.
@@ -221,7 +221,7 @@ So first, we warm the database. `min_size=0` means the first requests pay pool c
 Then every step is a ramp to the target VUs, then a 5 minute measurement window. Only the window counts. After it, a 60 second gap separates this step from the next: 15 seconds of
 silence, up to 30 seconds of cleanup, 15 seconds of silence again. 60 seconds stays well inside asyncpg's idle close and Neon's scale-to-zero, so the gap costs neither the pool nor the wake.
 
-The cleanup deletes this step's rows to a floor, not to zero — prior steps' rows stay — so each window starts at F and ends at F+Δ rather than at 0 and N, which is the maximum possible drift and the one the test itself creates. It runs until the row count is at the floor rather than for a fixed 30 seconds: a cascading delete outlasts the budget on a large account, and a timeout that bleeds into the next ramp is a step that started with un-deleted rows. Account size is emitted as a gauge at window start and window end, so intra-window drift is reported rather than assumed.
+The cleanup deletes the identity's rows in full, so every window starts from the same empty account and the only drift inside a window is that step's own writes. It runs until the account is empty rather than for a fixed 30 seconds: a cascading delete outlasts the budget on a large account, and a timeout that bleeds into the next ramp is a step that started with un-deleted rows. The row count is recorded at window start and at window end, so intra-window drift is reported rather than assumed.
 
 The database is warmed once before the first step, so pool creation and the Neon wake we already paid before any number is taken.
 
