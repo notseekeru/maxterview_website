@@ -223,9 +223,9 @@ A sweep is the whole experiment: warm the database, climb the ladder, bracket th
 So first, we warm the database. `min_size=0` means the first requests pay pool creation and a fresh TLS handshake, and Neon scale-to-zero means the first request after an idle gap pays the compute wake.
 
 Then every step is a ramp to the target VUs, then a 5 minute measurement window. Only the window counts. After it, a 60 second gap separates this step from the next: 15 seconds of
-silence, up to 30 seconds of cleanup, 15 seconds of silence again. 60 seconds stays well inside asyncpg's idle close and Neon's scale-to-zero, so the gap costs neither the pool nor the wake.
+silence, up to 30 seconds of cleanup, 15 seconds of silence again. 60 seconds stays well inside asyncpg's idle close and Neon's scale-to-zero, so the gap costs neither the pool nor the wake of our cloud database.
 
-The cleanup deletes the identity's rows in full, so every window starts from the same empty account and the only drift inside a window is that step's own writes. It runs until the account is empty rather than for a fixed 30 seconds: a cascading delete outlasts the budget on a large account, and a timeout that bleeds into the next ramp is a step that started with un-deleted rows. The row count is recorded at window start and at window end, so intra-window drift is reported rather than assumed.
+The cleanup deletes the k6 identity's account, so every run starts from the same empty account. That deleting happens for 30 seconds which would be all more plenty of time to delete all that data relevant to our k6 account, and a cleanup that runs out of that budget aborts the sweep instead of letting the next window read a bigger account than the last. The row count is recorded at window start and at window end, so intra-window drift is reported rather than assumed.
 
 The database is warmed once before the first step, so pool creation and the Neon wake we already paid before any number is taken.
 
