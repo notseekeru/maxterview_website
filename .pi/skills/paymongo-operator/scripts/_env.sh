@@ -31,7 +31,7 @@ _engine_load_env() {
     case "$_k" in
       *[!A-Za-z0-9_]*) continue ;;
     esac
-    [ -n "${!_k:-}" ] && continue              # already set (non-empty) in env — respect it
+    [ -n "${!_k:-}" ] && continue              # already set (non-empty) in env: respect it
     # Trim one level of surrounding single/double quotes (how a typical dotenv/compose .env parses).
     case "$_rest" in
       \"*\") _rest="${_rest%\"}"; _rest="${_rest#\"}" ;;

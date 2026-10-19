@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# need-keys.sh — zero-touch liveness/report of Clerk+PayMongo operator config.
+# need-keys.sh: zero-touch liveness/report of Clerk+PayMongo operator config.
 # NEVER prints a value; only prints set/missing + a paste-me template for missing ones.
 # Exit 0 if the required operator vars are set (test-mode), 1 if anything required is missing.
 set -euo pipefail
@@ -33,7 +33,7 @@ for entry in "${REQUIRED[@]}"; do
         # Reject live keys outright.
         case "$val" in
         *_live_*)
-            echo "  ✗ $var ($label): PRESENT but LIVE (**sk_live_...) — operator refuses live. Set a TEST key."
+            echo "  ✗ $var ($label): PRESENT but LIVE (**sk_live_...): operator refuses live. Set a TEST key."
             missing="$missing $var"
             ;;
         *) echo "  ✓ $var ($label)" ;;

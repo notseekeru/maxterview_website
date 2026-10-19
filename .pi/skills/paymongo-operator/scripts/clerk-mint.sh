@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# clerk-mint.sh — operator helper: create a throwaway Clerk test user and print a browser-auth
+# clerk-mint.sh: operator helper: create a throwaway Clerk test user and print a browser-auth
 # session/testing token WITHOUT any password. Destructive teardown needs --admin-destroy.
 #
 #   (default)              create user + print a @clerk/testing testing token (SPA sign-in)
 #   --session-jwt[=path]   mint a session JWT for the user and write it to `path` (default
-#                          /tmp/clerk-session.jwt, mode 600) — this is the credential the backend
+#                          /tmp/clerk-session.jwt, mode 600): this is the credential the backend
 #                          accepts as `Authorization: Bearer`, unlike the testing token. Never
 #                          printed: it goes straight into the file.
 #   --user=<id>            reuse an existing user instead of creating one
@@ -112,7 +112,7 @@ if [ -n "$token" ]; then
 fi
 
 # 3) Session JWT (opt-in): the credential the BACKEND accepts as `Authorization: Bearer`. A
-#    testing token is only good for @clerk/testing's FAPI interception — for API-level proof
+#    testing token is only good for @clerk/testing's FAPI interception; for API-level proof
 #    (`GET /api/usage`, curl against /billing/*) you need a real session token JWT. Written to a file,
 #    never printed: it is a bearer credential for that throwaway user.
 if [ -n "$JWT_OUT" ]; then
@@ -128,5 +128,5 @@ if [ -n "$JWT_OUT" ]; then
   [ -n "$jwt" ] || { echo "refused: no jwt in session-token response"; exit 4; }
   (umask 077; printf '%s' "$jwt" > "$JWT_OUT")
   echo "session-jwt  $JWT_OUT (mode $(stat -c %a "$JWT_OUT"), ${#jwt} chars, ttl ${JWT_TTL}s)"
-  echo "  user $USER_ID session $SESSION_ID — use: curl -H \"Authorization: Bearer \$(cat $JWT_OUT)\" \${BACKEND_URL:-http://localhost:8000}/api/usage"
+  echo "  user $USER_ID session $SESSION_ID, use: curl -H \"Authorization: Bearer \$(cat $JWT_OUT)\" \${BACKEND_URL:-http://localhost:8000}/api/usage"
 fi

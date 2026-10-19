@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# debug-state.sh — read-only backend state dump for billing/entitlement triage.
+# debug-state.sh: read-only backend state dump for billing/entitlement triage.
 # Prints recent `subscriptions` rows (mapped to owner) and the app's current quota/tier, without
 # secrets. Requires the backend API to be reachable.
 #
@@ -39,7 +39,7 @@ if [ -n "${DATABASE_URL:-}" ] || [ -n "${PSQL_DSN:-}" ]; then
     echo "  (psql not on PATH; open `make psql` and run: SELECT owner_id, plan, status FROM subscriptions;)"
   fi
 else
-  echo "  DATABASE_URL not set in this shell — run via docker backend (compose) or set DATABASE_URL/PSQL_DSN."
+  echo "  DATABASE_URL not set in this shell: run via docker backend (compose) or set DATABASE_URL/PSQL_DSN."
   echo "  Suggested: SELECT owner_id, plan, status, current_period_end FROM subscriptions ORDER BY updated_at DESC LIMIT 10;"
 fi
 

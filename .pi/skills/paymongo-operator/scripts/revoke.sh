@@ -1,21 +1,21 @@
 #!/usr/bin/env bash
-# revoke.sh — end one owner's premium NOW: a chargeback, or a refund the webhook missed.
+# revoke.sh: end one owner's premium NOW: a chargeback, or a refund the webhook missed.
 #
-# Why this is a script and not an endpoint: this account has NO dispute signal at all — `dispute.*`
+# Why this is a script and not an endpoint: this account has NO dispute signal at all: `dispute.*`
 # and the docs' newer `refund.succeeded` are refused at webhook registration as invalid event types,
 # `GET /v1/disputes` answers `access_denied` (all measured 2026-09-27), and `POST /v1/refunds` refuses
 # a QR Ph payment outright, so a refund only ever arrives as `payment.refunded`. Disputes are seen in
 # the PayMongo dashboard, and the app has no admin surface to act on one.
 #
 # The write is the same one `payments._revoke` makes: `plan='free'` plus a status that is NOT in
-# `billing.ENTITLED_STATUSES`, so the next read downgrades — no job, no cache to bust. A later
+# `billing.ENTITLED_STATUSES`, so the next read downgrades: no job, no cache to bust. A later
 # purchase overwrites the row, so this is not a ban.
 #
 #   revoke.sh --owner=<clerk sub> [--status=disputed] --admin-destroy
 #   revoke.sh --intent=pi_x      [--status=refunded] --admin-destroy   (the row's stored provider id)
 #   revoke.sh --customer=cus_x   [--status=disputed] --admin-destroy
 #
-# Reads (never prints): DATABASE_URL / PSQL_DSN — point it at the database whose entitlement you mean
+# Reads (never prints): DATABASE_URL / PSQL_DSN: point it at the database whose entitlement you mean
 # (the local compose one by default, i.e. NOT production unless you say so explicitly).
 set -euo pipefail
 _ENGINE_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
@@ -54,7 +54,7 @@ if [ "$ADMINDESTROY" != 1 ]; then
 fi
 
 uri="${PSQL_DSN:-${DATABASE_URL:-}}"
-[ -n "$uri" ] || { echo "refused: DATABASE_URL (or PSQL_DSN) unset — export the database you mean first"; exit 1; }
+[ -n "$uri" ] || { echo "refused: DATABASE_URL (or PSQL_DSN) unset: export the database you mean first"; exit 1; }
 command -v psql >/dev/null 2>&1 || { echo "refused: psql not on PATH (nix shell nixpkgs#postgresql)"; exit 1; }
 
 # `returning` both statements so the operator sees the row they removed, not just a count. The query

@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# webhook-driver.sh — deliver a PayMongo billing event to the app.
+# webhook-driver.sh: deliver a PayMongo billing event to the app.
 #
 # Two delivery modes:
 #   (default)    POST /api/billing/webhook signed with PAYMONGO_WEBHOOK_SECRET
-#                (`Paymongo-Signature: t=<unix>,te=<hmac-sha256 of "{t}.{raw_body}">`) — this
+#                (`Paymongo-Signature: t=<unix>,te=<hmac-sha256 of "{t}.{raw_body}">`), this
 #                exercises the real signature check.
 #   --simulate   POST /api/billing/webhook/simulate, the dev/test-only shortcut that skips the
 #                signature. PayMongo has no `stripe listen` equivalent, so this (plus this script's
@@ -128,7 +128,7 @@ printf '{"data":{"type":"%s","livemode":false,"data":{"id":"%s","type":"%s","att
 
 if [ "$SIMULATE" = 1 ]; then
   url="$BACKEND_URL/api/billing/webhook/simulate"
-  echo "POST $url  ($EVENT, unsigned — dev/test only)"
+  echo "POST $url  ($EVENT, unsigned, dev/test only)"
   code=$(curl -sS -o /tmp/webhook-driver.out -w '%{http_code}' -X POST "$url" \
     -H 'Content-Type: application/json' --data-binary "@$body")
 else

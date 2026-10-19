@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# payments.sh — operator helper for the one-time payment path (BILLING_MODE=period, the launch mode).
+# payments.sh: operator helper for the one-time payment path (BILLING_MODE=period, the launch mode).
 #
 #   --list-payments [--limit=N]                recent payments (id, amount, status, fee)
 #   --create-period [--amount=9900] [--desc=]  create + attach a QR Ph Payment Intent (the sequence
@@ -37,7 +37,7 @@ PAYMENT_ID=""
 # the refund pair was accepted while the probe URL was rejected (a separate field), and registration
 # REJECTS `payment_intent.succeeded` ("invalid event type", 2026-09-17) along with the docs' newer
 # `refund.succeeded` and every `dispute.*` name (2026-09-27, while `GET /v1/disputes` answers
-# `access_denied` — a dispute is revoked by hand with revoke.sh). `payment.failed` was never registered.
+# `access_denied`: a dispute is revoked by hand with revoke.sh). `payment.failed` was never registered.
 # The app still accepts `payment_intent.succeeded` for accounts that do emit it, and its period write is
 # a compare-and-set, so a duplicate or sibling delivery cannot buy two periods.
 EVENTS='["payment.paid","payment.refunded","payment.refund.updated"]'
@@ -86,7 +86,7 @@ _hook_summary() {
   fi
 }
 
-# node when present (structured), else a grep of ids — the stub script's convention.
+# node when present (structured), else a grep of ids, the stub script's convention.
 _rows() {
   if command -v node >/dev/null 2>&1; then
     node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const j=JSON.parse(s);

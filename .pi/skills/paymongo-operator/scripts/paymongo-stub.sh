@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# paymongo-stub.sh — operator helper: read/create a throwaway PayMongo TEST object (plan/customer).
+# paymongo-stub.sh: operator helper: read/create a throwaway PayMongo TEST object (plan/customer).
 #
 #   --create-plan [--amount=9900] [--interval=month] [--name=...]   create the ₱99/mo premium plan
 #   --list-plans                                                     list plans (id + amount + interval)
@@ -49,7 +49,7 @@ _get() { curl -fsS -H "$AUTH" "$API$1"; }
 _post() { curl -fsS -H "$AUTH" -H 'Content-Type: application/json' -X POST "$API$1" -d "$2"; }
 _delete() { curl -fsS -H "$AUTH" -X DELETE "$API$1"; }
 
-_pick() { # _pick <json> <jq-ish grep> — node when present, else grep the ids
+_pick() { # _pick <json> <jq-ish grep>: node when present, else grep the ids
   if command -v node >/dev/null 2>&1; then
     node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const j=JSON.parse(s);const rows=j.data?[].concat(j.data):[];for(const r of rows){const a=r.attributes||{};console.log(`  ${r.id}  ${a.amount??a.email??""} ${a.interval??""} ${a.name??(a.first_name||"")+((a.last_name)?" "+a.last_name:"")}`)}})'
   else
