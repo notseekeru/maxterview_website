@@ -146,7 +146,6 @@ done
 ALL_FREE=true
 for PORT in "$@"; do
     if port_in_use "$PORT"; then
-        # Skip ports we intentionally own (self-project is already running)
         OWNED=false
         for o in "${OWNED_PORTS[@]}"; do
             [[ "$o" == "$PORT" ]] && OWNED=true && break

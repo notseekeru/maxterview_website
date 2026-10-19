@@ -16,8 +16,6 @@ from typing import Any
 CONTAINER = "maxterview_backend_dev"
 ROLE = "LLM Smoke"  # identifies test rows; removal is the API's own DELETE, never SQL
 TURN = "I write code and ship features."
-# The second turn is what makes the run gradeable: feedback only scores answers that follow at least
-# one interviewer question (llm.py::_graded_answers), and the opener question comes back with turn one.
 ANSWER = (
     "Last quarter I moved our checkout to a second payment provider. I owned the cutover, ran a week "
     "of dual writes, and the one incident was a stale balance read that I fixed by pinning the "
@@ -35,7 +33,6 @@ def check(cond: Any, label: str, detail: Any = "") -> None:
     if not cond:
         die(f"{label}{f' ({detail})' if detail else ''}")
 
-# Inside the container: app.llm is importable here.
 
 def _call(base: str, token: str, method: str, path: str, body: Any = None, timeout: float = 20.0):
     data = json.dumps(body).encode() if body is not None else None
@@ -129,11 +126,9 @@ def run_inside(args: argparse.Namespace) -> None:
         check(bool(fb.get("tips")), "feedback tips present")
         log(f"feedback ok: {len(fb['scores'])} dims, accuracy={fb.get('accuracy')}, {len(fb['tips'])} tips")
     finally:
-        # The only cleanup path: an aborted run still removes its own row.
         status, _ = _call(base, token, "DELETE", f"/api/interviews/{iid}", timeout=15)
         log(f"deleted test interview {iid} (HTTP {status})")
 
-# Host side: docker plumbing only.
 
 def run_host(args: argparse.Namespace) -> None:
     if not shutil.which("docker"):
@@ -142,7 +137,6 @@ def run_host(args: argparse.Namespace) -> None:
     if CONTAINER not in ps.stdout.split():
         die(f"backend container {CONTAINER} is not running. Run: make up")
 
-    # Emptiness only: the value is config, and the warning is about STUB_MODE, not about the URL.
     set_base = subprocess.run(["docker", "exec", CONTAINER, "sh", "-c", 'test -n "$LLM_BASE_URL"'], capture_output=True).returncode
     if set_base != 0:
         log("WARN: LLM_BASE_URL is empty in the backend container: this exercises STUB_MODE, not a real model.")

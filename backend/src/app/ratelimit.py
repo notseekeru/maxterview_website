@@ -13,8 +13,6 @@ from starlette.responses import JSONResponse
 
 from app import API_PREFIX
 
-# Per client per minute. Generous on purpose: a real UI burst (dashboard, create, stream a turn)
-# is a handful of requests, and M10's turn caps already bound what a well-behaved client spends.
 DEFAULT = "120/minute"
 _storage = MemoryStorage()
 _limiter = FixedWindowRateLimiter(_storage)

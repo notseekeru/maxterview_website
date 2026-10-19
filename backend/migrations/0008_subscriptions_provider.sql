@@ -1,7 +1,3 @@
--- yoyo up migration: the ENTIRE file body is the "up" step.
--- (yoyo reads rollback from a separate 0008_subscriptions_provider.rollback.sql.)
--- M10 provider swap: Stripe -> PayMongo. Columns are renamed provider-agnostic so a second
--- provider (merchant-of-record for global/USD) is a module + a row, not another rename.
 --   provider_customer_id     cus_…  (was stripe_id: cus_…)
 --   provider_subscription_id subs_… — what cancel/webhook resolution needs
 --   provider_plan_id         plan_…

@@ -1,4 +1,3 @@
--- yoyo rollback for 0008_subscriptions_provider (read from 0008_subscriptions_provider.rollback.sql)
 DROP INDEX IF EXISTS uq_subscriptions_provider_subscription_id;
 
 ALTER TABLE subscriptions DROP COLUMN IF EXISTS provider_plan_id;

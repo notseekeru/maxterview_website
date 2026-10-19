@@ -58,9 +58,6 @@ async def test_resolve_tier_free_when_no_subscription(monkeypatch):
     assert await resolve_tier(_User("plain-user", "free")) == "free"
 
 
-# --- GLOBAL daily chat-turn accounting (turn_usage per owner per UTC day) ---
-
-
 async def test_chat_turns_used_defaults_zero_when_no_row(monkeypatch):
     monkeypatch.setattr(billing, "fetchrow", _async_none)
     assert await billing.chat_turns_used("some-owner") == 0
@@ -96,12 +93,6 @@ def test_invalid_quota_key_raises_500():
         _quota("free", "nonexistent")
     assert exc.type.__name__ == "HTTPException"
     assert exc.value.status_code == 500
-
-
-# --- PayMongo webhook -> subscriptions upsert (M10) ---
-#
-# PayMongo has shipped two envelope shapes (see payments._envelope); both are exercised below so a
-# silent provider-side change is caught by tests instead of by a missing entitlement.
 
 
 def _subscription_event(etype: str, *, status: str = "active", attrs: dict | None = None, legacy: bool = False) -> dict:
@@ -196,9 +187,6 @@ async def test_subscription_event_with_unknown_subscription_is_ignored(monkeypat
     assert not any("provider_customer_id" in q for q, _ in calls)
 
 
-# --- duplicate-subscription guard (a second POST /v1/subscriptions is a second charge) ---
-
-
 def _row(**kw) -> dict:
     return {
         "plan": "premium",
@@ -217,7 +205,6 @@ def test_resubscribe_allowed_when_nothing_is_stored():
 
 
 def test_resubscribe_blocked_inside_a_paid_period():
-    # Day 10 of 30: still paying for this period, whatever the status is.
     for status in ("active", "past_due", "unpaid", "cancelled"):
         assert payments._resubscribe_block(_row(status=status), NOW) != "", status
 
@@ -225,15 +212,12 @@ def test_resubscribe_blocked_inside_a_paid_period():
 def test_resubscribe_allowed_once_the_period_lapsed():
     lapsed = _row(status="cancelled", current_period_end=datetime(2026, 9, 1, tzinfo=UTC))
     assert payments._resubscribe_block(lapsed, NOW) == ""
-    # A lapsed row that was already downgraded to free is clear too.
     assert payments._resubscribe_block(_row(plan="free", status="cancelled", current_period_end=None), NOW) == ""
 
 
 def test_resubscribe_blocked_while_the_first_payment_is_pending():
-    # `incomplete` inside PayMongo's 24h window: the Maya link issued earlier is still live.
     pending = _row(plan="premium", status="incomplete", current_period_end=None, updated_at=NOW)
     assert payments._resubscribe_block(pending, NOW) != ""
-    # Past 24h PayMongo has self-cancelled it, so a fresh subscription is the correct retry.
     stale = _row(plan="premium", status="incomplete", current_period_end=None, updated_at=datetime(2026, 9, 11, 6, tzinfo=UTC))
     assert payments._resubscribe_block(stale, NOW) == ""
 
@@ -255,7 +239,6 @@ async def test_pending_qr_resumes_instead_of_refusing(monkeypatch):
     monkeypatch.setattr(payments, "_api", _api)
     user = ClerkUser(sub="u", email="a@b.co", name="A B")
     assert await payments.start_period_purchase(user) == qr
-    # Exactly one READ: no customer, no payment method, no new intent, so no second charge.
     assert calls == ["GET /v1/payment_intents/pi_x"]
 
 
@@ -352,7 +335,6 @@ async def test_customer_conflict_reuses_the_one_paymongo_already_holds(monkeypat
     assert await payments._ensure_customer(user, "payer@example.com") == "cus_old"
     assert calls[1] == ("GET", "/v1/customers", {"email": "payer@example.com", "limit": 100})
 
-    # A lookup that finds nothing must not invent an id: the original failure stands.
     async def _empty(method, _p, **_k):
         if method == "POST":
             raise HTTPException(status_code=502, detail="Payment provider error")
@@ -382,9 +364,6 @@ async def test_unknown_event_type_is_ignored(monkeypatch):
     assert calls == []
 
 
-# --- period mode: one paid Payment Intent buys PREMIUM_PERIOD_DAYS of premium ---
-
-
 def _payment_event(*, etype: str = "payment.paid", intent_id: str = "pi_1") -> dict:
     if etype.startswith("payment_intent"):
         resource = {"id": intent_id, "type": "payment_intent", "attributes": {"id": intent_id, "amount": 9900, "status": "succeeded"}}
@@ -406,7 +385,6 @@ async def test_payment_paid_credits_the_pending_row(monkeypatch):
     owner, intent_id, period_end = args
     assert (owner, intent_id) == ("paying-user", "pi_1")
     assert "plan = 'premium'" in update and "status = 'active'" in update
-    # The compare-and-set is what makes two registered event types + provider retries safe.
     assert "provider_subscription_id = $2 AND status = 'incomplete'" in update
     days = (period_end - before).total_seconds() / 86400
     assert payments.PREMIUM_PERIOD_DAYS <= days < payments.PREMIUM_PERIOD_DAYS + 0.01
@@ -445,15 +423,6 @@ async def test_payment_events_that_cannot_credit_write_nothing(monkeypatch):
     assert not any("UPDATE subscriptions" in q for q, _ in calls)
 
 
-# --- a refunded payment loses premium now (MONETIZATION §5) ---
-#
-# `payment.refunded` / `payment.refund.updated` are the only refund events this account will register
-# (measured 2026-09-27: `refund.succeeded` is `invalid event type`, `GET /v1/disputes` is
-# `access_denied`, and `POST /v1/refunds` refuses a QR Ph payment outright, so a dashboard refund is
-# the only refund there is). PayMongo's own docs show the thin payload, so the payload shape is
-# unverified and both shapes are pinned here.
-
-
 def _refunded_payment_event(intent_id: str = "pi_1") -> dict:
     resource = {"id": "pay_1", "type": "payment", "attributes": {"id": "pay_1", "status": "refunded", "payment_intent_id": intent_id}}
     return {"data": {"type": "payment.refunded", "livemode": False, "data": resource}}
@@ -488,8 +457,6 @@ async def test_thin_refund_event_resolves_through_the_provider(monkeypatch):
     await payments.handle_webhook_event(_refund_resource_event())
     assert seen == ["/v1/refunds/ref_1", "/v1/payments/pay_1"]
     assert any("UPDATE subscriptions" in q for q, _ in calls)
-    # The docs' newer name for the same settled refund (unregistrable here today) must revoke too:
-    # dispatch keys on the refund RESOURCE, not only on the two names this account accepts.
     await payments.handle_webhook_event(_refund_resource_event("refund.succeeded", status="succeeded", payment_id="pay_1"))
     assert seen[-1] == "/v1/payments/pay_1"
 
@@ -503,7 +470,6 @@ async def test_unsettled_refund_writes_nothing(monkeypatch):
     monkeypatch.setattr(payments, "_api", _api)
     await payments.handle_webhook_event(_refund_resource_event("payment.refund.updated", status="pending"))
     await payments.handle_webhook_event(_refund_resource_event("payment.refund.updated"))  # read back: pending
-    # A payment resource's own `status` is `paid`/`refunded`, never the refund's state.
     await payments.handle_webhook_event({"data": {"type": "payment.refund.updated", "livemode": False, "data": {"id": "pay_1", "type": "payment", "attributes": {"status": "paid", "payment_intent_id": "pi_1"}}}})
     assert not any("UPDATE subscriptions" in q for q, _ in calls)
 
@@ -528,8 +494,6 @@ async def test_unattributable_refund_writes_nothing(monkeypatch):
     await payments.handle_webhook_event(_refund_resource_event("payment.refund.updated", payment_id="pay_1"))
     assert not any("UPDATE subscriptions" in q for q, _ in calls)
 
-
-# --- Paymongo-Signature (HMAC-SHA256 of "{t}.{raw_body}") ---
 
 SECRET = "whsec_test"
 
@@ -570,9 +534,6 @@ def test_period_end_tolerates_provider_date_shapes():
     assert p._period_end(date(2026, 10, 14)) == datetime(2026, 10, 14, tzinfo=UTC)
     assert p._period_end(1788678469).year == datetime.fromtimestamp(1788678469, tz=UTC).year
     assert p._period_end("") is None and p._period_end("not-a-date") is None
-
-
-# --- documented-but-unexercised PayMongo shapes (see payments._try_variants) ---
 
 
 def _configure(monkeypatch):
@@ -651,9 +612,6 @@ async def test_start_subscription_refuses_without_config(monkeypatch):
     with pytest.raises(HTTPException) as exc:
         await payments.start_subscription(ClerkUser(sub="u", email="a@b.co"))
     assert exc.value.status_code == 503
-
-
-# --- period-mode purchase (the launch mode: no account capability required) ---
 
 
 def _period_configure(monkeypatch):

@@ -41,7 +41,6 @@ export function useSpeaker(enabled: boolean) {
         gen.current += 1;
         reader.current?.stop();
         reader.current = null;
-        // Nothing is being said, so nothing stays held back.
         setSpoken(null);
     }, []);
 

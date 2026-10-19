@@ -12,8 +12,6 @@ const THEME_OPTIONS: { value: Theme; label: string; icon: "sun" | "moon" | "moni
     { value: "system", label: "System", icon: "monitor" },
 ];
 
-// /settings/system — per-user app preferences. Appearance (theme) and the LLM provider
-// (BYOK, see LLMProviderCard).
 export function SystemSettingsPage() {
     const { theme, setTheme } = useTheme();
 
@@ -40,9 +38,6 @@ export function SystemSettingsPage() {
                 </CardFooter>
             </Card>
 
-            {/* Default LLM source: BYOK. Free/Pro alike can point interviews at their own
-                OpenAI-compatible provider; the key is encrypted at rest and never returned
-                (backend app/byok.py, BYOK.md). */}
             <LLMProviderCard />
         </Page>
     );

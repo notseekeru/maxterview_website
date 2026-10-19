@@ -110,11 +110,9 @@ app.add_middleware(ClientRateLimitMiddleware)
 if CORS_ALLOW_ORIGINS:
     app.add_middleware(CORSMiddleware, allow_origins=CORS_ALLOW_ORIGINS, allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 
-# Added last => outermost: it therefore sees the 429s and CORS rejections the inner layers return,
-# and it is the layer that stamps X-Request-ID on every response.
+# Added last => outermost: it sees the 429s and CORS rejections the inner layers return.
 app.add_middleware(RequestContextMiddleware)
 
-# The beacon's payload is ~300 bytes; this is the boundary between a report and a body worth parsing.
 CLIENT_ERROR_MAX_BYTES = 4096
 
 
@@ -171,7 +169,6 @@ async def create_interview(
     body: InterviewCreate,
     user: CurrentUser,
 ) -> dict:
-    # Ownership is proven IN the INSERT, not by a pre-check: no race against a delete, one round trip.
     # A None row here means a foreign or deleted id; this path has no cap to confuse it with.
     row = await fetchrow(
         f"""
@@ -270,7 +267,6 @@ async def finish_interview(
     user: CurrentUser,
     config: LLMConfigDep,
 ) -> dict:
-    # Guarded in the same UPDATE, not a pre-check: a foreign id still 404s, no race, no extra round
     # trip. The row must be a CANDIDATE one, since the generated opener is an assistant row.
     row = await fetchrow(
         "UPDATE interviews SET status = 'completed', updated_at = now() WHERE id = $1 AND owner_id = $2 AND status = 'in_progress' AND EXISTS (SELECT 1 FROM messages m WHERE m.interview_id = interviews.id AND m.role = 'user') RETURNING " + INTERVIEW_COLS,
@@ -344,8 +340,6 @@ async def regenerate_feedback(
     )
     if row is None or row["status"] != "completed":
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Interview is not completed")
-    # Legacy dead end: completed before the /finish guard existed, so there is nothing the
-    # model could ever grade. 409 (structural) beats a 503 the retry button can never clear.
     if not await _has_transcript(interview_id):
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Nothing to score yet: this interview has no answers.")
     # Redo allowance, per run. A run that never got a review reads as zero spent, so the repair path
@@ -355,8 +349,6 @@ async def regenerate_feedback(
     limit = billing.redo_limit(tier)
     if (row["redos"] if row else 0) >= limit:
         spent = f"This run has used all {limit} of its review redos."
-        # Same split as the resume cap: 402 sells the next tier, 409 is a wall, and paying again does
-        # not buy a Pro owner more redos.
         upsell = tier == "free"
         raise HTTPException(
             status_code=status.HTTP_402_PAYMENT_REQUIRED if upsell else status.HTTP_409_CONFLICT,
@@ -368,13 +360,10 @@ async def regenerate_feedback(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Scoring model could not produce feedback right now; try again later.",
         )
-    # Charged here and not in the pipeline: /finish writes the FIRST review through that same pipeline,
-    # and the one included in the run is not a redo.
     await fetchrow("UPDATE feedback SET redos = redos + 1 WHERE interview_id = $1", interview_id)
     return dict(await _feedback_row(interview_id))
 
 
-# Per-owner ceiling: presets render as one chip row above the create form.
 TEMPLATE_CAP = 20
 
 TEMPLATE_COLS = "id::text, owner_id, name, role, level, topic, resume_id::text, created_at, updated_at, " + ", ".join(DIAL_FIELDS)
@@ -384,8 +373,6 @@ TEMPLATE_COLS = "id::text, owner_id, name, role, level, topic, resume_id::text, 
 TEMPLATE_CREATE_DIAL_PARAM = 7
 TEMPLATE_UPDATE_DIAL_PARAM = 8
 
-# The built-ins every owner is given once: full create bodies, so a new account's first click starts
-# a run. After seeding they are ordinary rows - renameable, updatable, deletable like any other.
 DEFAULT_TEMPLATES: tuple[TemplateCreate, ...] = (
     TemplateCreate(name="The Killer", role="Software Engineer", company_size="5k+", cynicism="skeptical", brutally_honest=True, human_mode=False, hardcore=True, mix_behavioural=1),
     TemplateCreate(name="The Griller", role="Software Engineer", company_size="201-1k", cynicism="skeptical", brutally_honest=True),
@@ -396,7 +383,7 @@ DEFAULT_TEMPLATES: tuple[TemplateCreate, ...] = (
 DEFAULT_TEMPLATES_ROWS = [t.model_dump(mode="json") for t in DEFAULT_TEMPLATES]
 
 # Idempotent: the marker insert returns a row only the first time, so a deleted default stays deleted.
-# Three rows arrive as ONE jsonb parameter; a VALUES list would need 42 hand-counted placeholders.
+# Three rows arrive as ONE jsonb parameter; a VALUES list would need hand-counted placeholders.
 # created_at is staggered off `ordinality`, or all three share one timestamp and return in any order.
 SEED_DEFAULTS_SQL = f"""
         WITH seed AS (
@@ -410,8 +397,6 @@ SEED_DEFAULTS_SQL = f"""
 
 @api.get("/templates", response_model=list[InterviewTemplate])
 async def list_templates(user: CurrentUser) -> list[dict]:
-    # The seed rides the read every client already makes on mount: there is no signup hook to hang it
-    # on (identity is Clerk's), and the marker makes the repeat cost one no-op statement.
     await fetchrow(SEED_DEFAULTS_SQL, user.sub, DEFAULT_TEMPLATES_ROWS)
     rows = await fetch(
         f"SELECT {TEMPLATE_COLS} FROM interview_templates WHERE owner_id = $1 ORDER BY created_at DESC",
@@ -490,7 +475,7 @@ async def delete_template(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Template not found")
 
 
-# --- resumes (the library; an interview/preset holds `resume_id`, nothing else references one) ---
+# Resumes: an interview or preset holds `resume_id`, nothing else references one.
 
 # No `text` in the list projection: per-row fan-out is what the rate-budget guardrail bans.
 # `chars` is computed, so no stored length to keep in step with an edit.
@@ -635,8 +620,7 @@ async def voice_stt(file: UploadFile, user: CurrentUser) -> VoiceTranscript:
 
 # Dashboard stats: aggregates, not per-row reads.
 
-# The radar's second series spans this many newest rated runs: one run's per-dim holes are noise, and a
-# dim the last run did not probe would read as missing.
+# The radar's second series spans the newest rated runs: one run's per-dim holes are noise.
 RECENT_WINDOW = 5
 
 # The radar in ONE row: two averages (all rated runs, the newest RECENT_WINDOW) plus their counts.
@@ -676,7 +660,7 @@ async def get_interview_dimensions(user: CurrentUser) -> dict:
     return dict(row)
 
 
-# --- analytics (the deep-dive page; same one-aggregate rule as the dashboard above) ---
+# Analytics: the same one-aggregate rule as the dashboard above.
 
 # No `archived_at` filter: the dashboard counts archived runs, so dropping them here would disagree
 # with the numbers one route over. `moves` is pre-aggregated: no per-turn rows in the response.
@@ -698,7 +682,7 @@ ORDER BY i.created_at DESC
 """
 )
 
-# Created vs completed runs per ISO week, over the last 12 weeks; weeks with no runs are absent
+# Created vs completed runs per ISO week; weeks with no runs are absent
 # rather than zero-filled. date_trunc('week') is Monday-based, which the frontend's label assumes.
 ANALYTICS_ACTIVITY_SQL = """
 SELECT to_char(date_trunc('week', created_at), 'YYYY-MM-DD') AS week,
@@ -755,8 +739,6 @@ SELECT count(*) FROM ranked WHERE gap - rn IN (-1, 0)
 
 @api.get("/stats/analytics", response_model=Analytics)
 async def get_analytics(user: CurrentUser) -> dict:
-    # Five statements, not one: each filters a different population, and folding them together would cost
-    # more to read than the round trips cost.
     # AI HERE: each re-scans the owner's full history. Fine at personal scale; upgrade is a rollup.
     run_rows = await fetch(ANALYTICS_RUNS_SQL, user.sub)
     activity = await fetch(ANALYTICS_ACTIVITY_SQL, user.sub)
@@ -813,7 +795,7 @@ def dial_groups(rows: list[asyncpg.Record]) -> dict[str, list[dict]]:
     return groups
 
 
-# --- offers (the simulated letter; app/offer.py owns the rate card) ---
+# Offers: app/offer.py owns the rate card.
 
 # No archived filter: an offer was issued, and hiding the run from the history list does not un-issue it.
 OFFER_COLS = """
@@ -829,7 +811,6 @@ WHERE i.owner_id = $1
 ORDER BY o.created_at DESC
 """
 
-# One run's letter, for the review that folds it in: same columns, scoped to the caller's own run.
 OFFER_SQL = f"""
 SELECT {OFFER_COLS}
 FROM offers o
@@ -972,7 +953,7 @@ async def get_usage(user: CurrentUser, config: LLMConfigDep) -> dict:
     }
 
 
-# BYOK LLM provider (app/byok.py, BYOK.md).
+# BYOK LLM provider; app/byok.py owns the policy.
 
 
 @api.get("/settings/llm", response_model=LLMProvider)
@@ -1095,7 +1076,6 @@ async def _reply_frames(
             interview_id,
             reply,
         )
-        # What a turn cost in wall-clock and output, which an access log cannot give.
         # AI HERE: `chars` stands in for tokens; the provider reports usage only when asked.
         log.info("llm.chat.completed", interview_id=interview_id, model=config.model, asked=asked, chars=len(reply), latency_ms=round((time.perf_counter() - turn_started) * 1000, 1))
     except Exception as exc:

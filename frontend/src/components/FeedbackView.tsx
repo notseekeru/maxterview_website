@@ -15,12 +15,8 @@ function tallyMoves(messages: Message[]) {
 }
 
 export function FeedbackView({ feedback, messages = [], offer, onRedo, redoing, redoError }: { feedback: Feedback; messages?: Message[]; offer?: Offer | null; onRedo?: () => void; redoing?: boolean; redoError?: string | null }) {
-    // ALL dims, not just the scored ones: with ten of them a run that probed four is a normal outcome
-    // (the run's dials are stated on the interview screen; the mix is why the holes are holes).
     const scores = feedback.scores ?? {};
     const dimGroups = groupDims([...ALL_DIMS, ...Object.keys(scores)]);
-    // Absent for feedback written before the hire/reject columns existed, and for a run the
-    // model could not decide: show nothing rather than a default verdict.
     const decision = feedback.decision as Decision | null | undefined;
     const tally = tallyMoves(messages);
     const graded = tally.reduce((n, t) => n + t.count, 0);
@@ -84,9 +80,6 @@ export function FeedbackView({ feedback, messages = [], offer, onRedo, redoing, 
 
                 <p className="text-sm leading-relaxed">{feedback.verdict}</p>
 
-                {/* Folded onto the review because it IS the run's outcome: the letter is priced from
-                    these scores, and the review is where the candidate is already looking. Collapsed by
-                    default so it opens as a summary with the number, not a wall of letter. */}
                 {offer && (
                     <details className="rounded-xl border">
                         <summary className="cursor-pointer px-3 py-2 text-sm font-medium hover:text-foreground">
@@ -109,7 +102,6 @@ export function FeedbackView({ feedback, messages = [], offer, onRedo, redoing, 
                     </div>
                 )}
 
-                {/* Demoted: the annotations above are the review, these numbers predate them. */}
                 <details>
                     <summary className="cursor-pointer text-sm font-medium text-muted-foreground hover:text-foreground">Secondary scores (1-10)</summary>
                     <div className="mt-3 space-y-3">

@@ -1,5 +1,5 @@
 -- yoyo up migration: the ENTIRE file body is the "up" step.
--- (yoyo reads rollback from a separate 0001_init.rollback.sql, NOT a -- migrate:down block.)
+-- yoyo reads rollback from a separate 0001_init.rollback.sql, NOT a -- migrate:down block.
 CREATE TABLE IF NOT EXISTS interviews (
     id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     owner_id    TEXT        NOT NULL,

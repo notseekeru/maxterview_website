@@ -1,4 +1,3 @@
--- yoyo rollback for 0007_interview_dials.
 ALTER TABLE interviews
     DROP COLUMN IF EXISTS company_size,
     DROP COLUMN IF EXISTS cynicism,

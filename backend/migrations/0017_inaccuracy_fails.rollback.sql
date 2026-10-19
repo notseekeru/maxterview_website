@@ -1,4 +1,3 @@
--- yoyo rollback for 0017_inaccuracy_fails (read from 0017_inaccuracy_fails.rollback.sql)
 -- Reverting the rule has to revert the records it produced: the narrowed CHECK cannot hold an
 -- inaccuracy failure, so those rows are cleared (the run keeps its transcript and its class on the
 -- message, which is what the review reads back).

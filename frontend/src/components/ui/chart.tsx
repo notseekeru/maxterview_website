@@ -7,7 +7,7 @@ import * as RechartsPrimitive from "recharts";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 
-// AI HERE: stock shadcn v4 chart, monochrome-light only (M12). A dark theme
+// AI HERE: stock shadcn v4 chart, monochrome-light only. A dark theme
 // would add a `.dark` token entry to THEMES and a dark palette.
 const THEMES = { light: "", dark: ".dark" } as const;
 

@@ -1,5 +1,3 @@
--- yoyo up migration: the ENTIRE file body is the "up" step.
--- (yoyo reads rollback from a separate 0014_resumes.rollback.sql.)
 -- Imported resumes, owner-scoped. TEXT ONLY: the uploaded PDF is never stored and never served
 -- back, so there is no blob path, no MIME sniffing, and no same-origin PDF viewer to exploit. `text`
 -- is sanitized and capped by app/resumes.py before it arrives; the CHECK is the backstop for a bug

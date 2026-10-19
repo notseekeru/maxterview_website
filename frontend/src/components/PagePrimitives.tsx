@@ -3,8 +3,6 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useDocumentTitle } from "@/hooks/useDocumentTitle";
 import { cn } from "@/lib/utils";
 
-// Inner-width wrapper + heading for every sidebar page. `wide` opts out of the reading-width cap:
-// workspace surfaces have to use a large monitor's width or their grid tiles collapse.
 const WIDE_MAX = "max-w-[100rem]";
 
 export const LABEL = "font-mono text-[0.65rem] uppercase tracking-[0.18em] text-foreground/70";
@@ -15,8 +13,6 @@ export function Page({ title, description, heading, children, actions, wide }: {
         <div className={cn("mx-auto w-full space-y-6 px-4 py-6 sm:px-6", wide ? WIDE_MAX : "max-w-4xl")}>
             <header className="flex flex-wrap items-end justify-between gap-x-6 gap-y-3 border-t pt-4">
                 <div className="space-y-2.5">
-                    {/* `heading` replaces the h1's text without touching the document title: the
-                        dashboard headlines the greeting while the tab still reads "Dashboard". */}
                     <h1 className="font-serif text-[clamp(1.75rem,2.8vw,2.5rem)] leading-[1.06] tracking-[-0.025em] text-balance">{heading ?? title}</h1>
                     {description && <p className="max-w-[56ch] text-sm leading-[1.75] text-muted-foreground">{description}</p>}
                 </div>

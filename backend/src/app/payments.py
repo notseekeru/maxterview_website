@@ -25,7 +25,7 @@ PROVIDER = "paymongo"
 BILLING_MODE = os.getenv("BILLING_MODE", "period")
 PREMIUM_PRICE_CENTAVOS = int(os.getenv("PREMIUM_PRICE_CENTAVOS", "9900"))  # ₱99
 PREMIUM_PERIOD_DAYS = int(os.getenv("PREMIUM_PERIOD_DAYS", "30"))
-# Only rail this LIVE account accepts (MONETIZATION §4). Test mode allows the rest, so probe the
+# Only rail this LIVE account accepts. Test mode allows the rest, so probe the
 # live key before adding one: a test-mode pass proves nothing.
 PERIOD_METHODS = ("qrph",)
 
@@ -46,7 +46,7 @@ FIRST_PAYMENT_WINDOW_H = 24
 DEAD_INTENT_STATUSES = ("expired", "canceled", "cancelled", "failed")
 
 # QR Ph cannot be refunded through the API (`Refunds are not allowed for ...qrph`), so a dashboard
-# refund is only ever visible as one of these. The newer catalog names are refused (MONETIZATION §4).
+# refund is only ever visible as one of these. The newer catalog names are refused.
 REFUND_EVENTS = ("payment.refunded", "payment.refund.updated")
 # A refund settles asynchronously (PayMongo holds one while the balance is short), so only the settled
 # state revokes: a pending or failed refund must leave the paid period serving.

@@ -10,8 +10,6 @@ from pypdf import PdfReader
 
 log = structlog.get_logger(__name__)
 
-# Env-overridable, the same idiom as billing's tier limits: these are the only thing standing
-# between an uploaded file and the pod, so a deployment can tighten them without a code change.
 MAX_BYTES = int(os.getenv("RESUME_MAX_BYTES", str(2 * 1024 * 1024)))
 MAX_PAGES = int(os.getenv("RESUME_MAX_PAGES", "15"))
 MAX_CHARS = int(os.getenv("RESUME_MAX_CHARS", "60000"))
@@ -31,8 +29,6 @@ class ExtractError(Exception): ...
 @dataclass(frozen=True)
 class Extracted:
     text: str
-    # Pages that yielded text. A resume's page count is not interesting on its own, but "we read 15
-    # of them" is what the UI needs to explain a truncated import.
     pages: int
     truncated: bool
 
@@ -89,6 +85,6 @@ async def extract_pdf(data: bytes) -> Extracted:
         raise ExtractError("That file isn't a PDF. Upload a PDF, or paste the text instead.")
     async with _parse_slots:
         extracted = await asyncio.to_thread(_parse, data)
-    # Lengths and counts only — never the text (PLAN: logs carry no bodies).
+        # Lengths and counts only, never the text: logs carry no bodies.
     log.info("resume.extracted", bytes=len(data), pages=extracted.pages, chars=len(extracted.text), truncated=extracted.truncated)
     return extracted

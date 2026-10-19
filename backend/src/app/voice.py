@@ -11,8 +11,6 @@ import structlog
 
 log = structlog.get_logger(__name__)
 
-# Env-overridable, the same idiom as billing and resumes: a deployment can swap the model or tighten a
-# cap without a code change.
 ACCOUNT_ID = os.getenv("CLOUDFLARE_ACCOUNT_ID", "")
 API_TOKEN = os.getenv("CLOUDFLARE_API_TOKEN", "")
 STT_MODEL = os.getenv("CLOUDFLARE_STT_MODEL", "@cf/openai/whisper-large-v3-turbo")
@@ -22,10 +20,8 @@ TTS_MODEL = os.getenv("CLOUDFLARE_TTS_MODEL", "@cf/deepgram/aura-1")
 # The model's default is `angus`, an Irish man: the interviewer's voice is cast, not inherited.
 TTS_SPEAKER = os.getenv("CLOUDFLARE_TTS_SPEAKER", "hera")
 
-# A take is capped at 180s in the UI; 8MB is roughly four minutes of Opus, so this only catches a
-# client that ignored the timer.
 MAX_UPLOAD_BYTES = int(os.getenv("VOICE_MAX_UPLOAD_BYTES", str(8 * 1024 * 1024)))
-# One sentence is spoken per request (VOICE.md step 1 chunks at 140 chars), so this is a ceiling on a
+# One sentence is spoken per request, so this is a ceiling on a
 # caller, not a limit anyone meets: it protects the daily neuron budget from a hostile body.
 MAX_TTS_CHARS = int(os.getenv("VOICE_MAX_TTS_CHARS", "600"))
 
@@ -213,7 +209,7 @@ async def transcribe(data: bytes, transcription: str = "transcribe") -> Transcri
         engine="cloud",
         chars=len(text),
         # `transcription_info` carries the audio seconds and the detected language, which is what makes a
-        # run's cost and a mis-detected language readable out of Loki (VOICE.md gotcha 10).
+        # run's cost and a mis-detected language readable out of Loki.
         audio_s=info.get("duration"),
         language=info.get("language"),
         # Measured, not estimated: the response reports the neurons it spent. TTS returns raw audio, so its

@@ -3,8 +3,6 @@ import type { Decision } from "@/lib/api";
 import { DECISIONS, decisionLabel } from "@/lib/interviewOptions";
 import { cn } from "@/lib/utils";
 
-// the DECISION (where on the reject..hire spectrum it landed) and the CERTAINTY (how much
-// transcript backs that landing). Fill intensity carries conviction, colour carries side,
 function toneClass(decision: Decision): string {
     switch (decision) {
         case "reject":

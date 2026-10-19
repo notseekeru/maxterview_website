@@ -26,11 +26,8 @@ CLERK_API_BASE = os.getenv("CLERK_API_BASE", "https://api.clerk.com")
 # Clerk's clock is not ours: sub-second skew 401s a brand-new session without this leeway.
 JWT_LEEWAY_S = 10
 
-# Identity only when CLERK_ENABLED=false (dev/test); main.py guard enforces. The sub is overridable so a
-# load test holds its own rows and its own daily turn counter instead of moving the dev account's.
 DEV_USER = ClerkUser(sub=os.getenv("DEV_USER_SUB", "dev-user"), email="dev@example.com", name="Dev User")
 
-# Clerk Backend API lookups: {sub: (expires_at, email)}; TTL 1h, same reasoning as the JWKS cache.
 _USER_EMAIL_TTL_S = 3600
 _user_email_cache: dict[str, tuple[float, str]] = {}
 
@@ -126,8 +123,6 @@ async def user_email(user: ClerkUser) -> str | None:
         log.warning("clerk.user_lookup_failed", sub=user.sub, reason=type(exc).__name__)
         return None
     if email:
-        # One entry per user who reaches checkout, never evicted. A cap or a shared cache only
-        # matters if this lookup moves off the purchase path.
         _user_email_cache[user.sub] = (time.time() + _USER_EMAIL_TTL_S, email)
     return email
 

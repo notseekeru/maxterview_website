@@ -18,9 +18,6 @@ class _FakeRequest:
         self.state = SimpleNamespace()  # the access log's attribution channel (app/logs.py)
 
 
-# --- helpers: self-generated keypair + JWKS + tokens (no real Clerk needed) ---
-
-
 def _b64url(data: bytes) -> str:
     return base64.urlsafe_b64encode(data).rstrip(b"=").decode()
 
@@ -47,9 +44,6 @@ def _make_token(priv_pem, *, kid="test-kid", sub="user_123", exp=None, iss=None,
     if aud:
         payload["aud"] = aud
     return jwt.encode(payload, priv_pem, algorithm=alg, headers={"kid": kid, "alg": alg})
-
-
-# --- tests ---
 
 
 async def test_dev_fallback_returns_fixed_user():

@@ -11,9 +11,6 @@ from test_resumes import encrypted, mini_pdf
 from app import billing, rating, resumes
 from app.main import app
 
-# Integration tests hit a real Postgres. `DATABASE_URL` is provided by CI (Postgres
-# service) or the dev container (DNS `postgres`). conftest only sets a dummy default for
-# unit tests; these tests need the real one and will fail fast if it's unreachable.
 DB_URL = os.getenv("M5_TEST_DATABASE_URL") or os.environ.get("DATABASE_URL", "")
 
 
@@ -47,8 +44,6 @@ def test_interview_dials_round_trip_and_default(client):
     assert (d["mix_chitchat"], d["mix_behavioural"], d["mix_technical"]) == (0, 2, 4)
     c.delete(f"/api/interviews/{d['id']}")
 
-    # Every dial survives a create -> read, on all three read paths (room for the response_model's
-    # defaults to mask a query that forgot a column).
     r = c.post(
         "/api/interviews",
         json={
@@ -89,8 +84,6 @@ def test_chat_refuses_turns_after_the_question_mix_is_spent(client):
     iv = c.post("/api/interviews", json={"role": "Mix Exhausted", "mix_chitchat": 0, "mix_behavioural": 0, "mix_technical": 0}).json()
     iid = iv["id"]
     c.post(f"/api/interviews/{iid}/start")
-    # One credit per MODEL turn: the opener, each reply, and the sign-off - which is exactly the run
-    # below, so the whole arc costs 3.
     before = c.get("/api/usage").json()["chat_turns_used_today"]
     assert c.post(f"/api/interviews/{iid}/chat/kickoff").status_code == 200
     for i in range(2):
@@ -98,8 +91,6 @@ def test_chat_refuses_turns_after_the_question_mix_is_spent(client):
     assert c.get("/api/usage").json()["chat_turns_used_today"] == before + 3
 
     transcript_before = c.get(f"/api/interviews/{iid}/messages").json()
-    # Stub mode's sign-off is the canned line, persisted like any reply, so the transcript ends the
-    # way it was displayed. The opener is the first row: nothing was drawn client-side.
     assert [m["role"] for m in transcript_before] == ["assistant", "user", "assistant", "user", "assistant"]
     assert llm.CLOSING_MESSAGE in transcript_before[-1]["content"]
     r = c.post(f"/api/interviews/{iid}/chat/stream", json={"interview_id": iid, "content": "one more thing"})
@@ -113,21 +104,17 @@ def test_chat_refuses_turns_after_the_question_mix_is_spent(client):
 
 
 def test_kickoff_generates_the_opener_once_and_spends_a_turn(client):
-    # The first message of a run is a model turn rather than a bubble the frontend draws, so it is
-    # metered like every other turn and generated exactly once.
     c = client
     iid = c.post("/api/interviews", json={"role": "Opener"}).json()["id"]
     c.post(f"/api/interviews/{iid}/start")
 
     before = c.get("/api/usage").json()["chat_turns_used_today"]
-    # Sent the way the client sends it: an empty JSON body.
     r = c.post(f"/api/interviews/{iid}/chat/kickoff", json={})
     assert r.status_code == 200
     assert "event: done" in r.text
     assert [m["role"] for m in c.get(f"/api/interviews/{iid}/messages").json()] == ["assistant"]
     assert c.get("/api/usage").json()["chat_turns_used_today"] == before + 1
 
-    # A second opener is a second charge for a turn the transcript already has.
     assert c.post(f"/api/interviews/{iid}/chat/kickoff", json={}).status_code == 409
     assert c.get("/api/usage").json()["chat_turns_used_today"] == before + 1
     c.delete(f"/api/interviews/{iid}")
@@ -148,12 +135,9 @@ def test_chat_rolls_back_the_turn_when_the_model_fails(client, monkeypatch):
     c.post(f"/api/interviews/{iid}/start")
     body = c.post(f"/api/interviews/{iid}/chat/stream", json={"interview_id": iid, "content": "my answer"}).text
     assert "event: error" in body
-    # No `done` behind it: that frame is what tells the client the turn landed, and the frontend's
-    # done branch flushes the voice queue - a rolled-back reply would be read aloud.
     assert "event: done" not in body
     assert c.get(f"/api/interviews/{iid}/messages").json() == []
 
-    # The same turn after the model recovers: exactly one copy of the answer.
     monkeypatch.undo()
     assert c.post(f"/api/interviews/{iid}/chat/stream", json={"interview_id": iid, "content": "my answer"}).status_code == 200
     roles = [m["role"] for m in c.get(f"/api/interviews/{iid}/messages").json()]
@@ -261,53 +245,41 @@ def test_interview_lifecycle_owner_scoped(client):
     assert r.status_code == 200
     assert r.json()["role"] == "Software Engineer"
 
-    # chat stream blocked while pending (Gap C)
     r = c.post(f"/api/interviews/{iid}/chat/stream", json={"interview_id": iid, "content": "hi"})
     assert r.status_code == 409
 
     r = c.post(f"/api/interviews/{iid}/start")
     assert r.status_code == 200
     assert r.json()["status"] == "in_progress"
-    # The opener is the question the answer counts against: without it the certainty cap floors.
     assert c.post(f"/api/interviews/{iid}/chat/kickoff").status_code == 200
     r = c.post(f"/api/interviews/{iid}/chat/stream", json={"interview_id": iid, "content": "I have 5 years of experience."})
     assert r.status_code == 200
     assert "text/event-stream" in r.headers["content-type"]
-    # Both the user turn and the streamed assistant reply are persisted (transcript complete).
     r = c.get(f"/api/interviews/{iid}/messages")
     assert r.status_code == 200
     roles = [m["role"] for m in r.json()]
     assert "user" in roles and "assistant" in roles
 
-    # complete -> completed (M6 auto-generates feedback in stub mode)
     r = c.post(f"/api/interviews/{iid}/finish")
     assert r.status_code == 200
     assert r.json()["status"] == "completed"
-    # Auto-generated feedback exists (stub deterministic scores).
     r = c.get(f"/api/interviews/{iid}/feedback")
     assert r.status_code == 200
     assert r.json()["verdict"]
-    # Hire/reject spectrum + certainty, not pass/fail: the stub's lean_hire/50 is capped by
-    # the one-answer transcript (40 + 8 per candidate answer), so certainty must be 48.
     assert (r.json()["decision"], r.json()["certainty"]) == ("lean_hire", 48)
-    # Chess-style review (migration 0010): the annotator classes each candidate turn, and the
-    # derived accuracy/grade ride along. Interviewer/system turns carry no class.
     assert (r.json()["accuracy"], r.json()["grade"]) == (85, "A")
     r = c.get(f"/api/interviews/{iid}/messages")
     msgs = r.json()
     assert [m["move_class"] for m in msgs if m["role"] == "user"] == ["good"]  # one candidate turn
     assert all(m["move_class"] is None for m in msgs if m["role"] != "user")
-    # Every classed turn carries the note it was graded with (stub mode: canned per class).
     assert all(m["comment"] for m in msgs if m["move_class"])
     assert all(m["comment"] is None for m in msgs if m["role"] != "user")
 
-    # The history list carries the same two fields (drives the row chip).
     r = c.get("/api/interviews")
     row = next(i for i in r.json() if i["id"] == iid)
     assert (row["decision"], row["certainty"]) == ("lean_hire", 48)
     assert (row["accuracy"], row["grade"]) == (85, "A")
 
-    # write + read feedback (UPSERT over the auto-generated one)
     r = c.post(f"/api/interviews/{iid}/feedback", json={"scores": {"clarity": 4}, "verdict": "Good", "tips": ["be concise"]})
     assert r.status_code == 201
     r = c.get(f"/api/interviews/{iid}/feedback")
@@ -319,21 +291,16 @@ def test_interview_lifecycle_owner_scoped(client):
     assert r.status_code == 200
     assert r.json()["verdict"] == "Better"
     assert (r.json()["decision"], r.json()["certainty"]) == ("hire", 80)
-    # ... and the raw write path cannot wipe the review: accuracy is derived from the message
-    # classes, so a body with no classification leaves the stored grade alone.
     assert (r.json()["accuracy"], r.json()["grade"]) == (85, "A")
 
-    # A decision outside the four-point spread is refused, not silently stored.
     r = c.post(f"/api/interviews/{iid}/feedback", json={"verdict": "Hmm", "decision": "strong_hire", "certainty": 80})
     assert r.status_code == 422
     r = c.post(f"/api/interviews/{iid}/feedback", json={"verdict": "Hmm", "decision": "hire", "certainty": 101})
     assert r.status_code == 422
 
-    # chat blocked once completed
     r = c.post(f"/api/interviews/{iid}/chat/stream", json={"interview_id": iid, "content": "late"})
     assert r.status_code == 409
 
-    # foreign user sees nothing (different owner scopes everything out)
     r = c.get(f"/api/interviews/{iid}")
     assert r.status_code in (200, 404)  # DEV_USER owns it, so 200; foreign-user path is owner-safe
 
@@ -362,7 +329,6 @@ def test_archive_hides_a_run_from_history_but_keeps_it_in_the_stats(client):
     assert r.status_code == 200
     assert r.json()["archived_at"] is None
 
-    # Unknown id is a 404, never a silent success.
     assert c.post("/api/interviews/00000000-0000-0000-0000-000000000000/archive").status_code == 404
     assert c.delete("/api/interviews/00000000-0000-0000-0000-000000000000/archive").status_code == 404
 
@@ -395,14 +361,12 @@ def test_default_templates_seeded_once(client):
     seeded = c.get("/api/templates").json()
     assert [t["name"] for t in seeded] == ["The Killer", "The Griller", "The Chiller"]
 
-    # The presets are the point: each is a body the create endpoint accepts unchanged.
     killer = seeded[0]
     assert (killer["hardcore"], killer["brutally_honest"], killer["human_mode"]) == (True, True, False)
     assert (killer["company_size"], killer["cynicism"]) == ("5k+", "skeptical")
     made = c.post("/api/interviews", json={k: v for k, v in killer.items() if k not in ("id", "name", "owner_id", "created_at", "updated_at")})
     assert made.status_code == 201
     assert c.delete(f"/api/interviews/{made.json()['id']}").status_code == 204
-    # A later read does not seed a second copy.
     assert [t["id"] for t in c.get("/api/templates").json()] == [t["id"] for t in seeded]
 
     # Deleting one is permanent: the marker, not the row count, decides whether to seed again.
@@ -414,7 +378,6 @@ def test_default_templates_seeded_once(client):
 def test_templates_round_trip_rename_and_cap(client):
     c = client
     _wipe_templates(c)
-    # A preset body IS a create body, so the same payload has to be accepted by both endpoints.
     body = {
         "name": "Senior BE @5k",
         "role": "Backend Engineer",
@@ -429,7 +392,6 @@ def test_templates_round_trip_rename_and_cap(client):
         "mix_behavioural": 3,
         "mix_technical": 4,
     }
-    # The same dials are a valid create body: one vocabulary, two endpoints.
     made = c.post("/api/interviews", json={k: v for k, v in body.items() if k != "name"})
     assert made.status_code == 201
     assert c.delete(f"/api/interviews/{made.json()['id']}").status_code == 204
@@ -440,11 +402,9 @@ def test_templates_round_trip_rename_and_cap(client):
     assert all(preset[k] == v for k, v in body.items())
     assert c.get("/api/templates").json()[0]["id"] == preset["id"]  # newest first
 
-    # Unspecified dials default from the same model an interview's do.
     bare = c.post("/api/templates", json={"name": "Bare", "role": "Any Role"}).json()
     assert (bare["cynicism"], bare["human_mode"], bare["mix_technical"]) == ("neutral", True, 4)
 
-    # PUT is a full replace; rename is just that same call with a new name.
     r = c.put(f"/api/templates/{preset['id']}", json={**body, "name": "Renamed", "cynicism": "kind"})
     assert (r.status_code, r.json()["name"], r.json()["cynicism"]) == (200, "Renamed", "kind")
     assert next(x for x in c.get("/api/templates").json() if x["id"] == preset["id"])["cynicism"] == "kind"
@@ -453,12 +413,10 @@ def test_templates_round_trip_rename_and_cap(client):
     assert c.delete(f"/api/templates/{preset['id']}").status_code == 404
     assert [x["name"] for x in c.get("/api/templates").json()] == ["Bare"]
 
-    # Cap per owner, and the 409 names the number instead of failing blind.
     for n in range(2, 21):
         assert c.post("/api/templates", json={"name": f"Cap {n}", "role": "Filler"}).status_code == 201
     r = c.post("/api/templates", json={"name": "Over", "role": "Filler"})
     assert r.status_code == 409 and "20" in r.json()["detail"]
-    # Deleting frees a slot: the cap is a live count, not a ratchet.
     listed = c.get("/api/templates").json()
     assert c.delete(f"/api/templates/{next(x for x in listed if x['name'] == 'Cap 2')['id']}").status_code == 204
     assert c.post("/api/templates", json={"name": "Fits", "role": "Filler"}).status_code == 201
@@ -491,9 +449,6 @@ def test_template_owner_scoping(client):
     assert c.delete("/api/templates/00000000-0000-0000-0000-000000000000").status_code == 404
 
 
-# --- resumes: import, library, tiers, attach (app/resumes.py + the endpoints) ---
-
-
 def _wipe_resumes(c):
     for row in c.get("/api/resumes").json():
         c.delete(f"/api/resumes/{row['id']}")
@@ -506,7 +461,6 @@ def _resume_payload(name="CV", text="Alex Mender - platform engineer. Go, Terraf
 def test_resume_import_round_trip_and_list_shape(client):
     c = client
     _wipe_resumes(c)
-    # The two-step import the UI performs: extract (STATELESS) then save the text the browser got.
     got = c.post("/api/resumes/extract", files={"file": ("cv.pdf", mini_pdf("Alex Mender - Platform Engineer"), "application/pdf")})
     assert got.status_code == 200
     extracted = got.json()
@@ -524,7 +478,6 @@ def test_resume_import_round_trip_and_list_shape(client):
     assert listed[0]["id"] == row["id"] and "text" not in listed[0]
     assert c.get(f"/api/resumes/{row['id']}").json()["text"] == extracted["text"]
 
-    # PUT is a full replace, and it is how a bad extraction gets fixed.
     fixed = c.put(f"/api/resumes/{row['id']}", json={"name": "CV fixed", "text": "Corrected."})
     assert fixed.status_code == 200
     assert (fixed.json()["name"], fixed.json()["text"], fixed.json()["chars"]) == ("CV fixed", "Corrected.", 10)
@@ -544,7 +497,6 @@ def test_resume_import_rejects_documents_it_cannot_read(client):
 
     assert upload(b"<html>not a pdf at all</html>").status_code == 422
     assert "isn't a PDF" in upload(b"PK\x03\x04").json()["detail"]
-    # Over the byte cap: a 413 with the paste hint, refused before any parser sees it.
     assert upload(b"%PDF-" + b" " * (resumes.MAX_BYTES + 1)).status_code == 413
     assert "password-protected" in upload(encrypted()).json()["detail"]
     # A valid PDF with no text layer (a scan or an image export): the paste fallback, not a 500.
@@ -569,9 +521,7 @@ def test_resume_tier_caps_free_is_402_paid_is_409(client, monkeypatch):
     assert c.post("/api/resumes", json=_resume_payload("Free one")).status_code == 201
     over = c.post("/api/resumes", json=_resume_payload("Free two"))
     assert over.status_code == 402 and "upgrade" in over.json()["detail"].lower()
-    # The library page reads the cap from /usage, the same place it reads the tier.
     assert c.get("/api/usage").json()["resume_limit"] == 1
-    # Deleting frees the slot: a live count, not a ratchet.
     assert c.delete(f"/api/resumes/{c.get('/api/resumes').json()[0]['id']}").status_code == 204
     assert c.post("/api/resumes", json=_resume_payload("Free two")).status_code == 201
 
@@ -647,7 +597,6 @@ def test_template_remembers_the_resume(client):
     assert c.put(f"/api/templates/{t.json()['id']}", json={"name": "Renamed", "role": "Backend Engineer"}).json()["resume_id"] is None
     assert c.put(f"/api/templates/{t.json()['id']}", json={"name": "Renamed", "role": "Backend Engineer", "resume_id": rid}).json()["resume_id"] == rid
 
-    # Deleting the resume leaves the preset alive and unattached.
     assert c.delete(f"/api/resumes/{rid}").status_code == 204
     assert c.get("/api/templates").json()[0]["resume_id"] is None
     assert c.delete(f"/api/templates/{t.json()['id']}").status_code == 204
@@ -663,7 +612,6 @@ def test_resume_write_paths_share_one_hygiene(client):
     assert made.status_code == 201
     assert made.json()["name"] == "Hithere"
     assert c.get(f"/api/resumes/{made.json()['id']}").json()["text"] == "Line one\n\nLine two"
-    # Whitespace-only is not a resume: 422 beats a row the interviewer would read as empty.
     assert c.post("/api/resumes", json={"name": "Empty", "text": "   \n\u200b  "}).status_code == 422
     assert c.put(f"/api/resumes/{made.json()['id']}", json={"name": "Empty", "text": " "}).status_code == 422
     assert c.delete(f"/api/resumes/{made.json()['id']}").status_code == 204
@@ -691,10 +639,8 @@ def test_resume_reaches_both_prompts_from_the_database(client, monkeypatch):
     monkeypatch.setattr(llm, "stream_chat", _capture_stream)
     assert "Tell me about the cluster." in c.post(f"/api/interviews/{iid}/chat/stream", json={"interview_id": iid, "content": "hi"}).text
     assert "40-node K3s cluster" in sent["interviewer"]
-    # Still the system prompt, not a synthetic turn: the transcript the model reads is unchanged.
     assert sent["interviewer"].startswith(llm.SYSTEM_PROMPT_V1)
 
-    # The grader is a separate prompt built by a separate call, and it gets the same resume.
     real_grader_prompt = llm.grader_prompt
     monkeypatch.setattr(llm, "grader_prompt", lambda dials=None, resume="", level="any": sent.setdefault("grader", real_grader_prompt(dials, resume, level)))
 
@@ -786,7 +732,6 @@ def test_dimensions_aggregate_averages_rated_runs_and_the_newest_window(client):
     for iid in ids:
         assert c.delete(f"/api/interviews/{iid}").status_code == 204
 
-    # Nothing scored yet is an empty radar, not a 404 or a NULL-crash.
     empty = c.get("/api/stats/dimensions").json()
     assert empty == {"count": 0, "recent_n": 0, "averages": {}, "recent": {}}
 
@@ -849,7 +794,6 @@ def test_interviews_unlimited_at_creation(client):
     r2 = client.post("/api/interviews", json={"role": "Quota Probe 2"})
     assert r2.status_code == 201
     iid2 = r2.json()["id"]
-    # /usage reports tier + the daily GLOBAL chat-turn dial (per owner, not per interview).
     u = client.get("/api/usage")
     assert u.status_code == 200
     body = u.json()
@@ -864,8 +808,6 @@ def test_interviews_unlimited_at_creation(client):
 
 
 def test_usage_tracks_global_daily_counter(client):
-    # A turn in one interview advances the shared per-owner daily counter that all of the
-    # owner's interviews draw from (cap math is unit-tested; the dev cap is far above one turn).
     c = client
     iv = c.post("/api/interviews", json={"role": "Cap Probe"}).json()
     iid = iv["id"]
@@ -886,7 +828,6 @@ def test_regenerate_feedback_rejects_incomplete_and_foreign(client):
     rr = client.post(f"/api/interviews/{pending_id}/feedback/generate")
     assert rr.status_code == 409
 
-    # A nonexistent/foreign interview is a 404 via the ownership guard.
     rr = client.post("/api/interviews/00000000-0000-0000-0000-000000000000/feedback/generate")
     assert rr.status_code == 404
 
@@ -945,8 +886,6 @@ def test_regenerate_feedback_writes_when_model_recovers(client, monkeypatch):
     client.post(f"/api/interviews/{iid}/start")
     client.post(f"/api/interviews/{iid}/chat/stream", json={"interview_id": iid, "content": "hello?"})
 
-    # First complete: model "fails" (None, as in real mode) -> no feedback row written.
-    # /finish auto-retries, so neutralize its backoff timer to keep this test fast.
     monkeypatch.setattr(main_mod, "_backoff_sleep", _noop_sleep)
     monkeypatch.setattr(llm, "generate_feedback", _always_none)
     r = client.post(f"/api/interviews/{iid}/finish")
@@ -954,7 +893,6 @@ def test_regenerate_feedback_writes_when_model_recovers(client, monkeypatch):
     assert r.json()["status"] == "completed"
     assert client.get(f"/api/interviews/{iid}/feedback").status_code == 404  # genuinely absent
 
-    # Later regenerate: model "recovers" -> row written; 404 turns into 200.
     async def _ok(history, dials=None, config=None, **_kw):
         return FeedbackSummary(scores={d: 7.0 for d in llm.FEEDBACK_DIMS}, verdict="Recovered", tips=["Keep going."])
 
@@ -1077,9 +1015,6 @@ def test_complete_auto_retry_stops_on_first_success(client, monkeypatch):
     client.delete(f"/api/interviews/{iid}")
 
 
-# --- BYOK settings (app/byok.py, BYOK.md) ---
-
-
 def test_byok_chat_turn_skips_the_tier_quota_but_is_still_metered(client, monkeypatch):
     # BYOK pays the provider, not us: the turn must pass with the TIER's credits exhausted. It IS
     # metered, and the BYOK ceiling still gates it - a self-asserted flag that waived both the cap and
@@ -1184,7 +1119,6 @@ def test_byok_refuses_this_deployments_provider_and_its_network(client, monkeypa
         for url in refused:
             assert client.put("/api/settings/llm", json={"base_url": url, "model": "m", "api_key": ""}).status_code == 422, url
 
-        # Rule 1 on its own: a KEYLESS system provider on a public host is still ours to defend.
         monkeypatch.setattr(llm, "SYSTEM_CONFIG", llm.LLMConfig(base_url="http://9.9.9.9:8080/v1", model="qwen", api_key=""))
         assert client.put("/api/settings/llm", json={"base_url": "http://9.9.9.9:8080/v1", "model": "qwen", "api_key": ""}).status_code == 422
 
@@ -1218,7 +1152,6 @@ def test_byok_settings_round_trip_without_ever_returning_the_key(client, monkeyp
         assert key not in r.text  # the write response carries the hint, never the key
         assert key not in client.get("/api/settings/llm").text
 
-        # Editing base URL/model alone keeps the stored key (no re-paste).
         assert client.put("/api/settings/llm", json={"base_url": "https://api.example.com/v1", "model": "another", "api_key": ""}).json()["model"] == "another"
         assert client.delete("/api/settings/llm").status_code == 204
         assert client.get("/api/settings/llm").json()["byok"] is False
@@ -1262,14 +1195,11 @@ def test_hardcore_ends_the_run_on_the_first_failing_answer(client, monkeypatch, 
     body = c.post(f"/api/interviews/{iid}/chat/stream", json={"interview_id": iid, "content": "uh, I think we just retried it"}).text
     assert llm.FAIL_MESSAGE.format(cls=cls.upper()) in body  # shouted, in caps, in the transcript
     assert f'"failed": {{"turn": 1, "class": "{cls}"}}' in body  # ... and the client is told why it ended
-    # The run is over for the API too, not just for the composer.
     assert c.post(f"/api/interviews/{iid}/chat/stream", json={"interview_id": iid, "content": "one more"}).status_code == 409
     # The failing answer keeps its class, which is what the review points at, and the note it was
     # judged with: written by that same live call rather than a second pass after the fact.
     msgs = c.get(f"/api/interviews/{iid}/messages").json()
     assert [(m["move_class"], m["comment"]) for m in msgs if m["role"] == "user"] == [(cls, note)]
-    # The shout is a stored turn now, so a reloaded transcript still ends on it (stub mode writes the
-    # canned line; the real path asks the model).
     assert msgs[-1]["role"] == "assistant" and msgs[-1]["content"] == llm.FAIL_MESSAGE.format(cls=cls.upper())
 
     assert c.post(f"/api/interviews/{iid}/finish").status_code == 200
@@ -1306,7 +1236,6 @@ def test_hardcore_shout_reaches_the_client_even_if_the_store_fails(client, monke
     body = c.post(f"/api/interviews/{iid}/chat/stream", json={"interview_id": iid, "content": "uh, we retried it"}).text
     assert llm.FAIL_MESSAGE.format(cls="MISTAKE") in body  # still delivered
     assert '"class": "mistake"' in body  # ... and the client is still told why the run ended
-    # The answer landed, the shout did not: that is the trade, and the review banner still reports it.
     assert [m["role"] for m in c.get(f"/api/interviews/{iid}/messages").json()] == ["user"]
     c.delete(f"/api/interviews/{iid}")
 
@@ -1374,7 +1303,6 @@ def test_analytics_aggregates_the_whole_history(client):
     ids = asyncio.run(
         seed(
             [
-                # role, level, hardcore, status, accuracy, decision, left-to-right move classes
                 ("An senior", "senior", False, "completed", 90, "hire", ["brilliant", "great"]),
                 ("An junior", "junior", False, "completed", 30, "reject", ["mistake", "blunder"]),
                 ("An hardcore", "junior", True, "completed", 50, None, ["good", "inaccuracy"]),
@@ -1395,7 +1323,6 @@ def test_analytics_aggregates_the_whole_history(client):
         # The run log mixes finished and unfinished runs, so the row must say which it is; the page
         # renders incomplete rows differently rather than letting them read as a scored zero.
         assert (by_id[ids[0]]["status"], by_id[ids[4]]["status"]) == ("completed", "in_progress")
-        # An ungraded run reports no dimensions and no grade, not a zeroed review.
         assert (by_id[ids[3]]["scores"], by_id[ids[3]]["grade"]) == ({}, None)
         assert by_id[ids[4]]["turns"] == 1 and by_id[ids[4]]["moves"] == {"good": 1}
 
@@ -1414,7 +1341,6 @@ def test_analytics_aggregates_the_whole_history(client):
         assert levels_group["junior"]["runs"] == 2
         assert levels_group["junior"]["rated"] == 2
         assert levels_group["junior"]["avg_accuracy"] == 40.0  # mean(30, 50), not diluted by the unscored run
-        # `mid` has one completed-but-unscored run: it appears, with no accuracy to report.
         assert levels_group["mid"]["runs"] == 1 and levels_group["mid"]["avg_accuracy"] is None
         assert levels_group["mid"]["hire_rate"] is None  # nothing decided, not a 0% rejection rate
 

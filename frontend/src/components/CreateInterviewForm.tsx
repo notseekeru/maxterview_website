@@ -19,7 +19,6 @@ interface Props {
 }
 
 export function CreateInterviewForm({ onCreated, variant = "compact", className }: Props) {
-    // "featured" sheds the width cap and lets Role + Topic span both columns.
     const featured = variant === "featured";
     const [role, setRole] = useState("");
     const [level, setLevel] = useState("any");
@@ -34,9 +33,7 @@ export function CreateInterviewForm({ onCreated, variant = "compact", className 
     const [mix, setMix] = useState({ mix_chitchat: 0, mix_behavioural: 2, mix_technical: MIX_MAX });
     const [error, setError] = useState<string | null>(null);
     const [busy, setBusy] = useState(false);
-    // null = still loading or the fetch failed; the preset row hides either way.
     const [templates, setTemplates] = useState<InterviewTemplate[] | null>(null);
-    // Same contract as templates: absent/empty hides the row rather than showing an empty picker.
     const [resumes, setResumes] = useState<ResumeSummary[]>([]);
     // null = no resume attached. This is the create-form's bool: it always names WHICH resume, because
     // an owner with two CVs asking for "my resume" is a question the server cannot answer.
@@ -44,7 +41,6 @@ export function CreateInterviewForm({ onCreated, variant = "compact", className 
     const [lastUsedId, setLastUsedId] = useState<string | null>(() => localStorage.getItem(LAST_TEMPLATE_KEY));
     const [editor, setEditor] = useState<{ mode: "save" } | { mode: "rename"; id: string } | null>(null);
     const [templateName, setTemplateName] = useState("");
-    // Preset list is long enough to bury the input below it on a phone.
     const [showAllRoles, setShowAllRoles] = useState(false);
     const [templateBusy, setTemplateBusy] = useState(false);
     const [templateError, setTemplateError] = useState<string | null>(null);
@@ -61,7 +57,6 @@ export function CreateInterviewForm({ onCreated, variant = "compact", className 
             .catch(() => setResumes([]));
     }, []);
 
-    // The form's dials in API shape, shared by the create and preset bodies.
     function dialsFromForm(): InterviewDials {
         return {
             company_size: COMPANY_SIZES[companySize].value,
@@ -200,7 +195,7 @@ export function CreateInterviewForm({ onCreated, variant = "compact", className 
             const interview = await createInterview(fieldsFromForm());
             onCreated(interview.id);
         } catch {
-            // POST /interviews has no quota gate (MONETIZATION §2): the two 402s are the resume cap
+            // POST /interviews has no quota gate: the two 402s are the resume cap
             // and the daily chat-turn cap, so a failure here is the backend, not the plan.
             setError("Failed to create interview. Is the backend running?");
             setBusy(false);
@@ -219,8 +214,6 @@ export function CreateInterviewForm({ onCreated, variant = "compact", className 
                             <span className="text-sm font-medium leading-none">Presets</span>
                             <div className="flex flex-wrap items-center gap-1.5">
                                 {templates.map((t) => {
-                                    // Anchored to the preset you clicked, not to a value match: an unchanged
-                                    // fork has identical dials, so a value comparison lights both up.
                                     const applied = t.id === lastUsedId && isApplied(t);
                                     return (
                                         <div key={t.id} className={cn("flex items-center rounded-full border text-xs transition-colors", applied ? "border-primary bg-primary/10 text-primary" : "border-input text-muted-foreground hover:bg-accent", !applied && t.id === lastUsedId && "border-dashed")}>
@@ -293,14 +286,10 @@ export function CreateInterviewForm({ onCreated, variant = "compact", className 
                         </div>
                     )}
 
-                    {/* Hidden entirely with no resumes: an empty picker is noise when the answer is
-                        "none". Import one on the Resume page and this row appears. */}
                     {resumes.length > 0 && (
                         <div className={cn("space-y-1.5", featured && "sm:col-span-2")}>
                             <span className="text-sm font-medium leading-none">Resume</span>
                             <div className="flex flex-wrap items-center gap-1.5">
-                                {/* "None" is a chip, not the absence of one: the picker has to read as a
-                                    choice you can undo, like every other row here. */}
                                 <button type="button" onClick={() => setResumeId(null)} className={cn("rounded-full border px-3 py-1 text-xs transition-colors", resumeId === null ? "border-primary bg-primary/10 font-medium text-primary" : "border-input text-muted-foreground hover:bg-accent")}>
                                     None
                                 </button>
@@ -359,8 +348,6 @@ export function CreateInterviewForm({ onCreated, variant = "compact", className 
                         <Input id="topic" value={topic} onChange={(e) => setTopic(e.target.value)} maxLength={500} placeholder="e.g. system design" />
                     </div>
 
-                    {/* Question budgets, folded away: they matter when you want them and are noise
-                        when you don't, and the defaults already match the standard arc. */}
                     <details open={featured} className={cn("rounded-md border px-3 py-2", featured && "sm:col-span-2")}>
                         <summary className="cursor-pointer text-sm font-medium">Question mix</summary>
                         <div className="mt-3 grid gap-x-4 gap-y-3 sm:grid-cols-3">

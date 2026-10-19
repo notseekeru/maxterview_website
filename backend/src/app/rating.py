@@ -7,16 +7,13 @@ class Move(NamedTuple):
     comment: str | None = None
 
 
-# Best -> worst. Seven is the useful resolution: a vague answer and an evasive one want different
-# words, and anything finer is noise.
 MOVE_CLASSES: tuple[str, ...] = ("brilliant", "great", "good", "book", "inaccuracy", "mistake", "blunder")
 
 # Hardcore mode fails the run on any of these: wrong (mistake), nothing usable (blunder) and vague
 # (inaccuracy). `book` and above survive: correct-but-recited is a small deduction, not a failure.
 FAIL_CLASSES: tuple[str, ...] = ("inaccuracy", "mistake", "blunder")
 
-# What one classed turn is worth out of 1.0. `book` sits just under `good`: correct but generic is
-# a small deduction, not a flaw.
+# What one classed turn is worth out of 1.0: `book` sits just under `good`.
 MOVE_POINTS: dict[str, float] = {
     "brilliant": 1.0,
     "great": 1.0,
@@ -27,8 +24,6 @@ MOVE_POINTS: dict[str, float] = {
     "blunder": 0.0,
 }
 
-# Accuracy -> grade, best first. Accuracy is the continuous number the dashboard trends; the letter
-# is what one run reads as.
 GRADES: tuple[str, ...] = ("S", "A", "B", "C", "D", "F")
 GRADE_BANDS: tuple[tuple[int, str], ...] = ((90, "S"), (80, "A"), (70, "B"), (60, "C"), (50, "D"))
 

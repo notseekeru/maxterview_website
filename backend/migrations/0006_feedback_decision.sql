@@ -1,5 +1,3 @@
--- yoyo up migration: the ENTIRE file body is the "up" step.
--- (yoyo reads rollback from a separate 0006_feedback_decision.rollback.sql.)
 -- Post-interview hire/reject SPECTRUM + how well-evidenced it is: a completed run is not
 -- pass/fail. `decision` is NULL for feedback written before these columns existed AND when
 -- the model emitted nothing usable - an undecided run stays undecided rather than defaulting

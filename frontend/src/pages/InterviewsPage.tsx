@@ -6,8 +6,6 @@ import { Page } from "@/components/PagePrimitives";
 import { useInterviews } from "@/hooks/useInterviewData";
 import { archiveInterview, deleteInterview, regenerateFeedback, unarchiveInterview } from "@/lib/api";
 
-// /interviews — the only home for the history list (the dashboard shows aggregates, not rows). Both
-// cards carry their own title, so the page adds no headings of its own.
 export function InterviewsPage() {
     const navigate = useNavigate();
     const { interviews, loading, error, refresh } = useInterviews();

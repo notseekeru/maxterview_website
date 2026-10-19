@@ -1,5 +1,3 @@
--- yoyo up migration: the ENTIRE file body is the "up" step.
--- (yoyo reads rollback from a separate 0009_llm_credentials.rollback.sql.)
 -- BYOK: one OpenAI-compatible provider per owner, written only from /settings/llm (app/byok.py).
 --   api_key   Fernet ciphertext under BYOK_ENCRYPTION_KEY - the DB never holds a plaintext key
 --   key_hint  last 4 characters of the key, purely so the UI can say WHICH key is saved

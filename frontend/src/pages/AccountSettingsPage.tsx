@@ -20,8 +20,6 @@ export function AccountSettingsPage() {
 
     return (
         <Page title="Account" description="Your sign-in details and subscription.">
-            {/* Plan — summary only; the full tiers, upgrade and cancel surface lives on
-                /settings/billing (PayMongo has no billing portal to link out to). */}
             <Card>
                 <CardHeader className="flex-row items-center justify-between space-y-0">
                     <div>

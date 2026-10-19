@@ -1,8 +1,6 @@
 import { Page, SectionHeading } from "@/components/PagePrimitives";
 import { PLANS } from "@/lib/plans";
 
-// /settings/docs — the in-app manual. The nav labels and the forms are the documentation for
-// everything self-evident, so this page only points at where each thing lives.
 export function DocsPage() {
     return (
         <Page title="Docs" description="Guide and product notes.">

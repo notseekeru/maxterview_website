@@ -1,8 +1,3 @@
--- yoyo up migration: the ENTIRE file body is the "up" step.
--- (yoyo reads rollback from a separate 0004_global_chat_turns.rollback.sql.)
--- Change model: per-interview chat-turn counter -> GLOBAL per-owner DAILY (UTC) credits.
--- - drop interviews.chat_turns (per-interview counter no longer the gate)
--- - add turn_usage: one row per (owner, UTC day) counting user turns across ALL interviews.
 
 ALTER TABLE interviews DROP COLUMN IF EXISTS chat_turns;
 

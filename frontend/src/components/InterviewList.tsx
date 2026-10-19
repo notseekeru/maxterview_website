@@ -40,8 +40,6 @@ export function InterviewList({ interviews, loading, error, onRefresh, onOpen, o
     const [scoreError, setScoreError] = useState<string | null>(null);
 
     const archived = interviews.filter((i) => i.archived_at);
-    // The last restore empties the fold and takes its toggle with it, so fall back instead of
-    // stranding the user on an unreachable empty list.
     const visible = view === "archived" && archived.length > 0 ? archived : interviews.filter((i) => !i.archived_at);
 
     async function handleRescore(id: string) {
@@ -82,8 +80,6 @@ export function InterviewList({ interviews, loading, error, onRefresh, onOpen, o
             <CardHeader className="flex-row items-center justify-between space-y-0">
                 <CardTitle>History</CardTitle>
                 <div className="flex items-center gap-1">
-                    {/* A filter, not a reveal: the archived runs get their own folder, never a place
-                        beside the active ones. */}
                     {archived.length > 0 && (
                         <>
                             <Button variant="ghost" size="sm" aria-pressed={view === "active"} className={cn(view === "active" && "bg-accent text-accent-foreground")} onClick={() => setView("active")}>
@@ -130,8 +126,6 @@ export function InterviewList({ interviews, loading, error, onRefresh, onOpen, o
                                 ) : i.status === "completed" ? (
                                     <span className="text-xs text-muted-foreground">Not rated</span>
                                 ) : null}
-                                {/* Decision + certainty ride along with the accuracy: a run can be a
-                                    mid accuracy and still a clear hire, or the reverse. */}
                                 {i.decision && <DecisionChip decision={i.decision as Decision} certainty={i.certainty} />}
                             </div>
                         </div>
@@ -161,8 +155,6 @@ export function InterviewList({ interviews, loading, error, onRefresh, onOpen, o
                 {infoRow && <RunInfo interview={infoRow} />}
             </Modal>
 
-            {/* Delete is irreversible, so it confirms in a modal rather than arming the menu: the menu
-                row is one click from Archive, and a misfire there costs the run and its review. */}
             <Modal open={pendingDelete !== null} onClose={() => setPendingDelete(null)} title="Delete this run?">
                 <p>
                     <span className="font-medium">{pendingDelete?.role}</span> and its transcript, review and scores are removed for good. This cannot be undone. Archive it instead if you only want it out of the way.

@@ -57,7 +57,6 @@ async def test_speak_reads_the_json_audio_option():
 
 
 async def test_transcribe_base64s_the_clip_and_reads_the_segments():
-    # The real payload (2026-09-23): segments + transcription_info, no per-word array.
     payload = {
         "result": {
             "text": "I ran the migration.  ",
@@ -75,7 +74,6 @@ async def test_transcribe_base64s_the_clip_and_reads_the_segments():
     assert got.segments[0]["end"] == 2.1
     assert got.language == "en"
     sent = route.calls[0].request.content
-    # The clip must survive the round trip byte for byte, or every transcription is of something else.
     assert base64.b64decode(__import__("json").loads(sent)["audio"]) == CLIP
     assert b'"task":"transcribe"' in sent
 

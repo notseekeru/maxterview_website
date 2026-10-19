@@ -2,8 +2,6 @@ import { useCallback, useEffect, useState } from "react";
 
 import { applyTheme, readStoredTheme, storeTheme, type Theme } from "@/lib/theme";
 
-// React state around lib/theme. `setTheme` flips storage AND the DOM synchronously
-// (not via the mount effect below) so the choice survives a fast unmount + SPA nav.
 export function useTheme() {
     const [theme, setThemeState] = useState<Theme>(() => readStoredTheme());
 

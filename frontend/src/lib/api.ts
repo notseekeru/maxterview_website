@@ -2,8 +2,6 @@ import axios, { type AxiosError } from "axios";
 
 import { markAuthGate401 } from "./authHealth";
 
-// The Vite dev proxy (and prod nginx) forward /api/... to the backend unchanged: the app serves
-// its own routes under that prefix (backend `API_PREFIX`), so nothing is stripped on the way.
 const BASE = `${import.meta.env.VITE_API_BASE ?? "/api"}`;
 
 export const api = axios.create({
@@ -11,8 +9,6 @@ export const api = axios.create({
     withCredentials: true, // send __session cookie for Clerk auth
 });
 
-// Surface the backend-auth-gated-but-browser-can't-login mismatch to the shell: on a
-// 401 whose detail is exactly the backend's `Missing credentials`, tell authHealth.
 api.interceptors.response.use(
     (r) => r,
     (err) => {
@@ -22,13 +18,11 @@ api.interceptors.response.use(
     },
 );
 
-// Axios rejects with the status nested at `response.status` (not top level); this
-// normalizes it so callers can branch on it the way the SSE errors already allow.
 export function httpStatus(e: unknown): number | undefined {
     return (e as AxiosError)?.response?.status ?? (e as { status?: number })?.status;
 }
 
-// M10: a 402 signals a quota lockout (daily chat-turn cap).
+// A 402 signals a quota lockout (daily chat-turn cap).
 export function isQuotaError(e: unknown): boolean {
     return (e as AxiosError)?.response?.status === 402;
 }
@@ -45,8 +39,6 @@ export function apiDetail(e: unknown, fallback: string | null = null): string | 
     }
     return fallback;
 }
-
-// Types mirror backend app/models.py.
 
 export interface Interview extends InterviewDials {
     id: string;
@@ -91,14 +83,11 @@ interface InterviewInput extends InterviewDials {
     resume_id?: string | null;
 }
 
-// The dials arrive together (the create form owns them), so one object beats nine positional args
-// where swapping two same-typed numbers would compile and silently change the interview.
 export async function createInterview(input: InterviewInput): Promise<Interview> {
     const { data } = await api.post<Interview>("/interviews", input);
     return data;
 }
 
-// Saved create-interview presets (mirrors backend models.InterviewTemplate).
 export interface InterviewTemplate extends InterviewInput {
     id: string;
     name: string;
@@ -128,7 +117,7 @@ export async function deleteTemplate(id: string): Promise<void> {
     await api.delete(`/templates/${id}`);
 }
 
-// --- resumes (the library; an interview or preset holds `resume_id`) ---
+// Resumes: an interview or preset holds `resume_id`.
 
 export interface ResumeSummary {
     id: string;
@@ -187,8 +176,6 @@ export async function deleteResume(id: string): Promise<void> {
     await api.delete(`/resumes/${id}`);
 }
 
-// The radar's aggregate, mirroring backend models.InterviewDimensions: all-time per-dim averages, the
-// same over the newest few, and the counts behind each. One request, a payload that does not grow.
 export interface InterviewDimensions {
     count: number;
     recent_n: number;
@@ -201,8 +188,6 @@ export async function getInterviewDimensions(): Promise<InterviewDimensions> {
     return data;
 }
 
-// The analytics page's single aggregate (mirrors backend models.Analytics). One request over the
-// whole history, like the dashboard's radar: the payload is bounded, so no per-run fan-out.
 export interface AnalyticsRun {
     id: string;
     role: string;
@@ -250,9 +235,6 @@ export async function getAnalytics(): Promise<Analytics> {
     const { data } = await api.get<Analytics>("/stats/analytics");
     return data;
 }
-
-// Offers (mirrors backend models.Offer*): the deterministic letter each graded run earned, priced
-// server-side by app/offer.py. Numbers and wording both come from there; this side only formats them.
 
 export interface OfferBenefit {
     key: string;
@@ -365,17 +347,12 @@ export interface Feedback {
     created_at: string;
 }
 
-// Chess-style review, mirroring backend app/rating.py. `move_class` is the model's verdict on ONE turn;
-// accuracy and grade are DERIVED server-side, so this side never averages or bands anything.
 export type MoveClass = "brilliant" | "great" | "good" | "book" | "inaccuracy" | "mistake" | "blunder";
 export type Grade = "S" | "A" | "B" | "C" | "D" | "F";
 
-// Hire/reject spectrum, mirroring models.DECISIONS, ordered left to right. `certainty` is the SEPARATE
-// axis: how well the transcript evidences the decision, not how positive it is. Both null for an
-// undecided run.
 export type Decision = "reject" | "lean_reject" | "lean_hire" | "hire";
 
-// Mirror GET /usage (MONETIZATION §3): the daily GLOBAL chat-turn credit across ALL the owner's
+// Mirror GET /usage: the daily GLOBAL chat-turn credit across ALL the owner's
 // interviews, plus the resume ceiling. Review redos ride on the review itself (Feedback.redos).
 
 export type Tier = "free" | "premium" | "dev";
@@ -477,7 +454,7 @@ export async function cancelUpgrade(): Promise<void> {
     await api.post("/billing/cancel");
 }
 
-// --- BYOK: per-user LLM provider (settings panel; mirrors backend app/byok.py, BYOK.md) ---
+// BYOK: per-user LLM provider, mirrors backend app/byok.py.
 
 export interface LLMProviderStatus {
     enabled: boolean;
@@ -508,20 +485,16 @@ export async function clearLLMProvider(): Promise<void> {
     await api.delete("/settings/llm");
 }
 
-// Probes the SAVED provider with a 1-token completion. Returns the backend's short reason
-// ("the provider rejected the API key (401)"), never a raw provider body.
 export async function testLLMProvider(): Promise<{ ok: boolean; detail: string }> {
     const { data } = await api.post<{ ok: boolean; detail: string }>("/settings/llm/test");
     return data;
 }
 
-// The backend streams SSE deltas; we consume them with native fetch streaming.
-
-// M11: the backend caps a chat turn (models.ChatTurn); the UI enforces the same bound so the
+// The backend caps a chat turn (models.ChatTurn); the UI enforces the same bound.
 // candidate never types past it and meets a raw 422.
 export const MAX_TURN_CHARS = 8000;
 
-// Voice (VOICE.md). The only engine is Workers AI via the backend.
+// Voice: the only engine is Workers AI, via the backend.
 
 export interface VoiceCapability {
     tts: boolean;
@@ -590,7 +563,6 @@ async function streamFrames(path: string, body: Record<string, unknown> | undefi
             if (done) break;
             buffer += decoder.decode(value, { stream: true });
 
-            // SSE events are separated by blank lines; we batch process complete frames.
             let sep = buffer.indexOf("\n\n");
             while (sep !== -1) {
                 const frame = buffer.slice(0, sep);

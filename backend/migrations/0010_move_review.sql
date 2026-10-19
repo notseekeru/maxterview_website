@@ -1,8 +1,3 @@
--- yoyo up migration: the ENTIRE file body is the "up" step.
--- (yoyo reads rollback from a separate 0010_move_review.rollback.sql.)
--- Chess-style review, two halves:
---   messages.move_class  the model's verdict on ONE candidate turn (the move annotation)
---   feedback.accuracy    the derived 0-100 aggregate those annotations average to
 -- feedback.accuracy is stored rather than recomputed from the classes in SQL so the class -> points
 -- -> grade scale lives in exactly one place (app/rating.py), not half in Python and half in a CASE.
 -- Both columns are nullable: an ungraded (or failed-classification) run must stay distinguishable

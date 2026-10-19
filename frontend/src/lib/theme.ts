@@ -31,7 +31,5 @@ export function readStoredTheme(): Theme {
 export function storeTheme(theme: Theme): void {
     try {
         window.localStorage.setItem(STORAGE_KEY, theme);
-    } catch {
-        // Private-mode localStorage unavailable — theme just won't persist.
-    }
+    } catch {}
 }

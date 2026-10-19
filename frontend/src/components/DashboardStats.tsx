@@ -19,8 +19,6 @@ interface Props {
     dims: InterviewDims;
 }
 
-// Full-width surface: the tiles, then the charts they come from, then what the two say to do next.
-// Sizes are VIEWPORT breakpoints on purpose, because this is a top-level page and not a column inside one.
 export function DashboardStats({ loading, dims, stats, statsError }: Props) {
     if (loading) {
         return (
@@ -125,7 +123,6 @@ function readout(dims: InterviewDims): string {
     const facts: string[] = [];
     if (dims.delta.accuracy !== null) {
         const d = Math.round(dims.delta.accuracy);
-        // Under three points, five runs a side is the noise floor; "steady" is the honest word.
         facts.push(Math.abs(d) < 3 ? `Accuracy is steady across your last ${TREND_WINDOW * 2} rated runs.` : `Accuracy is ${d > 0 ? "up" : "down"} ${Math.abs(d)} points over your last ${TREND_WINDOW} rated runs.`);
     }
     const unrated = dims.completed - dims.rated;
@@ -142,12 +139,8 @@ interface Step {
     action?: string;
 }
 
-// Points a window has to move before it counts as a slide rather than the noise floor.
 const SLIP_PTS = 5;
 
-// Ordered by what unblocks the most: a finished run with no review is a hole in every number below
-// it, a slide is what the trend chart makes you look for, a trailing axis is a habit to change, a
-// quiet week is a habit to restart. Capped at three, because a list of everything is a list of nothing.
 function nextSteps(dims: InterviewDims, stats: InterviewDimensions | null): Step[] {
     const steps: Step[] = [];
     const unrated = dims.completed - dims.rated;
@@ -237,8 +230,6 @@ function AccuracyTrend({ data }: { data: { label: string; accuracy: number }[] }
     );
 }
 
-// Secondary to the move review. Averaged over the runs that reported each dimension: a dim nobody
-// probed is absent, never a zero. One run's holes are noise, the newest handful reads as form.
 const RADAR_CONFIG: ChartConfig = {
     recent: { label: "Recent runs", color: "var(--chart-1)" },
     average: { label: "All-time average", color: "var(--chart-2)" },
@@ -251,10 +242,7 @@ function avg(nums: number[]): number {
 
 const round1 = (n: number) => Math.round(n * 10) / 10;
 
-// Radar, not tiles: ten dims is where a tile grid stops reading, and a collapsed axis is one glance
-// rather than ten numbers to compare. The per-axis rollup underneath carries the exact values.
 function DimensionScores({ stats, error }: { stats: InterviewDimensions | null; error?: string | null }) {
-    // The server owns the averaging and the rounding; this component only re-keys them for the radar.
     const averages = stats?.averages ?? {};
     const recent = stats?.recent ?? {};
     const recent_n = stats?.recent_n ?? 0;

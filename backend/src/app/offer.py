@@ -17,8 +17,6 @@ BANDS: dict[str, tuple[int, int, str]] = {
     "any": MID,
 }
 
-# Communication carries half: it is the axis a transcript can actually evidence. Profile is deliberately
-# unpriced: a single interview reads it least reliably, so paying for it turns a vibe into a number.
 WEIGHTS: dict[str, float] = {"communication": 0.5, "substance": 0.25, "accuracy": 0.25}
 
 # Performance -> what the letter calls it (slug, floor, label). The percentages above are the number,
@@ -133,8 +131,6 @@ def terms(role: str, level: str, scores: dict[str, Any], accuracy: int | None) -
         return None
     floor, ceiling, _ = band_range(level)
     base = _round_to(floor + (ceiling - floor) * perf / 100, 500)
-    # Both gated mid-ladder: below the bar pays the band floor and PTO, which keeps equity from reading
-    # as a participation trophy.
     equity = 0 if perf < 30 else _round_to(base * (0.02 + 0.18 * perf / 100), 1000)
     signing = 0 if perf < 45 else _round_to(base * 0.10 * (perf - 45) / 55, 500)
     return Terms(title(role, level), band_key(level), base, signing, equity, perf, benefits(perf))

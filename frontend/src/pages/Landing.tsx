@@ -10,15 +10,8 @@ import { gradeTone, MOVE_CLASSES, moveClassMeta } from "@/lib/moveClasses";
 import { PLANS } from "@/lib/plans";
 import { cn } from "@/lib/utils";
 
-// Hero separator geometry, in the 1200x160 box the SVG's preserveAspectRatio="none" stretches to the
-// viewport. Land is heavier than sky: the gradient behind them runs light at the top of the box and
-// dark at the bottom, so each silhouette edge reads as a horizon instead of a filled shape.
 const RIDGES = ["M0 108 C120 96 180 60 300 58 C420 56 470 104 600 106 C720 108 790 52 910 50 C1030 48 1090 92 1200 84 L1200 160 L0 160 Z", "M0 132 C140 128 220 96 360 98 C500 100 560 136 700 138 C840 140 900 108 1040 106 C1130 105 1170 120 1200 118 L1200 160 L0 160 Z"];
 
-// One curve for every entrance. `m` animates transform, which the CSS reduced-motion block in
-// index.css cannot reach, so <MotionConfig reducedMotion="user"> below is what honours the OS
-// switch for everything driven from here. domAnimation is the small feature bundle: it carries
-// whileInView, which is the only entrance trigger this page uses.
 const GLIDE = [0.22, 1, 0.36, 1] as const;
 const VIEWPORT = { once: true, margin: "-80px 0px -80px 0px" } as const;
 
@@ -37,19 +30,12 @@ const FEATURES = [
     { title: "Progress that persists", body: "Replay any transcript with its annotations, and watch accuracy trend across runs." },
 ];
 
-// Specimen, not a real transcript: a short run is enough to fill the flow ticker, and `note` is
-// typed as MoveClass so a row can never name a class the grader does not have and render an empty
-// glyph.
 const TURN_LOG: { turn: string; answer: string; note: MoveClass; delta: string }[] = [
     { turn: "04", answer: "Two years on the billing service, mostly Go.", note: "good", delta: "+6" },
     { turn: "05", answer: "We sharded on tenant id, then backfilled in batches.", note: "great", delta: "+11" },
     { turn: "06", answer: "Kafka, because it scales.", note: "blunder", delta: "−9" },
 ];
 
-// Specimen dashboard, and the same four headline numbers the real dashboard shows, so the page
-// cannot promise a metric the product does not compute. The average is derived from TREND: a second
-// hand-written number beside the chart is a fact free to disagree with it. Accuracies are whole
-// numbers 0-100 because the API sends the derived integer (rating.accuracy), not a 1-10 average.
 const TREND: number[] = [45, 52, 58, 55, 66, 70, 74, 71, 52, 66, 74];
 
 const TREND_AVG = Math.round(TREND.reduce((a, b) => a + b, 0) / TREND.length);
@@ -62,19 +48,10 @@ const ANALYTICS_STATS = [
     { label: "Hire rate", value: "58%", hint: "7 of 12 decided" },
 ];
 
-// One pass produces the path and the dot anchors together, so the line and its points cannot land in
-// different places. Dots are zero-length round-capped lines rather than <circle>: the 100x32 box is
-// stretched to the card, which turns a circle into an ellipse, while a non-scaling stroke stays
-// round at any width.
 const TREND_BOX = { w: 100, h: 32 };
 const TREND_POINTS = TREND.map((v, i) => ({ x: (i * TREND_BOX.w) / (TREND.length - 1), y: TREND_BOX.h - (v / 100) * TREND_BOX.h }));
 const TREND_PATH = TREND_POINTS.map((p, i) => `${i === 0 ? "M" : "L"}${p.x.toFixed(2)} ${p.y.toFixed(2)}`).join(" ");
 
-// Specimen run log. Mirrors the analytics table: one row per finished run, with the grade and the
-// hiring call the API stores on the row. Its four rows are the trend's last four points, oldest
-// first, so the two artefacts read as one history. The F row is a hardcore failure: 52% is still the
-// number its earlier answers averaged to, and only the letter is forced to F by the turn that ended
-// the run.
 const RUN_LOG: { date: string; role: string; accuracy: string; grade: "S" | "A" | "B" | "C" | "D" | "F"; decision: string }[] = [
     { date: "02/14", role: "Backend engineer", accuracy: "74%", grade: "B", decision: "Lean hire" },
     { date: "02/11", role: "Platform engineer", accuracy: "66%", grade: "C", decision: "Lean hire" },
@@ -82,13 +59,9 @@ const RUN_LOG: { date: string; role: string; accuracy: string; grade: "S" | "A" 
     { date: "02/06", role: "Backend engineer", accuracy: "71%", grade: "B", decision: "Lean hire" },
 ];
 
-// The strip's eighth cell: a 7-item list leaves the grid with one gap, and the verdict is the half of
-// the product the seven classes do not cover. Each cell is titled with its `hint`, so the meanings
-// survive without the page carrying a second column of prose about them.
 const VERDICT_CELL = { glyph: "%", label: "Verdict", hint: "Accuracy, a letter grade, a hire or reject call, and the fixes that would move it." };
 const VOCAB = [...MOVE_CLASSES, VERDICT_CELL];
 
-// Terse by design: these bodies point at artifacts the grades section already renders.
 const FLOW_IN = [
     { label: "Resume", body: "One PDF. What you've shipped." },
     { label: "Setup", body: "Role, level, company size. A cynicism dial." },
@@ -100,7 +73,6 @@ const FLOW_OUT = [
     { label: "Trend", body: "Accuracy across runs." },
 ];
 
-// Specimen prompts, composed around TURN_LOG's verbatim rows.
 const FLOW_TICK: { q: string; row: (typeof TURN_LOG)[number] }[] = [
     { q: "Walk me through the billing service.", row: TURN_LOG[0] },
     { q: "How would you cut over the new schema?", row: TURN_LOG[1] },
@@ -122,8 +94,6 @@ const FAQ = [
 ];
 
 const SHELL = "mx-auto w-full max-w-[76rem] px-6 sm:px-8 lg:px-10";
-// Section spacing has one owner: leading padding here, nothing trailing, so two adjacent sections
-// cannot stack their gaps into a dead band.
 const SECTION = "pt-24 sm:pt-32 lg:pt-40";
 
 function Reveal({ children, className, delay = 0 }: { children: ReactNode; className?: string; delay?: number }) {
@@ -134,9 +104,6 @@ function Reveal({ children, className, delay = 0 }: { children: ReactNode; class
     );
 }
 
-// The card is inverted color space: the page's own foreground is white-on-white there (a bug
-// this diagram's first pass shipped). Labels re-point at background; the tight variant fits
-// two cells in one footer row.
 const LABEL_INVERT = cn(LABEL, "text-background/70");
 const QLABEL_INVERT = cn(LABEL_INVERT, "text-[0.6rem] tracking-[0.12em]");
 
@@ -147,7 +114,6 @@ function Connector() {
     return (
         <div aria-hidden className="flex h-full items-center justify-center">
             <svg viewBox="0 0 40 40" preserveAspectRatio="none" aria-hidden="true" className="hidden h-full w-full md:block">
-                {/* y 6/20/34 = the three card rows, track-relative so the stretch holds shape. */}
                 <line x1={0} y1={6} x2={40} y2={6} stroke="var(--muted-foreground)" strokeDasharray="4 4" vectorEffect="non-scaling-stroke" className="animate-dash" />
                 <line x1={0} y1={20} x2={40} y2={20} stroke="var(--muted-foreground)" strokeDasharray="4 4" vectorEffect="non-scaling-stroke" className="animate-dash" />
                 <line x1={0} y1={34} x2={40} y2={34} stroke="var(--muted-foreground)" strokeDasharray="4 4" vectorEffect="non-scaling-stroke" className="animate-dash" />
@@ -363,11 +329,7 @@ export function Landing() {
                                                             </span>
                                                         ))}
                                                     </div>
-                                                    {/* One turn at a time. background tokens only: the card is inverted color space,
-                                                    and page tokens (muted-foreground et al.) go white-on-white here. */}
                                                     <div className="mt-3 overflow-hidden rounded-lg border border-background/20">
-                                                        {/* Track = 3x wrapper: -33.333% is exactly one slide; keyframe holds never
-                                                        show a neighbor. */}
                                                         <div className="flex w-[300%] animate-ticker">
                                                             {FLOW_TICK.map((t) => {
                                                                 const meta = moveClassMeta(t.row.note);
@@ -408,7 +370,6 @@ export function Landing() {
                                                 </div>
                                             </div>
 
-                                            {/* Arc only where the lanes exist; the caption carries the loop on mobile. */}
                                             <p aria-hidden className={cn(LABEL, "mt-3 flex items-center justify-center gap-2 md:hidden")}>
                                                 Preset it · rerun · the trend shifts
                                             </p>
@@ -455,15 +416,7 @@ export function Landing() {
                                             </span>
                                         </div>
                                         <div className="relative mt-4">
-                                            {/* pr-10 is the gutter the 50% label sits in: an SVG's viewport is its content
-                                                box, so the padding ends the plot before the label rather than under it. */}
-                                            {/* overflow-visible: the end dots are centred on the viewport edge, so the
-                                                SVG default of clipping to the viewport halves them. The caps are
-                                                device-space (non-scaling-stroke), which no viewBox-relative inset can
-                                                clear at every card width, so the spill is allowed instead. */}
                                             <svg viewBox={`0 0 ${TREND_BOX.w} ${TREND_BOX.h}`} preserveAspectRatio="none" aria-label={`Accuracy across the last ${TREND.length} rated runs, from ${TREND[0]}% to ${TREND[TREND.length - 1]}%`} className="block h-16 w-full overflow-visible pr-10">
-                                                {/* The scale has to come from somewhere: an unlabelled line makes 45% and 74%
-                                                    the same picture. */}
                                                 <line x1={0} y1={TREND_BOX.h / 2} x2={TREND_BOX.w} y2={TREND_BOX.h / 2} stroke="var(--border)" strokeWidth={1} strokeDasharray="3 3" vectorEffect="non-scaling-stroke" />
                                                 <path d={`${TREND_PATH} L${TREND_BOX.w} ${TREND_BOX.h} L0 ${TREND_BOX.h} Z`} fill="var(--chart-1)" fillOpacity={0.08} />
                                                 <path d={TREND_PATH} fill="none" stroke="var(--chart-1)" strokeWidth={1.5} vectorEffect="non-scaling-stroke" />
@@ -518,16 +471,10 @@ export function Landing() {
                             </Reveal>
                         </section>
 
-                        {/* The lexicon, run edge to edge on the one dark band: the page's only dark full-bleed,
-                            and its only place where the classes stand side by side. The list itself drifts
-                            through the frame on a loop rather than a light passing over a static one. */}
                         <div className="relative mt-24 border-y bg-[#111111] text-white sm:mt-32 lg:mt-40">
                             <div aria-hidden className="dotgrid absolute inset-0 opacity-40 [mask-image:radial-gradient(90%_140%_at_50%_50%,#000_10%,transparent_80%)]" />
                             <div className={cn(SHELL, "relative py-16 sm:py-20")}>
                                 <p className="font-mono text-[0.65rem] uppercase tracking-[0.18em] text-white/50">The grading vocabulary</p>
-                                {/* Four copies deep, so -50% lands on an identical pattern, the seam is invisible and the
-                                    track still covers the frame at the widest the shell ever gets. Only the first copy is
-                                    exposed to assistive tech; the rest are the same eight cells again. */}
                                 <div className="group mt-10 overflow-hidden rounded-xl border border-white/15 bg-[#111111]">
                                     <div className="flex w-max animate-vocab-marquee group-hover:[animation-play-state:paused]">
                                         {[0, 1, 2, 3].map((copy) => (
@@ -552,10 +499,6 @@ export function Landing() {
                                 <Folio n="03" label="Pricing" />
                                 <h2 className="mt-10 max-w-[24ch] font-serif text-[clamp(1.9rem,3.4vw,3.25rem)] leading-[1.06] tracking-[-0.025em] text-balance">Pricing</h2>
                             </Reveal>
-                            {/* Uneven split: the paid plan gets the width. Emphasis is the border, not a fill:
-                                a 3% tint behind the plan's own --muted-foreground items measures 4.43:1, under
-                                AA, while the same text on plain white is 4.74:1. The feature list and price live in
-                                PlanPitch, shared with the billing page. */}
                             <div className="mt-14 grid grid-cols-1 gap-4 lg:grid-cols-12">
                                 {(["free", "premium"] as const).map((id, i) => {
                                     const plan = PLANS[id];

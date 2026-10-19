@@ -1,5 +1,3 @@
--- yoyo up migration: the ENTIRE file body is the "up" step.
--- (yoyo reads rollback from a separate 0011_hardcore.rollback.sql.)
 -- Hardcore mode (notes.md): one wrong answer and the run is over, judged as it is given rather
 -- than at review time. The failure is STORED on the interview at the moment it happens, not derived
 -- from the move classes afterwards: the two can disagree (a different classification pass), and the

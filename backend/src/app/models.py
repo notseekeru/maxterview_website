@@ -9,7 +9,6 @@ from app import dials, levels, rating, resumes, voice
 # Unpacked from the canonical levels vocabulary, so API, DB CHECK, prompt and frontend cannot drift.
 Level = Literal[*levels.LEVELS]
 
-# Unpacked from app/dials.py, same anti-drift rule as Level.
 CompanySize = Literal[*dials.COMPANY_SIZES]
 Cynicism = Literal[*dials.CYNICISM]
 
@@ -227,7 +226,6 @@ class OfferSummary(BaseModel):
     avg_signing: int = 0
     avg_equity: int = 0
     avg_performance: int = 0
-    # Benefits per offer, so the ladder filling up is a number rather than a feeling.
     avg_benefits: float = 0.0
     best_id: str | None = None
     worst_id: str | None = None
@@ -317,7 +315,6 @@ class Analytics(BaseModel):
     # Consecutive UTC days ending today (or yesterday: a streak dies at midnight, not at 24h) with at least one run created.
     streak_days: int
     hardcore_failures: int
-    # Nested rather than spread because the offline halves of the page do not need it, and the chat's review fetches its letter from its own route.
     offers: OffersAnalytics
 
 

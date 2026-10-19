@@ -1,9 +1,5 @@
 // Last-resort browser error capture, on every page: it has to exist before sign-in, where a blank
 // landing page is a lost visitor nobody hears about.
-//
-// The message, the path, and the component stack React hands the ErrorBoundary (names, not minified
-// frames, so it survives without sourcemaps). No JS stack, no query string, no page content. An
-// identical message is sent once, so a render loop cannot become a log flood.
 
 const ENDPOINT = `${import.meta.env.VITE_API_BASE ?? "/api"}/client-errors`;
 const MAX_REPORTS = 5;

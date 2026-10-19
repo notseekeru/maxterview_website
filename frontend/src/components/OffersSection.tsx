@@ -74,8 +74,6 @@ function OfferTrend({ board }: { board: OffersAnalytics }) {
                 <LineChart data={points} margin={{ left: 4, right: 8, top: 8, bottom: 0 }}>
                     <CartesianGrid vertical={false} strokeDasharray="3 3" />
                     <XAxis dataKey="label" tickLine={false} axisLine={false} tickMargin={8} interval="preserveStartEnd" />
-                    {/* No 0 floor: the interesting range is the spread between months, and a $0 baseline
-                        flattens it into a straight line at the top. */}
                     <YAxis tickLine={false} axisLine={false} width={44} tickFormatter={compactMoney} domain={["dataMin - 20000", "dataMax + 10000"]} />
                     <ChartTooltip content={<ChartTooltipContent indicator="line" labelFormatter={(label: unknown, payload: readonly { payload?: { offers?: number } }[]) => `${label} · ${payload?.[0]?.payload?.offers ?? 0} offers`} formatter={(value) => money(Number(value))} />} />
                     <Line dataKey="base" type="monotone" animationDuration={DRAW_MS} stroke="var(--color-base)" strokeWidth={2} dot={{ r: 3 }} />

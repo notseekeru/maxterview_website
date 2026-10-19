@@ -4,13 +4,6 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { getUsage, type Tier } from "@/lib/api";
 
-// /dashboard?upgrade=pending, the return_url a redirect rail sends the customer back to. The QR rail
-// polls in place (QrCheckout), so this guards the redirect path only.
-// The flip is asynchronous, so this is the "I paid and nothing happened" guard: poll a bounded window,
-// then hand the user a manual retry rather than a Free badge.
-//
-// Success does a full `window.location.replace('/dashboard')`: the shell's UsageBadge fetches once on
-// mount, and a remount is the only way it, the BillingPage and this notice agree without an event bus.
 const POLL_MS = 5000;
 const POLL_ATTEMPTS = 12; // ~1 minute, then stop and let the user drive
 const COOLDOWN_MS = 1000; // floor between checks, poll or click

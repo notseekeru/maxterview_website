@@ -15,8 +15,6 @@ export interface Line {
 function takeLines(text: string, atEnd: boolean, first = FIRST_CHARS, limit = CHUNK_CHARS): { lines: Line[]; rest: string } {
     const lines: Line[] = [];
     let rest = text;
-    // Where `rest` starts in `text`: a line's end is reported as an offset into the whole string, not
-    // into the piece that happens to be under the scalpel this pass.
     let base = 0;
     for (;;) {
         const cap = lines.length ? limit : first;
@@ -31,8 +29,6 @@ function takeLines(text: string, atEnd: boolean, first = FIRST_CHARS, limit = CH
             continue;
         }
         if (rest.length > cap) {
-            // No sentence end within reach: cut at the last word that fits, so one long clause is
-            // heard now instead of the whole reply being heard late.
             const cut = Math.max(rest.lastIndexOf(" ", cap), 1);
             const line = rest.slice(0, cut).trim();
             if (line) lines.push({ text: line, end: base + cut });
@@ -53,11 +49,7 @@ function takeLines(text: string, atEnd: boolean, first = FIRST_CHARS, limit = CH
 if (import.meta.env.DEV) {
     const held = takeLines("One. Two", false);
     console.assert(held.lines.length === 1 && held.lines[0].text === "One." && held.rest === "Two", "voice: the chunker stopped holding text back", held);
-    // The offset is the caption's cut, so it has to land after the sentence and its break, or the
-    // revealed text loses the space in front of the next one.
     console.assert("One. Two".slice(0, held.lines[0].end) === "One. ", "voice: a line's end is not where the caption cuts", held.lines[0].end);
-    // A clause with no sentence end in it: every line still respects the ceiling, and nothing is
-    // dropped or said twice between what is spoken and what is held back.
     const wrapped = takeLines("x ".repeat(2 * CHUNK_CHARS), false, CHUNK_CHARS, CHUNK_CHARS);
     const whole = `${wrapped.lines.map((l) => l.text).join("")}${wrapped.rest}`.replace(/\s+/g, "");
     console.assert(wrapped.lines.every((l) => l.text.length <= CHUNK_CHARS) && whole === "x".repeat(2 * CHUNK_CHARS), "voice: long unbroken text lost or duplicated a line", wrapped.lines.length, wrapped.rest.length);
@@ -88,8 +80,6 @@ interface Job<T> {
 export function createReader<T>(speaker: Speaker<T>, sink: ReaderSink): VoiceReader {
     const ctl = new AbortController();
     const { signal } = ctl;
-    // Held-back text, and how much of the stream has been received: an offset in the stream is
-    // `seen - buf.length + line.end`, which is what the caption slices on.
     let buf = "";
     let seen = 0;
     let jobs: Job<T>[] = [];
@@ -100,8 +90,6 @@ export function createReader<T>(speaker: Speaker<T>, sink: ReaderSink): VoiceRea
 
     const fetchAudio = (job: Job<T>) => {
         const audio = speaker.load(job.text, signal);
-        // Handled now, awaited later: a rejection that lands while the previous line is still playing
-        // is not an unhandled rejection, it is the next iteration's problem.
         audio.catch(() => undefined);
         return audio;
     };
@@ -128,11 +116,8 @@ export function createReader<T>(speaker: Speaker<T>, sink: ReaderSink): VoiceRea
             preload(); // its audio is either in flight or about to be
             let clip: T;
             try {
-                // `preload()` leaves a fetch in flight for this line; the cast is only because TS cannot
-                // see that a generic `T` is not a promise of itself.
                 clip = (await job.audio) as T;
             } catch {
-                // Nothing was heard, so nothing is held back: a line nobody heard cannot hold the caption.
                 jobs.shift();
                 sink.onSpoken(job.end);
                 continue;
@@ -178,8 +163,6 @@ export function createReader<T>(speaker: Speaker<T>, sink: ReaderSink): VoiceRea
 }
 
 if (import.meta.env.DEV) {
-    // Order, and the lookahead, are the parts no single unit test of the chunker can see. A fake
-    // speaker is the only way to watch the interleaving.
     void (async () => {
         const stream = "One. Two. Three.";
         const heard: string[] = [];
@@ -236,8 +219,6 @@ function play(url: string, signal: AbortSignal, onStart: () => void): Promise<bo
             el.pause();
             finish();
         }
-        // `playing`, not the `play()` promise: the caption is released on this callback, and it has to
-        // land with the sound rather than with the request to make it.
         el.onplaying = () => {
             if (heard) return;
             heard = true;
@@ -306,8 +287,6 @@ export function cloudTranscriber(upload: (clip: Blob) => Promise<string>, sink: 
     let stream: MediaStream | null = null;
     let chunks: Blob[] = [];
     let meter = 0;
-    // The analyser needs a context, and a context holds an audio thread until it is closed. One per
-    // take with nothing closing them accumulates for the life of the page.
     let audio: AudioContext | null = null;
     let mediaType: string | undefined;
     let settled = false;
@@ -332,7 +311,6 @@ export function cloudTranscriber(upload: (clip: Blob) => Promise<string>, sink: 
     };
 
     const deliver = async (clip: Blob) => {
-        // One clip, one upload: stop twice and the second press must not bill a second transcription.
         if (handed) return;
         handed = true;
         try {
@@ -369,7 +347,6 @@ export function cloudTranscriber(upload: (clip: Blob) => Promise<string>, sink: 
                     return;
                 }
                 if (settled) {
-                    // Nothing else releases these tracks once the take has ended.
                     for (const track of stream.getTracks()) track.stop();
                     stream = null;
                     return;

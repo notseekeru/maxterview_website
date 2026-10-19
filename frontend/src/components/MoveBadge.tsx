@@ -28,7 +28,6 @@ export function MoveBadge({ moveClass, comment }: { moveClass: string; comment?:
         const over = disc.left + card.offsetWidth + 8 - log.right;
         setShift(over > 0 ? -over : 0);
     }, [open]);
-    // A noted disc drops the title: the card states the class, and a browser tooltip under it stacks.
     const title = comment ? undefined : meta ? `${name}: ${meta.hint}` : `Unlabelled move class: ${moveClass}`;
     return (
         // biome-ignore lint/a11y/noStaticElementInteractions: hover is the only way into the note, so the handlers sit on the plain wrapper. The disc keeps the class in its aria-label and title, which is all a non-pointer reader gets.

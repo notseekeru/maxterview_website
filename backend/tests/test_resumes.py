@@ -58,15 +58,12 @@ async def test_rejects_a_body_that_is_not_a_pdf():
 
 
 async def test_magic_bytes_are_found_past_byte_zero():
-    # The spec allows junk before the header, so this must still parse — and it is why the check is a
-    # scan, not a `startswith`.
     got = await resumes.extract_pdf(b"garbage-prefix\n" + mini_pdf())
     assert "Hello Resume" in got.text
 
 
 async def test_rejects_oversize_before_parsing(monkeypatch):
     monkeypatch.setattr(resumes, "MAX_BYTES", 64)
-    # A valid PDF header over the cap: rejected on size, never handed to pypdf.
     with pytest.raises(resumes.ExtractError, match="larger than"):
         await resumes.extract_pdf(mini_pdf() + b" " * 64)
 
@@ -91,13 +88,11 @@ async def test_password_protected_is_rejected_not_decoded():
 
 
 async def test_image_only_pdf_reports_the_paste_path():
-    # What a phone scan or a Canva export looks like: a valid PDF whose page carries no text operator.
     with pytest.raises(resumes.ExtractError, match="Paste the text instead"):
         await resumes.extract_pdf(mini_pdf(""))
 
 
 def test_sanitize_folds_expands_and_strips_invisibles():
-    # NFKC widens some characters (not only folds), which is why the DB cap is applied after it.
     assert resumes.sanitize("\ufb01le  \u00a0name") == "file name"
     assert resumes.sanitize("a\u200bb\u202ec") == "abc"
     assert resumes.sanitize("x" * 100, limit=10) == "x" * 10

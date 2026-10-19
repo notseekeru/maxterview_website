@@ -10,17 +10,7 @@ import { apiDetail, cancelUpgrade, type Usage } from "@/lib/api";
 import { clerkEnabled } from "@/lib/config";
 import { PLANS } from "@/lib/plans";
 
-// Free vs Pro cards. The CTA posts to /billing/checkout, which answers with a QR to scan. PayMongo has no
-// billing portal, so our own copy carries the billing terms.
-// The cards sell; PlanPitch inside them carries the prices and the feature lists.
-// the two tiers and nothing else. What the caller is on only decides which CTA a card shows.
-// GET /usage reports the live mode: `period` is a one-time top-up that never renews, so show the expiry
-// and offer no cancel; `subscription` is provider-managed and cancel is ours. `dev` gets a read-only
-// summary and no upgrade path.
-// The tier value stays `premium` (DB column, JWT claim, plan name): Pro is the display name only.
-
 export function BillingPage() {
-    // One GET /usage feeds both PlanCards, so do not hoist it into each.
     const { usage } = useUsage();
     return (
         <Page title="Billing" description="Your plan sets your daily allowance and your resume library.">
@@ -32,9 +22,6 @@ export function BillingPage() {
     );
 }
 
-// Figures come from lib/plans (MONETIZATION §0): the docs page quotes the numbers, the pitch does not.
-// Subscriptions are PHP-only, so the price is in pesos.
-// Ratio across every metered cap (turns, resumes, redos); read from turns rather than typed again.
 const PLAN_RATIO = PLANS.premium.turns / PLANS.free.turns;
 
 function PlanCard({ tier, usage }: { tier: "free" | "premium"; usage: Usage | null }) {
@@ -52,8 +39,6 @@ function PlanCard({ tier, usage }: { tier: "free" | "premium"; usage: Usage | nu
     const periodMode = usage?.billing_mode === "period";
     const until = usage?.premium_until ? new Date(usage.premium_until).toLocaleDateString() : null;
 
-    // Cancelling is our own endpoint (no provider portal), so confirm first: the user keeps the
-    // period they already paid for.
     const stop = async () => {
         if (!window.confirm("Cancel Pro? You keep access until the end of the period you already paid for.")) return;
         setCancelling(true);
@@ -68,8 +53,6 @@ function PlanCard({ tier, usage }: { tier: "free" | "premium"; usage: Usage | nu
     };
 
     const onPremium = usage?.tier === "premium";
-    // Shared by both cards: the non-current one still has to say why buying again is not possible yet
-    // (the backend refuses a second purchase inside a paid period).
     const paidThrough = (
         <Button className="w-full" variant="outline" disabled>
             {until ? `Pro until ${until}` : "Pro active"}
@@ -97,8 +80,6 @@ function PlanCard({ tier, usage }: { tier: "free" | "premium"; usage: Usage | nu
             </Button>
         );
     } else if (!isPremium && onPremium) {
-        // Downgrading means cancelling and there is no portal to hand this off to. In period mode
-        // there is no renewal to stop, so the same date replaces the button.
         cta = periodMode ? (
             paidThrough
         ) : (

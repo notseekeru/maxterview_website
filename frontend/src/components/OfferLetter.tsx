@@ -7,8 +7,6 @@ import { cn } from "@/lib/utils";
 
 export function OfferLetter({ offer }: { offer: Offer }) {
     return (
-        // ONE column, full width. Two columns looked like a document and behaved like a layout: the
-        // readout beside the letter is a third of its height, so that side ended empty on every letter.
         <article className="space-y-4 text-sm leading-relaxed">
             <div className="flex flex-wrap items-baseline justify-between gap-2 border-b pb-3">
                 <span className="font-serif text-lg tracking-[-0.015em]">maxterview</span>
@@ -37,7 +35,6 @@ export function OfferLetter({ offer }: { offer: Offer }) {
             <div className="space-y-1.5">
                 <p className="font-medium">Where the offer sits</p>
                 <RangeBar start={offer.band_low} end={offer.band_high} avg={offer.base_salary} max={offer.band_high} />
-                {/* Both edges named, so the bar is read as a position inside a range rather than a score. */}
                 <div className="flex flex-wrap justify-between gap-2 text-xs text-muted-foreground">
                     <span>{compactMoney(offer.band_low)} floor</span>
                     <span className="text-foreground">
@@ -49,9 +46,6 @@ export function OfferLetter({ offer }: { offer: Offer }) {
 
             <div className="space-y-1.5">
                 <p className="font-medium">Benefits</p>
-                {/* A two-column grid, not a `label · value` run: the labels are different widths, so a
-                    separator left every value starting at a different x. `max-content` sizes the label
-                    column to the longest label, so the values align down the page. */}
                 <dl className="grid grid-cols-[max-content_1fr] gap-x-4 gap-y-1 text-muted-foreground">
                     {offer.benefits.map((b) => (
                         <Fragment key={b.key}>

@@ -43,8 +43,6 @@ function GateBranch({ from }: { from: string }) {
     return (
         <>
             <Show when="signed-out">
-                {/* Remember the page they asked for: /sign-in is stateless, so a deep link or the
-                    landing "Upgrade" CTA would otherwise dead-end on /dashboard after signing in. */}
                 <Navigate to={signInPath(from)} replace />
             </Show>
             <Show when="signed-in">

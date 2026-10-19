@@ -1,9 +1,3 @@
--- yoyo up migration: the ENTIRE file body is the "up" step.
--- (yoyo reads rollback from a separate 0007_interview_dials.rollback.sql.)
--- Interview dressing dials (notes.md item 3): company size, cynicism, brutally-honest mode,
--- human mode, and the chitchat/behavioural/technical question mix. NOT NULL with defaults on
--- purpose: runs created before these columns existed keep working off the same values a new
--- create sends. CHECKs mirror app.dials / app.models.
 
 ALTER TABLE interviews
     ADD COLUMN IF NOT EXISTS company_size TEXT NOT NULL DEFAULT 'any'

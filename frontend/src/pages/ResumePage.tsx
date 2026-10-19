@@ -26,15 +26,12 @@ export function ResumePage() {
     const [notice, setNotice] = useState<string | null>(null);
     const [capped, setCapped] = useState(false);
     const [dropping, setDropping] = useState(false);
-    // Two mutually exclusive views once anything is saved: the drop zone (`dropping`/`importing`) and
-    // the text editor (`pasting`). Fresh account: neither, so the drop zone IS the page.
     const [pasting, setPasting] = useState(false);
     const [importing, setImporting] = useState(false);
     const [restore, setRestore] = useState<Draft | null>(null);
     const editing = draft.id !== null || pasting;
     const showDrop = !editing && importing;
 
-    // Paste mode mounts the textarea one render later, so the focus has to wait for it.
     useEffect(() => {
         if (pasting) document.getElementById("resume-text")?.focus();
     }, [pasting]);
@@ -49,7 +46,6 @@ export function ResumePage() {
         try {
             const list = await listResumes();
             setRows(list);
-            // Saved resumes open straight into the editor: the drop zone is for the first one only.
             if (list.length) {
                 const full = await getResume(list[0].id);
                 setDraft({ id: full.id, name: full.name, text: full.text });
@@ -90,9 +86,7 @@ export function ResumePage() {
         setCapped(false);
         setNotice(null);
         try {
-            // Extract is stateless: the PDF is parsed and discarded, and only the TEXT is kept. Nothing to clean.
             const got = await extractResume(file);
-            // Lands as an UNSAVED draft (id null): the candidate reads the extraction and presses Save.
             setDraft({ id: null, name: file.name.replace(/\.pdf$/i, "").slice(0, 80), text: got.text });
             setPasting(true);
             setImporting(false);
@@ -145,7 +139,6 @@ export function ResumePage() {
         }
     }
 
-    // Clears the editor so the drop zone (the "New resume" path) can take the page.
     function startNew() {
         setRestore(draft);
         setDraft(EMPTY_DRAFT);
@@ -156,7 +149,6 @@ export function ResumePage() {
         setNotice(null);
     }
 
-    // Back to the editor: the restore draft, or a blank one to paste into.
     function cancelNew(blank = false) {
         setImporting(false);
         setDraft(blank ? EMPTY_DRAFT : (restore ?? EMPTY_DRAFT));
@@ -170,7 +162,6 @@ export function ResumePage() {
     function discardDraft() {
         if (dirty && !confirm("Discard these unsaved changes?")) return;
         if (!restore && draft.id === null) {
-            // Nothing was open before this draft, so there is no card to fall back to.
             setPasting(false);
             setDraft(EMPTY_DRAFT);
             setNotice(null);
@@ -200,16 +191,11 @@ export function ResumePage() {
 
     const atCap = limit !== null && rows.length >= limit;
     const active = rows.find((r) => r.id === draft.id);
-    // An unsaved draft (a fresh PDF extraction, or a manual paste) counts as dirty: there is nothing
-    // in the list yet, so Save is the only thing that can persist it.
     const dirty = draft.id === null ? !!draft.name.trim() || !!draft.text.trim() : !!active && (active.name !== draft.name || active.chars !== draft.text.length);
 
     return (
         <Page title="Resume" description="The text the interviewer reads. One per role is usually enough." wide>
             <div className="space-y-4">
-                {/* The drop zone owns the page on a fresh account, and is opt-in ("+ New") once
-                    anything is saved. The paste button is nested, not a sibling: a click on interactive
-                    content does not activate the label, so browsing still works. */}
                 {(!editing || showDrop) && (
                     <label
                         onDragOver={(e) => {
@@ -239,7 +225,6 @@ export function ResumePage() {
                             className="hidden"
                             onChange={(e) => {
                                 const file = e.target.files?.[0];
-                                // Reset first: picking the SAME file twice must fire again.
                                 e.target.value = "";
                                 pick(file);
                             }}
@@ -262,12 +247,8 @@ export function ResumePage() {
                     </div>
                 )}
 
-                {/* Absent with nothing saved: the drop card and the New resume card already say so,
-                    and an empty chip row would just be a second, contradictory "0 of 5". */}
                 {rows.length > 0 && (
                     <section className="space-y-3">
-                        {/* The limit rides the heading as its hint: how many slots are left is a fact
-                            about the list, not about the editor below it. */}
                         <SectionHeading title="Your resumes" hint={limit === null ? undefined : `${rows.length} of ${limit}${limit === 1 ? ` · ${PLANS.premium.name} keeps more` : ""}`} />
                         <div className="flex flex-wrap items-center gap-1.5">
                             {rows.map((r) => (

@@ -1,7 +1,3 @@
--- yoyo up migration: the ENTIRE file body is the "up" step.
--- (yoyo reads rollback from a separate 0018_offers.rollback.sql.)
--- One offer per graded run: the deterministic simulation of what the interview earned
--- (app/offer.py prices it; main._sync_offer writes it whenever a review is written).
 -- Stored rather than derived-on-read so a letter is a thing that was issued and keeps its numbers:
 -- the rate card can move, and a run annotated back then still shows the offer it was quoted.
 -- No owner_id: like feedback, this is scoped through its interview (ON DELETE CASCADE), and the

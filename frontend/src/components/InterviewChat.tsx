@@ -19,12 +19,8 @@ interface Props {
 }
 
 const STREAM_FAILED = "The interviewer couldn't answer just now: the model was unreachable. Your turn wasn't saved, so send it again in a moment.";
-// The connection died before any frame arrived, so the server never got to name the provider (it does
-// that in llm.unreachable_detail). Same advice either way: the panel that fixes it is the same one.
 const CONNECTION_LOST = "Connection lost while streaming. The model never answered. If this repeats, test your provider in Settings > Interview engine (BYOK).";
 
-// The header reads as a state of the interview, not as the wire value behind it (the API and the DB
-// keep `completed`, which is the status the list, analytics and feedback endpoints filter on).
 const STATUS_LABELS = { loading: "Starting", ready: "In progress", streaming: "Interviewer is replying", completed: "Finished" } as const;
 
 const DONE_HOLD_MS = 1200;
@@ -41,33 +37,20 @@ export function InterviewChat({ interviewId, onExit }: Props) {
     const [interviewOver, setInterviewOver] = useState(false);
     const [hardcoreRun, setHardcoreRun] = useState(false);
     const [hardcoreFailed, setHardcoreFailed] = useState<{ turn: number; class: string } | null>(null);
-    // Non-null while a finish or rebuild is in flight. Closing the screen never cancels the request.
     const [finishing, setFinishing] = useState<{ title: string; dismissed: boolean; done: boolean } | null>(null);
     const isFinishing = finishing !== null;
-    // The button stays dead until the candidate has said something: /finish refuses a transcript with
-    // no gradable turn.
     const answered = messages.some((m) => m.role === "user");
     const [reviewFailed, setReviewFailed] = useState(false);
-    // In-place review rebuild: the finish overlay is for a review landing the first time, and a redo
-    // already has a review on screen to stay behind.
     const [redoing, setRedoing] = useState(false);
     const [redoError, setRedoError] = useState<string | null>(null);
-    // Mid-run Finish confirms because the arc still has questions left; at the cap it goes straight
-    // through. Reset by anything that leaves the footer.
     const [confirmFinish, setConfirmFinish] = useState(false);
     const sendingRef = useRef(false);
-    // The opener is fetched once per mounted run: the transcript is empty until it lands, and the
-    // effect below would otherwise fire again on every render that clears the error.
     const kickedRef = useRef(false);
     const abortRef = useRef<AbortController | null>(null);
-    // The reply being streamed now. It names the bubble the caption gate applies to, so an earlier reply
-    // is never held back by the voice of a later one.
     const replyId = useRef("");
     const scrollRef = useRef<HTMLDivElement | null>(null);
     const inputRef = useRef<HTMLTextAreaElement | null>(null);
     const [voiceOn, setVoiceOn] = useState(readVoicePref);
-    // Voice is I/O around the turn (VOICE.md). The server is asked what it can do before anything is
-    // offered, so a deployment without Workers AI shows a dead control with a reason.
     const { capability, failed: capabilityFailed } = useVoiceCapability();
     const speaker = useSpeaker(voiceOn && Boolean(capability?.tts));
     const mic = useRecorder(
@@ -78,9 +61,6 @@ export function InterviewChat({ interviewId, onExit }: Props) {
         }, []),
     );
     const voiceTitle = capability?.tts ? (voiceOn ? "Stop reading replies aloud" : "Read each reply aloud") : undefined;
-    // Limits belong to the server, not the run, so they are stated on screen: the buttons that need the
-    // explanation are disabled, and a title attribute is not where a stuck visitor looks.
-    // A failed probe is a third state: the controls stay off and the line says the check did not happen.
     const voiceNote = capabilityFailed ? "Voice couldn't be checked just now, so both controls are off. Reload to try again." : capability && !capability.tts ? "Replies can't be read aloud: this server has no speech voice configured." : null;
     const micProblem = mic.blocked ?? mic.error;
     const placeholder = mic.recording
@@ -114,8 +94,6 @@ export function InterviewChat({ interviewId, onExit }: Props) {
         async (id: string) => {
             const [iv] = await Promise.all([getInterview(id), loadMessages()]);
             setHardcoreRun(iv.hardcore);
-            // A failed hardcore run is dead in the DB before it is finished: the stream event only covers
-            // the session that watched it, so reopening one must show the ending and close the composer.
             if (iv.failed_turn) {
                 setHardcoreFailed({ turn: iv.failed_turn, class: iv.failed_class ?? "fault" });
                 setInterviewOver(true);
@@ -158,8 +136,6 @@ export function InterviewChat({ interviewId, onExit }: Props) {
         };
     }, [interviewId, loadMessages, loadExisting]);
 
-    // The opener is a model generation and nothing is persisted on failure, so an empty live transcript
-    // is a turn still owed: fetch on mount, and again on the next mount after a failure.
     // biome-ignore lint/correctness/useExhaustiveDependencies: runTurn is a fresh closure every render, so it cannot be a dependency; the ref is the guard.
     useEffect(() => {
         if (status !== "ready" || messages.length || interviewOver || error || kickedRef.current) return;
@@ -167,10 +143,8 @@ export function InterviewChat({ interviewId, onExit }: Props) {
         void runTurn(null);
     }, [status, messages.length, interviewOver, error]);
 
-    // The composer grows to a pixel cap then scrolls inside the pill, so a pasted paragraph cannot push
-    // the transcript off the screen.
-    // AI HERE: fixed pixel cap and a layout-forced reflow per keystroke; upgrade is a measure in
-    // useLayoutEffect keyed on value length.
+    // AI HERE: a fixed pixel cap and a layout-forced reflow per keystroke. Upgrade path is a measure
+    // in useLayoutEffect keyed on value length.
     // biome-ignore lint/correctness/useExhaustiveDependencies: el.scrollHeight is a function of draft, which no linter can see through the DOM.
     useEffect(() => {
         const el = inputRef.current;
@@ -180,8 +154,6 @@ export function InterviewChat({ interviewId, onExit }: Props) {
     }, [draft]);
 
     useEffect(() => {
-        // `instant` overrides the global smoothed scroll in index.css: both of these cross a whole
-        // transcript, which smooth turns into a slide.
         scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "instant" });
     }, []);
 
@@ -189,8 +161,6 @@ export function InterviewChat({ interviewId, onExit }: Props) {
         if (feedback) scrollRef.current?.scrollTo({ top: 0, behavior: "instant" });
     }, [feedback]);
 
-    // The letter is priced from the review, so it is fetched when the review lands. A 404 is not a
-    // failure: it means no letter, and the review renders without one.
     useEffect(() => {
         if (!feedback) return;
         let cancelled = false;
@@ -205,8 +175,6 @@ export function InterviewChat({ interviewId, onExit }: Props) {
             cancelled = true;
         };
     }, [feedback]);
-    // The opener is a reply like any other, so the voice reads it and the caption gate covers it: no
-    // separate speak path, and no canned line to keep in step with the prompt.
 
     function toggleVoice() {
         const next = !voiceOn;
@@ -224,7 +192,6 @@ export function InterviewChat({ interviewId, onExit }: Props) {
     async function runTurn(answer: string | null) {
         if (sendingRef.current) return;
         sendingRef.current = true;
-        // The take that failed is behind us now; a living mic error under a box that just sent is noise.
         mic.clear();
         setError(null);
         setStatus("streaming");
@@ -245,8 +212,6 @@ export function InterviewChat({ interviewId, onExit }: Props) {
         abortRef.current = ac;
         let buffer = "";
         let settled = false;
-        // Spoken as it streams, sentence by sentence: waiting for the whole reply would put the voice a
-        // generation behind the text.
         replyId.current = `local-reply-${Date.now()}`;
         speaker.begin();
         try {
@@ -273,8 +238,6 @@ export function InterviewChat({ interviewId, onExit }: Props) {
                     speaker.stop();
                     rollback();
                     if (answer !== null) setDraft(answer);
-                    // The server's message names the endpoint and what to do about it; the constant
-                    // is only for a frame with no data.
                     setError(ev.message || STREAM_FAILED);
                     setStatus("ready");
                 }
@@ -283,8 +246,6 @@ export function InterviewChat({ interviewId, onExit }: Props) {
             if (!settled) {
                 setAssistBuf("");
                 const rows = await loadMessages();
-                // The opener is the only assistant turn a live run can hold at this point, so its
-                // presence is what says the turn landed.
                 const landed = answer === null ? rows?.some((m) => m.role === "assistant") : rows?.some((m) => m.role === "user" && m.content === answer);
                 if (landed) {
                     setError(null);
@@ -301,8 +262,6 @@ export function InterviewChat({ interviewId, onExit }: Props) {
                 speaker.stop();
                 const st = httpStatus(e);
                 if (st === 402) setQuotaLocked(true);
-                // A 409 means the turn is already in the transcript (the first attempt landed after a cut
-                // stream): show it rather than locking the composer.
                 else if (st === 409 && answer === null) await loadMessages();
                 else if (st === 409) setInterviewOver(true);
                 else setError(CONNECTION_LOST);
@@ -316,8 +275,6 @@ export function InterviewChat({ interviewId, onExit }: Props) {
     }
 
     async function openReview(load: () => Promise<Feedback>) {
-        // The review page is silent: whatever the last reply had left to say stops here rather than
-        // talking over the thing it is being graded against.
         speaker.stop();
         setStatus("completed");
         setReviewFailed(false);
@@ -331,8 +288,6 @@ export function InterviewChat({ interviewId, onExit }: Props) {
             setFinishing(null); // nothing landed, so there is no finished state to show
             return;
         }
-        // Held on the all-checked state for a beat, then closed onto the review: the wait ending by
-        // vanishing reads as a failure, whatever landed underneath.
         setFinishing((f) => (f ? { ...f, done: true } : f));
         await new Promise((r) => setTimeout(r, DONE_HOLD_MS));
         setFinishing(null);
@@ -369,13 +324,8 @@ export function InterviewChat({ interviewId, onExit }: Props) {
         }
     }
 
-    // Hardcore gets the only red. Light-mode red is the darker token: #ff9999 on white is invisible.
     const hardcoreBar = hardcoreFailed ? "border-destructive bg-destructive/10" : hardcoreRun && status !== "completed" ? "border-destructive/40 bg-destructive/5" : undefined;
-    // Consecutive turns from one side close up tight and only the last of each burst carries the
-    // interviewer's face, the way a chat app groups a paragraph of short replies.
     const lastOfRun = new Set(messages.filter((m, i) => messages[i + 1]?.role !== m.role).map((m) => m.id));
-    // While the voice is on, a reply is revealed up to what has been said out loud, so caption and audio
-    // land together. Null whenever nothing is held back (voice off, a replay, the queue drained).
     const speech = speaker.spoken;
     const caption = (id: string, content: string) => (speech === null || id !== replyId.current ? content : content.slice(0, speech));
     const live = caption(replyId.current, assistBuf);
@@ -396,8 +346,6 @@ export function InterviewChat({ interviewId, onExit }: Props) {
                         {STATUS_LABELS[status]}
                     </p>
                 </div>
-                {/* Icon-only: the labels came off, so the tooltip and the aria-label carry the meaning.
-                    Finish sits here rather than in the composer, where it stacked under Send. */}
                 <Button variant="ghost" size="icon" className="rounded-full" aria-pressed={voiceOn} aria-label={voiceOn ? "Voice on" : "Voice off"} onClick={toggleVoice} disabled={!capability?.tts} title={voiceTitle}>
                     <Icon name={voiceOn ? "sound" : "mute"} />
                 </Button>
@@ -415,14 +363,9 @@ export function InterviewChat({ interviewId, onExit }: Props) {
             </header>
             {voiceNote && <p className="border-b bg-muted/40 px-4 py-1.5 text-center text-xs text-muted-foreground">{voiceNote}</p>}
 
-            {/* One scroller: the review, then the transcript it argues from. */}
             <div className="min-h-0 flex-1 overflow-y-auto" ref={scrollRef} role="log" aria-live="polite" aria-busy={status === "streaming"} aria-label="Interview transcript">
                 <div className="mx-auto flex w-full max-w-[100rem] flex-col gap-1 px-4 py-5 sm:px-6">
-                    {/* Safe to always offer: /finish refuses an empty transcript, so a review implies
-                        at least one answer to re-annotate. */}
                     {feedback && <FeedbackView feedback={feedback} messages={messages} offer={offer} onRedo={() => void redoReview()} redoing={redoing} redoError={redoError} />}
-                    {/* The screen was closed while the run is still being finished: keep the wait visible
-                        where the review will land, plus a way back to the stages. */}
                     {finishing?.dismissed && (
                         <div role="status" className="my-1 flex items-center gap-2 self-center rounded-2xl border bg-muted/50 px-3 py-1.5 text-xs text-muted-foreground">
                             {finishing.done ? (
@@ -441,7 +384,6 @@ export function InterviewChat({ interviewId, onExit }: Props) {
                     {error && (
                         <div role="alert" className="my-1 flex flex-col items-center gap-1.5 self-center rounded-2xl border border-destructive/40 bg-destructive/10 px-3 py-1.5 text-center text-xs text-destructive">
                             <p>{error}</p>
-                            {/* An opener that never landed has no answer to resend, so this is the only way back. */}
                             {!messages.length && !interviewOver && status === "ready" && (
                                 <Button variant="outline" size="sm" onClick={() => void runTurn(null)}>
                                     Retry
@@ -468,8 +410,6 @@ export function InterviewChat({ interviewId, onExit }: Props) {
                     {messages.map((m, i) => (
                         <Bubble key={m.id} from={m.role} content={caption(m.id, m.content)} moveClass={m.move_class} comment={m.comment} last={lastOfRun.has(m.id)} lead={messages[i - 1]?.role !== m.role} onReplay={m.role === "assistant" && voiceOn && capability?.tts ? speaker.say : undefined} />
                     ))}
-                    {/* One bubble for the whole turn: the three dots it starts as are the reply it
-                        becomes, in the same element, with the interviewer's face already there. */}
                     {status === "streaming" && <Bubble from="assistant" content={live} thinking={!live} streaming last lead={messages[messages.length - 1]?.role !== "assistant"} />}
                     {reviewFailed && status === "completed" && (
                         <div role="status" className="my-1 flex flex-col items-center gap-1.5 self-center rounded-2xl border bg-muted/50 px-3.5 py-2 text-center text-xs text-muted-foreground">
@@ -483,12 +423,8 @@ export function InterviewChat({ interviewId, onExit }: Props) {
                     )}
                 </div>
             </div>
-            {/* The pill: box and both buttons are one control, the way a chat app draws it. It grows to
-                six lines and then scrolls (see the draft effect), and it is never resizable. */}
             <div className="border-t bg-background px-3 py-2.5 sm:px-4">
                 <div className="mx-auto w-full max-w-[100rem]">
-                    {/* Nothing renders mid-answer (V4): the meter and the timer are the whole of the
-                        feedback until Stop, because nothing is transcribed on this side. */}
                     {mic.recording && (
                         <p role="status" className="mb-1.5 flex items-center gap-1.5 px-2 text-xs text-muted-foreground">
                             <span aria-hidden className="h-1 w-16 overflow-hidden rounded-full bg-muted">
@@ -516,7 +452,6 @@ export function InterviewChat({ interviewId, onExit }: Props) {
                             onChange={(e) => setDraft(e.target.value)}
                             placeholder={placeholder}
                             onKeyDown={(e) => {
-                                // An IME candidate commit is an Enter keydown too.
                                 if (e.nativeEvent.isComposing) return;
                                 if (e.key === "Enter" && !e.shiftKey && status === "ready") {
                                     e.preventDefault();
@@ -525,8 +460,6 @@ export function InterviewChat({ interviewId, onExit }: Props) {
                             }}
                             disabled={status === "completed" || interviewOver || mic.busy}
                         />
-                        {/* Disabled while the interviewer is replying: an open microphone would
-                            transcribe our own voice back into the answer (VOICE.md gotcha 7). */}
                         <Button
                             variant={mic.recording ? "destructive" : "ghost"}
                             size="icon"
@@ -554,8 +487,6 @@ export function InterviewChat({ interviewId, onExit }: Props) {
                 </div>
             </div>
             {finishing && <FinishOverlay open={!finishing.dismissed} title={finishing.title} done={finishing.done} onDismiss={() => setFinishing((f) => (f ? { ...f, dismissed: true } : f))} />}
-            {/* Its own modal now that Finish lives in the header: the old inline prompt had nowhere
-                to hang off a 32px icon without shoving the header row around. */}
             <Modal open={confirmFinish} onClose={() => setConfirmFinish(false)} title="End early?">
                 <p>This run still has questions left. Finishing now reviews the answers you gave and ends it here.</p>
                 <div className="flex justify-end gap-2">
@@ -584,8 +515,6 @@ const Thinking = memo(function Thinking() {
 
 const Bubble = memo(function Bubble({ from, content, streaming, thinking, moveClass, comment, onReplay, last, lead }: { from: string; content: string; streaming?: boolean; thinking?: boolean; moveClass?: string | null; comment?: string | null; onReplay?: (text: string) => void; last?: boolean; lead?: boolean }) {
     const isUser = from === "user";
-    // An answer folds at six lines and offers the rest behind a toggle. Only the answer: a reply is
-    // read as it arrives, and one that folds itself away mid-read is worse than a long one.
     const [expanded, setExpanded] = useState(false);
     const [clipped, setClipped] = useState(false);
     const bodyRef = useRef<HTMLDivElement | null>(null);
@@ -593,8 +522,6 @@ const Bubble = memo(function Bubble({ from, content, streaming, thinking, moveCl
     useEffect(() => {
         const el = bodyRef.current;
         if (!el || !foldable || expanded) return;
-        // Measured CLAMPED: only then does the box report more content than it shows. Re-run on width
-        // changes too, or a wider bubble pulls lines back over the fold.
         const measure = () => setClipped(el.scrollHeight > el.clientHeight + 1);
         measure();
         const ro = new ResizeObserver(measure);
@@ -602,8 +529,6 @@ const Bubble = memo(function Bubble({ from, content, streaming, thinking, moveCl
         return () => ro.disconnect();
     }, [foldable, expanded]);
     const folded = foldable && !expanded;
-    // The flat corner marks the end of a burst, and only that bubble gets the interviewer's face.
-    // Width is a reading cap, not a column cap: the screen fills edge to edge, the line does not.
     const bubble = (
         <div className={cn("max-w-[85%] whitespace-pre-line break-words rounded-3xl px-3.5 py-2 text-sm leading-relaxed lg:max-w-[45rem]", isUser ? "bg-primary text-primary-foreground" : "border bg-card", last && (isUser ? "rounded-br-md" : "rounded-bl-md"))}>
             <div ref={bodyRef} className={cn("break-words", folded && "line-clamp-6")}>
@@ -617,21 +542,15 @@ const Bubble = memo(function Bubble({ from, content, streaming, thinking, moveCl
             )}
         </div>
     );
-    // Replies only: a replay is how a word the engine misheard gets checked, and the applicant knows
-    // what they said. Nothing to replay while the reply is still arriving.
     const replay =
         onReplay && !streaming ? (
             <button type="button" aria-label="Play this reply aloud" title="Play this reply aloud" onClick={() => onReplay(content)} className="mb-1 shrink-0 rounded-full p-1 text-muted-foreground/60 transition-colors hover:text-foreground">
                 <Icon name="sound" className="h-3.5 w-3.5" />
             </button>
         ) : null;
-    // Before the bubble, not after: a badge on the right insets the bubble's edge, so every answer
-    // would shift left the moment the review lands.
     const badge = isUser && moveClass ? <MoveBadge moveClass={moveClass} comment={comment} /> : null;
     return (
         <div className={cn("flex min-w-0 max-w-full items-end gap-2", isUser ? "justify-end" : "justify-start", lead && "mt-3")}>
-            {/* The face rides the last reply of a burst, and an invisible twin holds its column in
-                every other row so bubbles are never pushed sideways. */}
             <span aria-hidden className={cn("flex h-7 w-7 shrink-0 items-center justify-center self-end rounded-full bg-primary/10 text-primary", !(last && !isUser) && "invisible")}>
                 <Icon name="chat" className="h-3.5 w-3.5" />
             </span>

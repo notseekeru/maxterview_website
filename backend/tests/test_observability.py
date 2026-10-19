@@ -119,8 +119,6 @@ def test_the_access_line_carries_the_trace_id():
     match = derived_field.search(line)
     assert match and match.group(1) == access["trace_id"]
 
-    # One span, the 404: the probe path is skipped for spans exactly as it is for the line and the
-    # sample, or the trace list fills with 1ms health checks and no real trace is findable.
     spans = exporter.get_finished_spans()
     assert [s.name for s in spans] == ["GET unmatched"]
     assert spans[0].attributes["http.route"] == "unmatched"
@@ -130,7 +128,6 @@ def test_the_access_line_carries_the_trace_id():
 def test_unmatched_paths_and_the_probe_never_become_a_metric_label():
     reader = InMemoryMetricReader()
     metrics.set_meter_provider(MeterProvider(metric_readers=[reader]))
-    # Instruments bind to the provider that was current when they were created.
     telemetry._instruments.clear()
     with TestClient(app) as client:
         assert client.get("/api/absent-" + uuid.uuid4().hex).status_code == 404

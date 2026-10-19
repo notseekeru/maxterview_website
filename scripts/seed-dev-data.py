@@ -214,7 +214,6 @@ LEVEL_WEIGHTS: tuple[tuple[str, int], ...] = (
     ("principal", 5),
 )
 
-# When people practise: after work. 7am..10pm.
 HOURS: tuple[int, ...] = tuple(range(7, 23))
 HOUR_WEIGHTS: tuple[int, ...] = (2, 4, 6, 8, 6, 5, 6, 5, 5, 8, 12, 14, 10, 6, 4, 3)
 
@@ -247,7 +246,6 @@ def build_specs(rng: random.Random, n: int = 40) -> list[dict]:
         if status == "pending":
             spec["answers"] = []
         elif strength < 0.30 and rng.random() < 0.6:
-            # A rough run reads as a rough transcript, not as good answers scored badly.
             spec["answers"] = [WEAK_OPENING, *WEAK_ANSWERS]
         if status == "completed" and rng.random() < 0.12:
             spec["archived"] = True
@@ -539,7 +537,6 @@ def run_sql(sql: str) -> str:
 def show_results(owner: str) -> None:
     scope = f"i.owner_id = $seed${owner}$seed$"
     print(run_sql(f"SELECT i.status, count(*) AS runs, count(f.accuracy) AS graded, count(i.failed_turn) AS failed FROM interviews i LEFT JOIN feedback f ON f.interview_id = i.id WHERE {scope} GROUP BY i.status ORDER BY 1;").strip())
-    # The offer spread is the point of the seeding: if this prints one band, the pages it feeds are flat.
     print(
         run_sql(
             "SELECT count(*) AS offers, min(base_salary) AS low, round(avg(base_salary)) AS avg, max(base_salary) AS high, "

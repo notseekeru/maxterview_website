@@ -3,8 +3,6 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { type Analytics, getAnalytics, getInterviewDimensions, type Interview, type InterviewDimensions, listInterviews } from "@/lib/api";
 import { isHiring } from "@/lib/interviewOptions";
 
-// Two hooks on purpose: the list is cheap and shared, while the radar's aggregate is a request the
-// History page never needs. One hook made every History visit pay for chart data it does not render.
 export function useInterviews() {
     const [interviews, setInterviews] = useState<Interview[] | null>(null);
     const [error, setError] = useState<string | null>(null);
@@ -24,8 +22,6 @@ export function useInterviews() {
 
     const loading = interviews === null && !error;
 
-    // Accuracy, decision and certainty are already joined into the list, so the trend and the stat
-    // tiles cost no extra request; only the 1-10 dimensions need the aggregate above.
     const dims = useMemo(() => computeDims(interviews), [interviews]);
 
     return { interviews: interviews ?? [], loading, error, refresh, dims };
@@ -143,8 +139,6 @@ function computeDims(interviews: Interview[] | null): InterviewDims {
     const [weekFinished, priorWeekFinished] = windowCounts(completed, 7);
     const today = Math.floor(Date.now() / DAY_MS);
 
-    // Rolling rate as the decisions accrue, so the tile's sparkline is its own metric over time
-    // rather than a second series wearing the same label.
     const hireSpark: number[] = [];
     let hires = 0;
     for (const [i, run] of [...decided].reverse().entries()) {
@@ -185,8 +179,6 @@ function computeDims(interviews: Interview[] | null): InterviewDims {
     };
 }
 
-// Loaded only when the analytics route mounts: the dashboard must not pay for it, and vice versa.
-// Mirrors useDashboardStats: same shape, same "no data" vs "could not load" split.
 export function useAnalytics() {
     const [data, setData] = useState<Analytics | null>(null);
     const [error, setError] = useState<string | null>(null);

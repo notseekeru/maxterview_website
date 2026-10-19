@@ -16,13 +16,9 @@ import { DECISIONS, decisionLabel, isHiring } from "@/lib/interviewOptions";
 import { gradeTone, MOVE_CLASSES, moveClassMeta } from "@/lib/moveClasses";
 import { cn } from "@/lib/utils";
 
-// The deep dive behind the dashboard's tiles: every chart, offer letter and the run log come from ONE
-// aggregate request, and the page is split into the sections the strip below jumps to.
 const TITLE = "Analytics";
 const DESCRIPTION = "Every run you have started, and what the numbers say about them.";
 
-// The sections, in render order. One owner: the jump strip and the <Section> headings both read this,
-// so a section cannot be added to the page and forgotten in the nav (or labelled twice).
 const SECTIONS = {
     offers: { title: "Offers", hint: "The simulated letter each graded run earned, and what they add up to." },
     practice: { title: "Practice", hint: "Accuracy, answer quality and volume across the whole history." },
@@ -35,7 +31,6 @@ type SectionId = keyof typeof SECTIONS;
 function Section({ id, children }: { id: SectionId; children: ReactNode }) {
     const { title, hint } = SECTIONS[id];
     return (
-        // scroll-mt keeps the heading clear of the sticky shell bar when a jump lands.
         <section id={id} className="scroll-mt-20 space-y-4">
             <SectionHeading title={title} hint={hint} />
             {children}
@@ -180,14 +175,11 @@ function describeDays(data: DayPoint[], unit: string): string {
     return `${runs} ${unit}${runs === 1 ? "" : "s"} over ${data.length} day${data.length === 1 ? "" : "s"}, oldest to newest`;
 }
 
-// "09/15 · 6 runs" — a day's weight, so a 1-run point does not read as confidently as a 6-run one.
 const dayLabel = (label: unknown, payload: readonly { payload?: DayPoint }[]) => {
     const n = payload?.[0]?.payload?.count;
     return n ? `${label} · ${n} run${n === 1 ? "" : "s"}` : String(label);
 };
 
-// Mean accuracy per day, reusing the dashboard's chart so the two cannot render the series
-// differently.
 function AccuracyHistory({ runs }: { runs: AnalyticsRun[] }) {
     const data = perDay(
         runs.filter((r) => r.accuracy != null),
@@ -216,8 +208,6 @@ function ActivityWeekly({ weeks }: { weeks: AnalyticsActivityWeek[] }) {
                 <StateNote>No interviews in the last 12 weeks.</StateNote>
             ) : (
                 <ChartContainer defer config={ACTIVITY_CONFIG} className="h-52 w-full">
-                    {/* Two bars, not a stack: the gap between started and finished is the thing worth
-                        seeing, and a stack would hide it inside one column. */}
                     <BarChart data={data} margin={{ left: 4, right: 8, top: 8, bottom: 0 }}>
                         <CartesianGrid vertical={false} strokeDasharray="3 3" />
                         <XAxis dataKey="label" tickLine={false} axisLine={false} tickMargin={8} interval="preserveStartEnd" />
@@ -263,8 +253,6 @@ function MoveBreakdown({ counts }: { counts: Analytics["move_classes"] }) {
     );
 }
 
-// Ten dims is past where a line chart reads, so only the three axis means are drawn. Each run collapses
-// to its per-axis mean FIRST, then those run means average across the day.
 function DimensionHistory({ runs }: { runs: AnalyticsRun[] }) {
     const scored = runs.filter((r) => Object.keys(r.scores).length > 0);
     const keys = orderDims([...new Set(scored.flatMap((r) => Object.keys(r.scores)))]);
@@ -289,9 +277,6 @@ function DimensionHistory({ runs }: { runs: AnalyticsRun[] }) {
 
     return (
         <Panel title="Dimension scores over time" hint={`Daily mean of each axis · ${describeDays(data, "scored run")}`}>
-            {/* The chart fills its cell's height instead of sitting at a fixed 16rem: the dimension table
-                beside it is the taller column, and a fixed chart height left the difference as a gap under
-                the chart. */}
             <div className="grid gap-4 lg:grid-cols-[2fr_1fr]">
                 <ChartContainer defer config={DIM_CONFIG} className="h-full min-h-64 w-full">
                     <LineChart data={data} margin={{ left: 4, right: 8, top: 8, bottom: 0 }}>
@@ -344,8 +329,6 @@ function DimensionAverages({ runs, keys }: { runs: AnalyticsRun[]; keys: string[
     );
 }
 
-// Daily means of the hire/reject lean and of how well the transcript evidenced it. Both gaps are
-// real: a day with no decision, or none reporting certainty, is a hole, not a zero.
 function DecisionHistory({ runs }: { runs: AnalyticsRun[] }) {
     const decided = runs.filter((r) => r.decision);
     const data = perDay(decided, (r) => ({ certainty: r.certainty ?? null, lean: DECISION_LEAN[r.decision as string] ?? null }));
@@ -357,8 +340,6 @@ function DecisionHistory({ runs }: { runs: AnalyticsRun[] }) {
             ) : (
                 <div className="grid gap-4 lg:grid-cols-[2fr_1fr]">
                     <ChartContainer defer config={DECISION_CONFIG} className="h-full min-h-64 w-full">
-                        {/* -100..100 is the reject -> hire spectrum centred on zero, so the sign is
-                            the decision and the magnitude is only the lean. */}
                         <LineChart data={data} margin={{ left: 4, right: 8, top: 8, bottom: 0 }}>
                             <CartesianGrid vertical={false} strokeDasharray="3 3" />
                             <XAxis dataKey="label" tickLine={false} axisLine={false} tickMargin={8} interval="preserveStartEnd" />
@@ -389,7 +370,6 @@ const DIM_CONFIG: ChartConfig = {
     other: { label: "Other", color: "var(--chart-4)" },
 };
 
-// Shares are out of DECIDED runs, so the four bars always add to the run count the panel reports.
 function DecisionSplit({ runs }: { runs: AnalyticsRun[] }) {
     const total = runs.length;
     const count = (d: string) => runs.filter((r) => r.decision === d).length;
@@ -431,8 +411,6 @@ const DIAL_TITLES: Record<string, string> = {
     register: "By register",
 };
 
-// Per-value averages over completed runs. `rated` sits beside every mean because the denominators
-// differ: a value whose runs were never scored has no accuracy, and a confident 0% there would lie.
 function DialBreakdown({ dials }: { dials: Analytics["dials"] }) {
     const groups = Object.entries(dials).filter(([, rows]) => rows.length > 0);
     if (groups.length === 0) {
@@ -444,9 +422,6 @@ function DialBreakdown({ dials }: { dials: Analytics["dials"] }) {
     }
     return (
         <Panel title="How your settings track outcomes" hint="Per-value averages over completed runs. Accuracy covers the scored runs; hire rate only the decided ones.">
-            {/* CSS columns, not a 3-column grid: a grid stretches every box in a row to the tallest one,
-                and the dial groups differ by hundreds of pixels, so the short ones ended as tall empty
-                cards. Columns pack them by height instead. */}
             <div className="columns-1 gap-x-8 md:columns-2 xl:columns-3">
                 {groups.map(([key, rows]) => (
                     <div key={key} className="mb-6 break-inside-avoid space-y-2">
@@ -491,8 +466,6 @@ function DialRow({ row }: { row: AnalyticsDial }) {
 
 type SortKey = "created_at" | "accuracy" | "role";
 
-// The raw table behind every chart above, so a surprising average can be traced to the runs that
-// produced it. Sorted client-side because the whole history is already in memory.
 function RunLog({ runs }: { runs: AnalyticsRun[] }) {
     const [key, setKey] = useState<SortKey>("created_at");
     const [desc, setDesc] = useState(true);
@@ -572,8 +545,6 @@ function RunLog({ runs }: { runs: AnalyticsRun[] }) {
     );
 }
 
-// Only the values that differ from the create defaults are named: a column spelling out
-// "neutral · any · standard" on every row is noise.
 const DIAL_DEFAULTS = { cynicism: "neutral", company_size: "any", brutally_honest: false, human_mode: true, hardcore: false, mix_chitchat: 0, mix_behavioural: 2, mix_technical: 4 };
 
 function dialSummary(run: AnalyticsRun): string {
@@ -619,11 +590,6 @@ function AnswerMix({ run }: { run: AnalyticsRun }) {
     );
 }
 
-// Best -> worst, derived from lib/moveClasses so a class added to the rubric appears without an edit.
-//
-// ONE scale, two renderers: the chart paints SVG (explicit fill + opacity), the run log's dot is HTML.
-// Tokens are literals: Tailwind only extracts class names it can see, so a computed
-// `bg-[var(--chart-${n})]` never reaches the stylesheet.
 const MOVE_ORDER = MOVE_CLASSES.map((m) => m.value);
 const MOVE_SCALE: Record<string, { chart: string; bg: string; opacity: number }> = {
     brilliant: { chart: "var(--chart-1)", bg: "bg-[var(--chart-1)]", opacity: 1 },
@@ -635,8 +601,6 @@ const MOVE_SCALE: Record<string, { chart: string; bg: string; opacity: number }>
     blunder: { chart: "var(--chart-5)", bg: "bg-[var(--chart-5)]", opacity: 1 },
 };
 
-// Hiring end first, the direction the page reads in. Values and labels come from lib/interviewOptions so
-// a decision added to the spectrum cannot go missing; only the bar tone is this page's.
 const DECISION_TONES: Record<string, string> = {
     hire: "bg-[var(--chart-1)]",
     lean_hire: "bg-[var(--chart-2)]",

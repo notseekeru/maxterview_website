@@ -1,6 +1,3 @@
--- yoyo up migration: the ENTIRE file body is the "up" step.
--- (yoyo reads rollback from a separate 0002_billing.rollback.sql.)
--- M10 (MONETIZATION.md): entitlement/tier + per-interview chat-turn counter.
 
 -- subscriptions — source of tier entitlement (mirrors Clerk/Stripe billing state).
 CREATE TABLE IF NOT EXISTS subscriptions (
