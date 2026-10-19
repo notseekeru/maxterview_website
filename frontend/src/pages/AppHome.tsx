@@ -68,7 +68,6 @@ function QuickActions() {
     );
 }
 
-/** The greeting's second line: where the numbers stand, in the tiles' own units. */
 function statusLine(dims: InterviewDims): string {
     if (dims.total === 0) return "No runs yet. Answer a few questions and the review scores every one of them.";
     const parts = [dims.weekRuns === 0 ? "no runs in the last 7 days" : `${dims.weekRuns} run${dims.weekRuns === 1 ? "" : "s"} in the last 7 days`];

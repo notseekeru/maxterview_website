@@ -1,11 +1,3 @@
-"""Voice: Workers AI in, text out (and back), nothing kept.
-
-Framework-free (no FastAPI, no DB) so the caps and the envelope are testable without a server, the
-same split as app/resumes.py. Recorded audio is base64'd into the request and discarded when the call
-returns: the resume rule (PLAN D16) applied to voice. Both directions are measured against the live
-API; the numbers and the model that does not work live in VOICE.md.
-"""
-
 import asyncio
 import base64
 import json
@@ -61,8 +53,7 @@ _http: tuple[asyncio.AbstractEventLoop, httpx.AsyncClient] | None = None
 _CONTAINERS = ((b"\x1aE\xdf\xa3", 0), (b"OggS", 0), (b"RIFF", 0), (b"ftyp", 4), (b"ID3", 0))
 
 
-class VoiceError(Exception):
-    """A rejection whose message is safe, and useful, to show the visitor."""
+class VoiceError(Exception): ...
 
 
 @dataclass(frozen=True)
@@ -82,8 +73,6 @@ class Speech:
 
 
 def capability() -> dict:
-    """What this deployment can actually do, for the UI to gate its controls on rather than letting a
-    visitor press a button that 503s. Both directions need the same two values, so they move together."""
     configured = bool(ACCOUNT_ID and API_TOKEN)
     return {"tts": configured, "stt": configured, "tts_model": TTS_MODEL, "stt_model": STT_MODEL}
 
@@ -101,7 +90,6 @@ def _client() -> httpx.AsyncClient:
 
 
 async def aclose() -> None:
-    """Shutdown: the pool outlives the last request, so something has to close it."""
     global _http
     if _http is not None:
         await _http[1].aclose()
@@ -113,11 +101,6 @@ def _endpoint(model: str) -> str:
 
 
 def _failure(payload: object) -> str | None:
-    """The provider's own message when the envelope says the call failed, else None.
-
-    Workers AI answers HTTP 200 with `success: false` for a model-level refusal, so a status check
-    alone would turn a quota message into a KeyError three lines later. The message is quoted back
-    because Cloudflare writes these for operators, and the quota one names the reset."""
     if not isinstance(payload, dict) or payload.get("success", True):
         return None
     errors = payload.get("errors") or []
@@ -127,9 +110,6 @@ def _failure(payload: object) -> str | None:
 
 
 def _tts_body(model: str, text: str) -> dict:
-    """Two model families, two request shapes: Aura takes `text` and a named `speaker`, MeloTTS takes
-    `prompt` plus `lang`. Sending both keys would be a body that lies about which model it is
-    addressing, and leaving the speaker out hands the interviewer's gender to the provider's default."""
     if "aura" in model:
         return {"text": text, "speaker": TTS_SPEAKER}
     return {"prompt": text, "lang": "en"}
@@ -159,7 +139,6 @@ assert _failure({"success": True, "result": {"text": "hi"}}) is None
 
 
 async def _run(model: str, body: dict) -> httpx.Response:
-    """One POST to Workers AI. Raises VoiceError for everything the caller can be told about."""
     if not (ACCOUNT_ID and API_TOKEN):
         raise VoiceError("Voice is not configured on this server yet.")
     async with _slots:
@@ -172,11 +151,6 @@ async def _run(model: str, body: dict) -> httpx.Response:
 
 
 def _audio_bytes(resp: httpx.Response) -> tuple[bytes, str]:
-    """The MP3, from whichever documented shape came back.
-
-    Aura returns `audio/mpeg` binary. The JSON branch is MeloTTS's, kept because that model is one env
-    var away, not because it is expected: its 500s are what stopped it being the default.
-    """
     media_type = (resp.headers.get("content-type") or "").split(";")[0].strip()
     if media_type.startswith("audio/"):
         # Aura-1 measured: raw `audio/mpeg`, which is the browser's easiest case to decode.
@@ -192,7 +166,6 @@ def _audio_bytes(resp: httpx.Response) -> tuple[bytes, str]:
 
 
 async def speak(text: str) -> Speech:
-    """One line in, MP3 out. The caller chunks; this never sees a paragraph."""
     if len(text) > MAX_TTS_CHARS:
         raise VoiceError(f"That line is longer than {MAX_TTS_CHARS} characters.")
     key = (TTS_MODEL, TTS_SPEAKER, text)
@@ -212,7 +185,6 @@ async def speak(text: str) -> Speech:
 
 
 async def transcribe(data: bytes, transcription: str = "transcribe") -> Transcript:
-    """One recorded clip in, text out. The bytes live for the length of this call and no longer."""
     if len(data) > MAX_UPLOAD_BYTES:
         raise VoiceError(f"That recording is larger than {MAX_UPLOAD_BYTES // (1024 * 1024)} MB.")
     if not _has_container(data):
@@ -252,7 +224,6 @@ async def transcribe(data: bytes, transcription: str = "transcribe") -> Transcri
 
 
 def _status_message(code: int) -> str:
-    """Upstream status, translated into the one thing the visitor can do about it."""
     if code in (401, 403):
         log.warning("voice.unauthorized", status=code)
         return "Voice is not authorised on this server. Type your answer instead."

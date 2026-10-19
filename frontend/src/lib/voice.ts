@@ -1,42 +1,17 @@
-/** Voice I/O around the turn that already exists (VOICE.md).
- *
- * The applicant's speech becomes text in the answer box, the interviewer's reply is read aloud, and
- * the transcript stays the graded artifact: nothing in here touches the dials, the question arc, the
- * judge, the grader or the chat meter.
- *
- * One engine: Workers AI, through the backend. The browser's own voice was removed deliberately. It
- * is not only that it fails (Chromium on Linux needs `--enable-speech-dispatcher` and a loadable
- * libspeechd, and Brave refuses recognition outright): it sounds like what it is, a screen reader,
- * and an interviewer that talks like one destroys the illusion the feature exists to create. Quality
- * is the reason (VOICE.md V1).
- */
-
 // Speaking: sentence-sized lines, prefetched one ahead, in order.
 
-/** The ceiling on the FIRST line, which is the one that bounds the silence before the interviewer
- *  starts: the shorter it is, the sooner the first word lands. */
 const FIRST_CHARS = 140;
 
-/** The ceiling on every line after it. Those are fetched while the previous one is being heard, so
- *  this only decides how much text the caption gets at once, and it is wide enough for a whole
- *  sentence: a cut mid-clause ends on a clipped intonation, a cut at a sentence end is a pause. */
 const CHUNK_CHARS = 320;
 
-/** A sentence end: `.!?` plus any closing punctuation, or a newline. Not a real segmenter, so an
- *  abbreviation or a decimal splits a line in two. Audible as nothing, because the queue is
- *  serialized and the pieces play back to back in one voice.
- *  AI HERE: swap in a segmenter only if a mis-split ever becomes audible. */
+// AI HERE: swap in a segmenter only if a mis-split ever becomes audible.
 const BREAK = /[.!?]+["')\]]*\s|\n+/g;
 
-/** One line to speak, and where it ends in the stream it came from. `end` is the caption's cut: the
- *  reply is revealed up to here when this line is heard, so the words and the voice share one beat. */
 export interface Line {
     text: string;
     end: number;
 }
 
-/** `[lines worth speaking now, text held back]`. Held text is the whole contract: a boundary is what
- *  lets the first sentence be heard before the reply has finished streaming. */
 function takeLines(text: string, atEnd: boolean, first = FIRST_CHARS, limit = CHUNK_CHARS): { lines: Line[]; rest: string } {
     const lines: Line[] = [];
     let rest = text;
@@ -88,43 +63,28 @@ if (import.meta.env.DEV) {
     console.assert(wrapped.lines.every((l) => l.text.length <= CHUNK_CHARS) && whole === "x".repeat(2 * CHUNK_CHARS), "voice: long unbroken text lost or duplicated a line", wrapped.lines.length, wrapped.rest.length);
 }
 
-/** One voice, one line at a time. Implementations must never overlap two lines (VOICE.md gotcha 9). */
 export interface Speaker<T> {
-    /** Fetch one line's audio. Run ahead of playback, so it must make no sound. */
     load(text: string, signal: AbortSignal): Promise<T>;
-    /** Play a loaded line to completion, reporting the moment it becomes audible. Resolves `true` when
-     *  the line was heard and `false` when it was not (a refused autoplay, a decode failure), and
-     *  resolves in every terminal state: a line that never settles wedges the queue behind it. */
     play(clip: T, signal: AbortSignal, onStart: () => void): Promise<boolean>;
 }
 
-/** What the reader reports back. `onSpoken` is the caption's clock: the caller reveals the reply up to
- *  that offset, so the reader is what keeps the words and the voice on the same beat. */
 interface ReaderSink {
     onSpoken(chars: number): void;
-    /** The queue is empty and the stream has ended: nothing is held back any more. */
     onDrained(): void;
 }
 
 export interface VoiceReader {
     push(delta: string): void;
     flush(): void;
-    /** Cancel from here on. Audio outlives the component that asked for it, so this is not optional
-     *  on unmount or a route change (VOICE.md gotcha 5). */
     stop(): void;
 }
 
-/** A line on its way to being heard, plus its audio fetch once there is one to make. */
 interface Job<T> {
     text: string;
     end: number;
     audio?: Promise<T>;
 }
 
-/** Lines are fetched one ahead of playback. That lookahead is the whole seamlessness of this file:
- *  without it every sentence waits a round trip after the one before it has finished, which is heard
- *  as a stitched-together monologue rather than a person talking. One line of lookahead is also the
- *  whole waste: turning the voice off mid-reply has already paid for the next line. */
 export function createReader<T>(speaker: Speaker<T>, sink: ReaderSink): VoiceReader {
     const ctl = new AbortController();
     const { signal } = ctl;
@@ -146,9 +106,6 @@ export function createReader<T>(speaker: Speaker<T>, sink: ReaderSink): VoiceRea
         return audio;
     };
 
-    /** Keep the earliest line that still needs its audio in flight, and no more than one: starting the
-     *  next fetch the moment the current line arrives is what removes the gap between two sentences,
-     *  since a line only waits for its audio when the voice is not already busy with the one before. */
     function preload(): void {
         if (loading) return;
         const job = jobs.find((j) => !j.audio);
@@ -260,15 +217,8 @@ if (import.meta.env.DEV) {
     })();
 }
 
-/** How long a line gets to become audible before it is written off. The audio is already in hand at
- *  this point, so decoding it is milliseconds: five seconds means a media stack that has stopped
- *  answering, and the queue (and with it the caption) must not sit behind it for the whole session. */
 const AUDIBLE_MS = 5000;
 
-/** Play one decoded clip to completion. Every terminal state resolves, including a decode failure, a
- *  refused autoplay and a pipeline that never starts: an utterance that never resolves wedges the
- *  queue behind it, and the queue is the whole feature. The blob URL is revoked by the caller once
- *  this settles. */
 function play(url: string, signal: AbortSignal, onStart: () => void): Promise<boolean> {
     return new Promise<boolean>((resolve) => {
         const el = new Audio(url);
@@ -305,8 +255,6 @@ function play(url: string, signal: AbortSignal, onStart: () => void): Promise<bo
     });
 }
 
-/** The cloud speaker. `fetchAudio` is injected rather than imported so this file stays free of the API
- *  client, and so the reader can be driven by a plain function in a test. */
 export function cloudSpeaker(fetchAudio: (text: string, signal: AbortSignal) => Promise<Blob>): Speaker<Blob> {
     return {
         load: (text, signal) => fetchAudio(text, signal),
@@ -321,36 +269,24 @@ export function cloudSpeaker(fetchAudio: (text: string, signal: AbortSignal) => 
     };
 }
 
-/** What the recorder reports. One channel: the take started, how loud it is, and how it ended. */
 interface TranscriptionSink {
-    /** Held words, once, when the take ends. The answer box is the confirm step (VOICE.md V5). */
     onWords(text: string): void;
-    /** 0..1 microphone level for the meter. Called while the take runs; rAF stops in a background tab,
-     *  so a hidden tab shows a frozen meter rather than a stalled one. */
     onLevel(level: number): void;
-    /** The take is over. `error` is written for the applicant, null on a clean end. */
     onEnd(error: string | null): void;
 }
 
 export interface Transcriber {
     start(): void;
-    /** The applicant pressed stop. The clip is uploaded and the words arrive through the sink. */
     stop(): void;
-    /** Unmount, navigation: drop the microphone and throw the clip away. */
     cancel(): void;
 }
 
-/** Why a take cannot run at all here, or null when it can. Checked before the microphone is asked for,
- *  because a refusal at that point costs a permission prompt for nothing. */
 export function micBlockedReason(): string | null {
     if (!window.isSecureContext) return "Microphone capture needs HTTPS (localhost counts). Type your answer instead.";
     if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") return "This browser cannot record audio. Type your answer instead.";
     return null;
 }
 
-/** Containers to offer the recorder, most preferred first, and the one the browser picks is what gets
- *  uploaded: Safari does not produce what Chrome and Firefox do (VOICE.md gotcha 2), and the backend
- *  sniffs the container rather than trusting this. */
 const RECORDING_TYPES = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4", "audio/ogg;codecs=opus"];
 
 function pickRecordingType(): string | undefined {
@@ -358,8 +294,6 @@ function pickRecordingType(): string | undefined {
     return RECORDING_TYPES.find((type) => MediaRecorder.isTypeSupported(type));
 }
 
-/** Root-mean-square of one analyser frame, scaled to 0..1. Speech sits well below full scale, so the
- *  curve is deliberately generous: a meter that only moves on a shout is not feedback. */
 function levelOf(analyser: AnalyserNode, frame: Uint8Array<ArrayBuffer>): number {
     analyser.getByteTimeDomainData(frame);
     let sum = 0;
@@ -397,9 +331,6 @@ export function cloudTranscriber(upload: (clip: Blob) => Promise<string>, sink: 
         sink.onEnd(error);
     };
 
-    /** The clip is uploaded and discarded server-side, and the wait scales with its length: ~18s for 90
-     *  seconds of audio, since Whisper is batch (VOICE.md latency). `upload` rejects with a message
-     *  written for the applicant: this file stays API-free and the caller owns that translation. */
     const deliver = async (clip: Blob) => {
         // One clip, one upload: stop twice and the second press must not bill a second transcription.
         if (handed) return;
@@ -412,7 +343,6 @@ export function cloudTranscriber(upload: (clip: Blob) => Promise<string>, sink: 
         }
     };
 
-    /** An inactive recorder fires no stop event, so a take that is already over still has to settle. */
     const finishClip = () => {
         if (handed || settled) return;
         const clip = new Blob(chunks, { type: recorder?.mimeType || mediaType || "audio/webm" });
@@ -510,7 +440,6 @@ export function cloudTranscriber(upload: (clip: Blob) => Promise<string>, sink: 
     };
 }
 
-/** The two permission failures are different problems with different fixes (VOICE.md gotcha 3). */
 function permissionMessage(e: unknown): string {
     const name = (e as { name?: string })?.name;
     if (name === "NotAllowedError" || name === "SecurityError") return "Microphone access is blocked. Allow it in this site's settings, then reload the page.";
@@ -521,8 +450,6 @@ function permissionMessage(e: unknown): string {
 
 const PREF_KEY = "maxterview.voice";
 
-/** Voice is off until asked for. The click that turns it on is also the gesture that lets audio play,
- *  which is what stops the autoplay policy from eating the first sentence. */
 export function readVoicePref(): boolean {
     try {
         return localStorage.getItem(PREF_KEY) === "on";

@@ -12,7 +12,6 @@ const AXES = [
 
 interface DimMeta {
     label: string;
-    /** Radar tick: ten full dim names around one polygon do not fit. */
     short: string;
     axis: string;
 }
@@ -33,12 +32,8 @@ export const DIMENSIONS: Record<string, DimMeta> = {
 export const dimLabel = (key: string) => DIMENSIONS[key]?.label ?? key.replace(/_/g, " ");
 export const dimShort = (key: string) => DIMENSIONS[key]?.short ?? dimLabel(key);
 
-/** The whole rubric, in registry order. The review renders all of it and marks the holes: "the
- *  interviewer never asked" and "the rubric has no such dim" must not look the same. */
 export const ALL_DIMS = Object.keys(DIMENSIONS);
 
-/** Registry order, with keys this file does not know yet appended alphabetically: a backend that
- *  ships a dim before its label does still renders it rather than dropping it. */
 export function orderDims(keys: string[]): string[] {
     return [...Object.keys(DIMENSIONS).filter((d) => keys.includes(d)), ...keys.filter((k) => !(k in DIMENSIONS)).sort()];
 }

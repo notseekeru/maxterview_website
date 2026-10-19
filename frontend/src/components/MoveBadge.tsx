@@ -10,9 +10,6 @@ const BADGE = "inline-flex size-6 shrink-0 items-center justify-center rounded-f
 // font or a class changes.
 const GLYPH_DY: Record<string, string> = { "★": "1px", "✓": "0px", "•": "-0.5px" };
 
-/** The reviewer's verdict on one candidate turn, beside that turn's bubble: a chess-annotation
- *  disc, glyph only, whose note opens while the pointer is on it. The class name lives in the
- *  tooltip and the aria-label. */
 export function MoveBadge({ moveClass, comment }: { moveClass: string; comment?: string | null }) {
     const meta = moveClassMeta(moveClass);
     const name = meta?.label ?? moveClass;

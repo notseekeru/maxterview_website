@@ -5,10 +5,6 @@ import { decisionLabel } from "@/lib/interviewOptions";
 import { bandPosition, compactMoney, money, tierTone } from "@/lib/offers";
 import { cn } from "@/lib/utils";
 
-/** The offer letter, rendered by the review that ends a run: the letter is that run's outcome, and the
- *  review is where the candidate already is. The history-wide comparison lives on the analytics page,
- *  which is the view that has a history to compare against. Every number and every benefit's wording
- *  arrives from the backend already formatted; the prose around them is this component's. */
 export function OfferLetter({ offer }: { offer: Offer }) {
     return (
         // ONE column, full width. Two columns looked like a document and behaved like a layout: the
@@ -91,8 +87,6 @@ function CompRow({ label, value }: { label: string; value: string }) {
     );
 }
 
-/** A band as a track: `start`..`end` shaded inside a `max`-wide axis, with the mean marked. Shared with
- *  the offers section's level comparison, so a band is drawn the same way wherever it appears. */
 export function RangeBar({ start, end, avg, max }: { start: number; end: number; avg: number; max: number }) {
     const width = Math.max(1.5, (100 * (end - start)) / max);
     const offset = (100 * start) / max;

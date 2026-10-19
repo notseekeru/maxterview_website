@@ -1,22 +1,8 @@
-"""Chess-style answer review: per-turn move classes -> one accuracy number -> a letter grade.
-
-Single source of truth for the scale. The model picks a CLASS per candidate turn (llm.py); every
-number here is DERIVED, so a model cannot inflate its own accuracy. The frontend renders labels
-and reads `accuracy`/`grade` off the API rather than banding anything itself.
-"""
-
 from collections.abc import Iterable
 from typing import NamedTuple
 
 
 class Move(NamedTuple):
-    """One candidate turn's annotation: the class the rubric gives it, and the annotator's note.
-
-    The note (the fix the answer needed, or what made it land) rides with the class because both are
-    written by the same pass and read by the same bubble. It stays None when the model classed a turn
-    without saying anything usable, and on runs annotated before the note column existed: the class
-    alone still grades the run."""
-
     cls: str
     comment: str | None = None
 
@@ -64,10 +50,6 @@ STUB_MOVE_NOTES: dict[str, str] = {
 
 
 def accuracy(classes: Iterable[str]) -> int | None:
-    """Mean move points as a 0-100 integer (half-up), or None when no turn was classed.
-
-    None (not 0) for an unclassed transcript: 0% is a claim about the candidate's answers,
-    absence is a claim about our classifier."""
     graded = [MOVE_POINTS[c] for c in classes if c in MOVE_POINTS]
     if not graded:
         return None
@@ -75,11 +57,6 @@ def accuracy(classes: Iterable[str]) -> int | None:
 
 
 def grade(acc: int | None, *, failed: bool = False) -> str | None:
-    """Letter grade for an accuracy percentage, or None when there is nothing to grade.
-
-    `failed` is hardcore: one failing answer ends the run at F regardless of what the earlier answers
-    averaged out to, because the run is judged on the move that ended it.
-    """
     if failed:
         return "F"
     if acc is None:

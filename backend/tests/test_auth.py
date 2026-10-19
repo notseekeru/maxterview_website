@@ -149,12 +149,10 @@ def test_verify_aud_gate_on(keypair):
 
 
 async def test_user_email_uses_the_claim_when_the_token_carries_one():
-    """Zero network: a token with the claim never reaches the Backend API (no key is set here)."""
     assert await auth.user_email(SimpleNamespace(sub="user_123", email="claim@example.com")) == "claim@example.com"
 
 
 async def test_user_email_is_none_without_a_claim_or_a_secret_key():
-    """The no-address outcome billing turns into its 409, not an exception."""
     assert await auth.user_email(SimpleNamespace(sub="user_123", email=None)) is None
 
 

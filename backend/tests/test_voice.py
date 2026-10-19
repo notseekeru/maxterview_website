@@ -1,10 +1,3 @@
-"""The Workers AI contract: what we send, what we read back, and how a refusal reaches the visitor.
-
-No network and no credentials: respx doubles stand in for the provider, so the request bodies and the
-envelope stay pinned even though the live shapes are now measured (2026-09-23). A model swap or an
-envelope change breaks these before it breaks the visitor.
-"""
-
 import base64
 import json
 
@@ -21,7 +14,6 @@ CLIP = b"\x1aE\xdf\xa3" + b"fake-webm-payload"
 
 @pytest.fixture(autouse=True)
 def configured(monkeypatch):
-    """The module reads env at import, so the tests set the values the same way a deployment does."""
     monkeypatch.setattr(voice, "ACCOUNT_ID", ACCOUNT)
     monkeypatch.setattr(voice, "API_TOKEN", TOKEN)
     voice._cache.clear()
@@ -48,8 +40,6 @@ async def test_speak_posts_the_prompt_and_returns_the_mp3():
 
 
 async def test_a_repeated_line_is_synthesized_once():
-    """The opening line is one fixed string for every visitor without a resume, and a replay asks for a
-    line already spoken. The second ask must cost no upstream call, and so no neuron."""
     with respx.mock as mock:
         route = mock.post(url(voice.TTS_MODEL)).mock(return_value=Response(200, content=b"ID3audio", headers={"content-type": "audio/mpeg"}))
         first = await voice.speak("Say that again.")
@@ -59,8 +49,6 @@ async def test_a_repeated_line_is_synthesized_once():
 
 
 async def test_speak_reads_the_json_audio_option():
-    """MeloTTS documents a JSON response with the audio base64'd. That branch is still reachable (one
-    env var), so it keeps a test; the 500s are why it is not the default."""
     payload = {"result": {"audio": base64.b64encode(b"mp3bytes").decode()}, "success": True, "errors": []}
     with respx.mock as mock:
         mock.post(url(voice.TTS_MODEL)).mock(return_value=Response(200, json=payload))
@@ -93,8 +81,6 @@ async def test_transcribe_base64s_the_clip_and_reads_the_segments():
 
 
 async def test_a_failed_envelope_is_a_sentence_not_a_keyerror():
-    """Workers AI answers HTTP 200 with `success: false`. Reading `result` anyway is how a quota
-    message becomes a 500 in the logs with no clue what happened, so this is the branch that matters."""
     payload = {"success": False, "errors": [{"code": 7000, "message": "No more neurons for today"}], "messages": []}
     with respx.mock as mock:
         mock.post(url(voice.STT_MODEL)).mock(return_value=Response(200, json=payload))
@@ -114,8 +100,6 @@ async def test_refusals_and_a_dead_provider_become_visitor_sentences():
 
 
 async def test_caps_refuse_before_anything_leaves_the_pod(monkeypatch):
-    """Every one of these is a rejection that must cost no upstream call and no neuron: the point of
-    the caps is that a hostile or buggy client cannot spend the daily budget."""
     monkeypatch.setattr(voice, "MAX_TTS_CHARS", 5)
     monkeypatch.setattr(voice, "MAX_UPLOAD_BYTES", 10)
     monkeypatch.setattr(voice, "ACCOUNT_ID", "")

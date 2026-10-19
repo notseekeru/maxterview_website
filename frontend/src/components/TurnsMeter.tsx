@@ -1,8 +1,6 @@
 import { Progress } from "@/components/ui/progress";
 import { turnsToday, type Usage } from "@/lib/api";
 
-/** Today's chat-turn allowance as a bar. The server counts the turns (UTC day); this only draws what
- *  /usage already reported, and renders nothing when it reported no counter. */
 export function TurnsMeter({ usage }: { usage: Usage }) {
     const today = turnsToday(usage);
     if (!today) return null;

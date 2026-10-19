@@ -27,7 +27,6 @@ _TEST_DB = f"maxterview_test_{os.getpid()}"
 
 
 def _test_db_admin(base: str, create: bool = False) -> bool:
-    """Best-effort CREATE/DROP of this run's own database. False when no server is reachable."""
     try:
         import psycopg2
         from psycopg2 import sql

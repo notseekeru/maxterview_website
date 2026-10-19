@@ -57,20 +57,14 @@ export interface Interview extends InterviewDials {
     status: "pending" | "in_progress" | "completed";
     created_at: string;
     updated_at: string;
-    /** Derived 0-100 move-review accuracy, null until the run is graded. */
     accuracy?: number | null;
-    /** Letter grade for `accuracy`, banded server-side (app/rating.py); F for any hardcore failure. */
     grade?: Grade | null;
-    /** Hardcore: the turn that ended the run and what it was called. Null on a clean (or non-hardcore) run. */
     failed_turn?: number | null;
     failed_class?: MoveClass | null;
     verdict?: string | null;
     decision?: Decision | null;
     certainty?: number | null;
-    /** The attached resume, null when the run was created without one (or its resume was deleted:
-     *  the FK is ON DELETE SET NULL). */
     resume_id?: string | null;
-    /** Set = hidden from the history list (NOT from the API or the stats). See archiveInterview. */
     archived_at?: string | null;
 }
 
@@ -82,12 +76,8 @@ export type Cynicism = "kind" | "neutral" | "skeptical";
 export interface InterviewDials {
     company_size: CompanySize;
     cynicism: Cynicism;
-    /** Names weaknesses as they appear, and leads the feedback with them. */
     brutally_honest: boolean;
-    /** Human register (contractions, no AI/corporate vocabulary); off = businesslike. */
     human_mode: boolean;
-    /** One vague or wrong answer (move class inaccuracy/mistake/blunder) ends the run on the spot, and
-     *  `failed_turn` records which one. Feedback for a failed run is an ALL CAPS rejection, graded F. */
     hardcore: boolean;
     mix_chitchat: number;
     mix_behavioural: number;
@@ -98,7 +88,6 @@ interface InterviewInput extends InterviewDials {
     role: string;
     topic?: string;
     level: string;
-    /** The attached resume (null/absent = none). Ownership is checked server-side in the INSERT. */
     resume_id?: string | null;
 }
 
@@ -141,11 +130,9 @@ export async function deleteTemplate(id: string): Promise<void> {
 
 // --- resumes (the library; an interview or preset holds `resume_id`) ---
 
-/** One row of the library, WITHOUT its text: the list stays bounded, and the editor fetches one. */
 export interface ResumeSummary {
     id: string;
     name: string;
-    /** Pages the import read; 0 for a pasted resume. */
     page_count: number;
     chars: number;
     created_at: string;
@@ -161,8 +148,6 @@ interface ResumeInput {
     text: string;
 }
 
-/** What a PDF gave us before anyone decided to keep it. `truncated` is true for the page cap, the
- *  character cap, and unreadable pages alike - the UI only has to say "not the whole document". */
 interface ResumeExtract {
     text: string;
     pages: number;
@@ -179,7 +164,6 @@ export async function getResume(id: string): Promise<Resume> {
     return data;
 }
 
-/** Parse a PDF server-side and hand back the text. Persists NOTHING: the caller decides to save. */
 export async function extractResume(file: File): Promise<ResumeExtract> {
     const form = new FormData();
     form.append("file", file);
@@ -207,7 +191,6 @@ export async function deleteResume(id: string): Promise<void> {
 // same over the newest few, and the counts behind each. One request, a payload that does not grow.
 export interface InterviewDimensions {
     count: number;
-    /** Runs behind `recent`; never more than the backend's RECENT_WINDOW. */
     recent_n: number;
     averages: Record<string, number>;
     recent: Record<string, number>;
@@ -224,22 +207,16 @@ export interface AnalyticsRun {
     id: string;
     role: string;
     level: string;
-    /** Lifecycle state. The run log shows unfinished runs, so it must label them. */
     status: "pending" | "in_progress" | "completed";
-    /** ISO timestamp in UTC. Chart buckets are UTC days on purpose: the streak tile and the daily
-     *  quota reset are both UTC, so local-time buckets would disagree with the tile above them. */
     created_at: string;
     accuracy?: number | null;
     grade?: Grade | null;
     decision?: Decision | null;
     certainty?: number | null;
     failed_class?: MoveClass | null;
-    /** The create dials that produced this run (drives the log's Dials column). */
     dials: InterviewDials;
-    /** 1-10 dimension scores; empty when the run was never scored. */
     scores: Record<string, number>;
     turns: number;
-    /** Move class -> turns the reviewer classed so. A run can have fewer moves than turns. */
     moves: Partial<Record<MoveClass, number>>;
 }
 
@@ -253,25 +230,19 @@ export interface AnalyticsDial {
     key: string;
     label: string;
     runs: number;
-    /** Runs that were actually scored; `avgAccuracy` covers only these. */
     rated: number;
-    /** Null when nothing under this value was scored (NOT 0, which would read as failure). */
     avg_accuracy?: number | null;
-    /** Over DECIDED runs only; null when nothing was decided. */
     hire_rate?: number | null;
 }
 
 export interface Analytics {
-    /** Newest first, every run ever created (archived and unfinished included). */
     runs: AnalyticsRun[];
     activity: AnalyticsActivityWeek[];
     move_classes: Record<MoveClass, number>;
-    /** Dial name -> its values, in the vocabulary's own order. */
     dials: Record<string, AnalyticsDial[]>;
     total_turns: number;
     streak_days: number;
     hardcore_failures: number;
-    /** The offer letters and their comparisons: the offers section of the same page, same request. */
     offers: OffersAnalytics;
 }
 
@@ -286,7 +257,6 @@ export async function getAnalytics(): Promise<Analytics> {
 export interface OfferBenefit {
     key: string;
     label: string;
-    /** The letter's own wording for what the benefit is worth, written by app/offer.py. */
     value: string;
 }
 
@@ -294,29 +264,22 @@ export interface Offer {
     interview_id: string;
     role: string;
     level: string;
-    /** Role with its seniority prefix, as the letter addresses it ("Senior Backend Engineer"). */
     title: string;
-    /** The level slug the offer was PRICED against; `any` prices as mid. */
     band: string;
     band_low: number;
     band_high: number;
     base_salary: number;
-    /** One-time, so it is deliberately outside total_comp. */
     signing_bonus: number;
     equity: number;
-    /** 0-100 read of the run: 50% communication, 25% substance, 25% move accuracy. */
     performance: number;
-    /** Backend-owned tier slug + label; the tone is this side's (lib/offers.ts). */
     tier: string;
     tier_label: string;
     benefits: OfferBenefit[];
-    /** Joined from the review that priced it; null if that review row is gone. */
     accuracy?: number | null;
     grade?: Grade | null;
     decision?: Decision | null;
     created_at: string;
     starts_on: string;
-    /** Annual base + equity (the signing bonus is one-time). Computed server-side. */
     total_comp: number;
 }
 
@@ -333,7 +296,6 @@ export interface OfferSummary {
     avg_equity: number;
     avg_performance: number;
     avg_benefits: number;
-    /** The runs behind the extremes, so the letter view can open the actual letter. */
     best_id: string | null;
     worst_id: string | null;
 }
@@ -345,7 +307,6 @@ export interface OfferGroup {
     avg_base: number;
     low_base: number;
     high_base: number;
-    /** high - low, precomputed: the range bar draws a transparent low plus this span. */
     span: number;
     avg_total: number;
     avg_performance: number;
@@ -355,12 +316,10 @@ export interface OfferBenefitStat {
     key: string;
     label: string;
     offers: number;
-    /** Out of ALL offers, so a rung nobody cleared reads 0. */
     rate: number;
 }
 
 export interface OfferMonth {
-    /** YYYY-MM, oldest first. */
     month: string;
     offers: number;
     avg_base: number;
@@ -368,17 +327,13 @@ export interface OfferMonth {
 
 export interface OffersAnalytics {
     summary: OfferSummary;
-    /** Newest first, archived runs included. */
     offers: Offer[];
     by_level: OfferGroup[];
     by_tier: OfferGroup[];
-    /** The whole ladder, rungs nobody cleared included. */
     benefits: OfferBenefitStat[];
     activity: OfferMonth[];
 }
 
-/** One run's letter, for the review that folds it in. Rejects with a 404 when the run has none yet
- *  (not completed, or its review scored nothing), which the caller renders as no letter. */
 export async function getOffer(interviewId: string): Promise<Offer> {
     const { data } = await api.get<Offer>(`/interviews/${interviewId}/offer`);
     return data;
@@ -389,9 +344,7 @@ export interface Message {
     interview_id: string;
     role: "user" | "assistant" | "system";
     content: string;
-    /** The reviewer's annotation on this candidate turn (null on interviewer turns, ungraded runs). */
     move_class?: MoveClass | null;
-    /** Why that turn earned its class, and the fix. Null wherever `move_class` is. */
     comment?: string | null;
     created_at: string;
 }
@@ -406,10 +359,8 @@ export interface Feedback {
     certainty?: number | null;
     accuracy?: number | null;
     grade?: Grade | null;
-    /** Hardcore: the turn that ended the run and what it was called (drives the FAILED banner). */
     failed_turn?: number | null;
     failed_class?: MoveClass | null;
-    /** Review rebuilds already charged to this run (backend app/billing.py::redo_limit per tier). */
     redos?: number;
     created_at: string;
 }
@@ -431,24 +382,14 @@ export type Tier = "free" | "premium" | "dev";
 
 export interface Usage {
     tier: Tier;
-    /** The caller's EFFECTIVE daily cap: their tier's, or that tier's BYOK ceiling when
-     *  `byok` is set. The server reports only the caller's own tier key, so a page may never
-     *  assume another tier's number from here (see lib/plans.ts for marketing). */
     chat_turns_per_day_free?: number;
     chat_turns_per_day_premium?: number;
     chat_turns_per_day_dev?: number;
-    /** Turns already spent today (UTC) against the daily global cap. */
     chat_turns_used_today?: number;
     chat_turns_remaining_today?: number;
-    /** Turns run on the owner's own provider key: the TIER cap is swapped for the higher BYOK
-     *  ceiling above, never waived, and the turns are still metered. */
     byok?: boolean;
-    /** How a payment becomes premium: `period` = one-time top-up with no auto-renew. */
     billing_mode?: "period" | "subscription";
-    /** ISO timestamp when the paid time lapses; period mode never renews itself, so hiding this
-     *  leaves the user to discover the downgrade by hitting the cap. */
     premium_until?: string | null;
-    /** How many resumes this tier may keep. Storage, not a meter: nothing is spent by importing one. */
     resume_limit?: number;
 }
 
@@ -456,7 +397,6 @@ export function chatTurns(usage: Usage): number {
     return usage[`chat_turns_per_day_${usage.tier}`] ?? 0;
 }
 
-/** Today's counter for the caller's own tier, or null when the server did not report it. */
 export function turnsToday(usage: Usage): { limit: number; used: number; remaining: number } | null {
     const limit = chatTurns(usage);
     const remaining = usage.chat_turns_remaining_today;
@@ -540,13 +480,10 @@ export async function cancelUpgrade(): Promise<void> {
 // --- BYOK: per-user LLM provider (settings panel; mirrors backend app/byok.py, BYOK.md) ---
 
 export interface LLMProviderStatus {
-    /** False when the deployment has no BYOK_ENCRYPTION_KEY: the form is read-only then. */
     enabled: boolean;
     byok: boolean;
     base_url: string;
     model: string;
-    /** Last 4 characters of the saved key, so the user can tell WHICH key is stored. Null = no key
-     *  saved (a self-hosted endpoint that authenticates nothing). */
     key_hint: string | null;
     system: { configured: boolean; base_url: string; model: string };
 }
@@ -554,8 +491,6 @@ export interface LLMProviderStatus {
 interface LLMProviderInput {
     base_url: string;
     model: string;
-    /** Omit/empty to keep the stored key. An endpoint that needs no auth can be
-     *  saved keyless — an empty key just means no Authorization header. */
     api_key?: string;
 }
 
@@ -588,8 +523,6 @@ export const MAX_TURN_CHARS = 8000;
 
 // Voice (VOICE.md). The only engine is Workers AI via the backend.
 
-/** What this server can do, so the chat surface gates its controls on the truth rather than on a
- *  button that 503s. One engine means one boolean pair, not a preference. */
 export interface VoiceCapability {
     tts: boolean;
     stt: boolean;
@@ -602,17 +535,11 @@ export async function getVoiceCapability(): Promise<VoiceCapability> {
     return data;
 }
 
-/** One line in, audio out. Its own request, never the SSE stream (VOICE.md gotcha 9): text and audio
- *  do not share a pipe, and a take can be cancelled without touching the reply being generated.
- *  Timed out because the reply's caption waits on this line: a request that hangs forever would hold
- *  the words back with it. A spoken sentence takes about a second. */
 export async function synthesizeSpeech(text: string, signal?: AbortSignal): Promise<Blob> {
     const { data } = await api.post("/voice/tts", { text }, { responseType: "blob", signal, timeout: 15000 });
     return data as Blob;
 }
 
-/** One recorded clip in, text out. The clip is parsed and discarded in the request, so nothing here
- *  is stored or replayable server-side (PLAN D16 applied to voice). */
 export async function transcribeAudio(clip: Blob): Promise<VoiceTranscript> {
     const form = new FormData();
     // The field name is the backend's parameter name; the filename is cosmetic, since the container is
@@ -624,16 +551,12 @@ export async function transcribeAudio(clip: Blob): Promise<VoiceTranscript> {
 
 interface VoiceTranscript {
     text: string;
-    /** Whisper turbo returns phrase segments (start/end/text), not per-word timings. Unused today. */
     segments: unknown[];
     language: string;
 }
 
 export type StreamEvent = { kind: "message"; content: string } | { kind: "done"; closing?: boolean; failed?: { turn: number; class: MoveClass } } | { kind: "error"; message: string };
 
-/** The interviewer's opening turn. No answer rides with it: the first message of a run is the model's,
- *  generated once (a second call is refused), and the server draws the candidate's turn from the
- *  transcript instead. */
 export async function kickoffInterview(interviewId: string, onEvent: (e: StreamEvent) => void, { signal }: { signal?: AbortSignal } = {}): Promise<void> {
     return streamFrames(`/interviews/${interviewId}/chat/kickoff`, undefined, onEvent, signal);
 }
@@ -642,7 +565,6 @@ export async function streamChat(interviewId: string, content: string, onEvent: 
     return streamFrames(`/interviews/${interviewId}/chat/stream`, { interview_id: interviewId, content }, onEvent, signal);
 }
 
-/** Both chat endpoints speak the same SSE frames, so the transport is shared: only the body differs. */
 async function streamFrames(path: string, body: Record<string, unknown> | undefined, onEvent: (e: StreamEvent) => void, signal?: AbortSignal): Promise<void> {
     const res = await fetch(`${BASE}${path}`, {
         method: "POST",

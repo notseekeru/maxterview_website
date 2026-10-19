@@ -1,8 +1,3 @@
-"""M11 hardening: the app-level limiter, the CORS allow-list switch, and the input bound.
-
-No DB and no Postgres: every assertion here is decided before a handler touches the pool.
-"""
-
 from fastapi import FastAPI
 from fastapi.responses import StreamingResponse
 from fastapi.testclient import TestClient
@@ -14,8 +9,6 @@ from app.ratelimit import ClientRateLimitMiddleware
 
 
 class _Req:
-    """Duck-typed request: `client_key` only reads `.headers` and `.client.host`."""
-
     def __init__(self, headers=None, host="peer"):
         self.headers = headers or {}
         self.client = type("C", (), {"host": host})()
@@ -113,14 +106,11 @@ def test_middleware_does_not_buffer_streaming_responses(monkeypatch):
         return app
 
     class _Buffering(BaseHTTPMiddleware):
-        """Deliberately wrong: collects the stream, so both chunks land together."""
-
         async def dispatch(self, request, call_next):
             resp = await call_next(request)
             return Response(b"".join([chunk async for chunk in resp.body_iterator]), status_code=resp.status_code, media_type=resp.media_type)
 
     def profile(app) -> tuple[bytes, float]:
-        """(body, spread between the first and last body chunk) for one GET /stream."""
 
         async def measure():
             scope = {"type": "http", "method": "GET", "path": "/stream", "raw_path": b"/stream", "query_string": b"", "headers": [], "client": ("t", 1), "server": ("t", 80), "scheme": "http", "http_version": "1.1", "root_path": ""}

@@ -56,13 +56,10 @@ const DAY_MS = 86_400_000;
 const utcDay = (iso: string) => Math.floor(Date.parse(iso) / DAY_MS);
 const mean = (nums: number[]) => nums.reduce((a, b) => a + b, 0) / nums.length;
 
-/** Runs per side of a delta comparison. Below this on either side the change is the noise floor. */
 export const TREND_WINDOW = 5;
-/** Points per sparkline, and the rated-run window the trend chart draws. */
 const TREND_DOTS = 20;
 const SPARK_DAYS = 14;
 
-/** Whole UTC days, oldest first: `days` buckets ending today. */
 function dailyCounts(runs: Interview[], days: number): number[] {
     const today = Math.floor(Date.now() / DAY_MS);
     const out: number[] = new Array(days).fill(0);
@@ -73,7 +70,6 @@ function dailyCounts(runs: Interview[], days: number): number[] {
     return out;
 }
 
-/** [last `days`, the `days` before that]. */
 function windowCounts(runs: Interview[], days: number): [number, number] {
     const today = Math.floor(Date.now() / DAY_MS);
     let recent = 0;
@@ -87,15 +83,11 @@ function windowCounts(runs: Interview[], days: number): [number, number] {
     return [recent, prior];
 }
 
-/** Newest `size` values minus the `size` before them, in the values' own unit. Null until both
- *  windows are full. */
 function windowDelta(values: number[], size: number): number | null {
     if (values.length < size * 2) return null;
     return mean(values.slice(0, size)) - mean(values.slice(size, size * 2));
 }
 
-/** Consecutive UTC days with a run, counted back from today or yesterday. Same rule as the server's
- *  ANALYTICS_STREAK_SQL, so the two cannot disagree. */
 function streakDays(runs: Interview[]): number {
     const days = [...new Set(runs.map((r) => utcDay(r.created_at)))].sort((a, b) => b - a);
     const today = Math.floor(Date.now() / DAY_MS);
@@ -108,7 +100,6 @@ function streakDays(runs: Interview[]): number {
 export interface InterviewDims {
     total: number;
     completed: number;
-    /** Subset of `completed` that carries a move review (drives avgAccuracy/accuracyTrend). */
     rated: number;
     avgAccuracy: number;
     accuracyTrend: { label: string; accuracy: number }[];
@@ -117,12 +108,8 @@ export interface InterviewDims {
     avgCertainty: number | null;
     weekRuns: number;
     streak: number;
-    /** Days since the newest run; null with no runs at all. */
     lastRunDays: number | null;
-    /** Newest window against the one before it. A window of runs moves in COUNT, the two rates in
-     *  points, so each tile owns which of the two it prints. */
     delta: { runs: number | null; finished: number | null; accuracy: number | null; hire: number | null };
-    /** Sparkline series, oldest to newest. */
     sparks: { runs: number[]; finished: number[]; accuracy: number[]; hire: number[] };
 }
 

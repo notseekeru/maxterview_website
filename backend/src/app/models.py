@@ -24,8 +24,6 @@ Grade = Literal[*rating.GRADES]
 
 
 class ClerkUser(BaseModel):
-    """Authenticated identity. `sub` is the Clerk user id, scopes every query. `tier` is the monetization seam (D10): free/premium, `dev` only for the no-Clerk fallback identity."""
-
     sub: str
     email: str | None = None
     name: str | None = None
@@ -34,8 +32,6 @@ class ClerkUser(BaseModel):
 
 
 class Dials(BaseModel):
-    """Dressing knobs, shared by create + response so they cannot drift. Defaults are what an unspecified interview always got: neutral, human-sounding, two behavioural questions, as much technical ground as the mix allows. `brutally_honest` also reaches the grader."""
-
     company_size: CompanySize = "any"
     cynicism: Cynicism = "neutral"
     brutally_honest: bool = False
@@ -83,8 +79,6 @@ class Interview(Dials):
 
 
 class TemplateCreate(InterviewCreate):
-    """Saved preset: a create body plus a name. Inherits `resume_id` so a preset saved from a resume-tailored setup cannot silently forget the resume."""
-
     name: str = Field(min_length=1, max_length=60)
 
 
@@ -96,8 +90,6 @@ class InterviewTemplate(TemplateCreate):
 
 
 class ResumeSummary(BaseModel):
-    """One library row, WITHOUT its text. A list carrying every resume body would be the per-row fan-out the rate-budget guardrail bans. `chars` explains a truncated import without fetching text."""
-
     id: str
     name: str
     page_count: int
@@ -107,29 +99,21 @@ class ResumeSummary(BaseModel):
 
 
 class Resume(ResumeSummary):
-    """One resume with its text: the editor's read, never the list's."""
-
     text: str
 
 
 class ResumeCreate(BaseModel):
-    """Write body for both import paths: pasted text, and extracted text from a PDF. `max_length` is imported from the same constant the extractor caps at and the DB CHECK enforces. Bounds the JSON body a client may hand us, not what FastAPI already buffered."""
-
     name: str = Field(min_length=1, max_length=80)
     text: str = Field(min_length=1, max_length=resumes.MAX_CHARS)
 
 
 class ResumeExtract(BaseModel):
-    """What a PDF gave us, before anyone decided to keep it. `truncated` covers the page cap, the character cap and unreadable pages: all three mean not the whole document."""
-
     text: str
     pages: int
     truncated: bool
 
 
 class VoiceCapability(BaseModel):
-    """What this server can actually do, so the chat surface gates its controls on the truth rather than on a button that 503s."""
-
     tts: bool
     stt: bool
     tts_model: str = ""
@@ -137,14 +121,10 @@ class VoiceCapability(BaseModel):
 
 
 class VoiceText(BaseModel):
-    """One line to speak. The client chunks at sentence boundaries, capping each at 140 characters, so this is a ceiling on a caller: what stands between a hostile body and the daily neuron budget."""
-
     text: str = Field(min_length=1, max_length=voice.MAX_TTS_CHARS)
 
 
 class VoiceTranscript(BaseModel):
-    """One take's text, plus the segment timings Whisper returns and the detected language. Nothing persisted: the text joins the answer box and the chat turn saves it. Timings unused today."""
-
     text: str
     segments: list[dict] = Field(default_factory=list)
     language: str = ""
@@ -193,8 +173,6 @@ class Feedback(BaseModel):
 
 
 class InterviewDimensions(BaseModel):
-    """The radar in one aggregate: per-dim averages over rated runs, the same over the newest few, and the run counts behind each. Flat in size on purpose."""
-
     count: int
     # Runs behind `recent`, never more than RECENT_WINDOW. Sent so the radar labels the series with the real window.
     recent_n: int
@@ -203,8 +181,6 @@ class InterviewDimensions(BaseModel):
 
 
 class AnalyticsRun(BaseModel):
-    """One run as the analytics page reads it: pending, in-progress and finished all appear. Tiny on purpose: the charts need the history's shape, not the transcripts."""
-
     id: str
     role: str
     level: str
@@ -225,16 +201,12 @@ class AnalyticsRun(BaseModel):
 
 
 class AnalyticsActivityWeek(BaseModel):
-    """One ISO week. `started` counts every run created, `completed` the subset that finished. The gap is runs begun and dropped, which is why the bars sit side by side."""
-
     week: str
     started: int
     completed: int
 
 
 class AnalyticsDial(BaseModel):
-    """One value of one create-dial. Averaged over the runs that SCORED: a dial whose runs are all unrated reports `rated: 0` and a null accuracy, never 0%."""
-
     key: str
     label: str
     runs: int
@@ -244,8 +216,6 @@ class AnalyticsDial(BaseModel):
 
 
 class OfferSummary(BaseModel):
-    """Headline numbers over every offer issued. Means with the median beside them: a handful of offers means one top-of-band letter drags the mean. `best_id`/`worst_id` name the runs behind the extremes. Every field defaults to 0 so the page branches on `count` alone."""
-
     count: int = 0
     avg_base: int = 0
     median_base: int = 0
@@ -264,16 +234,12 @@ class OfferSummary(BaseModel):
 
 
 class OfferBenefit(BaseModel):
-    """One granted benefit with the letter's own wording. app/offer.py writes both, so the frontend renders a benefit rather than composing one."""
-
     key: str
     label: str
     value: str
 
 
 class Offer(BaseModel):
-    """One issued offer joined to the run and review that earned it. `band_low`/`band_high` are the edges `base_salary` sits in, so the frontend owns no copy of the rate card."""
-
     interview_id: str
     role: str
     level: str
@@ -300,14 +266,10 @@ class Offer(BaseModel):
     @computed_field
     @property
     def total_comp(self) -> int:
-        """Annual, deliberately WITHOUT the signing bonus: averaging a one-time payment into a yearly
-        number is how a $20k bonus reads as a $20k raise."""
         return self.base_salary + self.equity
 
 
 class OfferGroup(BaseModel):
-    """One bucket of a comparison: the offers under it and their spread. `span` precomputed because the page draws a RANGE bar, the only honest way to show a two-offer average."""
-
     key: str
     label: str
     offers: int
@@ -320,8 +282,6 @@ class OfferGroup(BaseModel):
 
 
 class OfferBenefitStat(BaseModel):
-    """One rung of the benefit ladder. The FULL ladder comes back, unearned rungs at 0: a rung that vanished would read as a rung that does not exist."""
-
     key: str
     label: str
     offers: int
@@ -330,16 +290,12 @@ class OfferBenefitStat(BaseModel):
 
 
 class OfferMonth(BaseModel):
-    """One calendar month of the offer trend, oldest first."""
-
     month: str
     offers: int
     avg_base: int
 
 
 class OffersAnalytics(BaseModel):
-    """The offers half of the payload. Its own model because the page renders it as its own section, and GET /interviews/{id}/offer reuses models.Offer."""
-
     summary: OfferSummary
     # Newest first, archived runs included: an issued offer does not stop existing when the run is tidied off the list.
     offers: list[Offer]
@@ -351,8 +307,6 @@ class OffersAnalytics(BaseModel):
 
 
 class Analytics(BaseModel):
-    """Everything /stats/analytics answers, in one bounded payload: aggregate server-side, never fan out per run. All-time on purpose, a window is a product call."""
-
     runs: list[AnalyticsRun]
     activity: list[AnalyticsActivityWeek]
     # Every class present (0 when unused) so the chart renders a fixed axis without filling gaps.
@@ -373,8 +327,6 @@ class ChatMessage(BaseModel):
 
 
 class FeedbackSummary(BaseModel):
-    """Structured LLM output (PRD 4.4). decision/certainty stay None when the model omitted or drifted: an undecided run is honest, a fabricated verdict is not."""
-
     scores: dict = Field(default_factory=dict)
     verdict: str
     tips: list = Field(default_factory=list)
@@ -394,24 +346,18 @@ class ChatTurn(BaseModel):
 
 
 class LLMProviderUpdate(BaseModel):
-    """Write from the settings panel. `api_key` empty = keep the stored key, so base URL and model stay editable without re-pasting."""
-
     base_url: str = Field(min_length=1, max_length=300)
     model: str = Field(min_length=1, max_length=200)
     api_key: str = Field(default="", max_length=500)
 
 
 class SystemLLM(BaseModel):
-    """The deployment's own provider, shown so System default says which model you would get."""
-
     configured: bool
     base_url: str = ""
     model: str = ""
 
 
 class ClientError(BaseModel):
-    """Browser-error beacon, sent from every page. Capped: unauthenticated input heading straight for the log pipeline."""
-
     message: str = Field(min_length=1, max_length=300)
     route: str = Field(default="", max_length=200)
     # React's component names from an ErrorBoundary crash: the only stack that survives minification.
@@ -419,8 +365,6 @@ class ClientError(BaseModel):
 
 
 class LLMProvider(BaseModel):
-    """BYOK status as the UI sees it: NEVER the key, only its last 4 characters as a hint."""
-
     enabled: bool
     byok: bool
     base_url: str = ""

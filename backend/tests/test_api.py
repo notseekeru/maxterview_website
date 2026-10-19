@@ -19,10 +19,6 @@ DB_URL = os.getenv("M5_TEST_DATABASE_URL") or os.environ.get("DATABASE_URL", "")
 
 @pytest.fixture(scope="session", autouse=True)
 def migrated_db():
-    """Ensure migrations are applied to the test DB before integration tests run.
-
-    Self-contained: locally (dev container) and in CI (Postgres service). Uses yoyo.
-    """
     if not DB_URL:
         pytest.skip("DATABASE_URL not set; cannot run integration tests")
     migrations_dir = Path(__file__).resolve().parents[1] / "migrations"
@@ -374,9 +370,6 @@ def test_archive_hides_a_run_from_history_but_keeps_it_in_the_stats(client):
 
 
 def _wipe_templates(c):
-    """Presets are owner-scoped AND seeded with the built-ins (DEFAULT_TEMPLATES) on first read, so
-    every test here starts from an empty row: a leftover default would otherwise eat the 20-cap and
-    the suite would depend on test order."""
     for row in c.get("/api/templates").json():
         c.delete(f"/api/templates/{row['id']}")
 
@@ -502,8 +495,6 @@ def test_template_owner_scoping(client):
 
 
 def _wipe_resumes(c):
-    """Resumes are owner-scoped AND capped, so every test here starts from an empty library: leftover
-    rows would otherwise eat the tier cap and make the suite order-dependent."""
     for row in c.get("/api/resumes").json():
         c.delete(f"/api/resumes/{row['id']}")
 
@@ -1487,7 +1478,6 @@ def test_analytics_streak_counts_consecutive_days(client):
     from app.main import ANALYTICS_STREAK_SQL
 
     async def streak_for(offsets):
-        """Streak for an owner whose only activity is `offsets` days ago (one run per offset)."""
         conn = await asyncpg.connect(DB_URL)
         try:
             await conn.execute("DELETE FROM interviews WHERE owner_id = 'streak-probe-owner'")

@@ -1,10 +1,3 @@
-"""M10 billing/quota unit tests.
-
-Pure-logic tests; DB-backed paths are monkeypatched so this file needs no live pool.
-The live daily-interview / chat-turn cap behavior is exercised by the HTTP integration
-tests (`test_api.py`), which create real interviews through the `client` fixture.
-"""
-
 import hashlib
 import hmac
 import time
@@ -150,7 +143,6 @@ def _invoice_event(etype: str, *, status: str = "paid") -> dict:
 
 
 def _capture(monkeypatch, *, owner: str | None = "paying-user"):
-    """Patch payments' DB access (the module binds `fetchrow` at import, so patch it there)."""
     calls: list[tuple[str, tuple]] = []
 
     async def fake_fetchrow(q, *a, **k):
@@ -164,7 +156,6 @@ def _capture(monkeypatch, *, owner: str | None = "paying-user"):
 
 
 async def test_subscription_activated_upserts_premium_row(monkeypatch):
-    """Recurring entitlement: subscription.activated upserts premium+active and a tz-aware period."""
     calls = _capture(monkeypatch)
     await payments.handle_webhook_event(_subscription_event("subscription.activated"))
 
@@ -183,7 +174,6 @@ async def test_subscription_event_legacy_envelope_still_upserts(monkeypatch):
 
 
 async def test_subscription_past_due_keeps_plan_but_loses_entitlement(monkeypatch):
-    """MONETIZATION §5: a failed renewal downgrades immediately, no grace."""
     calls = _capture(monkeypatch)
     await payments.handle_webhook_event(_subscription_event("subscription.past_due", status="past_due"))
     upsert = next(a for q, a in calls if "INSERT INTO subscriptions" in q)
@@ -200,9 +190,6 @@ async def test_subscription_cancelled_drops_to_free(monkeypatch):
 
 
 async def test_subscription_event_with_unknown_subscription_is_ignored(monkeypatch):
-    """A stale/unknown subscription id must NOT fall back to the customer: out-of-order delivery is
-    documented by PayMongo, and a late `cancelled` for a replaced subscription would otherwise
-    overwrite the live row and downgrade a paying customer."""
     calls = _capture(monkeypatch, owner=None)
     await payments.handle_webhook_event(_subscription_event("subscription.activated"))
     assert not any("INSERT INTO subscriptions" in q for q, _ in calls)
@@ -252,12 +239,6 @@ def test_resubscribe_blocked_while_the_first_payment_is_pending():
 
 
 async def test_pending_qr_resumes_instead_of_refusing(monkeypatch):
-    """The row holds the one live intent, so a second Upgrade press must hand back the SAME QR: closing
-    the popup (or reloading) used to strand the buyer behind a 409 until the code died.
-
-    `_period_configure` matters here: without a key on the box this 503s at the config guard before it
-    ever reaches the resume path (CI caught exactly that).
-    """
     _period_configure(monkeypatch)
     qr = {"qr": {"image_url": "data:image/png;base64,AAAA", "expires_at": (datetime.now(UTC) + timedelta(minutes=20)).isoformat()}}
     calls: list[str] = []
@@ -279,8 +260,6 @@ async def test_pending_qr_resumes_instead_of_refusing(monkeypatch):
 
 
 async def test_pending_qr_is_judged_by_its_own_deadline(monkeypatch):
-    """A QR Ph code dies 30 min after it is drawn, so the subscription rule (24h) would outlive the
-    thing it waits on and lock an abandoner out for a day."""
     row = _row(owner_id="u", status="incomplete", current_period_end=None, provider_subscription_id="pi_x")
 
     async def _intent(status, expires_at=None, code=None):
@@ -320,7 +299,6 @@ async def test_pending_qr_is_judged_by_its_own_deadline(monkeypatch):
 
 
 async def test_invoice_paid_recovers_subscription_via_subscription_id(monkeypatch):
-    """Invoice events carry only resource_id (the subscription), not the customer."""
     calls = _capture(monkeypatch)
     await payments.handle_webhook_event(_invoice_event("subscription.invoice.paid"))
     lookup, args = calls[0]
@@ -333,8 +311,6 @@ async def test_invoice_paid_recovers_subscription_via_subscription_id(monkeypatc
 
 
 async def test_ensure_customer_reuses_only_this_providers_id(monkeypatch):
-    """0008 renamed Stripe's `stripe_id` into `provider_customer_id`, so a pre-swap row still holds a
-    Stripe `cus_…`; reusing it would send PayMongo a customer it never issued."""
     user = ClerkUser(sub="u1", email="a@b.co", name="A B")
     seen = {}
 
@@ -359,9 +335,6 @@ async def test_ensure_customer_reuses_only_this_providers_id(monkeypatch):
 
 
 async def test_customer_conflict_reuses_the_one_paymongo_already_holds(monkeypatch):
-    """The row is the only place the customer id lives, so a lost row turns the next checkout into
-    PayMongo's 422 "A customer with this email already exists". Re-raising would wedge that address
-    on checkout for good; the email is the key PayMongo holds, so reuse it."""
     calls = []
 
     async def fake_fetchrow(_q, *_a, **_k):
@@ -397,7 +370,6 @@ async def test_invoice_payment_failed_marks_past_due(monkeypatch):
 
 
 async def test_invoice_draft_churn_writes_nothing(monkeypatch):
-    """created/finalized/updated are draft->open noise: no entitlement change, no DB write."""
     calls = _capture(monkeypatch)
     for etype in ("subscription.invoice.created", "subscription.invoice.finalized", "subscription.invoice.updated"):
         await payments.handle_webhook_event(_invoice_event(etype, status="draft"))
@@ -414,7 +386,6 @@ async def test_unknown_event_type_is_ignored(monkeypatch):
 
 
 def _payment_event(*, etype: str = "payment.paid", intent_id: str = "pi_1") -> dict:
-    """`payment.paid` carries the intent it charged; a `payment_intent` event IS the intent."""
     if etype.startswith("payment_intent"):
         resource = {"id": intent_id, "type": "payment_intent", "attributes": {"id": intent_id, "amount": 9900, "status": "succeeded"}}
     else:
@@ -427,7 +398,6 @@ def _payment_event(*, etype: str = "payment.paid", intent_id: str = "pi_1") -> d
 
 
 async def test_payment_paid_credits_the_pending_row(monkeypatch):
-    """Money in -> `active` + one period. Same row and same reader as a subscription."""
     calls = _capture(monkeypatch)
     before = datetime.now(UTC)
     await payments.handle_webhook_event(_payment_event())
@@ -443,7 +413,6 @@ async def test_payment_paid_credits_the_pending_row(monkeypatch):
 
 
 async def test_payment_intent_succeeded_credits_too(monkeypatch):
-    """The sibling event must credit as well: either type may be the only one a method emits."""
     calls = _capture(monkeypatch)
     await payments.handle_webhook_event(_payment_event(etype="payment_intent.succeeded", intent_id="pi_2"))
     _, args = next((q, a) for q, a in calls if "UPDATE subscriptions" in q)
@@ -451,10 +420,6 @@ async def test_payment_intent_succeeded_credits_too(monkeypatch):
 
 
 async def test_a_second_delivery_matches_nothing_and_grants_no_extra_time(monkeypatch):
-    """Both event types are registered, so every payment CAN arrive twice: the guard is the write.
-
-    Once the row is `active` the compare-and-set matches no row, so a replay cannot buy a period.
-    """
     attempted: list[tuple] = []
 
     async def fake_fetchrow(q, *a, **k):
@@ -472,7 +437,6 @@ async def test_a_second_delivery_matches_nothing_and_grants_no_extra_time(monkey
 
 
 async def test_payment_events_that_cannot_credit_write_nothing(monkeypatch):
-    """Three ways to be a no-op: not a paid event, no intent id, and an intent we never issued."""
     calls = _capture(monkeypatch, owner=None)
     await payments.handle_webhook_event(_payment_event(etype="payment.failed"))
     await payments.handle_webhook_event(_payment_event(intent_id="pi_from_another_key"))
@@ -491,7 +455,6 @@ async def test_payment_events_that_cannot_credit_write_nothing(monkeypatch):
 
 
 def _refunded_payment_event(intent_id: str = "pi_1") -> dict:
-    """`payment.refunded` embedding the payment, the shape `payment.paid` already arrives in."""
     resource = {"id": "pay_1", "type": "payment", "attributes": {"id": "pay_1", "status": "refunded", "payment_intent_id": intent_id}}
     return {"data": {"type": "payment.refunded", "livemode": False, "data": resource}}
 
@@ -512,8 +475,6 @@ async def test_payment_refunded_revokes_the_paid_period(monkeypatch):
 
 
 async def test_thin_refund_event_resolves_through_the_provider(monkeypatch):
-    """The refund may name only itself, so the chain is refund -> payment -> intent (the only id the
-    `subscriptions` row holds)."""
     calls = _capture(monkeypatch)
     seen: list[str] = []
 
@@ -534,8 +495,6 @@ async def test_thin_refund_event_resolves_through_the_provider(monkeypatch):
 
 
 async def test_unsettled_refund_writes_nothing(monkeypatch):
-    """`updated` is status churn and PayMongo HOLDS a refund while the balance is short: revoking on
-    either takes the period from someone whose money we still have."""
     calls = _capture(monkeypatch)
 
     async def _api(_method, _path, **_kw):
@@ -550,8 +509,6 @@ async def test_unsettled_refund_writes_nothing(monkeypatch):
 
 
 async def test_unattributable_refund_writes_nothing(monkeypatch):
-    """Settled, but no id that reaches an owner: logged, never guessed — a refund applied to the
-    wrong owner downgrades a paying customer."""
     calls = _capture(monkeypatch, owner=None)
 
     async def _api(_method, _path, **_kw):
@@ -650,7 +607,6 @@ async def test_try_variants_falls_back_then_reraises_the_last_failure():
 
 
 async def test_first_invoice_intent_falls_back_to_the_unversioned_path(monkeypatch):
-    """The docs list the invoice collection both with and without `/v1`."""
     seen = []
 
     async def _api(method, path, **kwargs):
@@ -710,7 +666,6 @@ def _buyer() -> ClerkUser:
 
 
 async def test_period_mode_needs_a_secret_key_but_no_plan_id(monkeypatch):
-    """`PAYMONGO_PLAN_ID` is unset on this account and must not gate the launch mode."""
     monkeypatch.setattr(payments, "SECRET_KEY", "sk_test_x")
     monkeypatch.setattr(payments, "PLAN_ID", "")
     payments._require_period_config()  # no raise: the price lives in PREMIUM_PRICE_CENTAVOS
@@ -744,9 +699,6 @@ async def test_start_upgrade_dispatches_on_mode(monkeypatch):
 
 
 async def test_start_period_purchase_records_the_intent_once_a_link_exists(monkeypatch):
-    """The row must exist before the browser can show the QR (the webhook resolves the owner from it)
-    but only once the provider produced a PAYABLE artifact: live mode refuses whole method types, and
-    a row for an unpayable intent blocks the owner's retry."""
     _period_configure(monkeypatch)
     order: list[tuple] = []
 
@@ -788,8 +740,6 @@ async def test_start_period_purchase_records_the_intent_once_a_link_exists(monke
 
 
 async def test_checkout_uses_the_clerk_lookup_when_the_token_has_no_email(monkeypatch):
-    """The session token carries no `email` claim (auth.user_email), so the Backend API lookup is
-    the only source for the address PayMongo keys a customer by."""
     _period_configure(monkeypatch)
     looked_up: list[str] = []
 
@@ -822,8 +772,6 @@ async def test_checkout_uses_the_clerk_lookup_when_the_token_has_no_email(monkey
 
 
 async def test_start_period_purchase_hands_back_the_qr_the_rail_uses(monkeypatch):
-    """QR Ph answers the attach with `consume_qr` and NO redirect, so a redirect-only client 502s on
-    the one rail this account can take money on."""
     _period_configure(monkeypatch)
 
     async def fake_fetchrow(_q, *_a, **_k):

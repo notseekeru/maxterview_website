@@ -77,7 +77,6 @@ export function CreateInterviewForm({ onCreated, variant = "compact", className 
         return { role: role.trim(), topic: topic.trim(), level, resume_id: resumeId, ...dialsFromForm() };
     }
 
-    /** Template as a PUT body. Spelled out, not spread: a new dial then breaks this line at compile time. */
     function bodyFrom(t: InterviewTemplate, patch: Partial<TemplateInput> = {}): TemplateInput {
         return {
             name: t.name,
@@ -148,7 +147,6 @@ export function CreateInterviewForm({ onCreated, variant = "compact", className 
         }
     }
 
-    /** POST the form as a named preset; false = failed. */
     async function createPreset(name: string): Promise<boolean> {
         // A preset is a create body, so a required field is only caught here: the browser's `required`
         // guards the real submit only. Name the field, or the 422 reads as "could not save".
@@ -404,7 +402,6 @@ export function CreateInterviewForm({ onCreated, variant = "compact", className 
     );
 }
 
-/** One discrete dial: current choice named in the label, ends named under the track. */
 function DialSlider({ id, label, value, values, labels, onChange, hint, numbered }: { id: string; label: string; value: string; values: string[]; labels: string[]; onChange: (value: string) => void; hint?: string; numbered?: boolean }) {
     const index = Math.max(0, values.indexOf(value));
     return (

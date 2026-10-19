@@ -303,8 +303,6 @@ def dials(rng: random.Random) -> dict:
 
 
 def run_rng(spec: dict, salt: str) -> random.Random:
-    """A per-run stream keyed on the spec's own content: `--seed` reproduces a seeded history exactly,
-    which the module-level `random` used to break (same specs, different grades every run)."""
     return random.Random(f"{salt}|{spec['role']}|{spec['level']}|{spec['when'].isoformat()}|{spec['strength']:.3f}")
 
 
@@ -459,9 +457,6 @@ def question(spec: dict, n: int) -> str:
 
 
 def decision_for(spec: dict, grade: str) -> str:
-    """The hire/reject call a seeded run carries. Shared by the feedback and the offer so the letter and
-    the review cannot disagree about the same run (a letter on a rejection is exactly the contradiction
-    the app refuses to write)."""
     return "reject" if spec.get("hardcore") else DECISIONS_BY_GRADE.get(grade)
 
 

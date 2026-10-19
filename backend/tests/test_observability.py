@@ -1,6 +1,3 @@
-"""M13 tier 1/3: one access line per request, none for the probe path, X-Request-ID on the response,
-and the OTLP span that makes the line and the trace the same event."""
-
 import asyncio
 import json
 import logging
@@ -22,9 +19,6 @@ from app.main import app
 
 
 def _capture_json() -> tuple[logging.Handler, list[dict], list[str]]:
-    """Records as JSON, independent of pytest's stdout capture: the production handler binds
-    `sys.stdout` at import time, so `capsys`/`capfd` see nothing of it. The raw strings are kept
-    alongside because the Grafana datasource regexes read the line, not the parsed object."""
     lines: list[dict] = []
     raw: list[str] = []
 
@@ -62,7 +56,6 @@ def test_access_log_skips_health():
 
 
 def test_client_error_beacon_is_capped_and_logged():
-    """Browser error capture: message, path, and a render crash's component stack."""
     handler, lines, _ = _capture_json()
     root = logging.getLogger()
     root.addHandler(handler)
@@ -85,7 +78,6 @@ def test_client_error_beacon_is_capped_and_logged():
 
 
 def test_throttled_requests_still_reach_the_access_log(monkeypatch):
-    """The access-log middleware is outermost, so a 429 the limiter returns is still recorded."""
     monkeypatch.setenv("RATE_LIMIT", "1/minute")
     handler, lines, _ = _capture_json()
     root = logging.getLogger()
@@ -102,10 +94,6 @@ def test_throttled_requests_still_reach_the_access_log(monkeypatch):
 
 
 def test_the_access_line_carries_the_trace_id():
-    """The join between the two tiers: an id from the request's span lands in the log JSON, in the
-    exact shape the Loki datasource's derived field matches, which is what makes it a link. A
-    provider writing to memory needs no collector; spans still flow, they are just not shipped.
-    """
     exporter = InMemorySpanExporter()
     provider = TracerProvider()
     provider.add_span_processor(SimpleSpanProcessor(exporter))
@@ -140,8 +128,6 @@ def test_the_access_line_carries_the_trace_id():
 
 
 def test_unmatched_paths_and_the_probe_never_become_a_metric_label():
-    """Both are cardinality guards, and both are money: a path label per probed URL mints a series per
-    scanner, and the probe would contribute ~17k samples a day of a number nobody reads."""
     reader = InMemoryMetricReader()
     metrics.set_meter_provider(MeterProvider(metric_readers=[reader]))
     # Instruments bind to the provider that was current when they were created.
@@ -155,8 +141,6 @@ def test_unmatched_paths_and_the_probe_never_become_a_metric_label():
 
 
 def test_the_heartbeat_records_a_sample_with_no_request(monkeypatch):
-    """A deploy nobody uses receives only the probe path, which records nothing, so this loop is the
-    only thing putting a sample, and with it target_info, in front of the liveness rule."""
     samples = []
     monkeypatch.setattr(telemetry, "gauge", lambda name, value, **attributes: samples.append(name))
     monkeypatch.setattr(telemetry, "HEARTBEAT_INTERVAL_S", 0)

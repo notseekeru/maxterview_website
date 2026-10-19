@@ -8,13 +8,9 @@ interface RowMenuItem {
     destructive?: boolean;
 }
 
-/** The row's ⋮ menu. `<details>` gives open/close, the summary is the hit target, and two listeners
- *  keep it behaving like a menu: outside click and Escape close it.
- *
- *  AI HERE: no focus trap and no arrow-key navigation - it is a two-to-three item menu on a list row,
- *  and the items are ordinary buttons, so Tab reaches them. Upgrade path: a real menu primitive if
- *  the item count grows.
- */
+// AI HERE: no focus trap and no arrow-key navigation - it is a two-to-three item menu on a list row,
+// and the items are ordinary buttons, so Tab reaches them. Upgrade path: a real menu primitive if
+// the item count grows.
 export function RowMenu({ label, items }: { label: string; items: RowMenuItem[] }) {
     const ref = useRef<HTMLDetailsElement>(null);
     const close = () => {

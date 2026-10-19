@@ -18,7 +18,6 @@ function toneClass(decision: Decision): string {
     }
 }
 
-/** Certainty bands. Keeps 41% from reading like 89% without inventing a second score. */
 export function DecisionVerdict({ decision, certainty, className }: { decision: Decision; certainty?: number | null; className?: string }) {
     const pct = typeof certainty === "number" ? certainty : null;
     const active = DECISIONS.findIndex((d) => d.value === decision);

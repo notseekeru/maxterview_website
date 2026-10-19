@@ -37,8 +37,6 @@ export function initErrorBeacon(): void {
     });
 }
 
-/** A render crash React caught before `window.onerror` could see it — the ErrorBoundary is the only
- * witness, which is why it has to report by hand. */
 export function reportRenderCrash(error: Error, componentStack?: string | null): void {
     report(error.message, componentStack ?? "");
 }

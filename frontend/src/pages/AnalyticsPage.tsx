@@ -140,24 +140,11 @@ function SummaryRow({ data }: { data: Analytics }) {
     );
 }
 
-/** One point on a time chart: the day, the runs behind it, plus one number per series. */
 interface DayPoint {
     label: string;
-    /** Runs that contributed. Carried so a tooltip can show what a point stands on. */
     count: number;
 }
 
-/**
- * One point per UTC day, in date order.
- *
- * The page is a trend view over the WHOLE history, so a point per run turns the x axis into a run
- * index wearing date labels: six runs on one afternoon are drawn as far apart as six runs across two
- * months, and every run that day repeats the same tick (three dots stacked on "09/15"). Aggregating
- * by day makes x a real date axis and is what "over time" means here.
- *
- * `series` maps a run to its named values. A null is SKIPPED, not averaged in as 0: an axis that run
- * never probed, or a decision it never made, must not drag that day's mean toward zero.
- */
 function perDay<K extends string>(runs: AnalyticsRun[], series: (run: AnalyticsRun) => Record<K, number | null>): (DayPoint & Record<K, number>)[] {
     const days = new Map<string, { point: DayPoint; sums: Record<string, number>; ns: Record<string, number> }>();
     for (const run of runs) {
@@ -187,7 +174,6 @@ function perDay<K extends string>(runs: AnalyticsRun[], series: (run: AnalyticsR
         });
 }
 
-/** "12 runs over 6 days" — every time chart says how much history its line actually stands on. */
 function describeDays(data: DayPoint[], unit: string): string {
     if (data.length === 0) return `no ${unit}s yet`;
     const runs = data.reduce((a, d) => a + d.count, 0);
@@ -220,7 +206,6 @@ const ACTIVITY_CONFIG: ChartConfig = {
     started: { label: "Started", color: "var(--chart-4)" },
 };
 
-/** Split so the two series stay in one place: the API owns the 12-week window, the page the wording. */
 function ActivityWeekly({ weeks }: { weeks: AnalyticsActivityWeek[] }) {
     const data = weeks.map((w) => ({ label: w.week.slice(5).replace("-", "/"), started: w.started, completed: w.completed }));
     const runs = data.reduce((a, d) => a + d.started, 0);

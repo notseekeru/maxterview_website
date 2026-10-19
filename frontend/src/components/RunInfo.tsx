@@ -4,13 +4,6 @@ import type { Interview } from "@/lib/api";
 import { CYNICISM, companySizeLabel, levelLabel } from "@/lib/interviewOptions";
 import { DecisionChip } from "./DecisionVerdict";
 
-/** The body of the ⋮ → Info modal: what this run was configured as, and how it ended.
- *
- *  The dials are not decoration - upstream, llm.coverage_directive derives the interviewer's targets
- *  from the mix and the level, so this is also the answer to "why did it never ask me about X".
- *  Defaults stay out of the list (neutral, human mode): it reads as an anomaly report, not a config
- *  dump.
- */
 export function RunInfo({ interview }: { interview: Interview }) {
     const who = [interview.level === "any" ? null : levelLabel(interview.level), interview.role].filter(Boolean).join(" · ");
     const context = [interview.topic ? `focus: ${interview.topic}` : null, interview.company_size === "any" ? null : companySizeLabel(interview.company_size), new Date(interview.created_at).toLocaleString()].filter(Boolean).join(" · ");

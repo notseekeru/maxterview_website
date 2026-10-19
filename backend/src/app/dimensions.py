@@ -1,7 +1,3 @@
-"""1-10 feedback dimensions grouped into axes: membership only. `llm.py` owns the rubric prose,
-`offer.py` the rate card. Import-free on purpose: offer pricing must not drag the LLM client in.
-"""
-
 # `culture fit` deliberately NOT a dim: scored directly it is a bias proxy with no evidence bar.
 DIMENSION_AXES: dict[str, tuple[str, ...]] = {
     "communication": ("clarity", "relevance", "structure", "confidence"),

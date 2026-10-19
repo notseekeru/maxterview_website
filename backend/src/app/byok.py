@@ -1,19 +1,3 @@
-"""BYOK: per-owner OpenAI-compatible provider credentials (the settings panel's key field).
-
-- One row per owner in `llm_credentials`, written only from /settings/llm. The key is stored
-  Fernet-encrypted under BYOK_ENCRYPTION_KEY; the DB never holds plaintext. A keyless row is valid
-  BYOK: self-hosted endpoints authenticate nothing, and no key just means no Authorization header.
-- Resolution is per request and REPLACES the system LLM_* config for that owner (chat,
-  grader and formatter alike, see llm.grader_config).
-- BYOK is optional by construction: no encryption key, no row, or an undecryptable row all
-  fall back to the system default. A settings problem must never take interviews down.
-- The deployment's OWN provider (while it needs no key) and anything off the public internet are
-  not valid targets (`_base_url`): `byok` is self-asserted and swaps the tier cap for that tier's
-  ceiling, so either one is a free ride on, or a probe into, this deployment's own infrastructure.
-
-See BYOK.md for the contract, endpoints and threat notes.
-"""
-
 import asyncio
 import ipaddress
 import os
@@ -41,9 +25,6 @@ ALLOW_PRIVATE_HOSTS = os.getenv("BYOK_ALLOW_PRIVATE_HOSTS", "").lower() == "true
 
 @lru_cache(maxsize=1)
 def _fernet() -> Fernet | None:
-    """The row cipher, or None when BYOK_ENCRYPTION_KEY is unset/malformed (feature off). Cached: the env
-    cannot change under a running process. A test that monkeypatches the env clears it
-    (`byok._fernet.cache_clear()`)."""
     raw = os.getenv("BYOK_ENCRYPTION_KEY", "").strip()
     if not raw:
         return None
@@ -59,9 +40,6 @@ def enabled() -> bool:
 
 
 def _origin(raw: str) -> tuple[str, int]:
-    """Host + port of a base URL, normalised for comparison. The scheme is deliberately dropped: the same
-    listener behind http and https is the same listener. An IPv4-mapped IPv6 literal (`[::ffff:100.64.2.2]`)
-    is unwrapped to the IPv4 it is."""
     url = urlparse(raw)
     host = (url.hostname or "").lower().rstrip(".")
     try:
@@ -77,10 +55,6 @@ def _origin(raw: str) -> tuple[str, int]:
 
 
 def _offnet(host: str) -> bool:
-    """True when `host` is an IP literal that is NOT on the public internet. `is_global`, not `is_private`:
-    this Python reports 100.64.0.0/10 (CGNAT, i.e. Tailscale) as NOT private, and that is where a
-    self-hosted model lives. Also covers RFC1918, loopback, link-local (169.254.169.254/IMDS), ULA,
-    reserved and `0.0.0.0`."""
     try:
         ip = ipaddress.ip_address(host)
     except ValueError:
@@ -89,10 +63,6 @@ def _offnet(host: str) -> bool:
 
 
 async def _resolve(host: str) -> list[str]:
-    """The addresses `host` resolves to, [] when it does not resolve (or the lookup times out). A name is
-    not evidence of a public target (`evil.example A 100.64.2.2` is one DNS record away), so the address
-    check runs on what the name points at too. Unresolvable is ALLOWED: the call fails at use time anyway,
-    and a save must not depend on this deployment's resolver being up."""
     try:
         async with asyncio.timeout(_DNS_TIMEOUT_S):
             infos = await asyncio.get_running_loop().getaddrinfo(host, None)
@@ -129,7 +99,6 @@ async def _row(owner_id: str):
 
 
 async def resolve_config(user: ClerkUser) -> llm.LLMConfig:
-    """The LLM target for this request: the owner's own provider when usable, else the system default."""
     fernet = _fernet()
     row = await _row(user.sub) if fernet else None
     if row is None:
@@ -144,9 +113,6 @@ async def resolve_config(user: ClerkUser) -> llm.LLMConfig:
 
 
 async def save(owner_id: str, base_url: str, model: str, api_key: str) -> None:
-    """Create/update the owner's provider row. A supplied `api_key` is encrypted and becomes the saved key.
-    An empty one keeps the stored key (so base URL and model stay editable without re-pasting), and on the
-    FIRST save it means the endpoint needs no auth at all (Ollama, llama.cpp, vLLM)."""
     fernet = _fernet()
     if fernet is None:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=DISABLED_DETAIL)
@@ -176,7 +142,6 @@ async def clear(owner_id: str) -> None:
 
 
 async def public_view(user: ClerkUser) -> dict:
-    """Settings-panel status. Carries the key's last 4 characters as a hint, NEVER the key."""
     row = await _row(user.sub) if _fernet() else None
     system = llm.SYSTEM_CONFIG
     return {
@@ -190,7 +155,6 @@ async def public_view(user: ClerkUser) -> dict:
 
 
 async def test(user: ClerkUser) -> dict:
-    """Probe the SAVED config (never a request body: no arbitrary URL+key fetch from here)."""
     config = await resolve_config(user)
     if not config.byok:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Save a provider first - there is nothing to test.")

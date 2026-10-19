@@ -20,7 +20,6 @@ interface Props {
     onOpen: (id: string) => void;
     onDelete: (id: string) => Promise<void> | void;
     onArchive: (id: string, archived: boolean) => Promise<void> | void;
-    /** Re-run scoring for a completed-but-unscored run. Caller refreshes on success. */
     onRescore: (id: string) => Promise<void> | void;
 }
 

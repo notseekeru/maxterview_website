@@ -11,7 +11,6 @@ const POLL_MS = 4000;
 // Keep polling after the code dies: the payment may have landed just before it did.
 const GRACE_MS = 120_000;
 
-/** Seconds until an ISO stamp; 0 when it is absent or already past. */
 const secondsLeft = (iso: string) => Math.max(0, Math.floor((Date.parse(iso) - Date.now()) / 1000));
 
 export function useQrCheckout() {

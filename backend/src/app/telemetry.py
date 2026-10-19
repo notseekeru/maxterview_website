@@ -1,14 +1,3 @@
-"""OTLP traces and metrics (M13 tier 3).
-
-Both signals go to the in-cluster Alloy receiver, never to Grafana: the app holds no telemetry write
-credential, the same rule as the log pipeline. An unset `OTEL_EXPORTER_OTLP_ENDPOINT` means the SDK is
-never installed, so the call sites below run against the API's no-op proxies and never branch on
-whether telemetry is on.
-
-The root span lives in `logs.RequestContextMiddleware`, which is what puts `trace_id` in every access
-line. The Loki datasource already carries the derived field, so that id is the link to the trace.
-"""
-
 import asyncio
 import os
 import time
@@ -52,9 +41,6 @@ def _set(values: dict) -> dict:
 
 @contextmanager
 def span(name: str, *, record: bool = True, **attributes):
-    """`record=False` yields a span nobody reads (the probe path, which would otherwise be 8,640
-    traces a day of a 1ms health check, burying every real trace in the search list). Call sites keep
-    one shape: a non-recording span accepts the same attributes and updates and exports nothing."""
     if not record:
         with trace.use_span(NonRecordingSpan(INVALID_SPAN_CONTEXT), end_on_exit=False):
             yield NonRecordingSpan(INVALID_SPAN_CONTEXT)
@@ -70,7 +56,6 @@ def span(name: str, *, record: bool = True, **attributes):
 
 
 def record(name: str, value: float, **attributes) -> None:
-    """One histogram sample, seconds. Instruments are created once: this runs per request."""
     instrument = _instruments.get(name)
     if instrument is None:
         instrument = _instruments[name] = metrics.get_meter("maxterview").create_histogram(name, unit="s", explicit_bucket_boundaries_advisory=BUCKET_BOUNDARIES_S)
@@ -78,8 +63,6 @@ def record(name: str, value: float, **attributes) -> None:
 
 
 def gauge(name: str, value: float, **attributes) -> None:
-    """One gauge sample for a quantity that only has a current value. Unit 1 is dimensionless, and the
-    OTLP gateway appends `_ratio` for it, so `db.pool.size` lands as `db_pool_size_ratio`."""
     instrument = _instruments.get(name)
     if instrument is None:
         instrument = _instruments[name] = metrics.get_meter("maxterview").create_gauge(name, unit="1")
@@ -103,18 +86,12 @@ def configure() -> bool:
 
 
 async def heartbeat() -> None:
-    """One sample per interval, forever. A process that has recorded nothing exports nothing to
-    OTLP, and an idle deployment only ever receives `/api/health`, which records no sample: without
-    this loop a freshly deployed app publishes no series at all and `absent(target_info)` reads it as
-    dead."""
     while True:
         gauge("app.uptime", time.monotonic() - _STARTED)
         await asyncio.sleep(HEARTBEAT_INTERVAL_S)
 
 
 def shutdown() -> None:
-    """Flush what is buffered. Bounded by the export timeout: a dead collector must not hold the pod
-    in Terminating."""
     for provider in _providers:
         try:
             provider.shutdown()

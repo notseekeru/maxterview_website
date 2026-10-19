@@ -27,8 +27,6 @@ const CONNECTION_LOST = "Connection lost while streaming. The model never answer
 // keep `completed`, which is the status the list, analytics and feedback endpoints filter on).
 const STATUS_LABELS = { loading: "Starting", ready: "In progress", streaming: "Interviewer is replying", completed: "Finished" } as const;
 
-/** How long the finished progress screen stays up with every stage checked before it closes onto the
- *  review. Covers the scroll to top and the first paint of the feedback behind it. */
 const DONE_HOLD_MS = 1200;
 
 export function InterviewChat({ interviewId, onExit }: Props) {
@@ -210,8 +208,6 @@ export function InterviewChat({ interviewId, onExit }: Props) {
     // The opener is a reply like any other, so the voice reads it and the caption gate covers it: no
     // separate speak path, and no canned line to keep in step with the prompt.
 
-    /** The choice is per browser and survives the session; the speak call itself is driven by the
-     *  hook, so turning this off mid-sentence stops the sentence. */
     function toggleVoice() {
         const next = !voiceOn;
         setVoiceOn(next);
@@ -225,9 +221,6 @@ export function InterviewChat({ interviewId, onExit }: Props) {
         await runTurn(content);
     }
 
-    /** One interviewer turn over SSE: the opener, or the reply to an answer.
-     *  `answer` is null for the opener, which has no candidate turn to show, to restore on failure, or
-     *  to hand to the hardcore judge. */
     async function runTurn(answer: string | null) {
         if (sendingRef.current) return;
         sendingRef.current = true;
@@ -322,7 +315,6 @@ export function InterviewChat({ interviewId, onExit }: Props) {
         }
     }
 
-    /** Load the review and re-read the transcript it annotates. Every finish path lands here. */
     async function openReview(load: () => Promise<Feedback>) {
         // The review page is silent: whatever the last reply had left to say stops here rather than
         // talking over the thing it is being graded against.
@@ -346,8 +338,6 @@ export function InterviewChat({ interviewId, onExit }: Props) {
         setFinishing(null);
     }
 
-    /** Finish the run on the server, then show the review. Closing the progress screen does not
-     *  cancel this: the call keeps running and the review still lands when it returns. */
     async function finishRun() {
         setConfirmFinish(false);
         setFinishing({ title: "Finishing your interview", dismissed: false, done: false });
@@ -361,14 +351,11 @@ export function InterviewChat({ interviewId, onExit }: Props) {
         }
     }
 
-    /** Re-run the review for a run that finished without one. */
     async function retryReview() {
         setFinishing({ title: "Rebuilding your review", dismissed: false, done: false });
         await openReview(() => regenerateFeedback(interviewId));
     }
 
-    /** Rebuild this run's review without leaving it. The server charges the run's redo allowance, so
-     *  the refusal lands next to the button instead of behind the finish overlay. */
     async function redoReview() {
         setRedoing(true);
         setRedoError(null);
@@ -585,9 +572,6 @@ export function InterviewChat({ interviewId, onExit }: Props) {
     );
 }
 
-/** Three blinking dots for a reply that has not been said yet. They render inside the interviewer's own
- *  bubble, under the interviewer's face, so a turn is one thing that fills in rather than a status line
- *  above a bubble that shows up later. */
 const Thinking = memo(function Thinking() {
     return (
         <span role="status" aria-label="The interviewer is thinking" className="flex items-center gap-1 py-1">
@@ -658,7 +642,6 @@ const Bubble = memo(function Bubble({ from, content, streaming, thinking, moveCl
     );
 });
 
-/** mm:ss for the take timer, which is also the cap counting down beside it. */
 function clock(seconds: number): string {
     const total = Math.floor(seconds);
     return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, "0")}`;

@@ -1,9 +1,4 @@
 #!/usr/bin/env python3
-"""End-to-end LLM smoke test: two real interview turns plus /finish against a running stack.
-
-Creates a throwaway interview through the API (removed the same way, never SQL) and fails if the
-model does not answer. Needs the stack up; an empty LLM_BASE_URL only exercises STUB_MODE.
-"""
 from __future__ import annotations
 
 import argparse
@@ -37,14 +32,12 @@ def die(msg: str) -> None:
     raise SystemExit(1)
 
 def check(cond: Any, label: str, detail: Any = "") -> None:
-    """The whole assertion framework: a smoke test owes a verdict, not a runner."""
     if not cond:
         die(f"{label}{f' ({detail})' if detail else ''}")
 
 # Inside the container: app.llm is importable here.
 
 def _call(base: str, token: str, method: str, path: str, body: Any = None, timeout: float = 20.0):
-    """-> (status, json | text). HTTP errors are returned, not raised: the status IS the assertion."""
     data = json.dumps(body).encode() if body is not None else None
     headers = {"Content-Type": "application/json"}
     if token:
@@ -65,7 +58,6 @@ def _call(base: str, token: str, method: str, path: str, body: Any = None, timeo
         return status, raw[:400].decode("utf-8", "replace")
 
 def stream_turn(base: str, token: str, iid: str, timeout: float, content: str = TURN) -> tuple[str, float]:
-    """POST one candidate turn, read SSE until done/error. Returns (sse, seconds)."""
     body = json.dumps({"interview_id": iid, "content": content}).encode()
     req = urllib.request.Request(f"{base}/api/interviews/{iid}/chat/stream", data=body, method="POST", headers={"Content-Type": "application/json"})
     if token:

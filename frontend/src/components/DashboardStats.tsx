@@ -13,8 +13,6 @@ import type { InterviewDimensions } from "@/lib/api";
 import { dimShort, groupDims, orderDims } from "@/lib/dimensions";
 
 interface Props {
-    /** One aggregate (backend models.InterviewDimensions), not a Feedback per rated run. Null until
-     *  it lands; `statsError` is the separate failure line, so "no data" and "could not load" differ. */
     stats: InterviewDimensions | null;
     statsError?: string | null;
     loading: boolean;
@@ -110,9 +108,6 @@ function StatRow({ dims }: { dims: InterviewDims }) {
     );
 }
 
-/** Signed change against a named comparison window. Muted, not green/red: the palette is greyscale,
- *  and more runs is not the same kind of good as a better score. Null (a window still filling) and a
- *  rounded zero both render nothing. */
 function Delta({ value, unit = "", note }: { value: number | null; unit?: string; note: string }) {
     if (value === null) return null;
     const rounded = Math.round(value);
@@ -126,8 +121,6 @@ function Delta({ value, unit = "", note }: { value: number | null; unit?: string
     );
 }
 
-/** One line of what the tiles add up to. Facts only, and it stops rather than pads: below
- *  TREND_WINDOW runs a side there is no trend to report. */
 function readout(dims: InterviewDims): string {
     const facts: string[] = [];
     if (dims.delta.accuracy !== null) {
@@ -174,7 +167,6 @@ function nextSteps(dims: InterviewDims, stats: InterviewDimensions | null): Step
     return steps.slice(0, 3);
 }
 
-/** Axis means, best and worst. Null until two axes carry a mean: one axis is not a comparison. */
 function axisSpread(stats: InterviewDimensions | null): { best: { label: string; mean: number }; weak: { label: string; mean: number }; gap: number } | null {
     if (!stats) return null;
     const rows = groupDims(orderDims(Object.keys(stats.averages)))

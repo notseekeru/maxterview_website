@@ -1,14 +1,3 @@
-"""Structured logging + per-request context (M13 tier 1).
-
-Two producers reach stdout: structlog (our calls) and stdlib `logging` (uvicorn, libraries, and every
-unhandled traceback). `configure_logging()` routes both through one chain: without that bridge prod is
-a mix of JSON and plain text, and the plain-text lines are the ones that matter most.
-
-Logs stay the only signal for content: every number the dashboard derives from a log line is a LogQL
-aggregate over whatever lines survive 14 days of retention. Duration moved to `telemetry.py`, which is
-what makes a percentile real (M13 tier 3).
-"""
-
 import logging
 import os
 import sys
@@ -29,7 +18,6 @@ SKIP_PATH = f"{API_PREFIX}/health"
 
 
 def _stamp_env(_, __, event_dict: dict) -> dict:
-    """Tag every record with the environment. The OTel resource tags spans and metrics, not lines."""
     event_dict["env"] = APP_ENV
     return event_dict
 
@@ -49,7 +37,6 @@ COMPACT_JSON = {"separators": (",", ":")}
 
 
 def configure_logging() -> None:
-    """Call once at app import, before anything logs."""
     renderer = structlog.dev.ConsoleRenderer() if APP_ENV in ("development", "test") else structlog.processors.JSONRenderer(**COMPACT_JSON)
     structlog.configure(
         processors=[*_SHARED_PROCESSORS, structlog.stdlib.ProcessorFormatter.wrap_for_formatter],
@@ -77,12 +64,6 @@ log = structlog.get_logger(__name__)
 
 
 class RequestContextMiddleware:
-    """One structured access line per request, plus `X-Request-ID` on every response.
-
-    Pure ASGI, not `BaseHTTPMiddleware`: no task boundary, so the response is never buffered (SSE keeps
-    streaming) and `duration_ms` covers the whole body. The root OTLP span wraps the same region.
-    """
-
     def __init__(self, app):
         self.app = app
 

@@ -5,7 +5,6 @@ import { reportRenderCrash } from "@/lib/errorBeacon";
 
 interface Props {
     children: ReactNode;
-    /** Render a card sized to sit INSIDE the shell (page crash) instead of a full-page takeover. */
     inline?: boolean;
 }
 

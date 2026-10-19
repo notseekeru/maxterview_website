@@ -1,20 +1,3 @@
-"""M10 billing/quota enforcement (MONETIZATION.md). Free / Premium / dev(-only), backend-authoritative.
-
-- **Entitlement (`tier`)**: source of truth is `ClerkUser.tier` (JWT claim), elevated by any active
-  `premium` row in `subscriptions` so billing can upgrade even when the JWT is stale. Default `"free"`.
-  A cancelled subscription keeps its already-paid period (MONETIZATION §5); `past_due`/`unpaid` and the
-  statuses `payments._revoke` writes for a refund or chargeback (`refunded`, `disputed`) revoke at once.
-- **`dev` tier**: only for the no-Clerk fallback identity (`CLERK_ENABLED=false`). `main.py`'s boot guard
-  refuses to boot with `CLERK_ENABLED=false` outside development/test, so `dev` cannot leak to prod.
-- **Quotas**: one daily chat-turn credit per owner is the only METERED gate, across all of the owner's
-  interviews in one UTC day. No per-interview cap, no token metering. See `chat_turn_limit`. Review
-  redos are the exception to the daily shape: they are capped PER RUN (`redo_limit`, counted on
-  `feedback.redos`), because a rebuild is spent on the review it rewrites and not on the day.
-- **Reset is LAZY**: `day` is part of the `turn_usage` PK, so a new UTC day simply has no row yet and the
-  first turn inserts. Do NOT add a scheduled reset (`UPDATE turn_usage SET turns = 0 WHERE day < today`):
-  that turns midnight into a whole-table write spike.
-"""
-
 import os
 from datetime import UTC, date, datetime
 
@@ -50,8 +33,6 @@ ENTITLED_STATUSES = ("active", "cancelled")
 
 
 async def _entitled_row(owner_id: str) -> dict | None:
-    """The one predicate for "this owner has paid time left", shared by tier + period readout. The period
-    is checked at read time, so no scheduled job is needed to lapse a subscription."""
     return await fetchrow(
         """
         SELECT plan, current_period_end FROM subscriptions
@@ -73,8 +54,6 @@ async def resolve_tier(user: ClerkUser) -> str:
 
 
 async def premium_until(owner_id: str) -> datetime | None:
-    """When the paid time lapses. Period mode never renews itself, so the user buying again IS the
-    renewal and the UI has to state the deadline."""
     return ((await _entitled_row(owner_id)) or {}).get("current_period_end")
 
 
@@ -86,21 +65,14 @@ def _quota(tier: str, what: str) -> float:
 
 
 def chat_turn_limit(tier: str, byok: bool = False) -> int:
-    """Daily chat-turn ceiling for `tier`, or the same tier's BYOK one when `byok`. Never uncapped:
-    `byok` is self-asserted (BYOK.md), so the ceiling is what stands between a saved endpoint and a
-    free ride on whoever's GPU the base_url names."""
     return int(_quota(tier, "byok_turns" if byok else "chat_turns"))
 
 
 def redo_limit(tier: str) -> int:
-    """How many times `tier` may rebuild the review of ONE finished run. Charged on success only
-    (main.regenerate_feedback), so a model that came back empty does not spend the owner's allowance."""
     return int(_quota(tier, "redos"))
 
 
 def resume_limit(tier: str) -> int:
-    """How many resumes this tier may keep. A storage cap, not a metered quota: importing one spends
-    nothing, so it is counted at INSERT and never decremented."""
     return int(_quota(tier, "resumes"))
 
 

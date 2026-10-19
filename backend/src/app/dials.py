@@ -1,10 +1,3 @@
-"""Dial vocabulary persisted on `interviews.*` beyond role/topic/level. API validation, the DB
-CHECKs (migration 0007), the LLM prompt blocks and the frontend sliders all derive from these.
-
-`level` keeps its own vocabulary (app/levels.py): target seniority, not a tuning knob. No prompt
-text here, llm.py owns the words (CYNICISM_PROMPTS, interview_plan).
-"""
-
 # `any` = unspecified, and the interviewer sizes its own scenario framing (data volumes, team
 # shape, process weight) off the role instead of assuming a startup or a bigco.
 COMPANY_SIZES: tuple[str, ...] = ("any", "1-10", "11-50", "51-200", "201-1k", "1k-5k", "5k+")

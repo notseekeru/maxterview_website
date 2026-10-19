@@ -52,7 +52,6 @@ def _public_key_from_jwk(jwk: dict) -> rsa.RSAPublicKey:
 
 
 def _fetch_jwks() -> dict:
-    """GET CLERK_JWKS_URL, cached for TTL; kid-miss re-fetches once."""
     global _jwks_cache, _jwks_cache_at
     now = time.time()
     if _jwks_cache is not None and (now - _jwks_cache_at) < _JWKS_CACHE_TTL_S:
@@ -66,9 +65,6 @@ def _fetch_jwks() -> dict:
 
 
 def verify_jwt(token: str, jwks: dict) -> ClerkUser:
-    """Verify Clerk JWT against JWKS (RS256, kid, iss/aud/exp) -> ClerkUser. Any failure raises
-    HTTPException(401) with no token detail leaked. aud checked ONLY when CLERK_AUDIENCE is set.
-    """
     try:
         headers = jwt.get_unverified_header(token)
     except jwt.PyJWTError as exc:
@@ -114,13 +110,6 @@ def _unauthorized() -> HTTPException:
 
 
 async def user_email(user: ClerkUser) -> str | None:
-    """Primary email: JWT claim when present, else Clerk's Backend API. The DEFAULT session token
-    carries no `email` claim (verified: exp, fva, iat, iss, nbf, sid, sts, sub, v), so relying on the
-    claim refuses every real user. Cached per process: billing wants it once per purchase, not per
-    request.
-
-    None means "no address available": a Clerk outage must not 500 a route that merely wants one.
-    """
     if user.email:
         return user.email
     if not (CLERK_SECRET_KEY and CLERK_DOMAIN):
@@ -165,8 +154,6 @@ def _extract_token(request: Request) -> str | None:
 
 
 def _attributed(request: Request, user: ClerkUser) -> ClerkUser:
-    """Identity onto request.state for the access log. The middleware reads `scope["state"]` after
-    the route ran: a contextvar cannot cross the rate limiter, which is a `BaseHTTPMiddleware`."""
     request.state.user_sub = user.sub
     return user
 

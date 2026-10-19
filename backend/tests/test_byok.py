@@ -1,9 +1,3 @@
-"""BYOK unit tests: encryption, validation, resolution fallbacks, and the probe's hygiene.
-
-Pure-logic: `db.fetchrow` is monkeypatched, so no live pool is needed. Endpoint-level coverage
-(clerk identity -> owner scoping) rides on the existing /api integration tests.
-"""
-
 import json
 
 import pytest
@@ -29,7 +23,6 @@ def encryption_key(monkeypatch):
 
 
 def _capture(monkeypatch, existing=None):
-    """Record every DB call; the SELECT that looks up the current row returns `existing`."""
     calls = []
 
     async def _fetchrow(query, *args):

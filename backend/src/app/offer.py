@@ -1,15 +1,3 @@
-"""Deterministic offer simulation: one graded run in, one offer's numbers out.
-
-Priced off the SOFT-SKILL read first (the communication axis: clarity, relevance, structure,
-confidence), then substance, then the move-review accuracy, so the letter mirrors how the candidate
-communicated rather than forming a second opinion about them. Deterministic on purpose: the same
-scores always price the same offer, which is what lets the analytics built on top of it mean anything,
-and it costs no model call.
-
-No prose lives here. The letter's wording is the frontend's, rendered around these numbers, so this
-file is the only thing that decides what an offer is worth.
-"""
-
 from datetime import date, datetime, timedelta
 from typing import Any, NamedTuple
 
@@ -84,7 +72,6 @@ class Terms(NamedTuple):
 
 
 def _round_to(value: float, step: int) -> int:
-    """Salaries are spoken in round numbers: an offer that reads $137,431 looks computed, not offered."""
     return int(round(value / step) * step)
 
 
@@ -93,22 +80,16 @@ def pto_days(performance: int) -> int:
 
 
 def benefits(performance: int) -> list[dict[str, str]]:
-    """The ladder this offer cleared. PTO first: it is the one rung every offer carries, so the letter
-    opens with days rather than with a perk."""
     cleared = [{"key": PTO_KEY, "label": "Paid time off", "value": f"{pto_days(performance)} days a year"}]
     cleared += [{"key": r.key, "label": r.label, "value": r.value} for r in LADDER if performance >= r.threshold]
     return cleared
 
 
 def ladder() -> tuple[tuple[str, str], ...]:
-    """Every rung as (key, label), in ladder order. The analytics counts offers against THIS list, so a
-    rung nobody has cleared yet still appears on the page instead of vanishing."""
     return ((PTO_KEY, "Paid time off"),) + tuple((r.key, r.label) for r in LADDER)
 
 
 def band_key(level: str) -> str:
-    """The band a target level prices against. An unknown slug is priced as mid rather than refused:
-    the alternative is a letter with no numbers on it because a vocabulary grew a word."""
     return level if level in BANDS else "mid"
 
 
@@ -117,24 +98,17 @@ def band_range(level: str) -> tuple[int, int, str]:
 
 
 def tier(performance: int) -> tuple[str, str]:
-    """(slug, label) for a performance number. Scanned worst-first, so the rung's floor is the bar."""
     key, _, label = next((t for t in reversed(TIERS) if performance >= t[1]), TIERS[0])
     return key, label
 
 
 def _axis_mean(scores: dict[str, Any], axis: str) -> float | None:
-    """Mean of the axis's dims that were ASSESSED, or None when the axis was never probed. A hole is
-    absence, not a zero: a run that only covered communication must not be docked for substance."""
     dims = DIMENSION_AXES[axis]
     present = [v for k, v in scores.items() if k in dims and isinstance(v, (int, float)) and not isinstance(v, bool)]
     return sum(present) / len(present) if present else None
 
 
 def performance(scores: dict[str, Any], accuracy: int | None) -> int | None:
-    """0-100 read of the run, or None when nothing about it was scored.
-
-    Each signal is normalized to 0-1 and the weights renormalize over the signals present, so a run
-    scored on communication alone is priced on communication alone rather than diluted toward zero."""
     signals: list[tuple[float, float]] = []
     for axis in ("communication", "substance"):
         mean = _axis_mean(scores, axis)
@@ -149,18 +123,11 @@ def performance(scores: dict[str, Any], accuracy: int | None) -> int | None:
 
 
 def title(role: str, level: str) -> str:
-    """The offer's job title. A role that already names its own seniority keeps it, so the letter does
-    not read "Senior Senior Product Manager"."""
     prefix = band_range(level)[2]
     return role if prefix and role.lower().startswith(prefix.lower()) else f"{prefix} {role}".strip()
 
 
 def terms(role: str, level: str, scores: dict[str, Any], accuracy: int | None) -> Terms | None:
-    """Price one offer, or None when the review scored nothing (an unpriced offer is a guess).
-
-    The base sits inside the band by construction, so a run can be paid poorly for its level but never
-    paid off-scale: whatever the model scores, the level the candidate dialled in still bounds it.
-    """
     perf = performance(scores, accuracy)
     if perf is None:
         return None

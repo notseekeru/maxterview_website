@@ -65,7 +65,6 @@ function OfferTiles({ board }: { board: OffersAnalytics }) {
 
 const TREND_CONFIG: ChartConfig = { base: { label: "Mean base", color: "var(--chart-1)" } };
 
-/** Mean base per month. A monthly TOTAL would be a headcount chart wearing a money label. */
 function OfferTrend({ board }: { board: OffersAnalytics }) {
     const points = board.activity.map((p) => ({ label: p.month.slice(2).replace("-", "/"), base: p.avg_base, offers: p.offers }));
 

@@ -1,17 +1,3 @@
-"""Hardcore reconciliation: a run whose live judge missed a turn must still be judged at review time.
-
-Regression for a silent pass. `judge_answer` returns None when the model will not produce a verdict,
-so that turn stores `move_class` NULL; a hardcore run skips the moves pass (`annotate=not hardcore`);
-and the review then banded the run off those NULLs - no failure recorded, no F, nothing to explain.
-A hardcore run that was never fully judged read as an ordinary pass.
-
-The same hole-filling covers the note column: a run annotated before migration 0016 holds classes and
-no notes, and a review of bare badges is the other silent pass this guards. Both are backfilled ONE
-TURN AT A TIME with the live judge's own call, so nothing already judged is re-read or re-classed.
-
-No DB and no model: the two hops that need either are the ones under test's control.
-"""
-
 from app import llm, main, rating
 
 INTERVIEW = {
@@ -33,10 +19,6 @@ SUMMARY = llm.FeedbackSummary(scores={}, verdict="ok", tips=["a", "b"], decision
 
 
 def _rows(classes: list[str | None], comments: list[str | None] | None = None) -> list[dict]:
-    """Stored transcript: one candidate turn per entry, each followed by the interviewer's reply.
-
-    `comments` is the note column. A run annotated before migration 0016 holds classes and no notes,
-    which is the second case this module covers."""
     notes = comments if comments is not None else [f"note {n}" for n in range(1, len(classes) + 1)]
     rows: list[dict] = []
     for n, (cls, note) in enumerate(zip(classes, notes, strict=True), 1):
@@ -46,7 +28,6 @@ def _rows(classes: list[str | None], comments: list[str | None] | None = None) -
 
 
 async def _run(monkeypatch, classes, backfill=None, comments=None):
-    """Drive the real `_generate_and_persist_feedback` with the DB and the model faked out."""
     rows = _rows(classes, comments)
     seen: dict = {"judge": [], "moves": None, "failed": None, "accuracy": None, "failure_arg": "unset"}
 

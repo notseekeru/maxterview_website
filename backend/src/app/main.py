@@ -65,7 +65,6 @@ COMPLETE_FEEDBACK_BACKOFF_MS = 800
 
 
 async def _backoff_sleep(ms: int) -> None:
-    """Module hook so tests can patch the auto-retry pause to a no-op."""
     await asyncio.sleep(ms / 1000)
 
 
@@ -76,8 +75,6 @@ CurrentUser = Annotated[ClerkUser, Depends(get_current_user)]
 
 
 async def _llm_config(user: CurrentUser) -> llm.LLMConfig:
-    """Per-request LLM target: the owner's BYOK provider when one is saved, else the system
-    default. Nested on CurrentUser, so the JWT is still verified once per request."""
     return await byok.resolve_config(user)
 
 
@@ -131,14 +128,8 @@ async def health() -> dict:
 
 @api.post("/client-errors", status_code=status.HTTP_204_NO_CONTENT)
 async def client_errors(request: Request) -> Response:
-    """Browser errors from EVERY page, signed in or not. Message, path, and the component stack of a
-    render crash: no JS stack (nothing here could symbolicate it), no query string (ids and tokens
-    live there).
-
-    The body is bounded before it is parsed and the route stays inside the per-client rate limit, so
-    the pair is the abuse ceiling. AI HERE: a chunked request with no Content-Length still reaches the
-    parser — the ingress `proxy-body-size` is the outer bound until a global limit exists.
-    """
+    # AI HERE: a chunked request with no Content-Length still reaches the
+    # parser — the ingress `proxy-body-size` is the outer bound until a global limit exists.
     declared = request.headers.get("content-length", "")
     if declared.isdigit() and int(declared) > CLIENT_ERROR_MAX_BYTES:
         raise HTTPException(status_code=status.HTTP_413_CONTENT_TOO_LARGE, detail="Not a browser error report")
@@ -231,11 +222,6 @@ async def delete_interview(
 
 
 async def _set_archived(interview_id: str, owner_id: str, archived: bool) -> dict:
-    """Set/clear `archived_at`, returning the row so the caller can update in place.
-
-    Archive is a list-hiding flag, not a status: the run keeps whatever lifecycle it had, still comes
-    back from GET /interviews, and still counts in the dashboard stats. That is the whole difference
-    from delete, which destroys it (see models.Interview.archived_at)."""
     row = await fetchrow(
         f"UPDATE interviews SET archived_at = CASE WHEN $3 THEN now() ELSE NULL END WHERE id = $1 AND owner_id = $2 RETURNING {INTERVIEW_COLS}",
         interview_id,
@@ -314,11 +300,6 @@ async def list_messages(
 
 
 async def _feedback_row(interview_id: str) -> asyncpg.Record | None:
-    """The review as the API serves it: feedback joined to the interview, for the hardcore failure.
-
-    Single read path for every feedback endpoint, because the failure lives on the interview row and
-    an INSERT ... RETURNING cannot reach it.
-    """
     return await fetchrow(
         "SELECT f.id::text, f.interview_id::text, f.scores, f.verdict, f.tips, f.decision, f.certainty, f.accuracy, f.redos, i.failed_turn, i.failed_class, f.created_at FROM feedback f JOIN interviews i ON i.id = f.interview_id WHERE f.interview_id = $1",
         interview_id,
@@ -476,7 +457,6 @@ async def update_template(
     body: TemplateCreate,
     user: CurrentUser,
 ) -> dict:
-    """Full replace, not a merge: the caller holds every field of the preset it is editing."""
     assignments = ", ".join(f"{f} = ${i}" for i, f in enumerate(DIAL_FIELDS, start=TEMPLATE_UPDATE_DIAL_PARAM))
     row = await fetchrow(
         f"UPDATE interview_templates SET name = $3, role = $4, level = $5, topic = $6, resume_id = $7::uuid, {assignments}, updated_at = now() WHERE id = $1 AND owner_id = $2 AND ($7::uuid IS NULL OR EXISTS (SELECT 1 FROM resumes WHERE id = $7::uuid AND owner_id = $2)) RETURNING {TEMPLATE_COLS}",
@@ -519,12 +499,6 @@ RESUME_COLS_WITH_TEXT = RESUME_COLS + ", text"
 
 
 def _resume_name(raw: str | None, fallback: str = "Untitled resume") -> str:
-    """The display name, from a filename stem on the upload path and as typed on the paste path.
-
-    The filename is attacker-controlled and is used as TEXT ONLY — never as a path, never to decide
-    anything. It gets the same hygiene as the body (which also caps it at the column's 80), so a name
-    cannot carry control characters or a zero-width join into the UI.
-    """
     stem = (raw or "").replace("\\", "/").rsplit("/", 1)[-1]
     if stem.lower().endswith(".pdf"):
         stem = stem[:-4]
@@ -532,8 +506,6 @@ def _resume_name(raw: str | None, fallback: str = "Untitled resume") -> str:
 
 
 def _resume_body(text: str) -> str:
-    """The text a resume is allowed to hold, or 422. Shared by both write paths and the extract route's
-    successor, so a pasted resume cannot skip the hygiene an extracted one gets."""
     body = resumes.sanitize(text, resumes.MAX_CHARS)
     if not body:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="There is no text to save. Paste some, or upload a PDF with selectable text.")
@@ -541,18 +513,12 @@ def _resume_body(text: str) -> str:
 
 
 def _resume_cap_error(tier: str, cap: int) -> HTTPException:
-    """402 when the CAP is what free-ness costs you — the UI already turns 402 into its upgrade notice
-    — and 409 when a paid owner simply hit the ceiling (nothing to sell them)."""
     if tier == "free":
         return HTTPException(status_code=status.HTTP_402_PAYMENT_REQUIRED, detail=f"The free plan includes {cap} resume. Delete it to import another, or upgrade to Pro for {billing.PREMIUM_RESUMES}.")
     return HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"You already have {cap} resumes, the maximum. Delete one to import another.")
 
 
 async def _insert_resume(owner_id: str, tier: str, name: str, text: str, page_count: int = 0) -> dict:
-    """The one write path for both import routes (PDF extract, paste).
-
-    Ownership is not a question here — the row is being created — but the tier cap is checked INSIDE
-    the INSERT, so two imports racing cannot both pass a count taken a moment earlier."""
     cap = billing.resume_limit(tier)
     row = await fetchrow(
         f"""
@@ -591,15 +557,6 @@ async def get_resume(
 
 @api.post("/resumes/extract", response_model=ResumeExtract)
 async def extract_resume(file: UploadFile, user: CurrentUser) -> ResumeExtract:
-    """PDF in, text out. Persists NOTHING: a hostile document runs inside this call and leaves no row,
-    no transaction and no attachable id behind — which is the whole reason the parse and the write are
-    two endpoints.
-
-    `read(MAX_BYTES + 1)` is what bounds what WE allocate: asking for one byte more than the cap
-    detects "too big" without ever holding the whole file. It does not bound what Starlette already
-    spooled while parsing the form (a part over 1MB goes to a temp file on disk — the pod needs a
-    writable /tmp), and nothing upstream caps the request body itself.
-    """
     data = await file.read(resumes.MAX_BYTES + 1)
     if len(data) > resumes.MAX_BYTES:
         raise HTTPException(status_code=status.HTTP_413_CONTENT_TOO_LARGE, detail=f"That file is larger than {resumes.MAX_BYTES // (1024 * 1024)} MB. Trim it down, or paste the text instead.")
@@ -614,8 +571,6 @@ async def extract_resume(file: UploadFile, user: CurrentUser) -> ResumeExtract:
 
 @api.post("/resumes", response_model=Resume, status_code=status.HTTP_201_CREATED)
 async def create_resume(body: ResumeCreate, user: CurrentUser) -> dict:
-    """Save. The paste path and the second half of the PDF import are the same request: the browser
-    posts text it already has, so `page_count` is 0 there and provenance only."""
     return await _insert_resume(user.sub, await billing.resolve_tier(user), body.name, body.text)
 
 
@@ -625,8 +580,6 @@ async def update_resume(
     body: ResumeCreate,
     user: CurrentUser,
 ) -> dict:
-    """Full replace, like presets: the editor holds every field it is writing. This is also the fix for
-    a bad extraction — paste the corrected text over it."""
     row = await fetchrow(
         f"UPDATE resumes SET name = $3, text = $4, updated_at = now() WHERE id = $1 AND owner_id = $2 RETURNING {RESUME_COLS_WITH_TEXT}",
         resume_id,
@@ -656,16 +609,11 @@ async def delete_resume(
 
 @api.get("/voice", response_model=VoiceCapability)
 async def voice_capability(user: CurrentUser) -> dict:
-    """Gate for the chat surface's voice controls: booleans, no secrets, so a deployment without the
-    Workers AI values shows a disabled control with a reason instead of a button that 503s."""
     return voice.capability()
 
 
 @api.post("/voice/tts")
 async def voice_tts(body: VoiceText, user: CurrentUser) -> Response:
-    """One line in, audio out. Audio rides its own request and never the SSE stream (VOICE.md gotcha
-    9). 503 is the honest code: optional infrastructure that is either configured or not, and the
-    sentence came back written for the visitor."""
     try:
         speech = await voice.speak(body.text)
     except voice.VoiceError as exc:
@@ -675,10 +623,6 @@ async def voice_tts(body: VoiceText, user: CurrentUser) -> Response:
 
 @api.post("/voice/stt", response_model=VoiceTranscript)
 async def voice_stt(file: UploadFile, user: CurrentUser) -> VoiceTranscript:
-    """One recorded take in, text out. Persists NOTHING: the clip lives for the length of this call,
-    which is the rule the resume extractor follows too (PLAN D16 applied to voice). `read(cap + 1)` is
-    what bounds what WE allocate; it does not bound what Starlette already spooled while parsing the
-    form, so a cap on the request body upstream is still owed."""
     data = await file.read(voice.MAX_UPLOAD_BYTES + 1)
     if len(data) > voice.MAX_UPLOAD_BYTES:
         raise HTTPException(status_code=status.HTTP_413_CONTENT_TOO_LARGE, detail=f"That recording is larger than {voice.MAX_UPLOAD_BYTES // (1024 * 1024)} MB.")
@@ -858,13 +802,6 @@ ANALYTICS_DIALS: tuple[tuple[str, dict[str, str]], ...] = (
 
 
 def dial_groups(rows: list[asyncpg.Record]) -> dict[str, list[dict]]:
-    """Bucket the flat (dial, value) aggregate rows into the page's dial groups.
-
-    Vocabulary order, not whatever order Postgres grouped in: a bar chart that reshuffles between
-    loads is unreadable. A value this file does not know (a slug added to the DB ahead of it) is
-    appended unlabelled rather than dropped - the page then shows a number it cannot name, which is
-    a bug report, instead of a silent hole.
-    """
     seen = {}
     for r in rows:
         seen.setdefault(r["dial"], {})[r["value"]] = {"runs": r["runs"], "rated": r["rated"], "avg_accuracy": r["avg_accuracy"], "hire_rate": r["hire_rate"]}
@@ -903,11 +840,6 @@ WHERE o.interview_id = $1 AND i.owner_id = $2
 
 
 def offer_row(r: asyncpg.Record) -> Offer:
-    """One stored offer as the page reads it: band edges and tier label resolved here, from the rate
-    card, rather than baked into the row (a re-priced band shows up for old letters too).
-
-    Returns the MODEL, not a dict: the aggregations below need `total_comp`, which only exists once
-    pydantic has built the row."""
     floor, ceiling, _ = offer.band_range(r["band"])
     tier, tier_label = offer.tier(r["performance"])
     return Offer(
@@ -961,9 +893,6 @@ def offer_summary(rows: list[Offer]) -> dict:
 
 
 def offer_groups(rows: list[Offer], buckets: list[tuple[str, str]], key_of) -> list[dict]:
-    """Bucket the offers by a vocabulary, in the vocabulary's own order: a comparison chart that
-    reshuffles between loads cannot be read. Empty buckets are dropped - the point is comparing what
-    the candidate actually did, not padding the axis with levels they never targeted."""
     groups = []
     for key, label in buckets:
         group = [r for r in rows if key_of(r) == key]
@@ -987,16 +916,12 @@ def offer_groups(rows: list[Offer], buckets: list[tuple[str, str]], key_of) -> l
 
 
 def offer_benefits(rows: list[Offer]) -> list[dict]:
-    """The benefit ladder counted over every offer. Rates are out of ALL offers, so a rung nobody
-    cleared reads 0% rather than being absent."""
     counted = Counter(b.key for r in rows for b in r.benefits)
     total = len(rows) or 1
     return [{"key": key, "label": label, "offers": counted.get(key, 0), "rate": round(100 * counted.get(key, 0) / total)} for key, label in offer.ladder()]
 
 
 def offer_activity(rows: list[Offer]) -> list[dict]:
-    """Offers per calendar month, oldest first, as the MEAN base of that month: a monthly total over a
-    personal history is a count, and the count is the bar beside it."""
     months: dict[str, list[int]] = {}
     for r in rows:
         months.setdefault(r.created_at.strftime("%Y-%m"), []).append(r.base_salary)
@@ -1004,8 +929,6 @@ def offer_activity(rows: list[Offer]) -> list[dict]:
 
 
 def offer_board(rows: list[Offer]) -> dict:
-    """The offers half of the analytics payload, assembled from the same row builder the per-run letter
-    uses, so a summary and a letter can never disagree about the same offer."""
     return {
         "summary": offer_summary(rows),
         "offers": rows,
@@ -1018,9 +941,6 @@ def offer_board(rows: list[Offer]) -> dict:
 
 @api.get("/interviews/{interview_id}/offer", response_model=Offer)
 async def get_interview_offer(interview_id: str, user: CurrentUser) -> dict:
-    """One run's letter. The review folds the offer in, and the review is about ONE run: asking for the
-    whole history there would ship every offer to read one. 404 means no letter yet (the run is not
-    completed, or its review scored nothing), which the review renders as nothing at all."""
     row = await fetchrow(OFFER_SQL, interview_id, user.sub)
     if row is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No offer for this interview")
@@ -1029,7 +949,6 @@ async def get_interview_offer(interview_id: str, user: CurrentUser) -> dict:
 
 @api.get("/usage")
 async def get_usage(user: CurrentUser, config: LLMConfigDep) -> dict:
-    """Cheap quota status: tier + the daily GLOBAL chat-turn dial (per owner, all interviews)."""
     tier = await billing.resolve_tier(user)
     # BYOK swaps in its own ceiling, so this is the effective limit: the UI computes
     # `limit - remaining` and would otherwise show a negative `used`.
@@ -1063,14 +982,12 @@ async def get_llm_provider(user: CurrentUser) -> dict:
 
 @api.put("/settings/llm", response_model=LLMProvider)
 async def put_llm_provider(body: LLMProviderUpdate, user: CurrentUser) -> dict:
-    """Save the owner's provider. 503 when the deployment has no BYOK_ENCRYPTION_KEY."""
     await byok.save(user.sub, body.base_url, body.model, body.api_key)
     return await byok.public_view(user)
 
 
 @api.delete("/settings/llm", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_llm_provider(user: CurrentUser) -> None:
-    """Forget the owner's provider entirely; every call reverts to the system default."""
     await byok.clear(user.sub)
 
 
@@ -1081,13 +998,11 @@ async def test_llm_provider(user: CurrentUser) -> dict:
 
 @api.post("/billing/checkout")
 async def billing_checkout(user: CurrentUser) -> dict:
-    """Start the premium upgrade: `{"url": …}` to follow, or `{"qr": …}` to render in the page."""
     return await payments.start_upgrade(user)
 
 
 @api.post("/billing/cancel", response_model=dict)
 async def billing_cancel(user: CurrentUser) -> dict:
-    """Stop future billing. PayMongo has no billing portal, so this is our cancel path."""
     await payments.cancel_upgrade(user)
     return {"ok": True}
 
@@ -1112,13 +1027,6 @@ async def billing_webhook_simulate(event: dict) -> PlainTextResponse:
 
 
 async def _chat_session(interview_id: str, user: CurrentUser) -> tuple[dict, list, int, Dials]:
-    """Interview row + transcript + arc position, for both chat endpoints (the opener and a reply).
-
-    Ownership is the WHERE clause rather than a pre-check, so a foreign id is a plain 404. The resume
-    comes back with the interview: a correlated scalar subquery rather than a JOIN because
-    INTERVIEW_COLS is deliberately unqualified and `resumes` has `id`/`owner_id` too - a join would
-    make every one of those columns ambiguous.
-    """
     interview = await fetchrow(
         f"SELECT {INTERVIEW_COLS}, (SELECT r.text FROM resumes r WHERE r.id = interviews.resume_id) AS resume_text FROM interviews WHERE id = $1 AND owner_id = $2",
         interview_id,
@@ -1151,7 +1059,6 @@ async def _chat_session(interview_id: str, user: CurrentUser) -> tuple[dict, lis
 
 
 def _lockout_detail(tier: str, byok: bool, limit: int) -> str:
-    """402 copy. Upgrading is the answer only on free: the one tier where Pro raises the BYOK ceiling."""
     if not byok:
         return "Daily chat-turn credits reached. Try again after midnight UTC, or upgrade to Pro."
     pro = billing.chat_turn_limit("premium", byok=True)
@@ -1159,13 +1066,6 @@ def _lockout_detail(tier: str, byok: bool, limit: int) -> str:
 
 
 async def _spend_chat_turn(user: CurrentUser, config: llm.LLMConfig) -> None:
-    """One MODEL turn = one chat credit, so every path that generates goes through here (the opener,
-    the reply to an answer, the sign-off). Refusal happens before the call, never after it.
-
-    BYOK pays the provider, not us, so the TIER cap is not the gate - the tier's BYOK ceiling is, and
-    the turn is metered either way: `byok` is self-asserted, and a waived + unmetered cap is a free
-    ride on whoever's GPU the owner's base_url names (BYOK.md).
-    """
     tier = await billing.resolve_tier(user)
     limit = billing.chat_turn_limit(tier, byok=config.byok)
     if await billing.chat_turns_used(user.sub) >= limit:
@@ -1180,17 +1080,6 @@ async def _reply_frames(
     asked: int,
     on_error: Callable[[], Awaitable[None]] | None = None,
 ) -> AsyncIterator[str]:
-    """One model turn as SSE frames: the deltas, then the persisted reply and `done` - or one
-    terminal `error` frame and nothing after it.
-
-    Shared by the opener and the reply path because the wire format has to be identical; the rollback
-    is what differs, which is why the caller owns it (`on_error`). The whole protocol lives here, and
-    the difference matters: a `done` frame behind an error frame would tell the client the turn
-    landed, so a rolled-back reply could still be spoken aloud.
-
-    A model or write failure never propagates: the error frame is the contract. BaseException does,
-    so a cancelled client keeps unwinding to the caller's cleanup.
-    """
     collected: list[str] = []
     turn_started = time.perf_counter()
     try:
@@ -1224,12 +1113,6 @@ async def _reply_frames(
 
 @api.post("/interviews/{interview_id}/chat/kickoff")
 async def chat_kickoff(interview_id: str, user: CurrentUser, config: LLMConfigDep) -> StreamingResponse:
-    """The interviewer's opening turn.
-
-    The first message of a run is a model generation rather than a canned bubble the frontend draws,
-    so it is streamed and metered like every other turn (llm.OPENING_PHASE), and it is generated once:
-    the endpoint refuses a transcript that already has an interviewer turn in it.
-    """
     interview, _transcript, asked, dials = await _chat_session(interview_id, user)
     if asked:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="This interview has already opened.")
@@ -1272,14 +1155,6 @@ async def chat_stream(
     user_msg_id = user_msg["id"] if user_msg else None
 
     async def _discard_turn() -> None:
-        """Delete the in-flight user turn; never raises.
-
-        Only while the run is still going: /finish can land while this turn is in flight, and a
-        turn deleted after that leaves a completed run holding no answers - /feedback 404s and
-        /feedback/generate 409s forever, so the retry the UI offers can never clear it.
-
-        Runs on the failure path, including cancellation, where a raising rollback would mask the
-        original error. Shielded because a cancelled task can be cancelled again mid-delete."""
         if not user_msg_id:
             return
         try:
@@ -1358,9 +1233,6 @@ async def _require_interview_owned(interview_id: str, owner_id: str) -> None:
 
 
 async def _has_transcript(interview_id: str) -> bool:
-    """Any CANDIDATE turn? The grader reads candidate answers (llm._format_transcript), so a run
-    holding only interviewer turns - the generated opener, or the hardcore shout - grades to an empty
-    transcript: 503 forever, which is the state this predicate exists to keep unreachable."""
     row = await fetchrow("SELECT 1 FROM messages WHERE interview_id = $1 AND role = 'user' LIMIT 1", interview_id)
     return row is not None
 
@@ -1383,17 +1255,6 @@ async def _upsert_feedback(interview_id: str, scores: dict, verdict: str, tips: 
 
 
 async def _sync_offer(interview_id: str) -> None:
-    """Price the offer from the review that was just written, or re-price it after a re-grade.
-
-    Called from both feedback write paths and nowhere else: the offer is a function of the stored
-    scores, so minting one anywhere else would let the two disagree. Three cases write no letter: no
-    feedback row, a review that scored nothing (an offer with no evidence behind it is a guess wearing
-    a number), and a NON-HIRING call - reject and lean_reject are verdicts the candidate still has to
-    read, and a letter beside one would contradict the review it came from. That last case DELETES any
-    letter already priced, so a re-grade to a rejection cannot leave one standing. Only a COMPLETED run
-    gets a letter: the manual POST /feedback path accepts any status, and a pending run has no
-    interview to have been offered for.
-    """
     row = await fetchrow(
         "SELECT i.role, i.level, f.scores, f.accuracy, f.decision FROM interviews i JOIN feedback f ON f.interview_id = i.id WHERE i.id = $1 AND i.status = 'completed'",
         interview_id,
@@ -1424,11 +1285,6 @@ async def _sync_offer(interview_id: str) -> None:
 
 
 def _questions_by_turn(history_rows: list[asyncpg.Record]) -> dict[int, str]:
-    """Candidate turn number -> the question it answered, for the per-turn hardcore backfill.
-
-    Numbering matches llm._format_transcript: a plain count over candidate rows, with the interviewer's
-    most recent line before it as its question. Turn 1 maps to "" when nothing was asked: it answers
-    the frontend's bubble rather than a stored message, and llm.judge_answer knows that question."""
     questions: dict[int, str] = {}
     asked = ""
     turn = 0
@@ -1442,12 +1298,6 @@ def _questions_by_turn(history_rows: list[asyncpg.Record]) -> dict[int, str]:
 
 
 async def _persist_moves(interview_id: str, candidate_ids: list[str], moves: dict[int, rating.Move]) -> list[str]:
-    """Write the annotator's class and note onto their message rows; return the classes stored.
-
-    `moves` keys are 1-based candidate turn numbers indexing `candidate_ids` (llm._format_transcript
-    numbers the same turns off the same query). One statement writes every candidate row, NULLing the
-    turns this pass did not annotate, so a re-grade cannot leave a stale badge or note behind. An empty
-    `moves` (classifier failed) is a no-op: the previous annotations and accuracy stay put."""
     graded = {turn: m for turn, m in moves.items() if isinstance(turn, int) and 1 <= turn <= len(candidate_ids)}
     if not graded:
         return []
@@ -1463,12 +1313,6 @@ async def _persist_moves(interview_id: str, candidate_ids: list[str], moves: dic
 
 
 async def _reconcile_hardcore_moves(interview_id: str, history_rows: list[asyncpg.Record], candidate_rows: list[asyncpg.Record], config: llm.LLMConfig) -> list[str]:
-    """The stored hardcore classes, with any hole backfilled ONE TURN AT A TIME by the live judge call.
-
-    Nothing here overwrites a class the candidate was already shown: the live judge wrote classes (and
-    usually notes) as the answers came in, so this fills only what it could not call, or a note it did
-    not write - which is every turn on a run annotated before the note column existed. Annotating the
-    whole transcript instead would re-read and re-class answers already judged live."""
     judged: list[rating.Move | None] = [rating.Move(r["move_class"], r["comment"]) if r["move_class"] else None for r in candidate_rows]
     holes = [n for n, m in enumerate(judged, 1) if m is None or not m.comment]
     if not holes:
@@ -1499,9 +1343,6 @@ async def _auto_generate_and_persist_feedback(interview_id: str, config: llm.LLM
 
 
 async def _generate_and_persist_feedback(interview_id: str, config: llm.LLMConfig) -> dict | None:
-    """Traced wrapper. This is the only place in the app that makes several model calls in a row, so
-    the span is the only thing that can say which stage owns the wall clock.
-    """
     with telemetry.span("feedback.generate") as current:
         row = await _run_feedback_pipeline(interview_id, config)
         current.set_attribute("feedback.outcome", "ok" if row is not None else "error")

@@ -1,11 +1,3 @@
-"""Resume extractor: the caps, the rejections, and the text hygiene.
-
-No DB and no Postgres — every assertion here is decided before a handler runs, which is the point of
-keeping app/resumes.py framework-free. Fixtures are generated (never committed): a real PDF with a
-correct xref table is ~20 lines of bytes, and `PdfWriter` gives the multi-page and encrypted variants
-through public API only.
-"""
-
 from io import BytesIO
 
 import pytest
@@ -15,11 +7,6 @@ from app import resumes
 
 
 def mini_pdf(text: str = "Hello Resume") -> bytes:
-    """A real, xref-correct one-page PDF with `text` drawn on it.
-
-    Hand-built rather than pulled from a fixture file: offsets are computed, so this cannot rot, and
-    it keeps the repo free of a binary blob that no reviewer can read.
-    """
     content = f"BT /F1 12 Tf 20 100 Td ({text}) Tj ET".encode() if text else b""
     bodies = [
         b"<< /Type /Catalog /Pages 2 0 R >>",
@@ -42,8 +29,6 @@ def mini_pdf(text: str = "Hello Resume") -> bytes:
 
 
 def replicated(pages: int, text: str = "Hello Resume") -> bytes:
-    """The same page N times: `extract_text` needs real content per page, and blank pages would make
-    the page-cap test indistinguishable from the no-text-layer rejection."""
     writer = PdfWriter()
     for _ in range(pages):
         writer.add_page(PdfReader(BytesIO(mini_pdf(text))).pages[0])

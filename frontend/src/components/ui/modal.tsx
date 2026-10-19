@@ -2,13 +2,8 @@ import { type ReactNode, useEffect, useId, useRef } from "react";
 
 import { cn } from "@/lib/utils";
 
-/** Native <dialog showModal()>: backdrop, focus trap, Esc-to-close and an inert background come from
- *  the platform, which is why this needs no Radix dialog dependency. The platform does not lock the
- *  page scroll behind it, so that is the one thing done by hand (`overscroll-contain`).
- *
- *  AI HERE: no open/close animation and one modal at a time (nothing here queues). Upgrade path is a
- *  Radix dialog if we ever need stacked modals or transitions.
- */
+// AI HERE: no open/close animation and one modal at a time (nothing here queues). Upgrade path is a
+// Radix dialog if we ever need stacked modals or transitions.
 export function Modal({ open, onClose, title, children, className }: { open: boolean; onClose: () => void; title: string; children: ReactNode; className?: string }) {
     const ref = useRef<HTMLDialogElement>(null);
     // <dialog> is named by aria-* alone: the <h2> inside does not name it.

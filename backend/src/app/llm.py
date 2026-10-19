@@ -36,13 +36,6 @@ RESUME_PROMPT_CHARS = int(os.getenv("RESUME_PROMPT_CHARS", "8000"))
 
 @dataclass(frozen=True)
 class LLMConfig:
-    """One OpenAI-compatible target: where a call goes and with whose key.
-
-    Threaded into every LLM call instead of the module globals, because the target became
-    per-owner as soon as BYOK existed (app/byok.py). `byok` marks user-supplied credentials:
-    they change WHO pays, which the chat quota (tier cap -> that tier's BYOK ceiling) and GET /usage branch on.
-    """
-
     base_url: str
     model: str
     api_key: str = ""
@@ -52,7 +45,6 @@ class LLMConfig:
 
     @property
     def stub(self) -> bool:
-        """No base URL -> deterministic stub mode (dev/seed/tests), no network."""
         return not self.base_url
 
 
@@ -61,7 +53,6 @@ SYSTEM_CONFIG = LLMConfig(base_url=LLM_BASE_URL, model=LLM_MODEL, api_key=LLM_AP
 
 
 def grader_config(config: LLMConfig) -> LLMConfig:
-    """Scoring config for a chat config: LLM_GRADER_* when they differ, else the same provider."""
     base_url = config.grader_base_url or config.base_url
     model = config.grader_model or config.model
     if (base_url, model) == (config.base_url, config.model):
@@ -85,14 +76,12 @@ LLM_TIMEOUT = httpx.Timeout(connect=10.0, read=120.0, write=30.0, pool=10.0)
 
 
 def provider_host(config: LLMConfig) -> str:
-    """The endpoint a call went to, for logs. A URL is not a secret, and which host is the first question a provider outage asks. BYOK rows make the answer per-owner."""
     if not config.base_url:
         return "unset base URL"
     return httpx.URL(config.base_url).host or config.base_url
 
 
 def unreachable_detail(exc: Exception, config: LLMConfig) -> str | None:
-    """The sentence a candidate can act on when the provider never answered, else None. `ConnectError` names nothing a human can fix; for BYOK the endpoint is what they can change."""
     if not isinstance(exc, httpx.TransportError):
         return None
     who = "your provider" if config.byok else "the deployment's provider"
@@ -161,7 +150,6 @@ GRADER_RESUME_PROMPT = (
 
 
 def injectable_resume(text: str) -> str:
-    """The resume as the MODEL reads it: contact-stripped, sliced, fence-safe. Both prompts call this, so interviewer and grader always read the same text. The truncation marker is not decoration: without it a model reads a partial history as the whole one."""
     body = _URL_RE.sub("[link]", _EMAIL_RE.sub("[email]", text))
     if len(body) > RESUME_PROMPT_CHARS:
         body = body[:RESUME_PROMPT_CHARS] + " [...resume truncated]"
@@ -284,7 +272,6 @@ def _technical_phase(n: int, total: int, level: str = "any") -> str:
 
 
 def interview_plan(dials: Dials | None = None, level: str = "any") -> tuple[str, ...]:
-    """Every QUESTION of the arc, in order. The turn after the last entry is the sign-off, so a plan of n entries means n + 1 model turns. `level` only re-writes the ops question's wording, never the plan's LENGTH, so the closing-turn math in main.py does not depend on it."""
     d = dials or Dials()
     plan = [_chitchat_phase(n, d.mix_chitchat) for n in range(1, d.mix_chitchat + 1)]
     plan.append(OPENING_PHASE)
@@ -295,27 +282,19 @@ def interview_plan(dials: Dials | None = None, level: str = "any") -> tuple[str,
 
 
 def interview_phase(asked: int, dials: Dials | None = None, level: str = "any") -> str:
-    """Phase directive for the next interviewer turn, where `asked` = interviewer turns so far. Past the end of the plan the LAST QUESTION repeats, so an over-run transcript cannot put the interviewer back at the opener."""
     plan = interview_plan(dials, level)
     return plan[min(max(asked, 0), len(plan) - 1)]
 
 
 def is_closing_turn(asked: int, dials: Dials | None = None) -> bool:
-    """True when this turn is the closing statement: every question has been asked."""
     return asked == len(interview_plan(dials))
 
 
 def is_interview_finished(asked: int, dials: Dials | None = None) -> bool:
-    """True once the closing statement has been given: refuse the turn. Without this the close repeats forever, spending a chat credit per repeat."""
     return asked > len(interview_plan(dials))
 
 
 def system_prompt(role: str, level: str, topic: str = "", asked: int = 0, dials: Dials | None = None, resume: str = "") -> str:
-    """Build the versioned system prompt. `role` and `level` are the target title and seniority slug
-    from app.levels; `asked` = interviewer turns so far (0 = opener pending) and selects the phase
-    directive; `dials` None means the defaults. `resume` is the attached text (sanitized by
-    app/resumes.py): quoted as data, sliced and contact-stripped by injectable_resume. It arrives HERE
-    rather than as a synthetic turn, so no count that reads the transcript needs a special case."""
     d = dials or Dials()
     parts = [SYSTEM_PROMPT_V1, INJECTION_GUARD, GROUNDING_PROMPT, f'The candidate is interviewing for the role: "{role}".']
     if level and level != "any":
@@ -373,7 +352,6 @@ assert set(DIMENSION_RUBRIC) == set(FEEDBACK_DIMS) and len(FEEDBACK_DIMS) == len
 
 
 def _dimension_lines() -> str:
-    """The rubric as the grader reads it: one axis per line, its dims listed inside it."""
     return "\n".join(f"{axis.upper()}: " + "; ".join(f"{d} - {DIMENSION_RUBRIC[d]}" for d in dims) for axis, dims in dimensions.DIMENSION_AXES.items())
 
 
@@ -419,7 +397,6 @@ Brutal honesty was requested: lead the verdict with the weakest part of the inte
 
 
 def _grader_band(level: str) -> str:
-    """Without it every candidate is graded against the same absolute bar, which is how an intern gets marked down for lacking senior evidence."""
     if not level or level == "any":
         return "\n\nTarget band is unspecified: set the bar from the evidence in the transcript and name the band you graded against in the verdict."
     band = levels.label(level).lower()
@@ -549,7 +526,6 @@ Return ONLY the JSON object, no prose, no markdown."""
 
 
 async def stream_chat(messages: list[ChatMessage], config: LLMConfig) -> AsyncIterator[str]:
-    """Timed and traced wrapper around the provider stream. The sample is the whole stream, not the first token: a turn that dribbles for 90s and one that answers in 3s are the same number to a user reading it as it arrives."""
     started = time.perf_counter()
     outcome = "ok"
     with telemetry.span("llm.stream", **{"llm.stage": "chat", "llm.model": config.model}) as current:
@@ -570,7 +546,6 @@ async def stream_chat(messages: list[ChatMessage], config: LLMConfig) -> AsyncIt
 
 
 async def _stream_chat(messages: list[ChatMessage], config: LLMConfig) -> AsyncIterator[str]:
-    """Stream the reply as SSE text deltas. Stub mode (no base URL) echoes the last user message by whitespace, so the wire format is testable without a live model. A call with no user message is the opener, which has nothing to echo: it gets the material ask instead."""
     if config.stub:
         last = [_m for _m in messages if _m.role == "user"]
         reply = last[-1].content if last else OPENING_QUESTION
@@ -614,7 +589,6 @@ def _extract_delta(chunk: str) -> str:
 
 
 async def closing_line(history: list[ChatMessage], config: LLMConfig) -> str:
-    """The sign-off. Always returns a usable line, never raises. Not streamed: a reply that is only valid once whole cannot be shown as it arrives. Stub returns the canned line, because echoing the last user message reads as the interview carrying on."""
     if config.stub:
         return CLOSING_MESSAGE
     system = next((m.content for m in history if m.role == "system"), "")
@@ -647,7 +621,6 @@ DEFAULT_TIPS = ["Use STAR format.", "Be more specific with metrics.", "Slow down
 
 
 def _shape(value) -> str:
-    """Content-free fingerprint of a payload for diagnosing schema drift (never the text)."""
     if isinstance(value, dict):
         return "{" + ",".join(f"{k}={_shape(v)}" for k, v in sorted(value.items())) + "}"
     if isinstance(value, (int, float)) and not isinstance(value, bool):
@@ -658,7 +631,6 @@ def _shape(value) -> str:
 
 
 def _deterministic_summary() -> FeedbackSummary:
-    """Deterministic stand-in for STUB_MODE ONLY (no LLM configured), so dev/seed/tests get a real-looking shape. The real-model path never fabricates scores: on genuine failure it surfaces absence and writes no feedback, rather than poisoning dashboard stats with fake 6s."""
     return FeedbackSummary(
         scores={d: 6 for d in FEEDBACK_DIMS},
         verdict="Good overall; practice keeping answers concise and structured.",
@@ -670,7 +642,6 @@ def _deterministic_summary() -> FeedbackSummary:
 
 
 def _stub_moves(history: list[ChatMessage]) -> dict[int, rating.Move]:
-    """STUB per-turn annotations: cycle the vocabulary over the candidate turns, each with the note for its class, so a model-free run exercises the whole review surface."""
     turns = sum(1 for m in history if m.role == "user")
     moves: dict[int, rating.Move] = {}
     for t in range(1, turns + 1):
@@ -684,7 +655,6 @@ EVIDENCE_CAP_BASE, EVIDENCE_CAP_STEP = 40, 8
 
 
 def _graded_answers(history: list[ChatMessage], dials: Dials | None) -> int:
-    """Small talk is not evidence: only turns answering a question past the chitchat count."""
     first_graded = (dials or Dials()).mix_chitchat + 1
     asked = graded = 0
     for m in history:
@@ -700,14 +670,12 @@ def _evidence_cap(history: list[ChatMessage], dials: Dials | None) -> int:
 
 
 def _apply_evidence_cap(summary: FeedbackSummary, history: list[ChatMessage], dials: Dials | None, *, failed: bool = False) -> FeedbackSummary:
-    """Clamp the model's certainty to what the transcript can support. `failed` is a hardcore failure whose certainty is already set: a run ENDED by a wrong answer does not become less certain for having died early, the class that killed it is the evidence."""
     if summary.certainty is not None and not failed:
         summary.certainty = min(summary.certainty, _evidence_cap(history, dials))
     return summary
 
 
 def _coerce_decision(value) -> str | None:
-    """Canonical slug for a model-emitted decision, or None when unrecognisable. Tolerates label drift (Lean Hire). An unknown label stays None: landing on the wrong side of the spectrum is worse than reporting no decision."""
     if not isinstance(value, str):
         return None
     slug = re.sub(r"[\s-]+", "_", value.strip().lower())
@@ -715,7 +683,6 @@ def _coerce_decision(value) -> str | None:
 
 
 def _coerce_certainty(value) -> int | None:
-    """Certainty pulled into 0-100, or None if not a number. Mirrors _coerce_score: tolerates the drift a small sampler emits (85%, 0.85) rather than discarding an otherwise valid decision over one field."""
     if isinstance(value, bool):
         return None  # JSON true/false is not a percentage
     if isinstance(value, str):
@@ -731,10 +698,6 @@ def _coerce_certainty(value) -> int | None:
 
 
 def _coerce_score(value) -> float | None:
-    """One dim's score pulled into the declared 1-10 range, or None if not a number. Tolerates the drift
-    a small sampler emits on short or failed transcripts (7, 7/10, out of range: the rubric floor is 1,
-    so a model answering 0 for said nothing means the floor). Discarding a whole verdict+tips payload
-    over one digit is what produced the schema_mismatch 503s."""
     if isinstance(value, bool):
         return None  # JSON true/false is not a score
     if isinstance(value, str):
@@ -748,7 +711,6 @@ def _coerce_score(value) -> float | None:
 
 
 def _valid_scores(value) -> dict | None:
-    """Every dim the model actually scored, as 1-10 floats; None when it scored none. Missing and null are both not assessed and a hole is dropped, not fatal. A response with no scored dim at all is still a failed parse."""
     if not isinstance(value, dict):
         return None
     scores = {}
@@ -762,7 +724,6 @@ def _valid_scores(value) -> dict | None:
 
 
 def _coerce_move_class(value) -> str | None:
-    """Canonical slug for a model-emitted move class, or None when unrecognisable. Tolerates sampler drift (Inaccuracy, Book move). An unknown label is dropped, never mapped to the nearest class: accuracy is the average of these."""
     if not isinstance(value, str):
         return None
     slug = re.sub(r"[^a-z]", "", value.lower())
@@ -772,10 +733,6 @@ def _coerce_move_class(value) -> str | None:
 
 
 def _coerce_comment(value, max_chars: int = MOVE_COMMENT_MAX) -> str | None:
-    """One turn's note, or None when the model wrote nothing usable. Whitespace is collapsed: the
-    transcript renders it as one line under the bubble. An overlong note is cut at the last sentence end
-    that fits, never mid-word. Em dashes become the repo's hyphen form: the prompt asks for plain prose,
-    models still emit them (measured, twice from the same provider)."""
     if not isinstance(value, str):
         return None
     note = re.sub(r"\s*\u2014+\s*", " - ", " ".join(value.split()))
@@ -787,10 +744,6 @@ def _coerce_comment(value, max_chars: int = MOVE_COMMENT_MAX) -> str | None:
 
 
 def _valid_moves(value, turn_count: int) -> dict[int, rating.Move] | None:
-    """Turn -> Move from a classification payload, or None when nothing usable is in it. Accepts the
-    declared list shape and a bare {turn: class} map. Out-of-range, duplicate and unclassifiable entries
-    are dropped, never guessed: the caller indexes message rows with these. A turn whose class is
-    unusable is dropped even when it carries a note."""
     entries = [{"turn": k, "class": v} for k, v in value.items()] if isinstance(value, dict) else value
     if not isinstance(entries, list):
         return None
@@ -820,7 +773,6 @@ async def _completion(
     json_schema: dict | None = None,
     temperature: float | None = 0.0,
 ) -> str | None:
-    """Timed and traced wrapper: every non-streaming model call in the app arrives here or at `stream_chat`. `stage` is what makes a feedback run legible, since grader, formatter and the per-turn judge are the same call to the same provider."""
     started = time.perf_counter()
     with telemetry.span("llm.completion", **{"llm.stage": stage, "llm.model": config.model}) as current:
         text = await _completion_call(system, user_text, config=config, max_tokens=max_tokens, json_output=json_output, json_schema=json_schema, temperature=temperature)
@@ -842,7 +794,6 @@ async def _completion_call(
     # decides rubric edges by coin flip (it emitted 0 against a floor of 1 often enough to 503).
     temperature: float | None = 0.0,
 ) -> str | None:
-    """One non-streaming completion. Raw assistant text, or None on failure. Logs transport and empty failures only, never content or transcript bodies, and never raises: a model outage must not 500 the caller that would otherwise leave an interview half-finished."""
     payload: dict = {
         "model": config.model,
         "messages": [{"role": "system", "content": system}, {"role": "user", "content": user_text}],
@@ -885,7 +836,6 @@ def _json_format(schema: dict | None) -> dict:
 
 
 async def _request_grader_notes(history: list[ChatMessage], dials: Dials | None, config: LLMConfig, resume: str = "", level: str = "any") -> str | None:
-    """Stage 1: grade the FULL transcript in free text. Retries once. Runs on the grader config. Fresh prompt and a role-labelled transcript: the model is far more reliable at prose critique than at strict JSON over a long context."""
     transcript = _format_transcript(history)
     if not transcript:
         log.warning("llm.feedback.empty_transcript")
@@ -905,9 +855,6 @@ async def _request_grader_notes(history: list[ChatMessage], dials: Dials | None,
 
 
 def _format_transcript(history: list[ChatMessage]) -> str:
-    """Role-label the stored turns so the grader can attribute answers. Candidate turns are numbered from
-    1 in transcript order: that number is the handle the move classifier returns and main.py maps back
-    onto a message row, so it stays a count over CANDIDATE turns and must not be renumbered per caller."""
     lines: list[str] = []
     turn = 0
     for m in history:
@@ -922,10 +869,6 @@ def _format_transcript(history: list[ChatMessage]) -> str:
 
 
 async def _request_format(notes: str, config: LLMConfig, failure: tuple[int, str] | None = None) -> FeedbackSummary | None:
-    """Stage 2: turn the grader's short notes into the exact JSON schema. Fresh, SMALL context is where
-    schema adherence is cheap and reliable. Retries once, this is the fragile hop. `failure` (hardcore:
-    the turn and class that ended the run) is appended so the verdict can shout, and forces
-    decision=reject rather than trusting the model to reach it from the notes."""
     system = FEEDBACK_PROMPT_V1 + (HARDCORE_FORMAT_PROMPT.format(turn=failure[0], cls=failure[1]) if failure else "")
     for _ in range(2):
         content = await _completion(
@@ -976,10 +919,6 @@ async def _request_format(notes: str, config: LLMConfig, failure: tuple[int, str
 
 
 async def classify_turns(history: list[ChatMessage], config: LLMConfig) -> dict[int, rating.Move]:
-    """Turn -> annotation for every candidate answer. Returns {} when the model will not cooperate. Reads
-    the FULL transcript, so it runs on the grader config and retries once. Giving up is survivable: the
-    post-game pass loses its accuracy and badges and keeps its verdict. One caller, deliberately: a
-    hardcore run is judged turn by turn as it is answered."""
     turns = sum(1 for m in history if m.role == "user")
     transcript = _format_transcript(history)
     if not turns or not transcript:
@@ -1009,7 +948,6 @@ async def classify_turns(history: list[ChatMessage], config: LLMConfig) -> dict[
 
 
 async def judge_answer(question: str, answer: str, config: LLMConfig, turn: int = 1) -> rating.Move | None:
-    """The hardcore verdict on ONE answer: class and note, or None when the model will not say. STUB walks the same cycle the post-game annotator uses. A None verdict lets the turn through and the post-game pass backfills: an outage must never fail a candidate by default."""
     if config.stub:
         cls = rating.STUB_MOVE_CYCLE[(turn - 1) % len(rating.STUB_MOVE_CYCLE)]
         return rating.Move(cls, rating.STUB_MOVE_NOTES[cls])
@@ -1036,7 +974,6 @@ async def judge_answer(question: str, answer: str, config: LLMConfig, turn: int 
 
 
 def _clip_shout(text: str, limit: int = FAIL_SHOUT_MAX) -> str:
-    """Trim a shout to its last finished sentence inside `limit`, else hard-cut. A rambling model must not turn the death line into a paragraph."""
     if len(text) <= limit:
         return text
     head = text[:limit]
@@ -1045,7 +982,6 @@ def _clip_shout(text: str, limit: int = FAIL_SHOUT_MAX) -> str:
 
 
 async def fail_shout(question: str, answer: str, cls: str, config: LLMConfig) -> str:
-    """The interviewer's last line on a hardcore failure. The judge already ended the run, so this call blocks nothing. Every failure mode (stub, transport, empty output) falls back to FAIL_MESSAGE: the transcript always ends on a shout, and the class is always in it."""
     if config.stub:
         return FAIL_MESSAGE.format(cls=cls.upper())
     line = await _completion(
@@ -1069,12 +1005,6 @@ NO_MATERIAL_TIP = "Run it again and answer the first few questions."
 
 
 async def generate_feedback(history: list[ChatMessage], dials: Dials | None, config: LLMConfig, failure: tuple[int, str] | None = None, annotate: bool = True, resume: str = "", level: str = "any") -> FeedbackSummary | None:
-    """Structured feedback for a completed transcript, or None when it is genuinely unavailable. `dials`
-    reaches the grader (brutally_honest and hardcore change its framing). `failure` is (turn, class) for
-    a run that already died. `resume` and `level` reach the grader's prompt only: the formatter and move
-    classifier read the transcript, and neither is a turn. Grader (transcript -> prose), formatter
-    (prose -> strict JSON), then moves. Failing either of the first two after its retry returns None and
-    the caller MUST NOT write feedback: an unscored interview beats fabricated 6s."""
     if config.stub:
         log.warning("llm.feedback.stub_deterministic")
         stub = _deterministic_summary()
@@ -1101,7 +1031,6 @@ async def generate_feedback(history: list[ChatMessage], dials: Dials | None, con
 
 
 async def test_provider(config: LLMConfig) -> tuple[bool, str]:
-    """Cheapest possible liveness probe for the BYOK settings panel. Returns a SHORT reason only, never the provider's response body: untrusted text that can echo the request, and the request carries the owner's key."""
     if config.stub:
         return False, "No base URL configured."
     try:
@@ -1123,7 +1052,6 @@ async def test_provider(config: LLMConfig) -> tuple[bool, str]:
 
 
 def _extract_json_object(text: str) -> dict:
-    """Robustly pull the first JSON object out of a model response. Some OpenAI-compatible backends wrap it in prose or markdown fencing, so a strict json.loads fails."""
     import json
 
     start = text.find("{")

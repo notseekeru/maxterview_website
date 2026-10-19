@@ -9,5 +9,4 @@ export const PLANS = {
     premium: { name: "Pro", price: "₱99", term: "30 days", turns: 100, resumes: 10, redos: 10, audience: "For the month before a real loop." },
 } as const;
 
-/** Display name per tier, `dev` included: only reachable in no-Clerk mode. */
 export const TIER_NAME: Record<Tier, string> = { free: "Free", premium: "Pro", dev: "Developer (dev)" };

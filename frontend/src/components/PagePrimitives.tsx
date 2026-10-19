@@ -7,10 +7,6 @@ import { cn } from "@/lib/utils";
 // workspace surfaces have to use a large monitor's width or their grid tiles collapse.
 const WIDE_MAX = "max-w-[100rem]";
 
-/** Mono at 70% of --foreground, not --muted-foreground: these run at 10.4px, where the secondary
- *  token measures 4.74:1 on white and 4.35:1 over a --muted fill, under AA, against 8.6:1 and 8.3:1
- *  for /70. One constant for every eyebrow, column head, unit and tier tag across the app pages and
- *  the landing page, so the two cannot drift. Ratios measured 2026-10-05 on the light palette. */
 export const LABEL = "font-mono text-[0.65rem] uppercase tracking-[0.18em] text-foreground/70";
 
 export function Page({ title, description, heading, children, actions, wide }: { title: string; description?: ReactNode; heading?: ReactNode; children: ReactNode; actions?: ReactNode; wide?: boolean }) {
@@ -31,8 +27,6 @@ export function Page({ title, description, heading, children, actions, wide }: {
     );
 }
 
-/** One titled band inside a page. The dashboard and the analytics page both open sections with it, so
- *  a heading cannot end up two sizes on the two pages that sit next to each other in the nav. */
 export function SectionHeading({ title, hint }: { title: string; hint?: string }) {
     return (
         <div className="space-y-1 border-b pb-2">
@@ -42,12 +36,6 @@ export function SectionHeading({ title, hint }: { title: string; hint?: string }
     );
 }
 
-/** Headline number with its denominator under it: two pages (analytics, offers) open on a row of these,
- *  and a tile that cannot say what it is averaged over is a number nobody can act on.
- *
- *  The hint is pinned to the tile's floor rather than trailing the number: the grid stretches every tile
- *  in a row to the tallest, and a hint that floats leaves the shorter tiles with a band of dead space.
- *  Same for the number itself, which keeps the big figure on a shared baseline across the row. */
 export function Stat({ label, value, hint, delta, spark }: { label: string; value: string; hint?: string; delta?: ReactNode; spark?: number[] }) {
     return (
         <Card className="flex flex-col">
@@ -66,8 +54,6 @@ export function Stat({ label, value, hint, delta, spark }: { label: string; valu
     );
 }
 
-/** Shape only: no axis, no tick, no scale. The number above it is the value; this is its direction,
- *  which is all a five-window tile has room for. */
 function Sparkline({ data }: { data: number[] }) {
     if (data.length < 2) return null;
     const min = Math.min(...data);
@@ -82,8 +68,6 @@ function Sparkline({ data }: { data: number[] }) {
     );
 }
 
-/** One titled card, sized by the caller. `hint` is the panel's denominator or method, never a caption
- *  restating the title. */
 export function Panel({ title, hint, children, className }: { title: string; hint?: string; children: ReactNode; className?: string }) {
     return (
         <Card className={cn("flex flex-col", className)}>

@@ -126,8 +126,6 @@ const SHELL = "mx-auto w-full max-w-[76rem] px-6 sm:px-8 lg:px-10";
 // cannot stack their gaps into a dead band.
 const SECTION = "pt-24 sm:pt-32 lg:pt-40";
 
-/** Scroll entrance. Renders the element itself rather than a wrapper, so a caller can drop it on a
- *  grid row or a `dl` child without inserting a box that breaks layout or markup. */
 function Reveal({ children, className, delay = 0 }: { children: ReactNode; className?: string; delay?: number }) {
     return (
         <m.div className={className} initial={{ opacity: 0, y: 22 }} whileInView={{ opacity: 1, y: 0 }} viewport={VIEWPORT} transition={{ duration: 0.7, ease: GLIDE, delay }}>
