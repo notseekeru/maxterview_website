@@ -108,7 +108,7 @@ def test_verify_expired(keypair):
 
 
 def test_verify_tolerates_a_freshly_issued_token_from_ahead_of_our_clock(keypair):
-    # Live 2026-09-12: Clerk stamps `iat` from its own clock, PyJWT rejects iat > now outright, so a
+    # Clerk stamps `iat` from its own clock, PyJWT rejects iat > now outright, so a
     # brand-new session 401'd its FIRST request and worked one second later. Leeway must cover that
     # rounding without covering real skew: a token from a minute in the future still fails.
     priv_pem, jwks = keypair

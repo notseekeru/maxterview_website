@@ -48,7 +48,7 @@ export function useSpeaker(enabled: boolean) {
         on.current = enabled;
         if (!enabled) stop();
     }, [enabled, stop]);
-    // Unmount, or leaving the route: playback outlives the component that asked for it (gotcha 5).
+    // Unmount, or leaving the route: playback outlives the component that asked for it.
     useEffect(() => stop, [stop]);
 
     const start = useCallback(

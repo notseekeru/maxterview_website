@@ -339,7 +339,7 @@ class ChatTurn(BaseModel):
     content: str = Field(min_length=1, max_length=8000)
 
 
-# --- BYOK provider settings (app/byok.py; see BYOK.md) ---
+# BYOK provider settings; app/byok.py owns the policy.
 
 
 class LLMProviderUpdate(BaseModel):

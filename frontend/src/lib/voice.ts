@@ -400,7 +400,7 @@ export function cloudTranscriber(upload: (clip: Blob) => Promise<string>, sink: 
                 }
             }
             // Stop the tracks with the recorder: a live microphone after the take is a lit indicator
-            // for nothing (VOICE.md gotcha 8).
+            // for nothing.
             for (const track of stream?.getTracks() ?? []) track.stop();
             if (!live) finishClip();
         },

@@ -469,8 +469,8 @@ export function InterviewChat({ interviewId, onExit }: Props) {
                             onClick={() => {
                                 if (mic.recording) mic.stop();
                                 else {
-                                    // A talking interviewer would be transcribed into the answer (VOICE.md
-                                    // gotcha 7). Pressing the microphone stops the voice for the applicant.
+                                    // A talking interviewer would be transcribed into the answer, so
+                                    // pressing the microphone stops the voice for the applicant.
                                     speaker.stop();
                                     mic.start();
                                 }
