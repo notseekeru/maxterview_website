@@ -101,7 +101,7 @@ configure_logging()
 
 app = FastAPI(title="maxterview", lifespan=lifespan)
 
-# AI HERE: /api is owned here (matches diagram), not by the dev proxy or the ingress — every layer
+# AI HERE: /api is owned here (matches diagram), not by the dev proxy or the ingress: every layer
 # passes the path through unchanged. Upgrade path: per-router prefixes if an admin/internal split lands.
 api = APIRouter(prefix=API_PREFIX)
 
@@ -118,7 +118,7 @@ CLIENT_ERROR_MAX_BYTES = 4096
 
 @api.get("/health")
 async def health() -> dict:
-    # No DB call — CD smoke runs with a dummy DATABASE_URL and no Postgres.
+    # No DB call: CD smoke runs with a dummy DATABASE_URL and no Postgres.
     # `up` is the field the Grafana uptime rule reads (bootstrap.py --probe-url); `status` is what
     # scripts/llm-smoke.py asserts. Dropping either one costs a rule or a check.
     return {"status": "ok", "up": 1}
@@ -127,7 +127,7 @@ async def health() -> dict:
 @api.post("/client-errors", status_code=status.HTTP_204_NO_CONTENT)
 async def client_errors(request: Request) -> Response:
     # AI HERE: a chunked request with no Content-Length still reaches the
-    # parser — the ingress `proxy-body-size` is the outer bound until a global limit exists.
+    # parser: the ingress `proxy-body-size` is the outer bound until a global limit exists.
     declared = request.headers.get("content-length", "")
     if declared.isdigit() and int(declared) > CLIENT_ERROR_MAX_BYTES:
         raise HTTPException(status_code=status.HTTP_413_CONTENT_TOO_LARGE, detail="Not a browser error report")
@@ -719,7 +719,7 @@ WITH runs AS (
 SELECT dial, value, count(*) AS runs, count(accuracy) AS rated,
        ROUND(avg(accuracy)::numeric, 1) AS avg_accuracy,
        -- Denominated on DECIDED runs (count(decision)), not all rated ones: an undecided run is not
-       -- a miss. NULL when nothing was decided, so the UI can say "—" instead of 0%.
+       -- a miss. NULL when nothing was decided, so the UI shows no accuracy rather than 0%.
        (100.0 * count(*) FILTER (WHERE decision IN ({HIRING_SQL})) / nullif(count(decision), 0))::int AS hire_rate
 FROM labelled
 GROUP BY dial, value

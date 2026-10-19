@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# port-claimer.sh — detect port conflicts, free them by stopping the
+# port-claimer.sh: detect port conflicts, free them by stopping the
 #                   offending docker compose project.
 #
 # Usage: port-claimer.sh [--self <project>] <port> [port...]
@@ -85,20 +85,20 @@ for PORT in "$@"; do
 
     CID=$(container_by_port "$PORT")
     if [[ -z "$CID" ]]; then
-        warn "Port $PORT is taken by a non-container process — cannot auto-free. Skipping."
+        warn "Port $PORT is taken by a non-container process: cannot auto-free. Skipping."
         BLOCKED_PORTS+=("$PORT")
         continue
     fi
 
     WORKDIR=$(compose_label "$CID" "com.docker.compose.project.working_dir")
     if [[ -z "$WORKDIR" ]]; then
-        warn "Container $CID does not appear to be a docker compose project — skipping."
+        warn "Container $CID does not appear to be a docker compose project: skipping."
         BLOCKED_PORTS+=("$PORT")
         continue
     fi
 
     if [[ ! -d "$WORKDIR" ]]; then
-        warn "Working directory '$WORKDIR' no longer exists — skipping."
+        warn "Working directory '$WORKDIR' no longer exists: skipping."
         BLOCKED_PORTS+=("$PORT")
         continue
     fi
@@ -106,7 +106,7 @@ for PORT in "$@"; do
     PROJECT=$(compose_label "$CID" "com.docker.compose.project")
 
     if [[ -n "$SELF_PROJECT" && "$PROJECT" == "$SELF_PROJECT" ]]; then
-        info "→ Port $PORT is held by the current project ($PROJECT) — already running, nothing to free."
+        info "→ Port $PORT is held by the current project ($PROJECT), already running: nothing to free."
         OWNED_PORTS+=("$PORT")
         continue
     fi

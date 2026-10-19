@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { apiDetail, clearLLMProvider, getLLMProvider, type LLMProviderStatus, saveLLMProvider, testLLMProvider } from "@/lib/api";
 
 // BYOK: run your interviews on your own provider account (backend app/byok.py, BYOK.md).
-// The key is sent once, stored encrypted, and never returned — only its last 4 characters.
+// The key is sent once, stored encrypted, and never returned: only its last 4 characters.
 export function LLMProviderCard() {
     const [status, setStatus] = useState<LLMProviderStatus | null>(null);
     const [baseUrl, setBaseUrl] = useState("");

@@ -46,7 +46,7 @@ def encrypted(password: str = "hunter2") -> bytes:
 
 
 async def test_extracts_text_from_a_real_pdf():
-    got = await resumes.extract_pdf(mini_pdf("Alex Mender — Platform Engineer"))
+    got = await resumes.extract_pdf(mini_pdf("Alex Mender - Platform Engineer"))
     assert "Alex Mender" in got.text and "Platform Engineer" in got.text
     assert (got.pages, got.truncated) == (1, False)
 

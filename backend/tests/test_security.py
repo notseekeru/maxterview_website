@@ -133,6 +133,6 @@ def test_middleware_does_not_buffer_streaming_responses(monkeypatch):
 
     body, spread = profile(probe(ClientRateLimitMiddleware))
     assert body == b"first\nsecond\n"
-    assert spread > 0.2, f"chunks arrived {spread:.3f}s apart — the middleware is buffering the stream"
+    assert spread > 0.2, f"chunks arrived {spread:.3f}s apart: the middleware is buffering the stream"
     # The control proves the probe can SEE buffering: this is what a regression would look like.
     assert profile(probe(_Buffering)) == (b"first\nsecond\n", 0.0)

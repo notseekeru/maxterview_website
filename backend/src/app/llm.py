@@ -349,7 +349,7 @@ Grounding: never attribute an achievement, metric, project, "team", employer, or
 Self-presentation rule: the candidate's first answers should establish their background/resume.
 If they never supplied any background/resume to anchor their answers and no resume is attached below, be strict: score relevance/structure
 low when answers stay vague or disconnected from the role, and call the omission out in your verdict as a real reason points were lost (say nothing to the candidate about an answer they were never asked for).
-Do NOT let the omission pass silently — but still grade the
+Do NOT let the omission pass silently, but still grade the
 technical/behavioural content they DID give on its own merit.
 
 Write ONE short line per dimension you scored: name it, give the one concrete thing in their answers that sets it, then the integer.
@@ -362,7 +362,7 @@ Calibrate certainty to EVIDENCE VOLUME, not to how positive the recommendation i
 several concrete, role-specific answers with named metrics or specifics justify 80+. An interview of one or two answers is a low-certainty read by definition, however good those answers were. Do not
 inflate certainty to sound decisive.
 
-Use PLAIN PROSE. Do NOT wrap everything in JSON — you are the reviewer, a separate step turns your notes into the final format. Be strict but fair; award high scores only with evidence."""
+Use PLAIN PROSE. Do NOT wrap everything in JSON: you are the reviewer, a separate step turns your notes into the final format. Be strict but fair; award high scores only with evidence."""
 
 BRUTAL_GRADER_PROMPT = """
 

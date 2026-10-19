@@ -1,5 +1,4 @@
-
--- subscriptions — source of tier entitlement (mirrors Clerk/Stripe billing state).
+-- subscriptions: source of tier entitlement (mirrors Clerk/Stripe billing state).
 CREATE TABLE IF NOT EXISTS subscriptions (
     id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     owner_id            TEXT        NOT NULL UNIQUE,          -- Clerk sub
@@ -12,5 +11,5 @@ CREATE TABLE IF NOT EXISTS subscriptions (
 );
 CREATE INDEX IF NOT EXISTS ix_subscriptions_owner_id ON subscriptions (owner_id);
 
--- interviews.chat_turns — count of user turns (free tier per-interview cap; no token metering).
+-- interviews.chat_turns: count of user turns (free tier per-interview cap; no token metering).
 ALTER TABLE interviews ADD COLUMN IF NOT EXISTS chat_turns INTEGER NOT NULL DEFAULT 0;

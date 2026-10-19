@@ -6,7 +6,7 @@
         <!-- Title/description must lead with the query, not the brand: this shell is the only
              HTML a non-JS crawler (Google's render is not guaranteed for every bot, and Bing,
              social unfurlers and every AI answer engine run no JS at all) will ever see.
-             Keep the default title in sync with TAGLINE in src/hooks/useDocumentTitle.ts — the
+             Keep the default title in sync with TAGLINE in src/hooks/useDocumentTitle.ts: the
              hook overwrites this one as soon as React mounts. -->
         <title>AI Mock Interview Practice with Instant Feedback | maxterview</title>
         <meta name="description" content="Run AI mock interview practice for your role: behavioral and technical questions, every answer graded, a hire or reject verdict and fixes. Free, no card." />
@@ -89,7 +89,7 @@
                     const dark = theme === "dark" || (theme === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
                     document.documentElement.classList.toggle("dark", dark);
                 } catch (_e) {
-                    /* localStorage unavailable (private mode) — default dark. */
+                    /* localStorage unavailable (private mode), default dark. */
                     document.documentElement.classList.add("dark");
                 }
             })();

@@ -1,5 +1,5 @@
 --   provider_customer_id     cus_…  (was stripe_id: cus_…)
---   provider_subscription_id subs_… — what cancel/webhook resolution needs
+--   provider_subscription_id subs_…: what cancel/webhook resolution needs
 --   provider_plan_id         plan_…
 
 ALTER TABLE subscriptions RENAME COLUMN stripe_id TO provider_customer_id;

@@ -21,7 +21,7 @@ CMD ["npm", "run", "dev", "--", "--host"]
 FROM base AS builder
 
 # Reads the committed frontend/.env.production. Vite inlines VITE_* at build time, so the Clerk
-# publishable key is baked into dist/ here and can never come from a cluster Secret — that is why
+# publishable key is baked into dist/ here and can never come from a cluster Secret: that is why
 # this image is environment-specific and why a second env needs its own build (ADR 0003, terraform).
 RUN npm run build
 

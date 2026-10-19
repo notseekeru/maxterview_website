@@ -1,4 +1,4 @@
-# AI HERE: `MemoryStorage` is per-process — N replicas grant N× the budget. Upgrade path when the
+# AI HERE: `MemoryStorage` is per-process: N replicas grant N× the budget. Upgrade path when the
 # app stops being a single pod: hand `limits.storage.RedisStorage(<url>)` to the limiter.
 
 import os

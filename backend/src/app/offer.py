@@ -40,7 +40,7 @@ PTO_MIN, PTO_SPAN = 12, 12
 class Rung(NamedTuple):
     key: str
     label: str
-    # The performance floor that unlocks it.
+    # The performance floor that grants it.
     threshold: int
     value: str
 

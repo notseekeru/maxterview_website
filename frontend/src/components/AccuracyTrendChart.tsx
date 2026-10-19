@@ -12,7 +12,7 @@ export function AccuracyTrendChart({ data, defer }: { data: { label: string; acc
             <AreaChart data={data} accessibilityLayer margin={{ left: 4, right: 8, top: 8, bottom: 0 }}>
                 <CartesianGrid vertical={false} strokeDasharray="3 3" />
                 {/* Labels are pre-formatted in useInterviewData (MM/DD, or MM/DD HH:MM when two
-                    runs share a day) — no formatter here, or we'd re-trim the time away. */}
+                    runs share a day): no formatter here, or we'd re-trim the time away. */}
                 <XAxis dataKey="label" tickLine={false} axisLine={false} tickMargin={8} interval="preserveStartEnd" />
                 <YAxis dataKey="accuracy" domain={[(min: number) => Math.max(0, Math.floor((min - 10) / 10) * 10), (max: number) => Math.min(100, Math.ceil((max + 10) / 10) * 10)]} tickCount={5} tickLine={false} axisLine={false} width={32} allowDecimals={false} />
                 <ChartTooltip cursor={false} content={<ChartTooltipContent indicator="line" />} />

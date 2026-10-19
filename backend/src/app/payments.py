@@ -70,7 +70,7 @@ def _resubscribe_block(row: dict | None, now: datetime | None = None) -> str:
         return ""
     period_end = row.get("current_period_end")
     if row.get("plan") == "premium" and (period_end is None or period_end > now):
-        # active, past_due, or cancelled-with-time-left — all still inside a period they paid for.
+        # active, past_due, or cancelled-with-time-left: all still inside a period they paid for.
         return "Your subscription already covers the current period"
     return ""
 
@@ -90,7 +90,7 @@ async def _api(method: str, path: str, **kwargs) -> dict:
         res = await client.request(method, path, **kwargs)
     if res.status_code >= 400:
         # Log the provider body (it explains 400s that would otherwise be opaque); never return it
-        # to the client — it can echo request metadata.
+        # to the client: it can echo request metadata.
         log.warning("paymongo.request_failed", method=method, path=path, status=res.status_code, body=res.text[:500])
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Payment provider error")
     return res.json()
@@ -98,7 +98,7 @@ async def _api(method: str, path: str, **kwargs) -> dict:
 
 async def _try_variants(variants: list, attempt) -> dict:
     # AI HERE: hedges two documented-but-unguaranteed PayMongo shapes that could not be exercised
-    # before launch (no activated account) — the invoice-list path prefix and whether a server-side
+    # before launch (no activated account), the invoice-list path prefix and whether a server-side
     # attach tolerates `client_key`. Each retry logs `paymongo.variant_retry`; collapse this to the
     # winning variant once a sandbox run proves which one it is.
     for i, variant in enumerate(variants):

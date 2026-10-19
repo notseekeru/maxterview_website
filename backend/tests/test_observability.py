@@ -40,7 +40,7 @@ def test_access_log_skips_health():
     try:
         with TestClient(app) as client:
             assert client.get("/api/health").status_code == 200
-            res = client.get("/api/absent")  # a missing route: no auth, no DB — the middleware alone
+            res = client.get("/api/absent")  # a missing route: no auth, no DB, the middleware alone
     finally:
         root.removeHandler(handler)
 

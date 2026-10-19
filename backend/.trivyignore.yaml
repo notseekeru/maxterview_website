@@ -1,6 +1,6 @@
 # Trivy ignore policy (v0.56+ / .trivyignore.yaml).
 # Backend is scanned twice: the source tree in CI (filesystem) and the python:3.14-slim Debian
-# image in CD. No open exceptions — add dated, reachability-justified ones here when a real scan
+# image in CD. No open exceptions: add dated, reachability-justified ones here when a real scan
 # surfaces a finding. When `expired_at` passes the gate re-fails until the entry is re-verified.
 
 vulnerabilities: []

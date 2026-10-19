@@ -219,7 +219,7 @@ function AccuracyTrend({ data }: { data: { label: string; accuracy: number }[] }
     return (
         <Panel title="Accuracy trend" hint={hint} className="h-80">
             {data.length === 0 ? (
-                <StateNote>Finish an interview to unlock the accuracy chart.</StateNote>
+                <StateNote>Finish an interview to see the accuracy chart.</StateNote>
             ) : (
                 // h-full, not a fixed height: the card is h-80 and the hint above takes a line of it.
                 <div className="h-full">
@@ -252,7 +252,7 @@ function DimensionScores({ stats, error }: { stats: InterviewDimensions | null; 
     if (data.length === 0) {
         return (
             <Panel title="Secondary scores" hint="mean per dimension, 1-10" className="h-80">
-                <StateNote>{error ?? "Finish an interview with a review to unlock the secondary breakdown."}</StateNote>
+                <StateNote>{error ?? "Finish an interview with a review to see the secondary breakdown."}</StateNote>
             </Panel>
         );
     }

@@ -116,7 +116,7 @@ export function InterviewList({ interviews, loading, error, onRefresh, onOpen, o
                                 {i.status}
                                 {i.created_at ? ` · ${formatDate(i.created_at)}` : ""}
                             </p>
-                            {/* Completed-without-accuracy is a real state — offer the retry, not a dead
+                            {/* Completed-without-accuracy is a real state, offer the retry, not a dead
                                 end. */}
                             <div className="flex flex-wrap items-center gap-2">
                                 {typeof i.accuracy === "number" ? (

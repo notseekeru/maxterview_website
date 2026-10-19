@@ -74,7 +74,7 @@ def _parse(data: bytes) -> Extracted:
         body.append(chunk)
     text = sanitize("\n".join(body), MAX_CHARS)
     if not text:
-        raise ExtractError("No selectable text in that PDF — it looks like a scan or an image export. Paste the text instead.")
+        raise ExtractError("No selectable text in that PDF: it looks like a scan or an image export. Paste the text instead.")
     return Extracted(text=text, pages=pages, truncated=truncated)
 
 

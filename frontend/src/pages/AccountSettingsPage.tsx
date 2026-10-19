@@ -50,7 +50,7 @@ export function AccountSettingsPage() {
                 </CardFooter>
             </Card>
 
-            {/* Profile — the name, the mail and the session are Clerk's; no backend row drives them. */}
+            {/* Profile: the name, the mail and the session are Clerk's; no backend row drives them. */}
             <Card>
                 <CardHeader>
                     <CardTitle>Profile</CardTitle>

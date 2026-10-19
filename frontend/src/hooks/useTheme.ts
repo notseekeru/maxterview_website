@@ -11,8 +11,8 @@ export function useTheme() {
     }, [theme]);
 
     const mq = window.matchMedia?.("(prefers-color-scheme: dark)");
-    // When the user picks "system", also react to live OS preference changes —
-    // this listener is load-bearing, not dead code.
+    // When the user picks "system", also react to live OS preference changes.
+    // This listener is load-bearing, not dead code.
     useEffect(() => {
         if (theme !== "system" || !mq) return;
         const onChange = () => applyTheme("system");

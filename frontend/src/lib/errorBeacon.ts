@@ -15,7 +15,7 @@ function report(message: string, componentStack = ""): void {
     seen.add(text);
     sent += 1;
     const body = JSON.stringify({ message: text, route: window.location.pathname.slice(0, 200), component_stack: componentStack.slice(0, MAX_STACK) });
-    // sendBeacon survives the page going away — the error may be terminal. fetch is the fallback.
+    // sendBeacon survives the page going away: the error may be terminal. fetch is the fallback.
     if (!navigator.sendBeacon?.(ENDPOINT, new Blob([body], { type: "application/json" }))) {
         void fetch(ENDPOINT, { method: "POST", headers: { "Content-Type": "application/json" }, body, keepalive: true }).catch(() => undefined);
     }
