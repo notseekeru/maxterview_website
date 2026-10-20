@@ -8,7 +8,7 @@ PORTS        = 8000 5173 5432
 
 exec:
 	@echo "**---------Checking Frontend...-----------**"
-	docker exec -t $(FRONTEND_DEV) sh -c "npm ci && npx biome check . && npm run typecheck && npm run build && (npm audit --audit-level=moderate || true)"
+	docker exec -t $(FRONTEND_DEV) sh -c "npm ci && npx biome check . && npm run typecheck && npx vite build --outDir /tmp/dist --emptyOutDir && (npm audit --audit-level=moderate || true)"
 
 	@echo "**---------Checking Backend...-----------**"
 	docker exec -t $(BACKEND_DEV) sh -c "uv sync --frozen && uv run ruff check src tests && uv run ruff format --check src tests && uv run pytest -q"
@@ -35,6 +35,7 @@ check-ports:
 	@scripts/port-claimer.sh --self $(DEV_PROJECT) $(PORTS)
 
 up: check-ports
+	@mkdir -p backend/.venv # docker creates this mount point root-owned inside the bind mount
 	$(DEV_CMD) up -d
 build:
 	$(DEV_CMD) build
