@@ -514,10 +514,6 @@ export function Landing() {
                                     );
                                 })}
                             </div>
-                            {/* Must stay true in both billing modes. */}
-                            <p className="mt-6 font-mono text-[0.65rem] leading-[1.9] tracking-[0.04em] text-muted-foreground">
-                                A chat turn is one interviewer question or reply, shared across all of your interviews and reset at 00:00 UTC. Prices in PHP, paid by QR through PayMongo (GCash, Maya, or any bank app). One payment covers {PLANS.premium.term}, no auto-renew.
-                            </p>
                         </section>
 
                         <section id="questions" className={cn(SHELL, SECTION, "scroll-mt-24")}>
