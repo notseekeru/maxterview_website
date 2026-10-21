@@ -1,0 +1,188 @@
+# SRE run order
+
+## The target
+
+| Thing            | Value                                                                                          |
+| ---------------- | ---------------------------------------------------------------------------------------------- |
+| API base         | `http://100.64.1.1:30090/api`, a NodePort created with the perf-val-change and deleted with it |
+| Host header      | none. The NodePort points at the backend Service, so no name routing is involved               |
+| TLS              | none on this hop. It is plain HTTP over Tailscale, and Tailscale does the encryption           |
+| Measured latency | single digit ms over the tailnet, against 54ms on the public path                              |
+| Server access    | `ssh -i ~/.ssh/piserver seeker@100.64.1.1`; the default identity list does not offer that key  |
+
+The public URL works with k6, but it carries about half a second of Cloudflare and tunnel per request,
+and it answers 403 with Cloudflare code 1010 to any client whose user agent it dislikes. It is the
+probe's target, not the sweep's.
+
+## Where things stand
+
+| Thing                                    | State                                                                                                                                              |
+| ---------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Harness `~/k6-load-testing` at `29f4cf4` | Clean and pushed. Flake, direnv, workload, ladder, cleanup budget, p50/p95/p99 and both row counts                                                 |
+| Plan `SRE-LOADTESTING.md`                | Pushed. Every code claim re-verified after the refactor commits                                                                                    |
+| Prod perf-val-change                     | Closed: `/api/usage` answered 401, so no sweep has run against prod                                                                                |
+| Generator                                | This laptop: about a quarter of one core at 240 RPS, 1.15 CPU-seconds per 1,000 requests. The desktop is the fallback and has no relay in the path |
+| Sweep identity                           | `--sweep-sub` or `SWEEP_SUB`, and it must equal the target's `DEV_USER_SUB`                                                                        |
+| Local proof                              | The workload runs at 1, 2, 3, 5, 10, 25, 50 and 100 VUs against a stub target with no failing checks                                               |
+
+## Open gaps
+
+| Gap                          | State                                                                            |
+| ---------------------------- | -------------------------------------------------------------------------------- |
+| The 10-VU recovery run       | Closed: `--only` writes its CSV row and `--start` builds a ladder from any floor |
+| The three confirmations      | Implemented, never executed, because it needs a level that fails                 |
+| The gap between levels       | Measured in isolation at 48s, never yet inside a multi-level ladder              |
+| Cleanup against Neon         | Local only: 621 interviews with their rows freed in 0.9s of the 30s budget       |
+| The perf-val-change's values | Gitops owns them and none are verifiable from this machine                       |
+| The relayed path             | 44ms of floor in every measured request, which lands inside the SLO gates        |
+| The SLO gates against prod   | Never exercised                                                                  |
+
+## Order
+
+### 0. Prerequisites on this laptop
+
+```sh
+cd ~/k6-load-testing
+direnv allow .
+k6 version                  # k6 v2.2.0, from the flake
+python3 sweep.py --help     # --start, --max-vus, --only, --smoke, --cleanup-only
+
+cat > .env <<'EOF'
+API_URL=http://100.64.1.1:30090/api
+SWEEP_SUB=k6-sweep-testing
+EOF
+
+docker ps --format '{{.Names}}'   # stop services first using their docker compose files
+```
+
+### 0b. Rehearse the same run locally
+
+The same workload and the same identity, against the local stack with the model stubbed. This is how
+the harness was verified, and it is where a harness fault shows up instead of during a perf-val-change.
+
+```sh
+cd ~/maxterview_website
+BACKEND_PORT=8099 docker compose -p maxterview-dev -f compose.yml -f compose.dev.yml run --rm -d \
+  --service-ports -e LLM_BASE_URL= -e RATE_LIMIT=off -e DEV_USER_SUB=k6-sweep-testing backend \
+  uv run uvicorn app.main:app --host 0.0.0.0 --port 8000
+
+cd ~/k6-load-testing
+python3 sweep.py --api-url http://localhost:8099/api --only 10 --smoke
+```
+
+`LLM_BASE_URL` empty and `RATE_LIMIT=off` are the two that matter: the local stack otherwise calls the
+live model and answers 429 after 120 requests. It writes rows under `k6-sweep-testing`, so nothing of
+yours is in the delete set, and the cleanup at the end of the run removes them.
+
+### 1. Pre-flight, no load
+
+Read the overlay before it is applied. It must carry `RATE_LIMIT=off`, `CLERK_ENABLED=false`,
+`APP_ENV=test`, `LLM_BASE_URL` unset, `OTEL_EXPORTER_OTLP_ENDPOINT` set, ingress limits at 1M, pod
+memory 256Mi, one replica, and `DEV_USER_SUB=k6-sweep-testing`, the same name the harness uses.
+
+The endpoint is the one with no alarm on it. Unset, the database and pool numbers never appear, and
+every metric rule reads NoData, which is OK, so the loss is silent.
+
+### 2. Open the perf-val-change
+
+Swap `apps/maxterview/overlays/prod` for `overlays/perf` in `apps-of-apps/maxterview.yaml`, commit, wait
+for the sync, and confirm the pod was replaced.
+
+The whole change is one line. Swap `apps/maxterview/overlays/prod` for `overlays/perf` in
+`apps-of-apps/maxterview.yaml`, commit, push, wait for the sync, and confirm the pod was replaced.
+
+That overlay carries everything the run needs: `APP_ENV=test`, `CLERK_ENABLED=false`, `RATE_LIMIT=off`,
+`LLM_BASE_URL` empty, `DEV_USER_SUB=k6-sweep-testing`, the raised ingress limits, and, from commit
+`792ed2e`, a NodePort on the `maxterview-backend` Service at 30090. Argo prunes what leaves the
+manifests, so reverting the line in step 5 removes the NodePort with it and nothing stays open.
+
+The port is on the backend Service rather than the ingress for two reasons: kustomize's `namespace` in
+that overlay overwrites any resource's own namespace, so a Service in `ingress-nginx` cannot live there,
+and the backend is the app itself, which is what the sweep is measuring.
+
+```sh
+cd ~/gitops && git pull
+sed -i 's|apps/maxterview/overlays/prod|apps/maxterview/overlays/perf|' apps-of-apps/maxterview.yaml
+git commit -am 'chore(gitops): open the maxterview perf-val-change' && git push
+```
+
+### 3. Prove it from the ladder's side
+
+```sh
+curl -s -o /tmp/u.json -w '%{http_code}\n' http://100.64.1.1:30090/api/usage
+cat /tmp/u.json        # want 200 and "tier":"dev". A 401 means the perf-val-change is still closed
+
+python3 sweep.py --cleanup-only
+python3 sweep.py --only 10 --smoke
+```
+
+`--cleanup-only` is the only destructive path: it asserts every listed row belongs to `SWEEP_SUB`
+before deleting, and stops at the 30 second budget. `--only 10 --smoke` is 10 VUs for about 16 seconds,
+the first real contact. Both must exit 0.
+
+### 4. The ladder
+
+```sh
+python3 sweep.py
+```
+
+It climbs 100, 200, 400, 800 with 15 seconds of silence, up to 30 seconds of cleanup and 15 seconds of
+silence between levels. It stops at the first failing level above the first, binary searches the gap
+below it, then re-runs the winner three times. Every level writes a row to `results/sweep-<utc>.csv` and
+a k6 summary to `results/level-<n>.json`.
+
+If level one fails at 100 VUs, do not search. That is the harness or the app, not load:
+
+```sh
+python3 sweep.py --only 10
+```
+
+### 5. Close the perf-val-change
+
+Swap the overlay back to prod, commit, push, wait for the sync, and confirm `/api/usage` answers 401
+again on the same port. The perf-val-change turns authentication and the rate limit off, so it must not
+outlive the run, and the NodePort is pruned with it.
+
+```sh
+cd ~/gitops
+sed -i 's|apps/maxterview/overlays/perf|apps/maxterview/overlays/prod|' apps-of-apps/maxterview.yaml
+git commit -am 'chore(gitops): close the maxterview perf-val-change' && git push
+
+cd ~/k6-load-testing
+python3 sweep.py --cleanup-only
+```
+
+### 6. Read the result
+
+`results/sweep-<utc>.csv` carries the boundary: p50, p95, p99, error rate, iterations, requests, seconds
+and the account's rows before and after each perf-val-change.
+
+In Grafana, `maxterview-logs` over the sweep's time range: `db_pool_wait` against `db_query` says
+whether Neon's queue or the SQL ran out first, and container memory against its limit says whether the
+pod did. That is the "which resource runs out first" half of the question.
+
+## Time
+
+About 7 minutes per level at the defaults (30 second ramp, 60 second warm, 300 second measure, plus the
+gap), so a ladder that brackets a failure plus the three confirmations is roughly 1 to 1.5 hours,
+assuming the first failure is not at 100 VUs.
+
+## Abort and rollback
+
+| Situation                                   | Action                                                                                        |
+| ------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| Step 3 answers 401                          | The perf-val-change is still closed. Fix the overlay before going on                          |
+| 30090 refuses the connection                | The overlay is not live: check that `apps-of-apps` says `overlays/perf` and the sync finished |
+| The perf-val-change will not open           | Stop and fix the overlay. `main.js` refuses to load without `tier=dev`                        |
+| `--cleanup-only` aborts on foreign owners   | Stop. The identity does not match the target's `DEV_USER_SUB`                                 |
+| Cleanup leaves rows behind after 30 seconds | Stop. The next perf-val-change would read a bigger account than the last                      |
+| Level one fails                             | `--only 10`, and treat it as a harness or app fault rather than capacity                      |
+| A level fails above level one               | Expected. That is the boundary; let the search and the confirmations finish                   |
+| Anything unexpected                         | Close the perf-val-change first, then debug. Leaving it open leaves prod unauthenticated      |
+
+## What this run cannot claim
+
+The 44ms relay is in every number the sweep produces. If the boundary comes back near the gates, the
+first question is whether the app or the relay produced it, and the answer is the desktop, which
+reaches the Pi without a relay. The CSV records the client side; the server side is in the same
+Grafana panels, over the same perf-val-change, and the two together separate them.
