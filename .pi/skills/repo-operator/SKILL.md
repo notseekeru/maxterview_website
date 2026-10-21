@@ -7,9 +7,7 @@ description: >-
   Clerk/PayMongo config (flagging exactly which secret is missing with the single paste step), query
   the database, drive the real test-mode Clerk and PayMongo accounts, run a browser walkthrough, and
   see the repo at a glance. Binds to (does not duplicate) ./.pi/skills/paymongo-operator,
-  ./.pi/skills/hermetic-e2e AND ./.pi/skills/grafana-operator. Use when the user asks anything like
-  "why is X failing", "start the app", "show logs", "set up a test user", "show webhooks", "what
-  tier is this user", or "run the onboarding".
+  ./.pi/skills/hermetic-e2e AND ./.pi/skills/grafana-operator.
 ---
 
 # maxterview repo operator (infra-hands)
@@ -26,10 +24,10 @@ via one SSH hop that asks first; see below.
     via `compose.yml` + `compose.dev.yml`/`compose.prod.yml`. Project name `maxterview-dev`.
   - Makefile conveniences: `make up`, `down`, `logs`, `psql`, `shell`, `exec`, `migrate`, `test-llm`.
   - Host ports: backend `8000`, frontend `5173`, postgres `5432`.
-- Config lives in three git-ignored `.env` files, one per consumer: root (POSTGRES_*, ports, APP_ENV,
+- Config lives in three git-ignored `.env` files, one per consumer: root (POSTGRES*\*, ports, APP_ENV,
   plus the two MCP tokens `.envrc` exports to the shell), `backend/.env` (runtime config),
-  `frontend/.env` (`VITE_*`). `make env-sync-dev` fills the credential lines in the first two from
-  Infisical's dev env at `/consumers/maxterview`, inside a marked block at the end of each file; it is
+  `frontend/.env` (`VITE*\*`). `make env-sync-dev`fills the credential lines in the first two from
+Infisical's dev env at`/consumers/maxterview`, inside a marked block at the end of each file; it is
   the only target that needs the network.
 - **Cluster reach is one SSH hop, and it asks first.** The k3s kubeconfig (and therefore `kubectl`,
   `argo`, Helm) lives on the node, not here (`~/.kube` holds only caches). The node is
@@ -47,6 +45,7 @@ via one SSH hop that asks first; see below.
   Loki for what the pods logged, Prometheus and Tempo for what they exported. All three are reachable
   through the datasource proxy with no cluster. A frontend redeploy, for instance, shows up as the
   frontend's kube-probe log lines disappearing.
+
 - **No Clerk key enabled ⇒ the frontend falls into "no-Clerk dev mode"** (`clerkEnabled=false`),
   which lets you drive the whole auth-gated UI against the backend's `DEV_USER`. This is the fastest
   way to reproduce most UI/behaviour issues WITHOUT any Clerk/PayMongo credentials.
@@ -124,7 +123,7 @@ curl -s http://localhost:8000/api/usage; echo     # tier for the current (DEV_US
 Every repo feature gates on some git-ignored env value. On a new clone you set ONLY what you need;
 nothing is required for everything. **The canonical feature → env-var table is `README.md` § "What to
 initialize to use each feature"** — read it there instead of keeping a second copy here. Read each
-key from its account dashboard (Clerk/PayMongo) and keep secrets sealed (zero-touch): say *which*
+key from its account dashboard (Clerk/PayMongo) and keep secrets sealed (zero-touch): say _which_
 var is missing, never its value.
 
 Skill-specific notes the README does not carry:
@@ -138,7 +137,7 @@ Skill-specific notes the README does not carry:
 - Unset `PAYMONGO_SECRET_KEY` → `/billing/checkout` 503s (`/billing/cancel` still works; period mode
   only flips the row) and the dev-only `/billing/webhook/simulate` still proves the entitlement path.
 - `BILLING_MODE=subscription` + `PAYMONGO_PLAN_ID` is **blocked** until support enables Subscriptions
-  + Card Vaulting (`MONETIZATION.md` §4).
+  - Card Vaulting (`MONETIZATION.md` §4).
 
 **Not needed** on any device: `clerk auth login`, `clerk link`, or a `CLERK_PLATFORM_API_KEY`.
 That Platform/admin path needs an account opted into the Platform API beta (many accounts show no
@@ -154,7 +153,7 @@ Fast reproducible check that feature env is in place (lists set/missing names on
 
 ## Reading config (zero-touch) and the one paste-step
 
-Do NOT cat secrets or print secret values. Determine *presence* only. The operator skill's
+Do NOT cat secrets or print secret values. Determine _presence_ only. The operator skill's
 `need-keys.sh` does exactly this; run it:
 
 ```bash
@@ -167,6 +166,7 @@ human keeps every secret sealed; you only ever say "please add `X` to `backend/.
 truly needs one and it isn't set.
 
 Remember the two runtime modes:
+
 - **Fast debug mode (recommended default):** no Clerk key → backend `DEV_USER`, UI testable now. Run
   against dev (CLERK_ENABLED=false) using whatever is in env.
 - **Full live-auth mode:** requires real `CLERK_ENABLED=true` + domain/JWKS/audience + frontend pk,
@@ -212,7 +212,7 @@ Never hand-roll a brand-new browser harness: the MCP server and the clerk skill 
 
 1. Gather: is the stack up? health? which env mode? (`docker compose ps`, `/api/health`, `need-keys.sh`).
 2. If something fails, reproduce smallest: it may not need Clerk at all → use DEV_USER + `make logs`
-   + the exact failing request.
+   - the exact failing request.
 3. Once you see the failing API response/log line, either fix config/env (point the human at the
    one line to add, or set in backend/.env if it's a non-secret like APP_ENV) or adjust the code,
    then re-verify via the same request/log path.
