@@ -2,10 +2,9 @@
 
 # MILESTONE
 
-- resume ai reviewer for resume page so it can pass what the ai thinks for every level
+- resume ai reviewer for resume page so it can pass what the both ai resume and ai interview audit + thinks + suggest for every level
 - add some evals for ai quality
 - redis caching
-- make a job queue for not losing some works eg when you retry and go to another page it loses the retry and u have to try again the retry
 - jev for classifier of grading, potentially cutting request limits, cost, latency or speed. maybe on nvidianim
 - ask questions pi extensions limits questions need to fix
 
