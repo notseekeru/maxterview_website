@@ -25,7 +25,7 @@ FROM base AS builder
 # this image is environment-specific and why a second env needs its own build (ADR 0003, terraform).
 RUN npm run build
 
-FROM nginxinc/nginx-unprivileged:1.31.7@sha256:94193d5c4c5df716f412bb08eb97956d98fe6b59886f0bc57d6d3a3402a88a02 AS prod
+FROM nginxinc/nginx-unprivileged:1.31.7@sha256:09b0d3eda2aa592d2487f284519419015cab010d7df16cd0fe224b585fc60eb6 AS prod
 
 # Base image snapshots lag Debian point releases (deb13uN); patch OS packages at build.
 # nginx itself is a local .deb at prio 100, so `upgrade` cannot un-pin the tag.
