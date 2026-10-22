@@ -276,6 +276,34 @@ Each level passes or fails. If it passes, we go up. If it fails on an SLO, we st
 
 Confirm the highest passing level by re-running it 3 times, each measured for 5 minutes, and all three must pass. Since the boundary moves about 10%, a single pass is not proof. A failing run ends that phase at once and reopens the search between the level and the highest rung below it that passed, for at most three confirmation phases in total. If none of them reaches 3/3, the sweep stops unconfirmed.
 
+## Result
+
+Two sweeps against the prod pod, both closed with the sweep identity's rows deleted.
+
+| Ladder | Boundary | Confirmed | Failure |
+| ------ | -------- | --------- | ------- |
+| 100 | level one | none, the first rung aborts | p95 3.44s, p99 8.54s, 38.3 rps |
+| 10, 20 | 10 passes, 20 fails | 10, 3/3 over three 5 minute windows | p95 1.25s, p99 17.6s, 21.6 rps |
+
+Ten to twenty VUs raises throughput 29% and doubles p95, so that is the knee.
+
+Nothing is saturated at 20 VUs: 0.21 of 4 cores, 100Mi of 256Mi, pool wait p50 35ms. The gate fails on
+tails: `/stats/analytics` 4.8s p95, `/templates` 3.8s, `/usage` 2.9s, about one request in nine. No
+query passed 425ms at p95 or 2.12s at p99, so the tail is sequential round trips stacking, not one slow
+statement.
+
+At 100 VUs the shape changes: 80% of the 1.17s p50 is pool wait, p50 0.94s and p95 2.4s, while CPU
+stays at 0.27 cores.
+
+## What to change, strongest evidence first
+
+1. `/stats/analytics` makes five sequential queries, and its first has two correlated subqueries per
+   run. One statement, or a rollup.
+2. `/templates` GET runs an idempotent seed write before its read. Seed at owner creation instead.
+3. `/api/usage` makes two queries. One, or a cached byok row.
+4. The pool is not the limit below 40 VUs, so `max_size` addresses the 100 VU shape rather than the
+   boundary.
+
 ## Decisions
 
 1. k3s only, no host run. I am keeping k8s, so host-versus-k3s had no decision attached. Rejected: the host run, which answers a question I am no longer asking.

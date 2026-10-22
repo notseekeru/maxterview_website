@@ -18,24 +18,20 @@ probe's target, not the sweep's.
 
 | Thing                                    | State                                                                                                                                              |
 | ---------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Harness `~/k6-load-testing` at `29f4cf4` | Clean and pushed. Flake, direnv, workload, ladder, cleanup budget, p50/p95/p99 and both row counts                                                 |
-| Plan `SRE-LOADTESTING.md`                | Pushed. Every code claim re-verified after the refactor commits                                                                                    |
-| Prod perf-val-change                     | Closed: `/api/usage` answered 401, so no sweep has run against prod                                                                                |
+| Harness `~/k6-load-testing`      | Clean. Flake, direnv, workload, ladder, cleanup budget, phase and window columns, both row counts |
+| Plan `SRE-LOADTESTING.md`       | Current, with the first results in `## Result`                                                    |
+| Prod perf-val-change            | Closed. Two sweeps have run against prod; the boundary is in `## Result`                          |
 | Generator                                | This laptop: about a quarter of one core at 240 RPS, 1.15 CPU-seconds per 1,000 requests. The desktop is the fallback and has no relay in the path |
 | Sweep identity                           | `--sweep-sub` or `SWEEP_SUB`, and it must equal the target's `DEV_USER_SUB`                                                                        |
 | Local proof                              | The workload runs at 1, 2, 3, 5, 10, 25, 50 and 100 VUs against a stub target with no failing checks                                               |
 
 ## Open gaps
 
-| Gap                          | State                                                                            |
-| ---------------------------- | -------------------------------------------------------------------------------- |
-| The 10-VU recovery run       | Closed: `--only` writes its CSV row and `--start` builds a ladder from any floor |
-| The three confirmations      | Implemented, never executed, because it needs a level that fails                 |
-| The gap between levels       | Measured in isolation at 48s, never yet inside a multi-level ladder              |
-| Cleanup against Neon         | Local only: 621 interviews with their rows freed in 0.9s of the 30s budget       |
-| The perf-val-change's values | Gitops owns them and none are verifiable from this machine                       |
-| The relayed path             | 44ms of floor in every measured request, which lands inside the SLO gates        |
-| The SLO gates against prod   | Never exercised                                                                  |
+| Gap                    | State                                                                                                        |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------ |
+| The 10 to 20 VU band   | The search's tolerance floor is 25 VUs, so no search runs inside it. Resolve with `--only 15` and `--only 17` |
+| The 17.6s p99 at 20 VUs | No query passed 2.12s at p99 and pool wait 1.94s, so it is stacked waits, not one statement                 |
+| The relayed path       | 44ms of floor in every measured request, which lands inside the SLO gates                                    |
 
 ## Order
 
@@ -123,17 +119,19 @@ the first real contact. Both must exit 0.
 ### 4. The ladder
 
 ```sh
-python3 sweep.py
+python3 sweep.py --start 10 --max-vus 160 --no-first-rung-abort
 ```
 
-It climbs 100, 200, 400, 800 with 15 seconds of silence, up to 30 seconds of cleanup and 15 seconds of
-silence between levels. It stops at the first failing level above the first, binary searches the gap
-below it, then re-runs the winner three times at a 5 minute window. All three must pass; a failing run
-ends that phase and searches below the level again, for at most three phases. Every window writes a
-row to `results/sweep-<utc>.csv` and a k6 summary to `results/level-<n>.json`.
+It climbs 10, 20, 40, 80, 160, because the boundary sits below 20 and the default 100 fails on the
+first rung and aborts. The flag is what lets a lower start search instead of aborting. Between levels
+it waits 15 seconds, cleans up for up to 30, then waits 15 again. It stops at the first failing level
+above the first, binary searches the gap below it, then re-runs the winner three times at a 5 minute
+window. All three must pass; a failing run ends that phase and searches below the level again, for at
+most three phases. Every window writes a row to `results/sweep-<utc>.csv` and a k6 summary to
+`results/level-<n>.json`.
 
-If level one fails at 100 VUs, the sweep has already aborted and does not search. That is the harness
-or the app, not load; the run below says which:
+If the first rung fails with the flag off, the sweep has already aborted and does not search. That is
+the harness or the app, not load; the run below says which:
 
 ```sh
 python3 sweep.py --only 10
