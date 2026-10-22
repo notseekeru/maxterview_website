@@ -76,11 +76,15 @@ Throughput is reported, not gated. A level fixes the VUs and the think time, so 
 One path, ending in the same pod.
 
 ```
-Capacity path
-  k6 (desktop or laptop) -> Tailscale -> ingress-nginx -> pod
+Capacity path, as run
+  k6 (desktop or laptop) -> Tailscale -> NodePort 30090 -> pod
   pod -> Neon (direct host, TLS)
   pod -> Alloy (in-cluster) -> Grafana Cloud
 ```
+
+The NodePort sits on the backend Service, so every prod row measures the pod, the app and its database,
+with ingress-nginx, the tunnel and Cloudflare outside the number. Next: the same sweep over the
+cloudflared path into the ingress, no NodePort, so the edge is in the number too.
 
 ## Configuration
 
