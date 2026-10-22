@@ -128,10 +128,12 @@ python3 sweep.py
 
 It climbs 100, 200, 400, 800 with 15 seconds of silence, up to 30 seconds of cleanup and 15 seconds of
 silence between levels. It stops at the first failing level above the first, binary searches the gap
-below it, then re-runs the winner three times. Every level writes a row to `results/sweep-<utc>.csv` and
-a k6 summary to `results/level-<n>.json`.
+below it, then re-runs the winner three times at a 5 minute window. All three must pass; a failing run
+ends that phase and searches below the level again, for at most three phases. Every window writes a
+row to `results/sweep-<utc>.csv` and a k6 summary to `results/level-<n>.json`.
 
-If level one fails at 100 VUs, do not search. That is the harness or the app, not load:
+If level one fails at 100 VUs, the sweep has already aborted and does not search. That is the harness
+or the app, not load; the run below says which:
 
 ```sh
 python3 sweep.py --only 10
@@ -166,7 +168,8 @@ pod did. That is the "which resource runs out first" half of the question.
 About 5.5 minutes per level at the defaults (30 second ramp, 60 second warm, 3 minute measure, plus the
 gap), and about 7.5 for each of the three confirmations at their 5 minute window, so a ladder that
 brackets a failure plus the three confirmations is roughly an hour, assuming the first failure is not
-at 100 VUs.
+at 100 VUs. Each failed confirmation adds a search and another phase, so two of them roughly double the
+run.
 
 ## Abort and rollback
 

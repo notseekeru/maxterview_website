@@ -25,11 +25,14 @@ gates                  SLO
         |
         +-- pass, rungs left: double the VUs, repeat
         +-- pass at 800 VUs: stop and raise --max-vus, no confirmation
-        +-- fail on the first rung: abort, that is the harness or the app
+        +-- fail on the first rung: abort, then --only 10 tells harness from app
         +-- fail above it: binary search the gap                  -> phase=search
                               |
                     confirm the highest passing rung 3 times,
-                    measure 5 min each                            -> phase=confirm
+                    measure 5 min each, all three must pass        -> phase=confirm
+                              |
+                    any run fails: search below it and confirm
+                    again, at most three confirmation phases
                               |
                     boundary, from the CSV and Grafana
                               |
@@ -266,11 +269,12 @@ The database is warmed once before the first step, so pool creation and the Neon
 
 We start at 100 VUs and double from there. This is first level where we are checking and warming up: initialize our database, a smoke test for an app or a generator that was already broken before the load got high.
 
-If one of them fails, then that probable is not a load problem, so we stop and fix it instead of searching since it will be very unsual to have my test fail at such a low number. Rerun it again with the same workload but lesser VUs like say for example 10 VUs.
+If the first rung fails, the sweep aborts instead of searching, since a failure at that low a number is
+the harness or the app rather than load. Rerun the same workload at 10 VUs to see which.
 
 Each level passes or fails. If it passes, we go up. If it fails on an SLO, we stop going up, but the run keeps going. That failure becomes the top of the range, and we split the gap between the last pass and that failure to find the highest level that still passes. If 200 passes and 400 fails, try 300; if 300 passes, try 350. That is a binary search. We only need the boundary between pass and fail, not an exact number.
 
-Confirm the highest passing level by re-running it 3 times, each measured for 5 minutes, and again since the boundary moves about 10% this becomes more important to evaluating between runs and a single pass is not proof.
+Confirm the highest passing level by re-running it 3 times, each measured for 5 minutes, and all three must pass. Since the boundary moves about 10%, a single pass is not proof. A failing run ends that phase at once and reopens the search between the level and the highest rung below it that passed, for at most three confirmation phases in total. If none of them reaches 3/3, the sweep stops unconfirmed.
 
 ## Decisions
 
