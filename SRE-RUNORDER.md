@@ -128,8 +128,8 @@ window. All three must pass; a failing run ends that phase and searches below th
 most three phases. Every window writes a row to `results/sweep-<utc>.csv` and a k6 summary to
 `results/level-<n>-<phase>-<utc>.json`, one file per run.
 
-If the first rung fails with the flag off, the sweep has already aborted and does not search. That is
-the harness or the app, not load; the run below says which:
+If the first rung fails with the flag off, the sweep has already aborted and does not search. A
+first-rung failure is capacity until a lower rung passes; the run below is what tells the two apart:
 
 ```sh
 python3 sweep.py --only 10
@@ -176,7 +176,7 @@ run.
 | The perf-val-change will not open           | Stop and fix the overlay. `main.js` refuses to load without `tier=dev`                        |
 | `--cleanup-only` aborts on foreign owners   | Stop. The identity does not match the target's `DEV_USER_SUB`                                 |
 | Cleanup leaves rows behind after 30 seconds | Stop. The next perf-val-change would read a bigger account than the last                      |
-| Level one fails                             | `--only 10`, and treat it as a harness or app fault rather than capacity                      |
+| Level one fails                            | `--only 10`. Capacity until a lower rung passes; only that clears the harness                 |
 | A level fails above level one               | Expected. That is the boundary; let the search and the confirmations finish                   |
 | Anything unexpected                         | Close the perf-val-change first, then debug. Leaving it open leaves prod unauthenticated      |
 
