@@ -19,7 +19,7 @@ probe's target, not the sweep's.
 | Thing                       | State                                                                                                                                              |
 | --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Harness `~/k6-load-testing` | Clean. Flake, direnv, workload, ladder, cleanup budget, phase and window columns, both row counts                                                  |
-| Plan `SRE-LOADTESTING.md`   | Current, with the first results in `## Result`                                                                                                     |
+| Plan `SRE.md`               | Current, with the first results in `## Result`                                                                                                     |
 | Prod perf-val-change        | Closed. Two sweeps have run against prod; the boundary is in `## Result`                                                                           |
 | Generator                   | This laptop: about a quarter of one core at 240 RPS, 1.15 CPU-seconds per 1,000 requests. The desktop is the fallback and has no relay in the path |
 | Sweep identity              | `--sweep-sub` or `SWEEP_SUB`, and it must equal the target's `DEV_USER_SUB`                                                                        |
@@ -126,7 +126,7 @@ it waits 15 seconds, cleans up for up to 30, then waits 15 again. It stops at th
 above the first, binary searches the gap below it, then re-runs the winner three times at a 5 minute
 window. All three must pass; a failing run ends that phase and searches below the level again, for at
 most three phases. Every window writes a row to `results/sweep-<utc>.csv` and a k6 summary to
-`results/level-<n>.json`.
+`results/level-<n>-<phase>-<utc>.json`, one file per run.
 
 If the first rung fails with the flag off, the sweep has already aborted and does not search. That is
 the harness or the app, not load; the run below says which:

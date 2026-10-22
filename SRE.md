@@ -25,7 +25,7 @@ gates                  SLO
         |
         +-- pass, rungs left: double the VUs, repeat
         +-- pass at 800 VUs: stop and raise --max-vus, no confirmation
-        +-- fail on the first rung: abort, then --only 10 tells harness from app
+        +-- fail on the first rung: abort, then --only 10 brackets the boundary
         +-- fail above it: binary search the gap                  -> phase=search
                               |
                     confirm the highest passing rung 3 times,
@@ -127,7 +127,7 @@ These bound what one client can do, so they set the roof on the loop.
 
 | Limit                    | Value                                                    |
 | ------------------------ | -------------------------------------------------------- |
-| DB pool                  | `DB_POOL_MAX`, `min_size=0`                             |
+| DB pool                  | `DB_POOL_MAX`, `min_size=0`                              |
 | app rate limit           | 120/minute per client IP by default, `off` in the window |
 | templates                | 20, a module constant                                    |
 | resume parse concurrency | 2                                                        |
@@ -215,7 +215,12 @@ The two reads at every turn are both `_chat_session`: the interview with its res
 Three of those rows are model-bearing, `chat/kickoff`, `chat/stream` and `finish`, and they are the
 rows the latency gates exclude; the gates cover the rest.
 
-Every virtual user is the same identity and they all share one account.
+Every virtual user is the same identity and they all share one account. One identity is the first cut
+because it is one candidate moving through the app, and the cleanup has one owner to delete. A real
+deployment is many people at once, so the next architecture will give different VUs different identities.
+That also changes two things: each owner's history stays small instead of growing with the whole window,
+and the cleanup has to delete a set of owners. It puts authentication back in the measured path too,
+since one `DEV_USER_SUB` is what makes the shared account possible.
 
 The number of turns is a structured but randomized actions run per VU, with each going through thinking to simulate how a real user would behave. The random count is drawn against the run's own plan: the chitchat, behavioural and technical mix dials set how many questions the interviewer will ask, so a VU stops at the last planned question instead of asking past it and collecting a refusal.
 
@@ -246,11 +251,9 @@ The stub is read at import, so a pod that never restarted is a window that never
 
 ## What the reads cost
 
-The reads that scale with history are in the loop, so the loop's own writes change them. GET /api/interviews returns every run for the owner with no limit, and the stats endpoints re-scan the full history.
+The reads that scale with history are in the loop, so the loop's own writes change them. GET /api/interviews returned every run for the owner with no limit, and the stats endpoints re-scan the full history.
 
 The first draft left pagination and Redis out, to stay close to the current unoptimized architecture. But on second thought I opt in the pagination goes in, first and foremost without coupling it to Redis or any more optimization strategies. A LIMIT and OFFSET is a minimal change to the query itself, not a dependency to run, so it comes before anything else is added or measured. The list is paginated, so the sweeps in `## Result` measured the unpaginated architecture and a re-run measures a different one.
-
-I'll still measure without pagination first, since it should fail at a lower VU count than the paginated version would. The cost is low because the unpaginated run is the first one you hit, and the difference against the paginated run is the result. The two are separate runs with separate data, since they are different architectures.
 
 Redis stays out: it is a different tier, a second compute and a cache to invalidate, and does not belong in the same step as a LIMIT.
 
@@ -269,8 +272,9 @@ The database is warmed once before the first step, so pool creation and the Neon
 
 We start at 100 VUs and double from there. This is first level where we are checking and warming up: initialize our database, a smoke test for an app or a generator that was already broken before the load got high.
 
-If the first rung fails, the sweep aborts instead of searching, since a failure at that low a number is
-the harness or the app rather than load. Rerun the same workload at 10 VUs to see which.
+If the first rung fails, the sweep aborts instead of searching. A failure at the first rung is capacity
+until a lower rung passes, so 100 VUs failing says the boundary is below 100, not that the harness or
+the app is broken. Rerun the same workload at 10 VUs, and only a rung that passes clears the harness.
 
 Each level passes or fails. If it passes, we go up. If it fails on an SLO, we stop going up, but the run keeps going. That failure becomes the top of the range, and we split the gap between the last pass and that failure to find the highest level that still passes. If 200 passes and 400 fails, try 300; if 300 passes, try 350. That is a binary search. We only need the boundary between pass and fail, not an exact number.
 
@@ -278,12 +282,24 @@ Confirm the highest passing level by re-running it 3 times, each measured for 5 
 
 ## Result
 
-Two sweeps against the prod pod, both closed with the sweep identity's rows deleted.
+Every row below is the application before any optimisation, read from `results/sweep-*.csv`. Latency,
+rps and errors come from the harness; CPU, memory, pool wait, the per-route and the per-query numbers
+are Grafana readings over the same windows. The laptop row is docker compose against the stub, the rest
+are the prod pod over the NodePort, which is read from those latencies because the harness records no
+target. `max` is the measure window's max latency: k6's summary does not export p(99) for these runs, so
+the harness recorded the max while the gate evaluated a real p99 inside k6. The harness now exports
+p(99), so the next sweep records both.
 
-| Ladder | Boundary            | Confirmed                           | Failure                        |
-| ------ | ------------------- | ----------------------------------- | ------------------------------ |
-| 100    | level one           | none, the first rung aborts         | p95 3.44s, p99 8.54s, 38.3 rps |
-| 10, 20 | 10 passes, 20 fails | 10, 3/3 over three 5 minute windows | p95 1.25s, p99 17.6s, 21.6 rps |
+| Pod          | Phase   | VUs | Window | p50   | p95    | max   | rps  | Verdict |
+| ------------ | ------- | --- | ------ | ----- | ------ | ----- | ---- | ------- |
+| laptop, stub | only    | 10  | 10s    | 2.4ms | 11.6ms | 288ms | 54.0 | pass    |
+| prod         | only    | 10  | 10s    | 155ms | 705ms  | 933ms | 25.6 | pass    |
+| prod         | ladder  | 100 | 3m     | 1.17s | 3.44s  | 8.54s | 38.3 | fail    |
+| prod         | ladder  | 10  | 3m     | 155ms | 654ms  | 2.80s | 16.7 | pass    |
+| prod         | ladder  | 20  | 3m     | 205ms | 1.25s  | 17.6s | 21.6 | fail    |
+| prod         | confirm | 10  | 5m     | 149ms | 587ms  | 3.00s | 16.9 | pass    |
+| prod         | confirm | 10  | 5m     | 149ms | 569ms  | 1.38s | 16.7 | pass    |
+| prod         | confirm | 10  | 5m     | 147ms | 496ms  | 2.01s | 17.4 | pass    |
 
 Ten to twenty VUs raises throughput 29% and doubles p95, so that is the knee.
 
@@ -292,10 +308,59 @@ tails: `/stats/analytics` 4.8s p95, `/templates` 3.8s, `/usage` 2.9s, about one 
 query passed 425ms at p95 or 2.12s at p99, so the tail is sequential round trips stacking, not one slow
 statement.
 
-At 100 VUs the shape changes: 80% of the 1.17s p50 is pool wait, p50 0.94s and p95 2.4s, while CPU
-stays at 0.27 cores.
+At 100 VUs the shape changes: p50 1.17s, of which 0.94s is pool wait, and pool wait p95 is 2.4s against
+3.44s end to end. CPU stays at 0.27 cores.
 
-The tails above were taken before those routes dropped to one checkout per statement.
+## What I did not expect
+
+I actually ran the same workload on the laptop first, docker compose with the stub model, and it passed at 100
+VUs, though that ladder's summaries are gone and the only local row left is the 10 VU one below. So I
+went into the prod run expecting the number to be somewhere in the hundreds, and it failed on the first
+rung instead: p95 3.44s and a max of 8.54s at 100 VUs, and an error rate of zero. The part that
+surprised me
+is that the machine was pretty much idle while it failed, 0.27 of 4 cores and 100Mi of 256Mi. Nothing
+was out of CPU or memory, so the latency was not a resource running out.
+
+At 100 VUs the pool was the queue: p50 1.17s, and 0.94s of that was wait for a connection that was not
+doing anything yet. That is where I got worried, because 10 was a default I had set and not a number I
+had found.
+
+So I dropped to 10 VUs, expecting to find something wrong with the k6 harness. It passed, three times
+over three 5 minute windows, so the harness was clean and the application was the thing. The 100 VU run
+had already finished 348 iterations with every check passing, which I did not read that way at the time.
+The rung above it failed at 20 VUs with a max of 17.6s, and no single statement explained it, since the
+slowest query stayed under 2.12s at p99. The routes that failed were the ones that pay several round trips in a row:
+`/stats/analytics` at 4.8s p95 across five sequential queries, `/templates` at 3.8s with a seed write
+before its read, `/usage` at 2.9s across two. The queries were not slow, they were stacked, one behind
+another, and every one of them was its own checkout from a pool of ten.
+
+The run also showed two things that are not latency numbers. The list read every run the owner had,
+with no limit, and the account grew inside every window: 159 rows at 10 VUs, 241 at 20, 415 at 100.
+That is a code gap rather than a measured tail. The list route was never the slowest one in the report,
+but it is the read whose cost rises with history. And there is no cache anywhere in this path, which I
+left out on purpose. A cache is not a quick drop in, and if I had added it before the first run I would
+not know what the app does without it.
+
+I also read that first-rung failure as the harness or the app, not load. That was wrong. 100 VUs was not
+a low number for this app, it was five to ten times above where it stops, so the failure was the
+boundary, not a broken run.
+
+That is why this run exists in this shape. I wanted the numbers for the application on the day I planned
+this, before any of the optimisation, so that every later state has its own data and the difference is
+what the optimisation is actually worth.
+
+## What changed after this run
+
+Six changes, all of them on round trips, read size or the pool rather than on the queries themselves.
+
+| Change             | Before                                             | After                                        |
+| ------------------ | -------------------------------------------------- | -------------------------------------------- |
+| `/stats/analytics` | five checkouts                                     | one statement                                |
+| `/templates`       | a seed write, then the read                        | the read, seeded only when the list is empty |
+| `/usage`           | two checkouts in the window, three to four in prod | one                                          |
+| `GET /interviews`  | every run the owner had                            | 50 per page, archived filtered in the query  |
+| Home counters      | derived in the browser from that full list         | one statement over the full history          |
+| pool               | 10                                                 | `DB_POOL_MAX`, 20 by default                 |
 
 ## Decisions
 
@@ -309,4 +374,4 @@ The tails above were taken before those routes dropped to one checkout per state
 8. The model stubbed for the sweep. Rejected: real generation, where the ceiling is the provider's quota and not this one.
 9. Direct host, not the pooler. A `-pooler` DSN flips `statement_cache_size`, a different code path than prod runs.
 10. The sweep runs under its own identity, named by `DEV_USER_SUB`.
-11. Capacity sweep at a small fixed floor; the unbounded read on its own N-sweep. Rejected: letting N grow inside the ladder, which conflates read cost with concurrency and makes a failure at 100 VUs unattributable.
+11. Capacity sweep at a small fixed floor, and the unbounded read on its own N-sweep. N grew inside every window anyway (159 rows at 10 VUs, 415 at 100), because the cleanup runs between levels. The read never surfaced in the tail, the 100 VU failure was attributed to pool wait without an N-sweep, and pagination shipped on code grounds. The N-sweep is still unrun.
