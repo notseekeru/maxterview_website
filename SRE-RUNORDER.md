@@ -141,17 +141,19 @@ python3 sweep.py --only 10
 
 ### 5. Close the perf-val-change
 
-Swap the overlay back to prod, commit, push, wait for the sync, and confirm `/api/usage` answers 401
-again on the same port. The perf-val-change turns authentication and the rate limit off, so it must not
-outlive the run, and the NodePort is pruned with it.
+Clean up first, while the NodePort still answers: the app authenticates with the perf window's
+`DEV_USER_SUB`, so once the overlay is back to prod the cleanup cannot reach it and its rows stay. Then
+swap the overlay back to prod, commit, push, wait for the sync, and confirm `/api/usage` answers 401 on
+the public URL. The perf-val-change turns authentication and the rate limit off, so it must not outlive
+the run, and the NodePort is pruned with it.
 
 ```sh
+cd ~/k6-load-testing
+python3 sweep.py --cleanup-only
+
 cd ~/gitops
 sed -i 's|apps/maxterview/overlays/perf|apps/maxterview/overlays/prod|' apps-of-apps/maxterview.yaml
 git commit -am 'chore(gitops): close the maxterview perf-val-change' && git push
-
-cd ~/k6-load-testing
-python3 sweep.py --cleanup-only
 ```
 
 ### 6. Read the result
