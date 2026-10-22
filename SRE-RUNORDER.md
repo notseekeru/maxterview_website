@@ -152,8 +152,9 @@ python3 sweep.py --cleanup-only
 
 ### 6. Read the result
 
-`results/sweep-<utc>.csv` carries the boundary per window: phase and window length, p50, p95, p99, error
-rate, rps, iterations, requests, seconds and the account's rows before and after each perf-val-change.
+`results/sweep-<utc>.csv` carries the boundary per window: phase and window length, p50, p95, p99, max,
+error rate, rps, iterations, requests, seconds and the account's rows before and after each
+perf-val-change.
 
 In Grafana, `maxterview-logs` over the sweep's time range: `db_pool_wait` against `db_query` says
 whether Neon's queue or the SQL ran out first, and container memory against its limit says whether the
