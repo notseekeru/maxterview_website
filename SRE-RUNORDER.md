@@ -16,22 +16,22 @@ probe's target, not the sweep's.
 
 ## Where things stand
 
-| Thing                                    | State                                                                                                                                              |
-| ---------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Harness `~/k6-load-testing`      | Clean. Flake, direnv, workload, ladder, cleanup budget, phase and window columns, both row counts |
-| Plan `SRE-LOADTESTING.md`       | Current, with the first results in `## Result`                                                    |
-| Prod perf-val-change            | Closed. Two sweeps have run against prod; the boundary is in `## Result`                          |
-| Generator                                | This laptop: about a quarter of one core at 240 RPS, 1.15 CPU-seconds per 1,000 requests. The desktop is the fallback and has no relay in the path |
-| Sweep identity                           | `--sweep-sub` or `SWEEP_SUB`, and it must equal the target's `DEV_USER_SUB`                                                                        |
-| Local proof                              | The workload runs at 1, 2, 3, 5, 10, 25, 50 and 100 VUs against a stub target with no failing checks                                               |
+| Thing                       | State                                                                                                                                              |
+| --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Harness `~/k6-load-testing` | Clean. Flake, direnv, workload, ladder, cleanup budget, phase and window columns, both row counts                                                  |
+| Plan `SRE-LOADTESTING.md`   | Current, with the first results in `## Result`                                                                                                     |
+| Prod perf-val-change        | Closed. Two sweeps have run against prod; the boundary is in `## Result`                                                                           |
+| Generator                   | This laptop: about a quarter of one core at 240 RPS, 1.15 CPU-seconds per 1,000 requests. The desktop is the fallback and has no relay in the path |
+| Sweep identity              | `--sweep-sub` or `SWEEP_SUB`, and it must equal the target's `DEV_USER_SUB`                                                                        |
+| Local proof                 | The workload runs at 1, 2, 3, 5, 10, 25, 50 and 100 VUs against a stub target with no failing checks                                               |
 
 ## Open gaps
 
-| Gap                    | State                                                                                                        |
-| ---------------------- | ------------------------------------------------------------------------------------------------------------ |
-| The 10 to 20 VU band   | The search's tolerance floor is 25 VUs, so no search runs inside it. Resolve with `--only 15` and `--only 17` |
-| The 17.6s p99 at 20 VUs | No query passed 2.12s at p99 and pool wait 1.94s, so it is stacked waits, not one statement                 |
-| The relayed path       | 44ms of floor in every measured request, which lands inside the SLO gates                                    |
+| Gap                     | State                                                                                                         |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------- |
+| The 10 to 20 VU band    | The search's tolerance floor is 25 VUs, so no search runs inside it. Resolve with `--only 15` and `--only 17` |
+| The 17.6s p99 at 20 VUs | No query passed 2.12s at p99 and pool wait 1.94s, so it is stacked waits, not one statement                   |
+| The relayed path        | 44ms of floor in every measured request, which lands inside the SLO gates                                     |
 
 ## Order
 

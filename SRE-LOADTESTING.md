@@ -127,7 +127,7 @@ These bound what one client can do, so they set the roof on the loop.
 
 | Limit                    | Value                                                    |
 | ------------------------ | -------------------------------------------------------- |
-| DB pool                  | `max_size=10`, `min_size=0`                              |
+| DB pool                  | `DB_POOL_MAX`, `min_size=0`                             |
 | app rate limit           | 120/minute per client IP by default, `off` in the window |
 | templates                | 20, a module constant                                    |
 | resume parse concurrency | 2                                                        |
@@ -248,7 +248,7 @@ The stub is read at import, so a pod that never restarted is a window that never
 
 The reads that scale with history are in the loop, so the loop's own writes change them. GET /api/interviews returns every run for the owner with no limit, and the stats endpoints re-scan the full history.
 
-The first draft left pagination and Redis out, to stay close to the current unoptimized architecture. But on second thought I opt in the pagination goes in, first and foremost without coupling it to Redis or any more optimization strategies. A LIMIT and OFFSET is a minimal change to the query itself, not a dependency to run, so it comes before anything else is added or measured. Not shipped yet: the list query still reads the owner's full history, so every run so far is the unpaginated architecture.
+The first draft left pagination and Redis out, to stay close to the current unoptimized architecture. But on second thought I opt in the pagination goes in, first and foremost without coupling it to Redis or any more optimization strategies. A LIMIT and OFFSET is a minimal change to the query itself, not a dependency to run, so it comes before anything else is added or measured. The list is paginated, so the sweeps in `## Result` measured the unpaginated architecture and a re-run measures a different one.
 
 I'll still measure without pagination first, since it should fail at a lower VU count than the paginated version would. The cost is low because the unpaginated run is the first one you hit, and the difference against the paginated run is the result. The two are separate runs with separate data, since they are different architectures.
 
@@ -280,9 +280,9 @@ Confirm the highest passing level by re-running it 3 times, each measured for 5 
 
 Two sweeps against the prod pod, both closed with the sweep identity's rows deleted.
 
-| Ladder | Boundary | Confirmed | Failure |
-| ------ | -------- | --------- | ------- |
-| 100 | level one | none, the first rung aborts | p95 3.44s, p99 8.54s, 38.3 rps |
+| Ladder | Boundary            | Confirmed                           | Failure                        |
+| ------ | ------------------- | ----------------------------------- | ------------------------------ |
+| 100    | level one           | none, the first rung aborts         | p95 3.44s, p99 8.54s, 38.3 rps |
 | 10, 20 | 10 passes, 20 fails | 10, 3/3 over three 5 minute windows | p95 1.25s, p99 17.6s, 21.6 rps |
 
 Ten to twenty VUs raises throughput 29% and doubles p95, so that is the knee.
@@ -295,14 +295,7 @@ statement.
 At 100 VUs the shape changes: 80% of the 1.17s p50 is pool wait, p50 0.94s and p95 2.4s, while CPU
 stays at 0.27 cores.
 
-## What to change, strongest evidence first
-
-1. `/stats/analytics` makes five sequential queries, and its first has two correlated subqueries per
-   run. One statement, or a rollup.
-2. `/templates` GET runs an idempotent seed write before its read. Seed at owner creation instead.
-3. `/api/usage` makes two queries. One, or a cached byok row.
-4. The pool is not the limit below 40 VUs, so `max_size` addresses the 100 VU shape rather than the
-   boundary.
+The tails above were taken before those routes dropped to one checkout per statement.
 
 ## Decisions
 
