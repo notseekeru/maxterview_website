@@ -20,6 +20,12 @@ async def _init_pool_on_connect(conn: asyncpg.Connection) -> None:
     await conn.set_type_codec("json", encoder=json.dumps, decoder=json.loads, schema="pg_catalog")
 
 
+def _pool_max() -> int:
+    size = int(os.getenv("DB_POOL_MAX", "20"))
+    assert size >= 1, "DB_POOL_MAX has to hold at least one connection"
+    return size
+
+
 async def init_pool() -> None:
     global _pool
     if _pool is None:
@@ -27,7 +33,7 @@ async def init_pool() -> None:
         _pool = await asyncpg.create_pool(
             DATABASE_URL,
             min_size=0,
-            max_size=10,
+            max_size=_pool_max(),
             # A `-pooler` DSN means PgBouncer (transaction mode), which breaks asyncpg's implicit
             # prepared statements. Off only there; direct hosts keep the cache.
             statement_cache_size=0 if "-pooler" in DATABASE_URL else 10,
