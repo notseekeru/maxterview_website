@@ -7,9 +7,10 @@ FILE=apps-of-apps/maxterview.yaml
 case ${1:-} in
 on) want=perf action=open ;;
 off) want=prod action=close ;;
+edge) want=edge action=open ;;
 status) want="" action="" ;;
 *)
-    echo "usage: $(basename "$0") on|off|status" >&2
+    echo "usage: $(basename "$0") on|off|edge|status" >&2
     exit 2
     ;;
 esac
@@ -23,7 +24,7 @@ mapfile -t found < <(grep -n 'path: apps/maxterview/overlays/' "$FILE" || true)
 have=$(sed -n 's|.*/overlays/||p' <<<"${found[0]}")
 have=${have//[[:space:]]/}
 case $have in
-prod | perf) ;;
+prod | perf | edge) ;;
 *)
     echo "cannot read the overlay from: ${found[0]}" >&2
     exit 1
@@ -31,13 +32,13 @@ prod | perf) ;;
 esac
 
 if [ "$1" = status ]; then
-    state=$([ "$have" = perf ] && echo open || echo closed)
-    echo "perf window $state (overlays/$have)"
+    state=$([ "$have" = prod ] && echo closed || echo open)
+    echo "window $state (overlays/$have)"
     exit 0
 fi
 
 if [ "$want" = "$have" ]; then
-    echo "perf window already $1; nothing to commit"
+    echo "window already $1 (overlays/$have); nothing to commit"
     exit 0
 fi
 
