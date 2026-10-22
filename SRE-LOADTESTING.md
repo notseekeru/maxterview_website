@@ -24,6 +24,7 @@ At what load does the prod deployment stop behaving acceptably, and which resour
 | Indicator   | Gate           |
 | ----------- | -------------- |
 | p50 latency | none, reported |
+| throughput  | none, reported |
 | p95 latency | <1s            |
 | p99 latency | <5s            |
 | error rate  | <1%            |
@@ -34,6 +35,8 @@ The latency gates cover the app-owned routes. The model-bearing ones are exclude
 established my baseline of acceptable for this particular architecture since latency can be dependent on programming language and the framework it's using, this is much more important than it seem especially if were testing application performance.
 
 p50 is there for reporting, no gate added since it can be considered redundant since p95 would fail first, but for the sake it, i just added p50 latency.
+
+Throughput is reported, not gated. A level fixes the VUs and the think time, so RPS falls out of the app's own latency rather than setting it: a gate would fail a level for answering slowly, which p95 and p99 already fail. It stays the number the boundary is recorded in, next to the user estimate.
 
 ## Architecture
 
@@ -214,7 +217,7 @@ The reads that scale with history are in the loop, so the loop's own writes chan
 
 The first draft left pagination and Redis out, to stay close to the current unoptimized architecture. But on second thought I opt in the pagination goes in, first and foremost without coupling it to Redis or any more optimization strategies. A LIMIT and OFFSET is a minimal change to the query itself, not a dependency to run, so it comes before anything else is added or measured. Not shipped yet: the list query still reads the owner's full history, so every run so far is the unpaginated architecture.
 
-I'll still measure without pagination, since it will probably fail SLO(specifically our latency) at low VU counts. The cost is low because it fails early and we can afford to measure it without sacrificing much time. It will be a separate run and data from with pagination since it is a different architectural run.
+I'll still measure without pagination first, since it should fail at a lower VU count than the paginated version would. The cost is low because the unpaginated run is the first one you hit, and the difference against the paginated run is the result. The two are separate runs with separate data, since they are different architectures.
 
 Redis stays out: it is a different tier, a second compute and a cache to invalidate, and does not belong in the same step as a LIMIT.
 
