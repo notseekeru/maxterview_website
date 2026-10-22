@@ -1358,6 +1358,12 @@ def test_analytics_aggregates_the_whole_history(client):
                         accuracy,
                         decision,
                     )
+                if decision == "hire":
+                    await conn.execute(
+                        "INSERT INTO offers (interview_id, title, band, base_salary, performance) VALUES ($1::uuid, 'Senior Engineer', 'senior', 1000000, $2)",
+                        iid,
+                        accuracy,
+                    )
                 ids.append(iid)
             return ids
         finally:
@@ -1411,6 +1417,8 @@ def test_analytics_aggregates_the_whole_history(client):
         assert hardcore_group["hardcore"]["runs"] == 1 and hardcore_group["standard"]["runs"] == 3
         # Hire rate is denominated on DECIDED runs: 1 of 2 here, unaffected by the undecided ones.
         assert levels_group["junior"]["hire_rate"] == 0 and levels_group["senior"]["hire_rate"] == 100
+
+        assert d["offers"]["summary"]["count"] == 1 and d["offers"]["summary"]["best_id"] == ids[0], "an offer must survive the JSONB aggregate"
 
         # Activity: the weekly buckets the page charts, over the recent seeded runs. Without this the
         # field could silently stay empty and the panel would render its "no runs" state forever.

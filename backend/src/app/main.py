@@ -5,6 +5,7 @@ import time
 from collections import Counter
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager, suppress
+from datetime import datetime
 from statistics import fmean, median
 from typing import Annotated
 
@@ -781,7 +782,7 @@ async def get_analytics(user: CurrentUser) -> dict:
         "total_turns": total_turns,
         "streak_days": row["streak_days"] or 0,
         "hardcore_failures": hardcore_failures,
-        "offers": offer_board([offer_row(r) for r in row["offers"]]),
+        "offers": offer_board([offer_row({**r, "created_at": datetime.fromisoformat(r["created_at"])}) for r in row["offers"]]),
     }
 
 
