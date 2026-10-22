@@ -163,9 +163,10 @@ pod did. That is the "which resource runs out first" half of the question.
 
 ## Time
 
-About 7 minutes per level at the defaults (30 second ramp, 60 second warm, 300 second measure, plus the
-gap), so a ladder that brackets a failure plus the three confirmations is roughly 1 to 1.5 hours,
-assuming the first failure is not at 100 VUs.
+About 5.5 minutes per level at the defaults (30 second ramp, 60 second warm, 3 minute measure, plus the
+gap), and about 7.5 for each of the three confirmations at their 5 minute window, so a ladder that
+brackets a failure plus the three confirmations is roughly an hour, assuming the first failure is not
+at 100 VUs.
 
 ## Abort and rollback
 
