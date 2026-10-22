@@ -17,6 +17,10 @@ gitops overlay opens the window    NodePort 30090 on the backend Service
         |
 cleanup        delete every row the sweep identity owns            -> deleted_before
         |
+measure 10s at 10 VUs  the harness check, before any rung          -> phase=smoke
+        |
+        +-- fail: abort the sweep, the harness or the app is broken
+        |
 ramp 30s, warm 60s     neither enters a gate
         |
 measure 3 min          the only window that counts                 -> phase=ladder
@@ -25,8 +29,7 @@ gates                  SLO
         |
         +-- pass, rungs left: double the VUs, repeat
         +-- pass at 800 VUs: stop and raise --max-vus, no confirmation
-        +-- fail on the first rung: abort, then --only 10 brackets the boundary
-        +-- fail above it: binary search the gap                  -> phase=search
+        +-- fail: binary search the gap down to the 10 VU smoke    -> phase=search
                               |
                     confirm the highest passing rung 3 times,
                     measure 5 min each, all three must pass        -> phase=confirm
@@ -270,13 +273,13 @@ silence, up to 30 seconds of cleanup, 15 seconds of silence again. 60 seconds st
 
 The cleanup deletes the k6 identity's account, so every run starts from the same empty account. That deleting happens for 30 seconds which would be all more plenty of time to delete all that data relevant to our k6 account, and a cleanup that runs out of that budget aborts the sweep instead of letting the next window read a bigger account than the last. The row count is recorded at window start and at window end, so intra-window drift is reported rather than assumed.
 
-The database is warmed once before the first step, so pool creation and the Neon wake we already paid before any number is taken.
+The sweep opens with a 10 VU smoke on the same workload, with a 10 second window. It warms the pool and
+the Neon compute, and it is the harness check: a failure there is the app or the generator, not load.
+The smoke is not optional, and a failed smoke aborts the sweep before any rung.
 
-We start at 100 VUs and double from there. This is first level where we are checking and warming up: initialize our database, a smoke test for an app or a generator that was already broken before the load got high.
-
-If the first rung fails, the sweep aborts instead of searching. A failure at the first rung is capacity
-until a lower rung passes, so 100 VUs failing says the boundary is below 100, not that the harness or
-the app is broken. Rerun the same workload at 10 VUs, and only a rung that passes clears the harness.
+Then the ladder starts at 100 VUs and doubles. A failed rung is the boundary rather than a broken
+harness, because the smoke already cleared that. The search runs between the last pass and the failure,
+and it can go as low as the smoke's 10 VUs when 100 is the rung that fails.
 
 Each level passes or fails. If it passes, we go up. If it fails on an SLO, we stop going up, but the run keeps going. That failure becomes the top of the range, and we split the gap between the last pass and that failure to find the highest level that still passes. If 200 passes and 400 fails, try 300; if 300 passes, try 350. That is a binary search. We only need the boundary between pass and fail, not an exact number.
 

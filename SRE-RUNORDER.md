@@ -128,28 +128,22 @@ python3 sweep.py --only 10 --smoke
 
 `--cleanup-only` is the only destructive path: it asserts every listed row belongs to `SWEEP_SUB`
 before deleting, and stops at the 30 second budget. `--only 10 --smoke` is 10 VUs for about 16 seconds,
-the first real contact. Both must exit 0.
+the first real contact. The sweep runs the same smoke as its first window, so this only proves the
+target before you commit to the ladder. Both must exit 0.
 
-### 4. The ladder
-
-```sh
-python3 sweep.py --start 10 --max-vus 160 --no-first-rung-abort
-```
-
-It climbs 10, 20, 40, 80, 160, because the boundary sits below 20 and the default 100 fails on the
-first rung and aborts. The flag is what lets a lower start search instead of aborting. Between levels
-it waits 15 seconds, cleans up for up to 30, then waits 15 again. It stops at the first failing level
-above the first, binary searches the gap below it, then re-runs the winner three times at a 5 minute
-window. All three must pass; a failing run ends that phase and searches below the level again, for at
-most three phases. Every window writes a row to `results/sweep-<utc>.csv` and a k6 summary to
-`results/level-<n>-<phase>-<utc>.json`, one file per run.
-
-If the first rung fails with the flag off, the sweep has already aborted and does not search. A
-first-rung failure is capacity until a lower rung passes; the run below is what tells the two apart:
+### 4. The sweep
 
 ```sh
-python3 sweep.py --only 10
+python3 sweep.py
 ```
+
+Its first window is the 10 VU smoke, mandatory: a failed smoke aborts before any rung, since that is
+the harness or the app and not load. Then it climbs 100, 200, 400, 800. A failed rung is the boundary,
+and the search runs between the last pass and it, down to the smoke's 10 VUs when 100 is the rung that
+fails. Between windows it waits 15 seconds, cleans up for up to 30, then waits 15 again. The winner is
+re-run three times at a 5 minute window; all three must pass, and a failing run ends that phase and
+searches below the level again, for at most three phases. Every window writes a row to
+`results/sweep-<utc>.csv` and a k6 summary to `results/level-<n>-<phase>-<utc>.json`, one file per run.
 
 ### 5. Close the perf-val-change
 
@@ -193,8 +187,8 @@ run.
 | The perf-val-change will not open           | Stop and fix the overlay. `main.js` refuses to load without `tier=dev`                        |
 | `--cleanup-only` aborts on foreign owners   | Stop. The identity does not match the target's `DEV_USER_SUB`                                 |
 | Cleanup leaves rows behind after 30 seconds | Stop. The next perf-val-change would read a bigger account than the last                      |
-| Level one fails                            | `--only 10`. Capacity until a lower rung passes; only that clears the harness                 |
-| A level fails above level one               | Expected. That is the boundary; let the search and the confirmations finish                   |
+| The 10 VU smoke fails                       | The sweep aborts. Fix the harness or the app; a failed smoke is not capacity                  |
+| A ladder rung fails                         | Expected. That is the boundary; the search runs from the last pass down to 10 VUs             |
 | Anything unexpected                         | Close the perf-val-change first, then debug. Leaving it open leaves prod unauthenticated      |
 
 ## What this run cannot claim
