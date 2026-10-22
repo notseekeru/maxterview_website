@@ -217,10 +217,8 @@ rows the latency gates exclude; the gates cover the rest.
 
 Every virtual user is the same identity and they all share one account. One identity is the first cut
 because it is one candidate moving through the app, and the cleanup has one owner to delete. A real
-deployment is many people at once, so the next architecture will give different VUs different identities.
-That also changes two things: each owner's history stays small instead of growing with the whole window,
-and the cleanup has to delete a set of owners. It puts authentication back in the measured path too,
-since one `DEV_USER_SUB` is what makes the shared account possible.
+deployment is many people at once, so the next architecture will give different VUs different identities both also measured separately in the run.
+That also changes two things: each owner's history stays small instead of growing with the whole window, and the cleanup has to delete a set of owners. It puts authentication back in the measured path too, since one `DEV_USER_SUB` is what makes the shared account possible.
 
 The number of turns is a structured but randomized actions run per VU, with each going through thinking to simulate how a real user would behave. The random count is drawn against the run's own plan: the chitchat, behavioural and technical mix dials set how many questions the interviewer will ask, so a VU stops at the last planned question instead of asking past it and collecting a refusal.
 
@@ -314,11 +312,15 @@ At 100 VUs the shape changes: p50 1.17s, of which 0.94s is pool wait, and pool w
 ## What I did not expect
 
 I actually ran the same workload on the laptop first, docker compose with the stub model, and it passed
-at 100 VUs, though that ladder's summaries are gone and the only local row left is the 10 VU one in the
-table above. So I went into the prod run expecting the number to be somewhere in the hundreds, and it
+at 100 VUs. So I went into the prod run expecting the number to be somewhere in the hundreds, and it
 failed on the first rung instead: p95 3.44s and a max of 8.54s at 100 VUs, and an error rate of zero.
 The part that surprised me is that the machine was pretty much idle while it failed, 0.27 of 4 cores
-and 100Mi of 256Mi. Nothing was out of CPU or memory, so the latency was not a resource running out.
+and 134Mi of 256Mi. Nothing was out of CPU or memory, so the latency was not a resource running out.
+
+If you noticed, I ran the test and wondered where my p99 was and apprarently when I was telling my AI to
+code this with my specs, It just somehow glossed over the p99 export so that's why we only see max latency
+on the pre-optimized run. Now it still my fault and the AI did pretty well on writing it and still gated p99
+so we didn't lose the gates, just the numbers. Fixed it and from here on out we will be running it with p99.
 
 At 100 VUs the pool was the queue: p50 1.17s, and 0.94s of that was wait for a connection that was not
 doing anything yet. That is where I got worried, because 10 was a default I had set and not a number I
