@@ -97,9 +97,7 @@ that overlay overwrites any resource's own namespace, so a Service in `ingress-n
 and the backend is the app itself, which is what the sweep is measuring.
 
 ```sh
-cd ~/gitops && git pull
-sed -i 's|apps/maxterview/overlays/prod|apps/maxterview/overlays/perf|' apps-of-apps/maxterview.yaml
-git commit -am 'chore(gitops): open the maxterview perf-val-change' && git push
+~/maxterview_website/scripts/perf-window.sh on
 ```
 
 ### 3. Prove it from the ladder's side
@@ -149,9 +147,7 @@ the run, and the NodePort is pruned with it.
 cd ~/k6-load-testing
 python3 sweep.py --cleanup-only
 
-cd ~/gitops
-sed -i 's|apps/maxterview/overlays/perf|apps/maxterview/overlays/prod|' apps-of-apps/maxterview.yaml
-git commit -am 'chore(gitops): close the maxterview perf-val-change' && git push
+~/maxterview_website/scripts/perf-window.sh off
 ```
 
 ### 6. Read the result
