@@ -179,6 +179,33 @@ class InterviewDimensions(BaseModel):
     recent: dict
 
 
+class AccuracyPoint(BaseModel):
+    created_at: datetime
+    accuracy: int
+
+
+class DashboardDims(BaseModel):
+    total: int
+    completed: int
+    rated: int
+    avg_accuracy: float
+    accuracy_trend: list[AccuracyPoint]
+    decided: int
+    hiring: int
+    avg_certainty: int | None = None
+    week_runs: int
+    prior_week_runs: int
+    week_finished: int
+    prior_week_finished: int
+    streak: int
+    last_run_days: int | None = None
+    delta_accuracy: float | None = None
+    delta_hire: float | None = None
+    daily_runs: list[int]
+    daily_finished: list[int]
+    hire_spark: list[float]
+
+
 class AnalyticsRun(BaseModel):
     id: str
     role: str

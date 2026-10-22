@@ -46,11 +46,33 @@ async def _entitled_row(owner_id: str) -> dict | None:
 
 
 async def resolve_tier(user: ClerkUser) -> str:
+    if not CLERK_ENABLED or user.tier == "premium":
+        return tier_from(user, entitled=False)
+    return tier_from(user, entitled=(await _entitled_row(user.sub)) is not None)
+
+
+def tier_from(user: ClerkUser, entitled: bool) -> str:
     if not CLERK_ENABLED:
         return "dev"
-    if user.tier == "premium":
-        return "premium"
-    return "premium" if await _entitled_row(user.sub) else "free"
+    return "premium" if user.tier == "premium" or entitled else "free"
+
+
+async def usage_state(user: ClerkUser) -> dict:
+    row = await fetchrow(
+        """
+        SELECT (SELECT turns FROM turn_usage WHERE owner_id = $1 AND day = $2) AS turns,
+               EXISTS(SELECT 1 FROM llm_credentials WHERE owner_id = $1) AS byok,
+               (SELECT current_period_end FROM subscriptions
+                 WHERE owner_id = $1 AND plan = 'premium'
+                   AND status = ANY($3::text[])
+                   AND (current_period_end IS NULL OR current_period_end > now())) AS premium_until
+        """,
+        user.sub,
+        _utc_day(),
+        list(ENTITLED_STATUSES),
+    )
+    assert row is not None
+    return {"turns": row["turns"] or 0, "byok": bool(row["byok"]), "premium_until": row["premium_until"]}
 
 
 async def premium_until(owner_id: str) -> datetime | None:

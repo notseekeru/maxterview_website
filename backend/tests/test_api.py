@@ -513,10 +513,10 @@ def test_resume_tier_caps_free_is_402_paid_is_409(client, monkeypatch):
     # isQuotaError(402) into its upgrade notice, so nothing new has to be built for this wall.
     tier = {"value": "free"}
 
-    async def fake_tier(_user):
+    def fake_tier(_user, entitled=False):
         return tier["value"]
 
-    monkeypatch.setattr(billing, "resolve_tier", fake_tier)
+    monkeypatch.setattr(billing, "tier_from", fake_tier)
     monkeypatch.setitem(billing.LIMITS["free"], "resumes", 1)
     assert c.post("/api/resumes", json=_resume_payload("Free one")).status_code == 201
     over = c.post("/api/resumes", json=_resume_payload("Free two"))
@@ -761,6 +761,69 @@ def test_dimensions_are_owner_scoped(client):
             await conn.close()
 
     asyncio.run(cleanup())
+
+
+def test_dashboard_dims_come_from_the_server(client):
+    # Home no longer sees the full list, so these counters can only come from here.
+    import asyncio
+
+    import asyncpg
+
+    c = client
+
+    async def seed():
+        conn = await asyncpg.connect(DB_URL)
+        try:
+            rows = (
+                ("Dash hired", "completed", 80, "hire", None),
+                ("Dash rejected", "completed", 40, "reject", "2020-01-01"),
+                ("Dash unscored", "completed", None, None, None),
+                ("Dash running", "in_progress", None, None, None),
+            )
+            ids = []
+            for seq, (role, run_status, accuracy, decision, archived_at) in enumerate(rows):
+                iid = await conn.fetchval(
+                    "INSERT INTO interviews (owner_id, role, status, created_at, archived_at) VALUES ('dev-user', $1, $2, now() + make_interval(secs => $4), $3::text::timestamptz) RETURNING id::text",
+                    role,
+                    run_status,
+                    archived_at,
+                    seq,
+                )
+                ids.append(iid)
+                if accuracy is not None:
+                    await conn.execute(
+                        "INSERT INTO feedback (interview_id, verdict, scores, accuracy, decision, certainty) VALUES ($1::uuid, 'v', '{}'::jsonb, $2, $3, 60)",
+                        iid,
+                        accuracy,
+                        decision,
+                    )
+            return ids
+        finally:
+            await conn.close()
+
+    async def wipe(ids):
+        conn = await asyncpg.connect(DB_URL)
+        try:
+            await conn.execute("DELETE FROM interviews WHERE id = ANY($1::uuid[])", ids)
+        finally:
+            await conn.close()
+
+    before = c.get("/api/stats/dashboard").json()
+    ids = asyncio.run(seed())
+    try:
+        r = c.get("/api/stats/dashboard")
+        assert r.status_code == 200
+        d = r.json()
+
+        assert (d["total"] - before["total"], d["completed"] - before["completed"], d["rated"] - before["rated"]) == (4, 3, 2)
+        assert (d["decided"] - before["decided"], d["hiring"] - before["hiring"], d["week_runs"] - before["week_runs"]) == (2, 1, 4)
+        assert len(d["daily_runs"]) == len(d["daily_finished"]) == 14
+        assert d["daily_runs"][-1] - before["daily_runs"][-1] == 4
+        assert [p["accuracy"] for p in d["accuracy_trend"]][-2:] == [80, 40]
+        assert d["last_run_days"] == 0
+        assert len(d["hire_spark"]) == min(20, d["decided"])
+    finally:
+        asyncio.run(wipe(ids))
 
 
 def test_move_review_annotates_every_candidate_turn(client):

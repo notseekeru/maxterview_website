@@ -188,6 +188,33 @@ export async function getInterviewDimensions(): Promise<InterviewDimensions> {
     return data;
 }
 
+export interface DashboardDims {
+    total: number;
+    completed: number;
+    rated: number;
+    avg_accuracy: number;
+    accuracy_trend: { created_at: string; accuracy: number }[];
+    decided: number;
+    hiring: number;
+    avg_certainty: number | null;
+    week_runs: number;
+    prior_week_runs: number;
+    week_finished: number;
+    prior_week_finished: number;
+    streak: number;
+    last_run_days: number | null;
+    delta_accuracy: number | null;
+    delta_hire: number | null;
+    daily_runs: number[];
+    daily_finished: number[];
+    hire_spark: number[];
+}
+
+export async function getDashboardDims(): Promise<DashboardDims> {
+    const { data } = await api.get<DashboardDims>("/stats/dashboard");
+    return data;
+}
+
 export interface AnalyticsRun {
     id: string;
     role: string;
@@ -381,8 +408,8 @@ export function turnsToday(usage: Usage): { limit: number; used: number; remaini
     return { limit, used: usage.chat_turns_used_today ?? limit - remaining, remaining };
 }
 
-export async function listInterviews(): Promise<Interview[]> {
-    const { data } = await api.get<Interview[]>("/interviews");
+export async function listInterviews(limit: number, offset: number, archived: boolean): Promise<Interview[]> {
+    const { data } = await api.get<Interview[]>("/interviews", { params: { limit, offset, archived } });
     return data;
 }
 

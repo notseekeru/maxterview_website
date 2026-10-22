@@ -6,12 +6,12 @@ import { DashboardStats } from "@/components/DashboardStats";
 import { Page } from "@/components/PagePrimitives";
 import { UpgradePendingNotice } from "@/components/UpgradePendingNotice";
 import { Button } from "@/components/ui/button";
-import { type InterviewDims, useDashboardStats, useInterviews } from "@/hooks/useInterviewData";
+import { type InterviewDims, useDashboardDims, useDashboardStats } from "@/hooks/useInterviewData";
 import { clerkEnabled } from "@/lib/config";
 
 export function AppHome() {
     const navigate = useNavigate();
-    const { loading, dims } = useInterviews();
+    const { loading, dims } = useDashboardDims();
     const { stats, loading: statsLoading, error: statsError } = useDashboardStats();
 
     return (

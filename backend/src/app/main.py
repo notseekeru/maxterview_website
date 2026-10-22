@@ -10,7 +10,7 @@ from typing import Annotated
 
 import asyncpg
 import structlog
-from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request, Response, UploadFile, status
+from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query, Request, Response, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse, StreamingResponse
 from pydantic import ValidationError
@@ -27,6 +27,7 @@ from app.models import (
     ChatTurn,
     ClerkUser,
     ClientError,
+    DashboardDims,
     Dials,
     Feedback,
     FeedbackCreate,
@@ -145,7 +146,12 @@ INTERVIEW_COLS = "id::text, owner_id, role, level, topic, resume_id::text, statu
 
 
 @api.get("/interviews", response_model=list[Interview])
-async def list_interviews(user: CurrentUser) -> list[dict]:
+async def list_interviews(
+    user: CurrentUser,
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    archived: bool | None = None,
+) -> list[dict]:
     # Accuracy is the derived 0-100 move-review average, not recomputed here: the class -> points ->
     # grade scale lives only in app/rating.py, and `grade` is a computed field on the model.
     rows = await fetch(
@@ -157,9 +163,14 @@ async def list_interviews(user: CurrentUser) -> list[dict]:
         FROM interviews i
         LEFT JOIN feedback f ON f.interview_id = i.id
         WHERE i.owner_id = $1
+          AND ($2::bool IS NULL OR (i.archived_at IS NOT NULL) = $2)
         ORDER BY i.created_at DESC
+        LIMIT $3 OFFSET $4
         """,
         user.sub,
+        archived,
+        limit,
+        offset,
     )
     return [dict(r) for r in rows]
 
@@ -395,13 +406,17 @@ SEED_DEFAULTS_SQL = f"""
         """
 
 
+TEMPLATE_LIST_SQL = f"SELECT {TEMPLATE_COLS} FROM interview_templates WHERE owner_id = $1 ORDER BY created_at DESC"
+
+
 @api.get("/templates", response_model=list[InterviewTemplate])
 async def list_templates(user: CurrentUser) -> list[dict]:
-    await fetchrow(SEED_DEFAULTS_SQL, user.sub, DEFAULT_TEMPLATES_ROWS)
-    rows = await fetch(
-        f"SELECT {TEMPLATE_COLS} FROM interview_templates WHERE owner_id = $1 ORDER BY created_at DESC",
-        user.sub,
-    )
+    # AI HERE: a brand-new owner costs three round trips (read, seed, re-read). Seeding at owner
+    # creation needs a user row and Clerk owns identity, so the first-request hook is the upgrade.
+    rows = await fetch(TEMPLATE_LIST_SQL, user.sub)
+    if not rows:
+        await fetchrow(SEED_DEFAULTS_SQL, user.sub, DEFAULT_TEMPLATES_ROWS)
+        rows = await fetch(TEMPLATE_LIST_SQL, user.sub)
     return [dict(r) for r in rows]
 
 
@@ -622,6 +637,9 @@ async def voice_stt(file: UploadFile, user: CurrentUser) -> VoiceTranscript:
 
 # The radar's second series spans the newest rated runs: one run's per-dim holes are noise.
 RECENT_WINDOW = 5
+TREND_DOTS = 20
+SPARK_DAYS = 14
+DELTA_WINDOW = 5
 
 # The radar in ONE row: two averages (all rated runs, the newest RECENT_WINDOW) plus their counts.
 # Finished AND scored only: accuracy lives on feedback, not interviews. ROUND(...,1) matches the UI.
@@ -662,68 +680,14 @@ async def get_interview_dimensions(user: CurrentUser) -> dict:
 
 # Analytics: the same one-aggregate rule as the dashboard above.
 
-# No `archived_at` filter: the dashboard counts archived runs, so dropping them here would disagree
-# with the numbers one route over. `moves` is pre-aggregated: no per-turn rows in the response.
-ANALYTICS_RUNS_SQL = (
-    """
-SELECT i.id::text, i.role, i.level, i.status, i.created_at,
-       """
-    + ", ".join(f"i.{c}" for c in DIAL_FIELDS)
-    + """,
-       f.accuracy, f.decision, f.certainty, f.scores, i.failed_class,
-       (SELECT count(*) FROM messages m WHERE m.interview_id = i.id AND m.role = 'user') AS turns,
-       (SELECT coalesce(jsonb_object_agg(mc.cls, mc.n), '{}'::jsonb)
-          FROM (SELECT m.move_class AS cls, count(*) AS n FROM messages m
-                 WHERE m.interview_id = i.id AND m.move_class IS NOT NULL GROUP BY m.move_class) mc) AS moves
-FROM interviews i
-LEFT JOIN feedback f ON f.interview_id = i.id
-WHERE i.owner_id = $1
-ORDER BY i.created_at DESC
-"""
-)
-
-# Created vs completed runs per ISO week; weeks with no runs are absent
-# rather than zero-filled. date_trunc('week') is Monday-based, which the frontend's label assumes.
-ANALYTICS_ACTIVITY_SQL = """
-SELECT to_char(date_trunc('week', created_at), 'YYYY-MM-DD') AS week,
-       count(*) AS started,
-       count(*) FILTER (WHERE status = 'completed') AS completed
-FROM interviews
-WHERE owner_id = $1 AND created_at >= now() - interval '12 weeks'
-GROUP BY 1 ORDER BY 1
-"""
+# No archived filter: an offer was issued, and hiding the run from the history list does not un-issue it.
+OFFER_COLS = """
+o.interview_id::text, o.title, o.band, o.base_salary, o.signing_bonus, o.equity, o.performance,
+       o.benefits, o.created_at, i.role, i.level, i.failed_class, f.accuracy, f.decision"""
 
 # The hiring end of models.DECISIONS, rendered into SQL from the one tuple that defines it, so the
 # hire-rate column and the offer gate in _sync_offer cannot disagree about what a hire is.
 HIRING_SQL = ", ".join(f"'{d}'" for d in HIRING_DECISIONS)
-
-# COMPLETED runs only: an in-progress run has no outcome. `runs` and `rated` are separate, so a dial
-# whose runs were never scored reports NULL, not a 0% that reads as failure.
-ANALYTICS_DIALS_SQL = f"""
-WITH runs AS (
-    SELECT i.level, i.cynicism, i.company_size, i.hardcore, i.human_mode, i.brutally_honest,
-           i.mix_chitchat, i.mix_behavioural, i.mix_technical, f.accuracy, f.decision
-    FROM interviews i
-    LEFT JOIN feedback f ON f.interview_id = i.id
-    WHERE i.owner_id = $1 AND i.status = 'completed'
-), labelled AS (
-    SELECT 'level' AS dial, level AS value, accuracy, decision FROM runs
-    UNION ALL SELECT 'cynicism', cynicism, accuracy, decision FROM runs
-    UNION ALL SELECT 'company_size', company_size, accuracy, decision FROM runs
-    UNION ALL SELECT 'mix', CASE WHEN mix_technical >= mix_behavioural AND mix_technical >= mix_chitchat THEN 'technical'
-                                 WHEN mix_behavioural >= mix_chitchat THEN 'behavioural' ELSE 'chitchat' END, accuracy, decision FROM runs
-    UNION ALL SELECT 'hardcore', CASE WHEN hardcore THEN 'hardcore' ELSE 'standard' END, accuracy, decision FROM runs
-    UNION ALL SELECT 'honesty', CASE WHEN brutally_honest THEN 'brutally_honest' ELSE 'diplomatic' END, accuracy, decision FROM runs
-    UNION ALL SELECT 'register', CASE WHEN human_mode THEN 'human' ELSE 'corporate' END, accuracy, decision FROM runs
-)
-SELECT dial, value, count(*) AS runs, count(accuracy) AS rated,
-       ROUND(avg(accuracy)::numeric, 1) AS avg_accuracy,
-       -- Denominated on DECIDED runs (count(decision)), not all rated ones: an undecided run is not
-       -- a miss. NULL when nothing was decided, so the UI shows no accuracy rather than 0%.
-       (100.0 * count(*) FILTER (WHERE decision IN ({HIRING_SQL})) / nullif(count(decision), 0))::int AS hire_rate
-FROM labelled
-GROUP BY dial, value
-"""
 
 # Consecutive UTC days counting back from today. Today and yesterday both count, so a streak does not
 # read 0 for the whole of a day the candidate is still practising in.
@@ -733,41 +697,153 @@ WITH days AS (
 ), ranked AS (
     SELECT d, (CURRENT_DATE - d) AS gap, row_number() OVER (ORDER BY d DESC) AS rn FROM days
 )
-SELECT count(*) FROM ranked WHERE gap - rn IN (-1, 0)
+SELECT count(*) AS days FROM ranked WHERE gap - rn IN (-1, 0)
+"""
+
+# No `archived_at` filter: the dashboard counts archived runs, so dropping them here would disagree
+# with the numbers one route over.
+ANALYTICS_SQL = f"""
+WITH runs AS (
+    SELECT i.id::text, i.role, i.level, i.status, i.created_at,
+           {", ".join(f"i.{c}" for c in DIAL_FIELDS)},
+           f.accuracy, f.decision, f.certainty, f.scores, i.failed_class,
+           (SELECT count(*) FROM messages m WHERE m.interview_id = i.id AND m.role = 'user') AS turns,
+           (SELECT coalesce(jsonb_object_agg(mc.cls, mc.n), '{{}}'::jsonb)
+              FROM (SELECT m.move_class AS cls, count(*) AS n FROM messages m
+                     WHERE m.interview_id = i.id AND m.move_class IS NOT NULL GROUP BY m.move_class) mc) AS moves
+    FROM interviews i
+    LEFT JOIN feedback f ON f.interview_id = i.id
+    WHERE i.owner_id = $1
+), activity AS (
+    SELECT to_char(date_trunc('week', created_at), 'YYYY-MM-DD') AS week,
+           count(*) AS started,
+           count(*) FILTER (WHERE status = 'completed') AS completed
+    FROM interviews
+    WHERE owner_id = $1 AND created_at >= now() - interval '12 weeks'
+    GROUP BY 1
+), completed AS (
+    SELECT * FROM runs WHERE status = 'completed'
+), dials AS (
+    SELECT dial, value, count(*) AS runs, count(accuracy) AS rated,
+           ROUND(avg(accuracy)::numeric, 1) AS avg_accuracy,
+           (100.0 * count(*) FILTER (WHERE decision IN ({HIRING_SQL})) / nullif(count(decision), 0))::int AS hire_rate
+    FROM (
+        SELECT 'level' AS dial, level AS value, accuracy, decision FROM completed
+        UNION ALL SELECT 'cynicism', cynicism, accuracy, decision FROM completed
+        UNION ALL SELECT 'company_size', company_size, accuracy, decision FROM completed
+        UNION ALL SELECT 'mix', CASE WHEN mix_technical >= mix_behavioural AND mix_technical >= mix_chitchat THEN 'technical'
+                                     WHEN mix_behavioural >= mix_chitchat THEN 'behavioural' ELSE 'chitchat' END, accuracy, decision FROM completed
+        UNION ALL SELECT 'hardcore', CASE WHEN hardcore THEN 'hardcore' ELSE 'standard' END, accuracy, decision FROM completed
+        UNION ALL SELECT 'honesty', CASE WHEN brutally_honest THEN 'brutally_honest' ELSE 'diplomatic' END, accuracy, decision FROM completed
+        UNION ALL SELECT 'register', CASE WHEN human_mode THEN 'human' ELSE 'corporate' END, accuracy, decision FROM completed
+    ) labelled
+    GROUP BY dial, value
+), offers AS (
+    SELECT {OFFER_COLS}
+    FROM offers o
+    JOIN interviews i ON i.id = o.interview_id
+    LEFT JOIN feedback f ON f.interview_id = o.interview_id
+    WHERE i.owner_id = $1
+), streak AS (
+    {ANALYTICS_STREAK_SQL}
+)
+SELECT
+    (SELECT coalesce(jsonb_agg(to_jsonb(r) ORDER BY r.created_at DESC), '[]') FROM runs r) AS runs,
+    (SELECT coalesce(jsonb_agg(to_jsonb(a) ORDER BY a.week), '[]') FROM activity a) AS activity,
+    (SELECT coalesce(jsonb_agg(to_jsonb(d)), '[]') FROM dials d) AS dials,
+    (SELECT coalesce(jsonb_agg(to_jsonb(o) ORDER BY o.created_at DESC), '[]') FROM offers o) AS offers,
+    (SELECT days FROM streak) AS streak_days
 """
 
 
 @api.get("/stats/analytics", response_model=Analytics)
 async def get_analytics(user: CurrentUser) -> dict:
-    # AI HERE: each re-scans the owner's full history. Fine at personal scale; upgrade is a rollup.
-    run_rows = await fetch(ANALYTICS_RUNS_SQL, user.sub)
-    activity = await fetch(ANALYTICS_ACTIVITY_SQL, user.sub)
-    dial_rows = await fetch(ANALYTICS_DIALS_SQL, user.sub)
-    offer_rows = await fetch(OFFERS_SQL, user.sub)
-    streak = await fetchrow(ANALYTICS_STREAK_SQL, user.sub)
+    # AI HERE: one checkout instead of five. The five CTEs still scan the owner's history; the upgrade is a rollup.
+    row = await fetchrow(ANALYTICS_SQL, user.sub)
+    assert row is not None
 
     runs = []
     move_classes = dict.fromkeys(rating.MOVE_CLASSES, 0)
     total_turns = 0
     hardcore_failures = 0
-    for r in run_rows:
-        moves = r["moves"]
+    for r in row["runs"]:
         for cls in rating.MOVE_CLASSES:
-            move_classes[cls] += moves.get(cls, 0)
+            move_classes[cls] += r["moves"].get(cls, 0)
         total_turns += r["turns"]
         hardcore_failures += 1 if r["failed_class"] else 0
-        runs.append({**dict(r), "dials": {k: r[k] for k in DIAL_FIELDS}, "scores": r["scores"] or {}, "grade": rating.grade(r["accuracy"], failed=r["failed_class"] is not None)})
+        runs.append({**r, "dials": {k: r[k] for k in DIAL_FIELDS}, "scores": r["scores"] or {}, "grade": rating.grade(r["accuracy"], failed=r["failed_class"] is not None)})
 
     return {
         "runs": runs,
-        "activity": [dict(a) for a in activity],
+        "activity": row["activity"],
         "move_classes": move_classes,
-        "dials": dial_groups(dial_rows),
+        "dials": dial_groups(row["dials"]),
         "total_turns": total_turns,
-        "streak_days": streak["count"] if streak else 0,
+        "streak_days": row["streak_days"] or 0,
         "hardcore_failures": hardcore_failures,
-        "offers": offer_board([offer_row(r) for r in offer_rows]),
+        "offers": offer_board([offer_row(r) for r in row["offers"]]),
     }
+
+
+DASHBOARD_SQL = f"""
+WITH owned AS (
+    SELECT i.created_at, i.status, f.accuracy, f.decision, f.certainty
+    FROM interviews i
+    LEFT JOIN feedback f ON f.interview_id = i.id
+    WHERE i.owner_id = $1
+), rated AS (
+    SELECT created_at, accuracy FROM owned WHERE status = 'completed' AND accuracy IS NOT NULL
+), decided AS (
+    SELECT created_at, decision, certainty FROM owned WHERE status = 'completed' AND decision IS NOT NULL
+), aged AS (
+    SELECT CURRENT_DATE - (created_at AT TIME ZONE 'UTC')::date AS age, status FROM owned
+), ages AS (
+    SELECT generate_series({SPARK_DAYS - 1}, 0, -1) AS age
+), days AS (
+    SELECT DISTINCT (created_at AT TIME ZONE 'UTC')::date AS d FROM owned
+), ranked AS (
+    SELECT (CURRENT_DATE - d) - row_number() OVER (ORDER BY d DESC) AS gap FROM days
+)
+SELECT
+    (SELECT count(*) FROM owned) AS total,
+    (SELECT count(*) FROM owned WHERE status = 'completed') AS completed,
+    (SELECT count(*) FROM rated) AS rated,
+    (SELECT coalesce(avg(accuracy), 0) FROM rated) AS avg_accuracy,
+    (SELECT coalesce(jsonb_agg(jsonb_build_object('created_at', t.created_at, 'accuracy', t.accuracy) ORDER BY t.created_at), '[]')
+       FROM (SELECT created_at, accuracy FROM rated ORDER BY created_at DESC LIMIT {TREND_DOTS}) t) AS accuracy_trend,
+    (SELECT count(*) FROM decided) AS decided,
+    (SELECT count(*) FROM decided WHERE decision IN ({HIRING_SQL})) AS hiring,
+    (SELECT round(avg(certainty)) FROM decided WHERE certainty IS NOT NULL) AS avg_certainty,
+    (SELECT count(*) FROM aged WHERE age >= 0 AND age < 7) AS week_runs,
+    (SELECT count(*) FROM aged WHERE age >= 7 AND age < 14) AS prior_week_runs,
+    (SELECT count(*) FROM aged WHERE status = 'completed' AND age >= 0 AND age < 7) AS week_finished,
+    (SELECT count(*) FROM aged WHERE status = 'completed' AND age >= 7 AND age < 14) AS prior_week_finished,
+    (SELECT count(*) FROM ranked WHERE gap IN (-1, 0)) AS streak,
+    (SELECT min(age) FROM aged) AS last_run_days,
+    (SELECT CASE WHEN count(*) >= {DELTA_WINDOW * 2}
+                 THEN avg(accuracy) FILTER (WHERE rn <= {DELTA_WINDOW}) - avg(accuracy) FILTER (WHERE rn > {DELTA_WINDOW} AND rn <= {DELTA_WINDOW * 2}) END
+       FROM (SELECT accuracy, row_number() OVER (ORDER BY created_at DESC) AS rn FROM rated) x) AS delta_accuracy,
+    (SELECT CASE WHEN count(*) >= {DELTA_WINDOW * 2}
+                 THEN avg(hit) FILTER (WHERE rn <= {DELTA_WINDOW}) - avg(hit) FILTER (WHERE rn > {DELTA_WINDOW} AND rn <= {DELTA_WINDOW * 2}) END
+       FROM (SELECT CASE WHEN decision IN ({HIRING_SQL}) THEN 100.0 ELSE 0.0 END AS hit,
+                    row_number() OVER (ORDER BY created_at DESC) AS rn FROM decided) x) AS delta_hire,
+    (SELECT coalesce(jsonb_agg(n ORDER BY age DESC), '[]')
+       FROM (SELECT a.age, count(o.age) AS n FROM ages a LEFT JOIN aged o ON o.age = a.age GROUP BY a.age) z) AS daily_runs,
+    (SELECT coalesce(jsonb_agg(n ORDER BY age DESC), '[]')
+       FROM (SELECT a.age, count(o.age) AS n FROM ages a LEFT JOIN aged o ON o.age = a.age AND o.status = 'completed' GROUP BY a.age) z) AS daily_finished,
+    (SELECT coalesce(jsonb_agg(100.0 * hits / i ORDER BY i), '[]')
+       FROM (SELECT i, sum(hit) OVER (ORDER BY i) AS hits
+               FROM (SELECT row_number() OVER (ORDER BY created_at) AS i,
+                            CASE WHEN decision IN ({HIRING_SQL}) THEN 1 ELSE 0 END AS hit FROM decided) d) s
+      WHERE i > (SELECT count(*) FROM decided) - {TREND_DOTS}) AS hire_spark
+"""
+
+
+@api.get("/stats/dashboard", response_model=DashboardDims)
+async def get_dashboard_dims(user: CurrentUser) -> dict:
+    row = await fetchrow(DASHBOARD_SQL, user.sub)
+    assert row is not None
+    return dict(row)
 
 
 # Key -> (value slug -> label), in render order. Vocabularies come from app/dials.py and app/levels.py,
@@ -796,11 +872,6 @@ def dial_groups(rows: list[asyncpg.Record]) -> dict[str, list[dict]]:
 
 
 # Offers: app/offer.py owns the rate card.
-
-# No archived filter: an offer was issued, and hiding the run from the history list does not un-issue it.
-OFFER_COLS = """
-o.interview_id::text, o.title, o.band, o.base_salary, o.signing_bonus, o.equity, o.performance,
-       o.benefits, o.created_at, i.role, i.level, i.failed_class, f.accuracy, f.decision"""
 
 OFFERS_SQL = f"""
 SELECT {OFFER_COLS}
@@ -929,27 +1000,21 @@ async def get_interview_offer(interview_id: str, user: CurrentUser) -> dict:
 
 
 @api.get("/usage")
-async def get_usage(user: CurrentUser, config: LLMConfigDep) -> dict:
-    tier = await billing.resolve_tier(user)
-    # BYOK swaps in its own ceiling, so this is the effective limit: the UI computes
-    # `limit - remaining` and would otherwise show a negative `used`.
-    chat = billing.chat_turn_limit(tier, byok=config.byok)
-    used = await billing.chat_turns_used(user.sub)
+async def get_usage(user: CurrentUser) -> dict:
+    state = await billing.usage_state(user)
+    tier = billing.tier_from(user, entitled=state["premium_until"] is not None)
+    byok_enabled = state["byok"] and byok.enabled()
+    chat = billing.chat_turn_limit(tier, byok=byok_enabled)
+    used = state["turns"]
     return {
         "tier": tier,
         f"chat_turns_per_day_{tier}": chat,
         "chat_turns_used_today": used,
         "chat_turns_remaining_today": max(0, chat - used),
-        # BYOK: the turns run on the owner's provider account, so the TIER quota is not what gates
-        # them; the ceiling above is, and the UI says which payer this is.
-        "byok": config.byok,
-        # Storage, not a meter: the resume library's ceiling. `used` is the list length the resume page
-        # already has, so this is the only number it needs from here.
+        "byok": byok_enabled,
         "resume_limit": billing.resume_limit(tier),
-        # Period mode does not auto-renew, so the UI shows the expiry and offers no cancel;
-        # `billing_mode` is what tells the two rails apart.
         "billing_mode": payments.BILLING_MODE,
-        "premium_until": await billing.premium_until(user.sub) if tier == "premium" else None,
+        "premium_until": state["premium_until"] if tier == "premium" else None,
     }
 
 

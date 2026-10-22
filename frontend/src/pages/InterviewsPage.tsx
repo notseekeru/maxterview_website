@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 import { CreateInterviewForm } from "@/components/CreateInterviewForm";
@@ -8,7 +9,8 @@ import { archiveInterview, deleteInterview, regenerateFeedback, unarchiveIntervi
 
 export function InterviewsPage() {
     const navigate = useNavigate();
-    const { interviews, loading, error, refresh } = useInterviews();
+    const [view, setView] = useState<"active" | "archived">("active");
+    const { interviews, loading, error, refresh, hasMore, loadMore } = useInterviews(view === "archived");
 
     async function onCreated(id: string) {
         navigate(`/interviews/${id}`);
@@ -35,7 +37,7 @@ export function InterviewsPage() {
                 <CreateInterviewForm onCreated={onCreated} variant="featured" />
             </section>
 
-            <InterviewList interviews={interviews} loading={loading} error={error} onRefresh={() => void refresh()} onOpen={(id) => navigate(`/interviews/${id}`)} onDelete={onDelete} onArchive={onArchive} onRescore={onRescore} />
+            <InterviewList interviews={interviews} loading={loading} error={error} view={view} onViewChange={setView} hasMore={hasMore} onLoadMore={() => void loadMore()} onRefresh={() => void refresh()} onOpen={(id) => navigate(`/interviews/${id}`)} onDelete={onDelete} onArchive={onArchive} onRescore={onRescore} />
         </Page>
     );
 }

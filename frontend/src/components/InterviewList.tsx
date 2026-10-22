@@ -16,6 +16,10 @@ interface Props {
     interviews: Interview[];
     loading: boolean;
     error: string | null;
+    view: "active" | "archived";
+    onViewChange: (view: "active" | "archived") => void;
+    hasMore: boolean;
+    onLoadMore: () => void;
     onRefresh: () => void;
     onOpen: (id: string) => void;
     onDelete: (id: string) => Promise<void> | void;
@@ -27,10 +31,7 @@ function formatDate(iso: string) {
     return new Date(iso).toLocaleString();
 }
 
-export function InterviewList({ interviews, loading, error, onRefresh, onOpen, onDelete, onArchive, onRescore }: Props) {
-    // Archive hides a row here and NOWHERE else (the stats still count it - that is the difference
-    // from delete), and the two sets never mix: the list shows one or the other, never both.
-    const [view, setView] = useState<"active" | "archived">("active");
+export function InterviewList({ interviews, loading, error, view, onViewChange, hasMore, onLoadMore, onRefresh, onOpen, onDelete, onArchive, onRescore }: Props) {
     const [infoRow, setInfoRow] = useState<Interview | null>(null);
     const [pendingDelete, setPendingDelete] = useState<Interview | null>(null);
     const [deleting, setDeleting] = useState(false);
@@ -39,8 +40,7 @@ export function InterviewList({ interviews, loading, error, onRefresh, onOpen, o
     const [archivingId, setArchivingId] = useState<string | null>(null);
     const [scoreError, setScoreError] = useState<string | null>(null);
 
-    const archived = interviews.filter((i) => i.archived_at);
-    const visible = view === "archived" && archived.length > 0 ? archived : interviews.filter((i) => !i.archived_at);
+    const visible = interviews;
 
     async function handleRescore(id: string) {
         setScoringId(id);
@@ -80,16 +80,12 @@ export function InterviewList({ interviews, loading, error, onRefresh, onOpen, o
             <CardHeader className="flex-row items-center justify-between space-y-0">
                 <CardTitle>History</CardTitle>
                 <div className="flex items-center gap-1">
-                    {archived.length > 0 && (
-                        <>
-                            <Button variant="ghost" size="sm" aria-pressed={view === "active"} className={cn(view === "active" && "bg-accent text-accent-foreground")} onClick={() => setView("active")}>
-                                Active
-                            </Button>
-                            <Button variant="ghost" size="sm" aria-pressed={view === "archived"} className={cn(view === "archived" && "bg-accent text-accent-foreground")} onClick={() => setView("archived")}>
-                                Archived ({archived.length})
-                            </Button>
-                        </>
-                    )}
+                    <Button variant="ghost" size="sm" aria-pressed={view === "active"} className={cn(view === "active" && "bg-accent text-accent-foreground")} onClick={() => onViewChange("active")}>
+                        Active
+                    </Button>
+                    <Button variant="ghost" size="sm" aria-pressed={view === "archived"} className={cn(view === "archived" && "bg-accent text-accent-foreground")} onClick={() => onViewChange("archived")}>
+                        Archived
+                    </Button>
                     <Button variant="ghost" size="sm" onClick={onRefresh} disabled={loading || deleting}>
                         Refresh
                     </Button>
@@ -99,7 +95,7 @@ export function InterviewList({ interviews, loading, error, onRefresh, onOpen, o
                 {error && <StateNote tone="danger">{error}</StateNote>}
                 {scoreError && <StateNote tone="danger">{scoreError}</StateNote>}
                 {loading && <Skeleton className="h-16" />}
-                {!loading && visible.length === 0 && !error && <StateNote>{archived.length > 0 ? "No active runs. Everything is in Archived." : "No interviews yet. Create one to begin."}</StateNote>}
+                {!loading && visible.length === 0 && !error && <StateNote>{view === "archived" ? "Nothing archived yet." : "No interviews yet. Create one to begin."}</StateNote>}
                 {visible.map((i) => (
                     <div key={i.id} className="flex items-center justify-between gap-3 rounded-md border p-3">
                         <div className="min-w-0">
@@ -149,6 +145,11 @@ export function InterviewList({ interviews, loading, error, onRefresh, onOpen, o
                         </div>
                     </div>
                 ))}
+                {hasMore && !loading && (
+                    <Button variant="outline" size="sm" className="w-full" onClick={onLoadMore}>
+                        Load more
+                    </Button>
+                )}
             </CardContent>
 
             <Modal open={infoRow !== null} onClose={() => setInfoRow(null)} title="Run info">
