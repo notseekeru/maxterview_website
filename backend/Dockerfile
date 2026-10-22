@@ -1,4 +1,4 @@
-FROM python:3.15-slim@sha256:044d5bd747976e21f8bc4d746c3479b19a84bb8ae6261b802acdd26b29036c93 AS base
+FROM python:3.14-slim@sha256:c3e521df8b2b498a7a682e7e18676771cb80c6b75b8699af886b2d554ce40151 AS base
 
 ENV UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy \
@@ -31,7 +31,7 @@ FROM base AS prod
 USER root
 RUN apt-get update \
     && DEBIAN_FRONTEND=noninteractive apt-get -y -o Dpkg::Options::=--force-confold \
-        upgrade --no-install-recommends \
+    upgrade --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 USER appuser
 
