@@ -8,6 +8,36 @@ Inspired by Arjay McCandless $12 VPS load testing videos, usually known for syst
 
 At what load does the prod deployment stop behaving acceptably, and which resource runs out first.
 
+## Pipeline flow
+
+One sweep, window open to boundary. Each measure box writes one CSV row per run, tagged with its phase.
+
+```
+gitops overlay opens the window    NodePort 30090 on the backend Service
+        |
+cleanup        delete every row the sweep identity owns            -> deleted_before
+        |
+ramp 30s, warm 60s     neither enters a gate
+        |
+measure 3 min          the only window that counts                 -> phase=ladder
+        |
+gates                  SLO
+        |
+        +-- pass, rungs left: double the VUs, repeat
+        +-- pass at 800 VUs: stop and raise --max-vus, no confirmation
+        +-- fail on the first rung: abort, that is the harness or the app
+        +-- fail above it: binary search the gap                  -> phase=search
+                              |
+                    confirm the highest passing rung 3 times,
+                    measure 5 min each                            -> phase=confirm
+                              |
+                    boundary, from the CSV and Grafana
+                              |
+                    close the window, then --cleanup-only
+```
+
+The gap and the cleanup between two boxes, and why they stay at 60 seconds, are in Between steps.
+
 ## What is measured
 
 | Indicator         | Source                                                                                                      | Carries               |
