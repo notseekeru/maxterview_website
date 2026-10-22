@@ -79,6 +79,22 @@ memory 256Mi, one replica, and `DEV_USER_SUB=k6-sweep-testing`, the same name th
 The endpoint is the one with no alarm on it. Unset, the database and pool numbers never appear, and
 every metric rule reads NoData, which is OK, so the loss is silent.
 
+### 1b. Deploy the code under test
+
+The window runs whatever image the prod overlay names, and the perf overlay inherits it (`resources:
+../prod`). Push to main so CI passes and the CD workflow builds both images, rewrites the prod `newTag`
+to that commit, and Argo syncs. Opening the window before that measures the previous image.
+
+Confirm the backend deployment is on the pushed commit before any load:
+
+```sh
+ssh -i ~/.ssh/piserver seeker@100.64.1.1 \
+  'k3s kubectl -n maxterview get deploy maxterview-backend -o jsonpath="{.spec.template.spec.containers[0].image}"'
+```
+
+The tag has to match the pushed commit: `git fetch`, then `git rev-parse origin/main`. If it does not,
+the build or the sync is still in flight.
+
 ### 2. Open the perf-val-change
 
 Swap `apps/maxterview/overlays/prod` for `overlays/perf` in `apps-of-apps/maxterview.yaml`, commit, wait

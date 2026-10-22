@@ -48,7 +48,7 @@ The gap and the cleanup between two boxes, and why they stay at 60 seconds, are 
 | Request latency   | `http.server.request.duration`, and k6 on the client side                                                   | method, route, status |
 | Error rate        | the same histogram, plus k6 broken down by status code                                                      | status                |
 | Throughput        | k6 RPS, and the server histogram's own sample count                                                         | route                 |
-| Database pressure | `db.pool.size` against `db.pool.idle`, a pool of 10                                                         | connections held      |
+| Database pressure | `db.pool.size` against `db.pool.idle`, bounded by `DB_POOL_MAX`                                             | connections held      |
 | Saturation        | `container_*` from the kubelet, root cgroup for the node and pod cgroups for pods; `machine_*` for capacity |                       |
 | Architecture      | Architecture of machine/optimization framework or tools used                                                | baseline              |
 
@@ -196,21 +196,21 @@ Really simple to change values, commit the perf values, see the sync land in arg
 
 The two reads at every turn are both `_chat_session`: the interview with its resume text, and the whole transcript, so the transcript read grows with the run and is re-paid on every turn rather than once at session open.
 
-| Request                                                           | Phase         |
-| ----------------------------------------------------------------- | ------------- |
-| `POST /interviews`                                                | Run start     |
-| `POST /interviews/{id}/start`                                     | Run start     |
-| `POST /interviews/{id}/chat/kickoff`                              | Opener        |
-| `POST /interviews/{id}/chat/stream`                               | Every turn    |
-| `POST /interviews/{id}/finish`                                    | Run end       |
-| `GET /interviews/{id}/feedback`                                   | Run end       |
-| `GET /interviews/{id}/messages`                                   | Run end       |
-| `GET /interviews`, `/stats/dimensions`, `/stats/analytics`        | After the run |
-| `GET /usage`, `/templates`, `/resumes`, `/settings/llm`, `/voice` | After the run |
-| `GET /interviews/{id}/offer`                                      | After the run |
-| `POST` and `DELETE /interviews/{id}/archive`                      | After the run |
-| `POST /resumes`, `POST /templates`, each deleted in the same run  | After the run |
-| `POST /client-errors`                                             | After the run |
+| Request                                                                        | Phase         |
+| ------------------------------------------------------------------------------ | ------------- |
+| `POST /interviews`                                                             | Run start     |
+| `POST /interviews/{id}/start`                                                  | Run start     |
+| `POST /interviews/{id}/chat/kickoff`                                           | Opener        |
+| `POST /interviews/{id}/chat/stream`                                            | Every turn    |
+| `POST /interviews/{id}/finish`                                                 | Run end       |
+| `GET /interviews/{id}/feedback`                                                | Run end       |
+| `GET /interviews/{id}/messages`                                                | Run end       |
+| `GET /interviews`, `/stats/dimensions`, `/stats/analytics`, `/stats/dashboard` | After the run |
+| `GET /usage`, `/templates`, `/resumes`, `/settings/llm`, `/voice`              | After the run |
+| `GET /interviews/{id}/offer`                                                   | After the run |
+| `POST` and `DELETE /interviews/{id}/archive`                                   | After the run |
+| `POST /resumes`, `POST /templates`, each deleted in the same run               | After the run |
+| `POST /client-errors`                                                          | After the run |
 
 Three of those rows are model-bearing, `chat/kickoff`, `chat/stream` and `finish`, and they are the
 rows the latency gates exclude; the gates cover the rest.
@@ -313,13 +313,12 @@ At 100 VUs the shape changes: p50 1.17s, of which 0.94s is pool wait, and pool w
 
 ## What I did not expect
 
-I actually ran the same workload on the laptop first, docker compose with the stub model, and it passed at 100
-VUs, though that ladder's summaries are gone and the only local row left is the 10 VU one below. So I
-went into the prod run expecting the number to be somewhere in the hundreds, and it failed on the first
-rung instead: p95 3.44s and a max of 8.54s at 100 VUs, and an error rate of zero. The part that
-surprised me
-is that the machine was pretty much idle while it failed, 0.27 of 4 cores and 100Mi of 256Mi. Nothing
-was out of CPU or memory, so the latency was not a resource running out.
+I actually ran the same workload on the laptop first, docker compose with the stub model, and it passed
+at 100 VUs, though that ladder's summaries are gone and the only local row left is the 10 VU one in the
+table above. So I went into the prod run expecting the number to be somewhere in the hundreds, and it
+failed on the first rung instead: p95 3.44s and a max of 8.54s at 100 VUs, and an error rate of zero.
+The part that surprised me is that the machine was pretty much idle while it failed, 0.27 of 4 cores
+and 100Mi of 256Mi. Nothing was out of CPU or memory, so the latency was not a resource running out.
 
 At 100 VUs the pool was the queue: p50 1.17s, and 0.94s of that was wait for a connection that was not
 doing anything yet. That is where I got worried, because 10 was a default I had set and not a number I
