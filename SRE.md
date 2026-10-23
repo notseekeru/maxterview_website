@@ -535,3 +535,6 @@ cannot save the inflation.
 The same sweep over the cloudflared path into the ingress, no NodePort, so the edge is in the number too.
 It will not be comparable to these numbers, because Cloudflare and the tunnel are in that path; it answers
 what the edge costs, not where the app breaks.
+
+Testing stops here for now: Neon's compute is at about 90% of its limit, so the next sweep is deferred and
+the edge path stays unmeasured.
