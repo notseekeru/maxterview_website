@@ -7,7 +7,7 @@
 | API base         | `http://100.64.1.1:30090/api`, a NodePort created with the perf-val-change and deleted with it |
 | Host header      | none. The NodePort points at the backend Service, so no name routing is involved               |
 | TLS              | none on this hop. It is plain HTTP over Tailscale, and Tailscale does the encryption           |
-| Measured latency | single digit ms over the tailnet, against 54ms on the public path                              |
+| Measured latency | single digit ms over the tailnet from the desktop, about 44ms from the laptop, which relays; 54ms on the public path |
 | Server access    | `ssh -i ~/.ssh/piserver seeker@100.64.1.1`; the default identity list does not offer that key  |
 
 The public URL works with k6, but it carries about half a second of Cloudflare and tunnel per request,
@@ -19,7 +19,7 @@ probe's target, not the sweep's.
 | Thing                       | State                                                                                                                                              |
 | --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Harness `~/k6-load-testing` | Clean. Flake, direnv, workload, ladder, cleanup budget, phase and window columns, both row counts                                                  |
-| Plan `SRE.md`               | Current, with the first results in `## Result`                                                                                                     |
+| Plan `SRE.md`               | The spec, the decisions, and the run record                                                                                                        |
 | Prod perf-val-change        | Closed. Two sweeps have run against prod; the boundary is in `## Result`                                                                           |
 | Generator                   | This laptop: about a quarter of one core at 240 RPS, 1.15 CPU-seconds per 1,000 requests. The desktop is the fallback and has no relay in the path |
 | Sweep identity              | `--sweep-sub` or `SWEEP_SUB`, and it must equal the target's `DEV_USER_SUB`                                                                        |
@@ -27,11 +27,9 @@ probe's target, not the sweep's.
 
 ## Open gaps
 
-| Gap                     | State                                                                                                         |
-| ----------------------- | ------------------------------------------------------------------------------------------------------------- |
-| The 10 to 20 VU band    | The search's tolerance floor is 25 VUs, so no search runs inside it. Resolve with `--only 15` and `--only 17` |
-| The 17.6s p99 at 20 VUs | No query passed 2.12s at p99 and pool wait 1.94s, so it is stacked waits, not one statement                   |
-| The relayed path        | 44ms of floor in every measured request, which lands inside the SLO gates                                     |
+`SRE.md` owns what the numbers do not explain (`What the record does not carry`, `Next`). One of those
+gaps has a run command attached. The search stops once the gap is under its tolerance, so no level
+between 10 and 20 VUs was tried; `--only 15` and `--only 17` fill that band.
 
 ## Order
 
@@ -46,6 +44,7 @@ python3 sweep.py --help     # --start, --max-vus, --only, --smoke, --cleanup-onl
 cat > .env <<'EOF'
 API_URL=http://100.64.1.1:30090/api
 SWEEP_SUB=k6-sweep-testing
+LABEL=pool40-nodeport
 EOF
 
 docker ps --format '{{.Names}}'   # stop services first using their docker compose files

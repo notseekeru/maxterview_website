@@ -1,14 +1,14 @@
 # SRE
 
-Minimal SRE path for loading metrics and load testing application by generating randomized structured request with k6
+A minimal SRE path for loading metrics and load testing the application, by generating randomized structured requests with k6
 
-Inspired by Arjay McCandless $12 VPS load testing videos, usually known for system design with informative detailed videos.
+Inspired by Arjay McCandless's $12 VPS load testing videos, known for detailed, informative takes on system design.
 
 The specification comes first, and the runs follow it in the order they happened.
 
 ## The question
 
-At what load does the prod deployment stop behaving acceptably, and which resource runs out first.
+At what load does the prod deployment stop behaving acceptably, and which resource runs out first?
 
 ## Pipeline flow
 
@@ -70,9 +70,9 @@ The gap and the cleanup between two boxes, and why they stay at 60 seconds, are 
 
 The latency gates cover the app-owned routes. The model-bearing ones are excluded, the same set the alert rules exclude: `chat/stream`, `chat/kickoff`, `feedback/generate`, `voice/stt`, `voice/tts`, and `finish`, which runs the whole feedback pipeline inside the request rather than returning a read.
 
-established my baseline of acceptable for this particular architecture since latency can be dependent on programming language and the framework it's using, this is much more important than it seem especially if were testing application performance.
+I established the baseline of acceptable for this particular architecture. Latency depends on the programming language and the framework it uses, which matters more than it seems when testing application performance.
 
-p50 is there for reporting, no gate added since it can be considered redundant since p95 would fail first, but for the sake it, i just added p50 latency.
+p50 is there for reporting. No gate, since p95 would fail first, but I added it anyway.
 
 Throughput is reported, not gated. A level fixes the VUs and the think time, so RPS falls out of the app's own latency rather than setting it: a gate would fail a level for answering slowly, which p95 and p99 already fail. It stays the number the boundary is recorded in, next to the user estimate.
 
@@ -102,7 +102,7 @@ The desktop is the box the plan was written against; the laptop is the second on
 | RAM        | 32 GB                                                                                                                      | 16 GB                                       |
 | Monitoring | Lightweight/manual monitoring initially; observe CPU, memory, and k6 process behavior if generator saturation is suspected | Same                                        |
 
-Windows machine is the load generating machine and so is the laptop, which could minimally be monitored by myself, though it isnt systematic, that would be enough for my purpose of the test since we dont really expect the load generating machine to saturate much. Focus on the application you're about to load not overcomplicate by other concerns, though we could use something like csv metrics.
+The Windows machine is the load generating machine, and so is the laptop. I monitor them minimally, not systematically, which is enough here: the generator is not expected to saturate much. Focus on the application under load rather than other concerns, though CSV metrics would be an option.
 
 The laptop measured about a quarter of one core at 240 RPS, 1.15 CPU-seconds per 1,000 requests, on the same workload the ladder runs. Neither box is the expected ceiling.
 
@@ -172,7 +172,7 @@ At first, I considered running this test on a PVC Postgres Pod in my K3s cluster
 
 The sweep runs against prod's default branch, so it spends prod's own budget and its rows land in prod's data. The cleanup between steps is what keeps that bounded instead of accumulating.
 
-Uses scale-to-zero so we don't pay for compute when the application is not used. This has tradeoffs like coldstarts but for this particular scale I decided to still just don't touch it since we're gonna be warming up our Neon database anyways.
+It uses scale-to-zero so we don't pay for compute when the application is not used. That has tradeoffs like cold starts, but at this scale I decided to leave it alone, since we warm the Neon database anyway.
 
 ## Perf window
 
@@ -185,7 +185,7 @@ Uses scale-to-zero so we don't pay for compute when the application is not used.
 | `nginx.ingress.kubernetes.io/limit-rps`   | `1000000`    |
 | `nginx.ingress.kubernetes.io/limit-burst` | `1000000`    |
 
-Really simple to change values, commit the perf values, see the sync land in argocd, confirm the pod was replaced with maybe kubectl or the gui, and read its env to watch the perf values go live before any load. overlays override infisical values like `LLM_BASE_URL`.
+It is simple: change the values, commit the perf overlay, see the sync land in Argo CD, confirm the pod was replaced with kubectl or the GUI, and read its env to watch the perf values go live before any load. Overlays override Infisical values like `LLM_BASE_URL`.
 
 ## What each VUs does
 
@@ -225,18 +225,18 @@ rows the latency gates exclude; the gates cover the rest.
 
 Every virtual user is the same identity and they all share one account. One identity is the first cut
 because it is one candidate moving through the app, and the cleanup has one owner to delete. A real
-deployment is many people at once, so the next architecture will give different VUs different identities both also measured separately in the run.
+deployment is many people at once, so the next architecture will give different VUs different identities, measured separately as well.
 That also changes two things: each owner's history stays small instead of growing with the whole window, and the cleanup has to delete a set of owners. It puts authentication back in the measured path too, since one `DEV_USER_SUB` is what makes the shared account possible.
 
-The number of turns is a structured but randomized actions run per VU, with each going through thinking to simulate how a real user would behave. The random count is drawn against the run's own plan: the chitchat, behavioural and technical mix dials set how many questions the interviewer will ask, so a VU stops at the last planned question instead of asking past it and collecting a refusal.
+The number of turns per VU is randomized but follows the run's own plan, with a think time to simulate a real user: the chitchat, behavioural and technical mix dials set how many questions the interviewer will ask, so a VU stops at the last planned question instead of asking past it and collecting a refusal.
 
 Exclusions, for different reasons.
 
 Hardcore stays off in the loop. A run that fails the judge refuses every later turn, so it would end early for a reason that has nothing to do with capacity, and the turns after it would arrive as refusals rather than as load.
 
-NvidiaNIM(LLM Output) and Cloudflare Workers AI(Voice) is out. These vendors uses credit and will only limit the workload, this is why NvidiaNIM is stubbed and Cloudflare Workers AI is off. These Outside Generation, vendor that could fail the experiment due to free tier and rate limits.
+NvidiaNIM (LLM output) and Cloudflare Workers AI (voice) are out. These vendors use credit and would only limit the workload, which is why NvidiaNIM is stubbed and Cloudflare Workers AI is off. They are outside generation: vendors that could fail the experiment on free-tier and rate limits.
 
-For the edge tunneling, the tunnel that exists because of CGNAT, and Cloudflare's bot protection, which on Free cannot be skipped — the only lever is an IP Access rule, and any IP Access rule disables BFM zone-wide, not just for the runner. So I just simplified my Architecture, just using Tailscale for connection of load machine and application machine. While using cloudflare could measure PROD like latency, the plan itself was just really touching on SRE principles rather than focusing on what real users feel.
+For edge tunneling, the tunnel exists because of CGNAT, and Cloudflare's bot protection on Free cannot be skipped: the only lever is an IP Access rule, and any IP Access rule disables BFM zone-wide, not just for the runner. So I simplified the architecture and used Tailscale to connect the load machine and the application machine. Cloudflare could measure production-like latency, but the plan was about SRE principles rather than what real users feel.
 
 **PDF import is out of the loop.** `PLAN.md` has the measurement: a 40MB `/Contents` peaks 1.74GB for zero characters of text against a 256Mi pod limit, so one upload can OOMKill the only replica. That would read as a capacity failure when it is a known unfixed bug, and it is its own piece of work.
 
@@ -259,20 +259,20 @@ The stub is read at import, so a pod that never restarted is a window that never
 
 The reads that scale with history are in the loop, so the loop's own writes change them. GET /api/interviews returned every run for the owner with no limit, and the stats endpoints re-scan the full history.
 
-The first draft left pagination and Redis out, to stay close to the current unoptimized architecture. But on second thought I opt in the pagination goes in, first and foremost without coupling it to Redis or any more optimization strategies. A LIMIT and OFFSET is a minimal change to the query itself, not a dependency to run, so it comes before anything else is added or measured. The list is paginated, so the sweeps in `## Result` measured the unpaginated architecture and a re-run measures a different one.
+The first draft left pagination and Redis out, to stay close to the current unoptimized architecture. But on second thought I opted in: pagination goes in, first and foremost without coupling it to Redis or any other optimization strategy. A LIMIT and OFFSET is a minimal change to the query itself, not a dependency to run, so it comes before anything else is added or measured. The list is paginated from the optimized sweep on, so the baseline rows measured the unpaginated architecture and the optimized rows did not.
 
 Redis stays out: it is a different tier, a second compute and a cache to invalidate, and does not belong in the same step as a LIMIT.
 
 ## Between steps
 
-A sweep is the whole experiment: warm the database, climb the ladder, bracket the failure, binary search, confirm, and record the boundary for estimated max users per relative to RPS. A step is one level inside it. The sweep is automated end to end, so there are no human gaps between steps. That matters here, because let's say I forgetting to actually run the test for a certain period, it will eventually close because theres no one using the application. A gap long enough would let the asyncpg pool close its idle connections and Neon return to scale-to-zero, and the next step would pay the wake again before any number is taken.
+A sweep is the whole experiment: warm the database, climb the ladder, bracket the failure, binary search, confirm, and record the boundary for estimated max users relative to RPS. A step is one level inside it. The sweep is automated end to end, so there are no human gaps between steps. That matters here, because let's say I forget to actually run the test for a certain period, it will eventually close because there's no one using the application. A gap long enough would let the asyncpg pool close its idle connections and Neon return to scale-to-zero, and the next step would pay the wake again before any number is taken.
 
 So first, we warm the database. `min_size=0` means the first requests pay pool creation and a fresh TLS handshake, and Neon scale-to-zero means the first request after an idle gap pays the compute wake.
 
 Then every step is a ramp to the target VUs, then a 3 minute measurement window. Only the window counts. After it, a 60 second gap separates this step from the next: 15 seconds of
 silence, up to 30 seconds of cleanup, 15 seconds of silence again. 60 seconds stays well inside asyncpg's idle close and Neon's scale-to-zero, so the gap costs neither the pool nor the wake of our cloud database.
 
-The cleanup deletes the k6 identity's account, so every run starts from the same empty account. That deleting happens for 30 seconds which would be all more plenty of time to delete all that data relevant to our k6 account, and a cleanup that runs out of that budget aborts the sweep instead of letting the next window read a bigger account than the last. The row count is recorded at window start and at window end, so intra-window drift is reported rather than assumed.
+The cleanup deletes the k6 identity's rows, so every run starts from the same empty account. That deletion runs for 30 seconds, more than enough time to delete all the data relevant to our k6 account, and a cleanup that runs out of that budget aborts the sweep instead of letting the next window read a bigger account than the last. The cleanup's delete count is recorded as `deleted_before` and the owner's row count after the window as `rows_after`, so the account's growth within the window is reported rather than assumed.
 
 The sweep opens with a 10 VU smoke on the same workload, with a 10 second window. It warms the pool and
 the Neon compute, and it is the harness check: a failure there is the app or the generator, not load.
@@ -291,7 +291,7 @@ Confirm the highest passing level by re-running it 3 times, each measured for 5 
 1. k3s only, no host run. I am keeping k8s, so host-versus-k3s had no decision attached. Rejected: the host run, which answers a question I am no longer asking.
 2. The prod pod patched, not a second Deployment. On a single node a second pod fights the prod pod for the same four cores, so its number is not prod's number. Rejected: a parallel Deployment, which measures a pod no user will hit.
 3. Prod's default branch, not a Neon branch. Every VU is one identity either way, so a branch would isolate rows and change nothing about contention, at the cost of a second compute and a Secret swap.
-4. Use Tailscale instead of cloudflare due to BFM.
+4. Use Tailscale instead of Cloudflare due to BFM.
 5. `APP_ENV=test` with Clerk off, and the simulate route left open. Both side effects accepted and recorded above. Rejected: staying on production with minted Clerk tokens, which keeps JWT verification in the measured path but makes Clerk a dependency of the sweep.
 6. A full run per virtual user with a randomized turn count, plus any other endpoint a signed-in user can reach. Rejected: a fixed count, which makes every virtual user do identical work and has to be tuned to sit inside the arc.
 7. Telemetry stays on and gets recorded as cost. Rejected: turning it off, which gives a cleaner app number at the price of the deployed configuration.
@@ -304,13 +304,23 @@ Confirm the highest passing level by re-running it 3 times, each measured for 5 
 
 ## Result
 
-Every row below is the application before any optimisation, with the pool at 10 and the NodePort path,
+The boundary after each change, in the order the runs happened:
+
+| When       | Config                      | Highest pass           | rps there | First fail | Confirmed            |
+| ---------- | --------------------------- | ---------------------- | --------- | ---------- | -------------------- |
+| 2026-10-22 | pool 10, before the changes | 10                     | 17        | 20         | 10 VUs, 3 of 3       |
+| 2026-10-22 | six changes, the 500 live   | none, 10 failed on 5xx | 0         | 10         | none                 |
+| 2026-10-23 | pool 20, the fix in         | 32                     | 50        | 55         | 10 VUs, 3 of 3       |
+| 2026-10-23 | pool 40                     | 55                     | 70        | 100        | none, single windows |
+| 2026-10-23 | pool 80                     | not measured           |           | 100        | none, one level      |
+
+The first table below is the application before any optimisation, with the pool at 10 and the NodePort path,
 read from `results/sweep-*.csv`. Latency, rps and errors come from the harness; CPU, memory, pool wait,
 the per-route and the per-query numbers are Grafana readings over the same windows. The laptop row is
 docker compose against the stub; the rest are the prod pod, which is read from those latencies because
 the harness records no target. `max` is the measure window's max latency: k6's summary does not export p(99) for these runs, so
-the harness recorded the max while the gate evaluated a real p99 inside k6. The harness now exports
-p(99), so the next sweep records both.
+the harness recorded the max while the gate evaluated a real p99 inside k6. The harness exports p(99)
+now, so every sweep after the baseline carries both.
 
 | Pod          | Phase   | VUs | Window | p50   | p95    | max   | rps  | Verdict |
 | ------------ | ------- | --- | ------ | ----- | ------ | ----- | ---- | ------- |
@@ -341,9 +351,9 @@ failed on the first rung instead: p95 3.44s and a max of 8.54s at 100 VUs, and a
 The part that surprised me is that the machine was pretty much idle while it failed, 0.27 of 4 cores
 and 134Mi of 256Mi. Nothing was out of CPU or memory, so the latency was not a resource running out.
 
-If you noticed, I ran the test and wondered where my p99 was and apprarently when I was telling my AI to
-code this with my specs, It just somehow glossed over the p99 export so that's why we only see max latency
-on the pre-optimized run. Now it still my fault and the AI did pretty well on writing it and still gated p99
+If you noticed, I ran the test and wondered where my p99 was, and apparently when I was telling my AI to
+code this with my specs, it just somehow glossed over the p99 export, which is why we only see max latency
+on the pre-optimized run. It is still my fault, and the AI did pretty well on writing it and still gated p99
 so we didn't lose the gates, just the numbers. Fixed it and from here on out we will be running it with p99.
 
 At 100 VUs the pool was the queue: p50 1.17s, and 0.94s of that was wait for a connection that was not
@@ -406,7 +416,7 @@ I skipped the manual smoke that time and went straight to the ladder, which turn
 check into a five minute failed level. The 100 VU failure in the first sweep had already told me the old
 rule was wrong: it was capacity, not a broken harness.
 
-And from here and out we are smoking first 10 VU's first so we can catch whats wrong before 100 ladder starts.
+And from here on out we smoke 10 VUs first, so we catch what's wrong before the 100 VU ladder starts.
 
 The harness enforces it now: the smoke is the sweep's first window, it aborts before any rung, and its
 result is the floor the search can reach when 100 is the rung that fails.
@@ -415,7 +425,8 @@ result is the floor the search can reach when 100 is the rung that fails.
 
 Same workload, same target, the image with the six changes and the analytics fix, pool 20, over the
 NodePort. The smoke passed at a 239ms p95, the ladder failed at its first rung, and the search put the
-boundary between 32 and 55.
+boundary between 32 and 55. The `probe` row is the 32 VU re-run from the next section, not a window of
+this sweep.
 
 | Phase   | VUs | Window | Verdict | p50   | p95   | p99   | max   | rps  | errors |
 | ------- | --- | ------ | ------- | ----- | ----- | ----- | ----- | ---- | ------ |
@@ -437,8 +448,9 @@ last 10 VU confirmation saw 19.6s.
 ## The 32 probe, and what the checks gate did
 
 The 32 VU confirmation failed on checks, not latency: p95 600ms, p99 1.14s, error rate 0.08%, all inside
-the gates. The summary shows 29 failed checks from 9 bad requests, 7 answer streams and 2 finishes. The
-app logged only 200s on those routes and no errors, so the requests failed between k6 and the pod.
+the gates. The summary shows 29 failed checks from 11 bad requests: 7 answer streams, 2 finishes, and the 2
+feedback reads that follow them. The app logged only 200s on those routes and no errors, so the
+requests failed between k6 and the pod.
 
 I re-ran 32 on its own: 514 iterations, 13,665 requests, zero errors, p95 558ms, 50.1 rps. The nine
 failures did not repeat.
@@ -448,14 +460,15 @@ that fails, at p95 1.096s.
 
 ## What is the bottleneck now
 
-The sweep above ran with the pool at 20, and at 20 the pool was the wall. The mean query time is what
-sets that, not the p50: mean query time times queries per second is the number of connections held.
+The sweep above ran with the pool at 20, and at 20 the pool was the wall. Each row is read as an
+`increase` over the 3 minute measure window: mean query time times queries per second is the number of
+queries in flight, and the wait is the other half of the request.
 
-| Window (pool 20) | Mean query | Queries/s | Connections held | Pool wait p50 | Pool wait p95 | CPU  | Memory |
-| ---------------- | ---------- | --------- | ---------------- | ------------- | ------------- | ---- | ------ |
-| 32 VUs           | 100ms      | 138       | 13.7 of 20       | 6ms           | 129ms         | 0.39 | 48%    |
-| 55 VUs           | 168ms      | 155       | 26.0 of 20       | 153ms         | 448ms         | 0.41 | 48%    |
-| 100 VUs          | 119ms      | 134       | 15.9 of 20       | 478ms         | 1.31s         | 0.38 | 44%    |
+| Window (pool 20) | Mean query | Queries/s | In flight | Pool wait p50 | Pool wait p95 | CPU  | Memory |
+| ---------------- | ---------- | --------- | --------- | ------------- | ------------- | ---- | ------ |
+| 32 VUs           | 97ms       | 114       | 11.1      | 6ms           | 45ms          | 0.39 | 48%    |
+| 55 VUs           | 112ms      | 121       | 13.6      | 170ms         | 491ms         | 0.41 | 48%    |
+| 100 VUs          | 116ms      | 116       | 13.5      | 505ms         | 1.31s         | 0.38 | 44%    |
 
 At 32 VUs nothing waits on the pool, and the latency is the round trips: 2.3 queries per request at about
 100ms each. `/stats/analytics` is still the slowest app-owned route at 1.41s p95, then `/messages` at
@@ -463,8 +476,11 @@ At 32 VUs nothing waits on the pool, and the latency is the round trips: 2.3 que
 
 At 55 VUs every route multiplies: analytics 1.41s to 7.75s, messages 0.7s to 5.08s, finish 3.46s to
 14.2s. That is the pool of 20 running out, not the app work changing. At 100 VUs the wait is most of the
-request: 478ms of a 719ms p50, and 1.31s of a 1.90s p95. The pool is fully held there, idle 0 for the
-whole window; the 15.9 in the table is the achieved rate, and the queue is what lowers it.
+request: 505ms of a 719ms p50, and 1.31s of a 1.90s p95. The mean query stays flat, 97 to 116ms across
+the three windows, so the database's service time is not what changes; the wait is, from 6ms to 505ms at
+p50. The pool gauge reads 20 held and 0 idle, but it is emitted on each acquire, so it samples the pool at
+the moment a request asks for a connection. The time average is 13.5 queries in flight, and the queue
+still forms because a request's two or three queries arrive in a burst.
 
 CPU stays near a tenth of the four cores and memory near half of 256Mi in all three windows, so neither
 is the ceiling.
@@ -476,7 +492,7 @@ is verdict, p95, rps, and pool wait p50.
 
 | Pool | 55 VUs                        | 100 VUs                      |
 | ---- | ----------------------------- | ---------------------------- |
-| 20   | fail, 1.096s, 50.0 rps, 153ms | fail, 1.90s, 54.9 rps, 478ms |
+| 20   | fail, 1.096s, 50.0 rps, 170ms | fail, 1.90s, 54.9 rps, 505ms |
 | 40   | pass, 832ms, 70.3 rps, 6ms    | fail, 1.64s, 66.7 rps, 239ms |
 | 80   | not measured                  | fail, 1.87s, 75.0 rps, 7ms   |
 
@@ -488,6 +504,10 @@ the database's service time, and the pod's memory caps the pool near 80: it was 
 The levers left are Neon's compute size, the query count on the chat turn, and the analytics history
 scan that survives the one-statement rewrite. The pool is not one of them at 100 VUs any more.
 
+The arithmetic of the wall: a pool drains at connections over mean query time, so 20 gives 172 queries a
+second, 40 gives 320, and 80 gives 322 because the query mean doubles. That is why 80 removed the wait
+and did not move the request tail.
+
 A warm `SELECT 1` from inside the pod is 37ms at the median, and a first-row read is the same. The mean
 query is 100ms at 32 VUs and 234 to 339ms at 100 with 80 connections, so the inflation is the database's
 own service time under concurrency, not the round trip. Co-location could save the 37ms floor; it
@@ -495,15 +515,20 @@ cannot save the inflation.
 
 ## What the record does not carry
 
-- The CSV has no per-route and no pool columns. Those are Grafana readings keyed to the window, and the
-  window is only the row's timestamp.
+- The CSV has no per-route and no pool columns. Those are Grafana readings keyed to the window; before
+  `measure_start`, a row only carried its write time. The `label` names the build and pool, but it is
+  text the operator wrote, not a measurement.
 - A failed checks gate names its cause only in the run JSON's `root_group`, never in the CSV. The 32
-  rejection needed that file to become 9 bad requests.
-- The error rate does not separate a 4xx, a 5xx and a connection failure. The nine requests that failed
+  rejection needed that file to become 11 bad requests.
+- The error rate does not separate a 4xx, a 5xx and a connection failure. The eleven requests that failed
   at 32 left no app log line at all.
 - The p50 query time understates the pool. The mean, sum over count, is what sets utilisation.
-- The max column has no owner. The 27s at 100 VUs and the 19.6s in the last 10 VU confirmation are
-  recorded but not explained.
+- The max column has no owner. The 17.6s at 20 VUs, the 27s at 100 VUs and the 19.6s in the last 10 VU
+  confirmation are recorded but not explained.
+- No level between 10 and 20 VUs was measured. The search stops once the gap is under its tolerance, so
+  it never tries inside that band; `--only 15` and `--only 17` would.
+- Rows written before `measure_start` cannot be lined up with a Grafana window to better than a few
+  minutes, so the pool-probe readings were hand-aligned and cannot be re-derived from the row.
 
 ## Next
 
