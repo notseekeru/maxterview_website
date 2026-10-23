@@ -411,6 +411,77 @@ And from here and out we are smoking first 10 VU's first so we can catch whats w
 The harness enforces it now: the smoke is the sweep's first window, it aborts before any rung, and its
 result is the floor the search can reach when 100 is the rung that fails.
 
+## The optimized sweep
+
+Same workload, same target, the image with the six changes and the analytics fix. The smoke passed at a
+239ms p95, the ladder failed at its first rung, and the search put the boundary between 32 and 55.
+
+| Phase   | VUs | Window | Verdict | p50   | p95   | p99   | max   | rps  | errors |
+| ------- | --- | ------ | ------- | ----- | ----- | ----- | ----- | ---- | ------ |
+| smoke   | 10  | 10s    | pass    | 145ms | 239ms | 750ms | 769ms | 29.5 | 0      |
+| ladder  | 100 | 3m     | fail    | 719ms | 1.90s | 3.26s | 27.0s | 54.9 | 0.08%  |
+| search  | 55  | 3m     | fail    | 353ms | 1.10s | 2.48s | 28.6s | 50.0 | 0.36%  |
+| search  | 32  | 3m     | pass    | 163ms | 499ms | 879ms | 2.23s | 50.2 | 0      |
+| confirm | 32  | 5m     | fail    | 173ms | 600ms | 1.14s | 8.99s | 45.4 | 0.08%  |
+| confirm | 10  | 5m     | pass    | 146ms | 289ms | 427ms | 577ms | 18.5 | 0      |
+| confirm | 10  | 5m     | pass    | 145ms | 287ms | 416ms | 864ms | 18.5 | 0      |
+| confirm | 10  | 5m     | pass    | 161ms | 800ms | 2.86s | 19.6s | 12.8 | 0      |
+| probe   | 32  | 3m     | pass    | 166ms | 558ms | 888ms | 1.75s | 50.1 | 0      |
+
+Against the baseline, 100 VUs now carries 54.9 rps instead of 38.3, with p50 719ms instead of 1.17s and
+p95 1.90s instead of 3.44s. The highest level that passes moved from 10 to 32, and the first level that
+fails moved from 20 to 55. The tail did not improve: the max at 100 VUs went from 8.54s to 27s, and the
+last 10 VU confirmation saw 19.6s.
+
+## The 32 probe, and what the checks gate did
+
+The 32 VU confirmation failed on checks, not latency: p95 600ms, p99 1.14s, error rate 0.08%, all inside
+the gates. The summary shows 29 failed checks from 9 bad requests, 7 answer streams and 2 finishes. The
+app logged only 200s on those routes and no errors, so the requests failed between k6 and the pod.
+
+I re-ran 32 on its own: 514 iterations, 13,665 requests, zero errors, p95 558ms, 50.1 rps. The nine
+failures did not repeat.
+
+So the strict rule still reports 10, because one phase failed and the 25 VU tolerance cannot split 10 to
+32. What the application does: 32 holds every window on latency and errors, and 55 is the first level
+that fails, at p95 1.096s.
+
+## What is the bottleneck now
+
+The pool moved the knee, and it is still the wall when it arrives. The mean query time is what sets that,
+not the p50: mean query time times queries per second is the number of connections held.
+
+| Window | Mean query | Queries/s | Connections held | Pool wait p50 | Pool wait p95 | CPU | Memory |
+| ------ | ---------- | --------- | ---------------- | ------------- | ------------- | --- | ------ |
+| 32 VUs | 100ms      | 138       | 13.7 of 20       | 6ms           | 129ms         | 0.39 | 48%    |
+| 55 VUs | 168ms      | 155       | 26.0 of 20       | 153ms         | 448ms         | 0.41 | 48%    |
+| 100 VUs | 119ms      | 134       | 15.9 of 20       | 478ms         | 1.31s         | 0.38 | 44%    |
+
+At 32 VUs nothing waits on the pool, and the latency is the round trips: 2.3 queries per request at about
+100ms each. `/stats/analytics` is still the slowest app-owned route at 1.41s p95, then `/messages` at
+0.7s. The rest of the tail is model routes, which the gate excludes but the pool still serves.
+
+At 55 VUs every route multiplies: analytics 1.41s to 7.75s, messages 0.7s to 5.08s, finish 3.46s to
+14.2s. That is the pool of 20 running out, not the app work changing. At 100 VUs the wait is most of the
+request: 478ms of a 719ms p50, and 1.31s of a 1.90s p95. The pool is fully held there, idle 0 for the
+whole window; the 15.9 in the table is the achieved rate, and the queue is what lowers it.
+
+CPU stays near a tenth of the four cores and memory near half of 256Mi in all three windows, so neither
+is the ceiling. The levers left are the mean Neon round trip, the query count on the chat turn, the
+analytics history scan that survives the one-statement rewrite, and the pool size.
+
+## What the record does not carry
+
+- The CSV has no per-route and no pool columns. Those are Grafana readings keyed to the window, and the
+  window is only the row's timestamp.
+- A failed checks gate names its cause only in the run JSON's `root_group`, never in the CSV. The 32
+  rejection needed that file to become 9 bad requests.
+- The error rate does not separate a 4xx, a 5xx and a connection failure. The nine requests that failed
+  at 32 left no app log line at all.
+- The p50 query time understates the pool. The mean, sum over count, is what sets utilisation.
+- The max column has no owner. The 27s at 100 VUs and the 19.6s in the last 10 VU confirmation are
+  recorded but not explained.
+
 ## Next
 
 The same sweep over the cloudflared path into the ingress, no NodePort, so the edge is in the number too.
