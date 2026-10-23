@@ -385,7 +385,7 @@ Six changes, all of them on round trips, read size or the pool rather than on th
 | `/usage`           | two checkouts in the window, three to four in prod | one                                          |
 | `GET /interviews`  | every run the owner had                            | 50 per page, archived filtered in the query  |
 | Home counters      | derived in the browser from that full list         | one statement over the full history          |
-| pool               | 10                                                 | `DB_POOL_MAX`, 40                            |
+| pool               | 10                                                 | `DB_POOL_MAX`, 20 then 40                    |
 
 ## The retest, and the regression it caught
 
@@ -442,20 +442,19 @@ app logged only 200s on those routes and no errors, so the requests failed betwe
 I re-ran 32 on its own: 514 iterations, 13,665 requests, zero errors, p95 558ms, 50.1 rps. The nine
 failures did not repeat.
 
-So the strict rule still reports 10, because one phase failed and the 25 VU tolerance cannot split 10 to
-32. What the application does: 32 holds every window on latency and errors, and 55 is the first level
+So the strict rule still reports 10, because one phase failed and the 25 VU tolerance cannot split 10 to 32. What the application does: 32 holds every window on latency and errors, and 55 is the first level
 that fails, at p95 1.096s.
 
 ## What is the bottleneck now
 
-The pool moved the knee, and it is still the wall when it arrives. The mean query time is what sets that,
-not the p50: mean query time times queries per second is the number of connections held.
+The sweep above ran with the pool at 20, and at 20 the pool was the wall. The mean query time is what
+sets that, not the p50: mean query time times queries per second is the number of connections held.
 
-| Window | Mean query | Queries/s | Connections held | Pool wait p50 | Pool wait p95 | CPU | Memory |
-| ------ | ---------- | --------- | ---------------- | ------------- | ------------- | --- | ------ |
-| 32 VUs | 100ms      | 138       | 13.7 of 20       | 6ms           | 129ms         | 0.39 | 48%    |
-| 55 VUs | 168ms      | 155       | 26.0 of 20       | 153ms         | 448ms         | 0.41 | 48%    |
-| 100 VUs | 119ms      | 134       | 15.9 of 20       | 478ms         | 1.31s         | 0.38 | 44%    |
+| Window (pool 20) | Mean query | Queries/s | Connections held | Pool wait p50 | Pool wait p95 | CPU  | Memory |
+| ---------------- | ---------- | --------- | ---------------- | ------------- | ------------- | ---- | ------ |
+| 32 VUs           | 100ms      | 138       | 13.7 of 20       | 6ms           | 129ms         | 0.39 | 48%    |
+| 55 VUs           | 168ms      | 155       | 26.0 of 20       | 153ms         | 448ms         | 0.41 | 48%    |
+| 100 VUs          | 119ms      | 134       | 15.9 of 20       | 478ms         | 1.31s         | 0.38 | 44%    |
 
 At 32 VUs nothing waits on the pool, and the latency is the round trips: 2.3 queries per request at about
 100ms each. `/stats/analytics` is still the slowest app-owned route at 1.41s p95, then `/messages` at
@@ -467,14 +466,18 @@ request: 478ms of a 719ms p50, and 1.31s of a 1.90s p95. The pool is fully held 
 whole window; the 15.9 in the table is the achieved rate, and the queue is what lowers it.
 
 CPU stays near a tenth of the four cores and memory near half of 256Mi in all three windows, so neither
-is the ceiling. The levers left are the mean Neon round trip, the query count on the chat turn, the
-analytics history scan that survives the one-statement rewrite, and Neon's compute size.
+is the ceiling.
 
-The pool was then probed at 40 and 80. At 55 VUs, 40 turned the failure into a pass: p95 832ms, 70.3
-rps, pool wait 6ms. At 100 VUs, 80 removed the wait (7ms) and lifted throughput to 75 rps, but the
-database's own query p95 rose to 962ms and the request p95 to 1.87s, worse than 1.64s at 40. So 40
-ships, and the wall at 100 is now the database's service time rather than the app's pool. The pool is
-used up there; memory at 80 connections was already 75% of the 256Mi pod.
+Raising the pool was the largest single move after the six changes. At 40, 55 VUs turned from a failure
+into a pass, p95 832ms at 70.3 rps with 6ms of wait, and at 100 VUs the wait halved to 239ms while
+throughput rose to 66.7 rps. At 80 the app's wait disappeared, 7ms, and throughput reached 75 rps, but
+the database's own query p95 rose to 962ms and the request p95 to 1.87s, worse than 1.64s at 40. So 40
+ships, the wall at 100 is now the database's service time, and the pod's memory caps the pool near that
+80: it was already 75% of 256Mi.
+
+The levers left are the mean Neon round trip, the query count on the chat turn, the analytics history
+scan that survives the one-statement rewrite, and Neon's compute size. The pool is not one of them at
+100 VUs any more.
 
 ## What the record does not carry
 
