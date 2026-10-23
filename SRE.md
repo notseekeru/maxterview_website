@@ -474,20 +474,24 @@ is the ceiling.
 Same build, same NodePort path, same workload as the optimized sweep; only the pool changed. Each cell
 is verdict, p95, rps, and pool wait p50.
 
-| Pool | 55 VUs                        | 100 VUs                       |
-| ---- | ----------------------------- | ----------------------------- |
-| 20   | fail, 1.096s, 50.0 rps, 153ms | fail, 1.90s, 54.9 rps, 478ms  |
-| 40   | pass, 832ms, 70.3 rps, 6ms    | fail, 1.64s, 66.7 rps, 239ms  |
-| 80   | not measured                  | fail, 1.87s, 75.0 rps, 7ms    |
+| Pool | 55 VUs                        | 100 VUs                      |
+| ---- | ----------------------------- | ---------------------------- |
+| 20   | fail, 1.096s, 50.0 rps, 153ms | fail, 1.90s, 54.9 rps, 478ms |
+| 40   | pass, 832ms, 70.3 rps, 6ms    | fail, 1.64s, 66.7 rps, 239ms |
+| 80   | not measured                  | fail, 1.87s, 75.0 rps, 7ms   |
 
 Raising the pool was the largest single move after the six changes: 40 turned 55 VUs from a failure into
 a pass and halved the wait at 100. At 80 the app's wait disappeared, but the database's own query p95
 rose to 962ms and the request p95 to 1.87s, worse than 1.64s at 40. So 40 ships, the wall at 100 is now
 the database's service time, and the pod's memory caps the pool near 80: it was already 75% of 256Mi.
 
-The levers left are the mean Neon round trip, the query count on the chat turn, the analytics history
-scan that survives the one-statement rewrite, and Neon's compute size. The pool is not one of them at
-100 VUs any more.
+The levers left are Neon's compute size, the query count on the chat turn, and the analytics history
+scan that survives the one-statement rewrite. The pool is not one of them at 100 VUs any more.
+
+A warm `SELECT 1` from inside the pod is 37ms at the median, and a first-row read is the same. The mean
+query is 100ms at 32 VUs and 234 to 339ms at 100 with 80 connections, so the inflation is the database's
+own service time under concurrency, not the round trip. Co-location could save the 37ms floor; it
+cannot save the inflation.
 
 ## What the record does not carry
 
