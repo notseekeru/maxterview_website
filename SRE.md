@@ -304,11 +304,11 @@ Confirm the highest passing level by re-running it 3 times, each measured for 5 
 
 ## Result
 
-Every row below is the application before any optimisation, read from `results/sweep-*.csv`. Latency,
-rps and errors come from the harness; CPU, memory, pool wait, the per-route and the per-query numbers
-are Grafana readings over the same windows. The laptop row is docker compose against the stub, the rest
-are the prod pod over the NodePort, which is read from those latencies because the harness records no
-target. `max` is the measure window's max latency: k6's summary does not export p(99) for these runs, so
+Every row below is the application before any optimisation, with the pool at 10 and the NodePort path,
+read from `results/sweep-*.csv`. Latency, rps and errors come from the harness; CPU, memory, pool wait,
+the per-route and the per-query numbers are Grafana readings over the same windows. The laptop row is
+docker compose against the stub; the rest are the prod pod, which is read from those latencies because
+the harness records no target. `max` is the measure window's max latency: k6's summary does not export p(99) for these runs, so
 the harness recorded the max while the gate evaluated a real p99 inside k6. The harness now exports
 p(99), so the next sweep records both.
 
@@ -413,8 +413,9 @@ result is the floor the search can reach when 100 is the rung that fails.
 
 ## The optimized sweep
 
-Same workload, same target, the image with the six changes and the analytics fix. The smoke passed at a
-239ms p95, the ladder failed at its first rung, and the search put the boundary between 32 and 55.
+Same workload, same target, the image with the six changes and the analytics fix, pool 20, over the
+NodePort. The smoke passed at a 239ms p95, the ladder failed at its first rung, and the search put the
+boundary between 32 and 55.
 
 | Phase   | VUs | Window | Verdict | p50   | p95   | p99   | max   | rps  | errors |
 | ------- | --- | ------ | ------- | ----- | ----- | ----- | ----- | ---- | ------ |
@@ -468,12 +469,21 @@ whole window; the 15.9 in the table is the achieved rate, and the queue is what 
 CPU stays near a tenth of the four cores and memory near half of 256Mi in all three windows, so neither
 is the ceiling.
 
-Raising the pool was the largest single move after the six changes. At 40, 55 VUs turned from a failure
-into a pass, p95 832ms at 70.3 rps with 6ms of wait, and at 100 VUs the wait halved to 239ms while
-throughput rose to 66.7 rps. At 80 the app's wait disappeared, 7ms, and throughput reached 75 rps, but
-the database's own query p95 rose to 962ms and the request p95 to 1.87s, worse than 1.64s at 40. So 40
-ships, the wall at 100 is now the database's service time, and the pod's memory caps the pool near that
-80: it was already 75% of 256Mi.
+## The pool probes
+
+Same build, same NodePort path, same workload as the optimized sweep; only the pool changed. Each cell
+is verdict, p95, rps, and pool wait p50.
+
+| Pool | 55 VUs                        | 100 VUs                       |
+| ---- | ----------------------------- | ----------------------------- |
+| 20   | fail, 1.096s, 50.0 rps, 153ms | fail, 1.90s, 54.9 rps, 478ms  |
+| 40   | pass, 832ms, 70.3 rps, 6ms    | fail, 1.64s, 66.7 rps, 239ms  |
+| 80   | not measured                  | fail, 1.87s, 75.0 rps, 7ms    |
+
+Raising the pool was the largest single move after the six changes: 40 turned 55 VUs from a failure into
+a pass and halved the wait at 100. At 80 the app's wait disappeared, but the database's own query p95
+rose to 962ms and the request p95 to 1.87s, worse than 1.64s at 40. So 40 ships, the wall at 100 is now
+the database's service time, and the pod's memory caps the pool near 80: it was already 75% of 256Mi.
 
 The levers left are the mean Neon round trip, the query count on the chat turn, the analytics history
 scan that survives the one-statement rewrite, and Neon's compute size. The pool is not one of them at
