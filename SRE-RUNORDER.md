@@ -39,11 +39,12 @@ between 10 and 20 VUs was tried; `--only 15` and `--only 17` fill that band.
 cd ~/k6-load-testing
 direnv allow .
 k6 version                  # k6 v2.2.0, from the flake
-python3 sweep.py --help     # --start, --max-vus, --only, --smoke, --cleanup-only
+python3 sweep.py --help     # --start, --max-vus, --only, --smoke, --label, --cleanup-only
 
 cat > .env <<'EOF'
 API_URL=http://100.64.1.1:30090/api
 SWEEP_SUB=k6-sweep-testing
+# The standard window's tag. A probe passes its own --label, which wins over this.
 LABEL=pool40-nodeport
 EOF
 
@@ -142,7 +143,29 @@ and the search runs between the last pass and it, down to the smoke's 10 VUs whe
 fails. Between windows it waits 15 seconds, cleans up for up to 30, then waits 15 again. The winner is
 re-run three times at a 5 minute window; all three must pass, and a failing run ends that phase and
 searches below the level again, for at most three phases. Every window writes a row to
-`results/sweep-<utc>.csv` and a k6 summary to `results/level-<n>-<phase>-<utc>.json`, one file per run.
+`results/sweep-<utc>.csv` and a k6 summary to `results/level-<n>-<phase>-<run_id>.json`, one file per run,
+the same `run_id` the row carries.
+
+### 4b. A one-level probe
+
+A probe runs one level at a different pool. The override goes in the perf overlay, never in prod:
+
+```sh
+cd ~/gitops
+$EDITOR apps/maxterview/overlays/perf/env.yaml     # DB_POOL_MAX, value "80"
+git add apps/maxterview/overlays/perf/env.yaml
+git commit -m "chore(gitops): run the perf window at pool 80"
+git push
+~/maxterview_website/scripts/perf-window.sh on
+# wait for the replacement pod, then prove it as in step 3
+cd ~/k6-load-testing
+python3 sweep.py --cleanup-only
+python3 sweep.py --only 55 --label pool80-nodeport
+```
+
+Close as in step 5, then remove the override and push again. `--label` is the only place a row names its
+pool, so a probe without it writes a row that lies. A probe still opens prod and spends Neon compute;
+check the budget before it, not after.
 
 ### 5. Close the perf-val-change
 
@@ -161,13 +184,15 @@ python3 sweep.py --cleanup-only
 
 ### 6. Read the result
 
-`results/sweep-<utc>.csv` carries the boundary per window: phase and window length, p50, p95, p99, max,
-error rate, rps, iterations, requests, seconds and the account's rows before and after each
-perf-val-change.
+`results/sweep-<utc>.csv` carries the boundary per window: `run_id`, `label`, `measure_start`, phase and
+window length, p50, p95, p99, max, error rate, rps, iterations, requests, seconds and the account's rows
+before and after each perf-val-change. `run_id` names the summary, `label` names the config, and
+`measure_start` is the window.
 
-In Grafana, `maxterview-logs` over the sweep's time range: `db_pool_wait` against `db_query` says
-whether Neon's queue or the SQL ran out first, and container memory against its limit says whether the
-pod did. That is the "which resource runs out first" half of the question.
+In Grafana, `maxterview-logs` from `measure_start` for `measure_s`: read server numbers as `increase`
+over that window (`SRE.md`, What is measured). `db_pool_wait` against `db_query` says whether Neon's
+queue or the SQL ran out first, and container memory against its limit says whether the pod did. That is
+the "which resource runs out first" half of the question.
 
 ## Time
 
@@ -175,7 +200,7 @@ About 5.5 minutes per level at the defaults (30 second ramp, 60 second warm, 3 m
 gap), and about 7.5 for each of the three confirmations at their 5 minute window, so a ladder that
 brackets a failure plus the three confirmations is roughly an hour, assuming the first failure is not
 at 100 VUs. Each failed confirmation adds a search and another phase, so two of them roughly double the
-run.
+run. A one-level probe is one level plus two syncs, about ten minutes.
 
 ## Abort and rollback
 
@@ -186,6 +211,7 @@ run.
 | The perf-val-change will not open           | Stop and fix the overlay. `main.js` refuses to load without `tier=dev`                        |
 | `--cleanup-only` aborts on foreign owners   | Stop. The identity does not match the target's `DEV_USER_SUB`                                 |
 | Cleanup leaves rows behind after 30 seconds | Stop. The next perf-val-change would read a bigger account than the last                      |
+| The pool override is still in the perf overlay | Remove it after the probe; the next window would silently run that pool                     |
 | The 10 VU smoke fails                       | The sweep aborts. Fix the harness or the app; a failed smoke is not capacity                  |
 | A ladder rung fails                         | Expected. That is the boundary; the search runs from the last pass down to 10 VUs             |
 | Anything unexpected                         | Close the perf-val-change first, then debug. Leaving it open leaves prod unauthenticated      |

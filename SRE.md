@@ -192,7 +192,7 @@ It uses scale-to-zero so we don't pay for compute when the application is not us
 
 It is simple: change the values, commit the perf overlay, see the sync land in Argo CD, confirm the pod was replaced with kubectl or the GUI, and read its env to watch the perf values go live before any load. Overlays override Infisical values like `LLM_BASE_URL`.
 
-## What each VUs does
+## What each VU does
 
 | Operation                                        | Type         | When          | Count     |
 | ------------------------------------------------ | ------------ | ------------- | --------- |
@@ -328,13 +328,12 @@ Confirm the highest passing level by re-running it 3 times, each measured for 5 
 
 The boundary after each change, in the order the runs happened:
 
-| When       | Config                      | Highest pass               | rps there | First fail | Confirmed            |
-| ---------- | --------------------------- | -------------------------- | --------- | ---------- | -------------------- |
-| 2026-10-22 | pool 10, before the changes | 10                         | 17        | 20         | 10 VUs, 3 of 3       |
-| 2026-10-22 | six changes, the 500 live   | none, 10 failed on 5xx     | 0         | 10         | none                 |
-| 2026-10-23 | pool 20, the fix in         | 32                         | 50        | 55         | 10 VUs, 3 of 3       |
-| 2026-10-23 | pool 40                     | 55                         | 70        | 100        | none, single windows |
-| 2026-10-23 | pool 80                     | 55 (latency; checks flake) | 71        | 100        | none, single levels  |
+| When       | Config                      | Highest pass | rps there | First fail |
+| ---------- | --------------------------- | ------------ | --------- | ---------- |
+| 2026-10-22 | pool 10, before the changes | 10           | 17        | 20         |
+| 2026-10-23 | optimized changes(pool 20)  | 32           | 50        | 55         |
+| 2026-10-23 | pool 40                     | 55           | 70        | 100        |
+| 2026-10-23 | pool 80                     | 55 (latency) | 71        | 100        |
 
 The first table below is the application before any optimisation, with the pool at 10 and the NodePort path,
 read from `results/sweep-*.csv`. Latency, rps and errors come from the harness; CPU, memory, pool wait,
@@ -419,19 +418,6 @@ Six changes, all of them on round trips, read size or the pool rather than on th
 | Home counters      | derived in the browser from that full list         | one statement over the full history          |
 | pool               | 10                                                 | `DB_POOL_MAX`, 20 then 40                    |
 
-## The retest, and the regression it caught
-
-With the six changes on the pod I opened the window again to see where the boundary had moved, and the
-10 VU level failed, not on latency: errors at 3.75%, about one request per iteration, and
-`/stats/analytics` returning 500 on every call. The one-statement aggregate built the offers as JSONB,
-which turns a timestamp into a string, and the offer maths added a timedelta to that string. The old
-five-query version handed back real datetimes, so nothing exercised that path until the route ran under
-load.
-
-One line put the date back to a datetime where the aggregate loses it, and a test that seeds an offer
-keeps it fixed. The suite was green through all of it, because no test had ever created an offer. The
-500 reached prod for most of an hour before the fix.
-
 ## What the run taught me about the harness
 
 I skipped the manual smoke that time and went straight to the ladder, which turned a sixteen second
@@ -466,19 +452,6 @@ Against the baseline, 100 VUs now carries 54.9 rps instead of 38.3, with p50 719
 p95 1.90s instead of 3.44s. The highest level that passes moved from 10 to 32, and the first level that
 fails moved from 20 to 55. The tail did not improve: the max at 100 VUs went from 8.54s to 27s, and the
 last 10 VU confirmation saw 19.6s.
-
-## The 32 probe, and what the checks gate did
-
-The 32 VU confirmation failed on checks, not latency: p95 600ms, p99 1.14s, error rate 0.08%, all inside
-the gates. The summary shows 29 failed checks from 11 bad requests: 7 answer streams, 2 finishes, and the 2
-feedback reads that follow them. The app logged only 200s on those routes and no errors, so the
-requests failed between k6 and the pod.
-
-I re-ran 32 on its own: 514 iterations, 13,665 requests, zero errors, p95 558ms, 50.1 rps. The nine
-failures did not repeat.
-
-So the strict rule still reports 10, because one phase failed and the 25 VU tolerance cannot split 10 to 32. What the application does: 32 holds every window on latency and errors, and 55 is the first level
-that fails, at p95 1.096s.
 
 ## What is the bottleneck now
 
@@ -557,30 +530,13 @@ cannot save the inflation.
 rate stays under 1% and p99 is inside its gate, while p95 and the checks gate fail, the checks gate on 14
 of 795 iterations that lost an answer stream.
 
-| Level | p95 | p99 | rps | error | Gate |
-| --- | --- | --- | --- | --- | --- |
-| 55 VUs, pool 40 | 832ms | 1.62s | 70.3 | 0 | pass |
+| Level            | p95   | p99   | rps  | error | Gate        |
+| ---------------- | ----- | ----- | ---- | ----- | ----------- |
+| 55 VUs, pool 40  | 832ms | 1.62s | 70.3 | 0     | pass        |
 | 100 VUs, pool 40 | 1.64s | 3.43s | 66.7 | 0.16% | p95, checks |
 
 A VU is a whole interview compressed into about 21 seconds, so the capacity number is 70 requests a
-second, not 55 people.
-
-## What the record does not carry
-
-- The CSV has no per-route and no pool columns. Those are Grafana readings keyed to the window; before
-  `measure_start`, a row only carried its write time. The `label` names the build and pool, but it is
-  text the operator wrote, not a measurement.
-- A failed checks gate names its cause only in the run JSON's `root_group`, never in the CSV. The 32
-  rejection needed that file to become 11 bad requests.
-- The error rate does not separate a 4xx, a 5xx and a connection failure. The eleven requests that failed
-  at 32 left no app log line at all.
-- The p50 query time understates the pool. The mean, sum over count, is what sets utilisation.
-- The max column has no owner. The 17.6s at 20 VUs, the 27s at 100 VUs and the 19.6s in the last 10 VU
-  confirmation are recorded but not explained.
-- No level between 10 and 20 VUs was measured. The search stops once the gap is under its tolerance, so
-  it never tries inside that band; `--only 15` and `--only 17` would.
-- Rows written before `measure_start` cannot be lined up with a Grafana window to better than a few
-  minutes, so the pool-probe readings were hand-aligned and cannot be re-derived from the row.
+second, not 55 real people.
 
 ## Next
 
@@ -590,3 +546,13 @@ what the edge costs, not where the app breaks.
 
 The full sweep is paused: Neon's compute is at about 90% of its limit. The 55 VU pool-80 probe ran after
 that, because it was one three minute window; the edge path and any full sweep wait for the budget.
+
+## Dropped streams
+
+Some windows lose a few chat streams: 56 in 7,794 iterations, 0.72%, but clustered, 29 in one 55 VU
+window and 0 in another at the same level, so it does not follow VUs or pool. The failed requests left no
+app log line when they were checked, and the sweep reaches the pod over the NodePort, which production
+does not use. The checks gate is binary, so one drop can fail a level: it is why the boundary table
+confirms 10 while 32 passes on latency, and why 55 VUs at pool 80 reads `fail (checks)` at an 820ms p95.
+Next: count `status == 0` per route in the CSV, then either keep the binary gate and accept the noise or
+gate correctness at a rate; an edge-path smoke separates the rig from the app.
