@@ -553,6 +553,18 @@ query is 97ms at 32 VUs and 248ms at 100 with 80 connections, so the inflation i
 service time under concurrency, not the round trip. Co-location could save the 37ms floor; it
 cannot save the inflation.
 
+55 VUs is the SLO boundary, not the product ceiling. The app keeps serving past it: at 100 VUs the error
+rate stays under 1% and p99 is inside its gate, while p95 and the checks gate fail, the checks gate on 14
+of 795 iterations that lost an answer stream.
+
+| Level | p95 | p99 | rps | error | Gate |
+| --- | --- | --- | --- | --- | --- |
+| 55 VUs, pool 40 | 832ms | 1.62s | 70.3 | 0 | pass |
+| 100 VUs, pool 40 | 1.64s | 3.43s | 66.7 | 0.16% | p95, checks |
+
+A VU is a whole interview compressed into about 21 seconds, so the capacity number is 70 requests a
+second, not 55 people.
+
 ## What the record does not carry
 
 - The CSV has no per-route and no pool columns. Those are Grafana readings keyed to the window; before
