@@ -357,6 +357,8 @@ That is why this run exists in this shape. I wanted the numbers for the applicat
 this, before any of the optimisation, so that every later state has its own data and the difference is
 what the optimisation is actually worth.
 
+And from here and out we are smoking first 10 VU's first so we can catch whats wrong before 100 ladder starts.
+
 ## What changed after this run
 
 Six changes, all of them on round trips, read size or the pool rather than on the queries themselves.
