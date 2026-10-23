@@ -4,6 +4,8 @@ Minimal SRE path for loading metrics and load testing application by generating 
 
 Inspired by Arjay McCandless $12 VPS load testing videos, usually known for system design with informative detailed videos.
 
+The specification comes first, and the runs follow it in the order they happened.
+
 ## The question
 
 At what load does the prod deployment stop behaving acceptably, and which resource runs out first.
@@ -86,8 +88,7 @@ Capacity path, as run
 ```
 
 The NodePort sits on the backend Service, so every prod row measures the pod, the app and its database,
-with ingress-nginx, the tunnel and Cloudflare outside the number. Next: the same sweep over the
-cloudflared path into the ingress, no NodePort, so the edge is in the number too.
+with ingress-nginx, the tunnel and Cloudflare outside the number.
 
 ## Configuration
 
@@ -285,6 +286,22 @@ Each level passes or fails. If it passes, we go up. If it fails on an SLO, we st
 
 Confirm the highest passing level by re-running it 3 times, each measured for 5 minutes, and all three must pass. Since the boundary moves about 10%, a single pass is not proof. A failing run ends that phase at once and reopens the search between the level and the highest rung below it that passed, for at most three confirmation phases in total. If none of them reaches 3/3, the sweep stops unconfirmed.
 
+## Decisions
+
+1. k3s only, no host run. I am keeping k8s, so host-versus-k3s had no decision attached. Rejected: the host run, which answers a question I am no longer asking.
+2. The prod pod patched, not a second Deployment. On a single node a second pod fights the prod pod for the same four cores, so its number is not prod's number. Rejected: a parallel Deployment, which measures a pod no user will hit.
+3. Prod's default branch, not a Neon branch. Every VU is one identity either way, so a branch would isolate rows and change nothing about contention, at the cost of a second compute and a Secret swap.
+4. Use Tailscale instead of cloudflare due to BFM.
+5. `APP_ENV=test` with Clerk off, and the simulate route left open. Both side effects accepted and recorded above. Rejected: staying on production with minted Clerk tokens, which keeps JWT verification in the measured path but makes Clerk a dependency of the sweep.
+6. A full run per virtual user with a randomized turn count, plus any other endpoint a signed-in user can reach. Rejected: a fixed count, which makes every virtual user do identical work and has to be tuned to sit inside the arc.
+7. Telemetry stays on and gets recorded as cost. Rejected: turning it off, which gives a cleaner app number at the price of the deployed configuration.
+8. The model stubbed for the sweep. Rejected: real generation, where the ceiling is the provider's quota and not this one.
+9. Direct host, not the pooler. A `-pooler` DSN flips `statement_cache_size`, a different code path than prod runs.
+10. The sweep runs under its own identity, named by `DEV_USER_SUB`.
+11. Capacity sweep at a small fixed floor, and the unbounded read on its own N-sweep. N grew inside every window anyway (159 rows at 10 VUs, 415 at 100), because the cleanup runs between levels. The read never surfaced in the tail, the 100 VU failure was attributed to pool wait without an N-sweep, and pagination shipped on code grounds. The N-sweep is still unrun.
+
+# The runs
+
 ## Result
 
 Every row below is the application before any optimisation, read from `results/sweep-*.csv`. Latency,
@@ -357,9 +374,7 @@ That is why this run exists in this shape. I wanted the numbers for the applicat
 this, before any of the optimisation, so that every later state has its own data and the difference is
 what the optimisation is actually worth.
 
-And from here and out we are smoking first 10 VU's first so we can catch whats wrong before 100 ladder starts.
-
-## What changed after this run
+## What changed after the first runs
 
 Six changes, all of them on round trips, read size or the pool rather than on the queries themselves.
 
@@ -372,16 +387,32 @@ Six changes, all of them on round trips, read size or the pool rather than on th
 | Home counters      | derived in the browser from that full list         | one statement over the full history          |
 | pool               | 10                                                 | `DB_POOL_MAX`, 20 by default                 |
 
-## Decisions
+## The retest, and the regression it caught
 
-1. k3s only, no host run. I am keeping k8s, so host-versus-k3s had no decision attached. Rejected: the host run, which answers a question I am no longer asking.
-2. The prod pod patched, not a second Deployment. On a single node a second pod fights the prod pod for the same four cores, so its number is not prod's number. Rejected: a parallel Deployment, which measures a pod no user will hit.
-3. Prod's default branch, not a Neon branch. Every VU is one identity either way, so a branch would isolate rows and change nothing about contention, at the cost of a second compute and a Secret swap.
-4. Use Tailscale instead of cloudflare due to BFM.
-5. `APP_ENV=test` with Clerk off, and the simulate route left open. Both side effects accepted and recorded above. Rejected: staying on production with minted Clerk tokens, which keeps JWT verification in the measured path but makes Clerk a dependency of the sweep.
-6. A full run per virtual user with a randomized turn count, plus any other endpoint a signed-in user can reach. Rejected: a fixed count, which makes every virtual user do identical work and has to be tuned to sit inside the arc.
-7. Telemetry stays on and gets recorded as cost. Rejected: turning it off, which gives a cleaner app number at the price of the deployed configuration.
-8. The model stubbed for the sweep. Rejected: real generation, where the ceiling is the provider's quota and not this one.
-9. Direct host, not the pooler. A `-pooler` DSN flips `statement_cache_size`, a different code path than prod runs.
-10. The sweep runs under its own identity, named by `DEV_USER_SUB`.
-11. Capacity sweep at a small fixed floor, and the unbounded read on its own N-sweep. N grew inside every window anyway (159 rows at 10 VUs, 415 at 100), because the cleanup runs between levels. The read never surfaced in the tail, the 100 VU failure was attributed to pool wait without an N-sweep, and pagination shipped on code grounds. The N-sweep is still unrun.
+With the six changes on the pod I opened the window again to see where the boundary had moved, and the
+10 VU level failed, not on latency: errors at 3.75%, about one request per iteration, and
+`/stats/analytics` returning 500 on every call. The one-statement aggregate built the offers as JSONB,
+which turns a timestamp into a string, and the offer maths added a timedelta to that string. The old
+five-query version handed back real datetimes, so nothing exercised that path until the route ran under
+load.
+
+One line put the date back to a datetime where the aggregate loses it, and a test that seeds an offer
+keeps it fixed. The suite was green through all of it, because no test had ever created an offer. The
+500 reached prod for most of an hour before the fix.
+
+## What the run taught me about the harness
+
+I skipped the manual smoke that time and went straight to the ladder, which turned a sixteen second
+check into a five minute failed level. The 100 VU failure in the first sweep had already told me the old
+rule was wrong: it was capacity, not a broken harness.
+
+And from here and out we are smoking first 10 VU's first so we can catch whats wrong before 100 ladder starts.
+
+The harness enforces it now: the smoke is the sweep's first window, it aborts before any rung, and its
+result is the floor the search can reach when 100 is the rung that fails.
+
+## Next
+
+The same sweep over the cloudflared path into the ingress, no NodePort, so the edge is in the number too.
+It will not be comparable to these numbers, because Cloudflare and the tunnel are in that path; it answers
+what the edge costs, not where the app breaks.
