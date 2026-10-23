@@ -53,9 +53,14 @@ The gap and the cleanup between two boxes, and why they stay at 60 seconds, are 
 | Request latency   | `http.server.request.duration`, and k6 on the client side                                                   | method, route, status |
 | Error rate        | the same histogram, plus k6 broken down by status code                                                      | status                |
 | Throughput        | k6 RPS, and the server histogram's own sample count                                                         | route                 |
-| Database pressure | `db.pool.size` against `db.pool.idle`, bounded by `DB_POOL_MAX`                                             | connections held      |
+| Database pressure | `db.pool.size` against `db.pool.idle`, bounded by `DB_POOL_MAX`                                             | sampled at acquire    |
 | Saturation        | `container_*` from the kubelet, root cgroup for the node and pod cgroups for pods; `machine_*` for capacity |                       |
 | Architecture      | Architecture of machine/optimization framework or tools used                                                | baseline              |
+
+Server numbers are read as `increase` over the window that starts at `measure_start` and lasts
+`measure_s`; an instant `rate` is a different number and is not used. The two pool gauges are emitted per
+acquire, so they sample the pool at the moment a request takes a connection: occupancy is mean query
+time times queries per second, not an average of those samples.
 
 ## SLO
 
