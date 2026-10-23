@@ -538,15 +538,6 @@ of 795 iterations that lost an answer stream.
 A VU is a whole interview compressed into about 21 seconds, so the capacity number is 70 requests a
 second, not 55 real people.
 
-## Next
-
-The same sweep over the cloudflared path into the ingress, no NodePort, so the edge is in the number too.
-It will not be comparable to these numbers, because Cloudflare and the tunnel are in that path; it answers
-what the edge costs, not where the app breaks.
-
-The full sweep is paused: Neon's compute is at about 90% of its limit. The 55 VU pool-80 probe ran after
-that, because it was one three minute window; the edge path and any full sweep wait for the budget.
-
 ## Dropped streams
 
 Some windows lose a few chat streams: 56 in 7,794 iterations, 0.72%, but clustered, 29 in one 55 VU
@@ -556,3 +547,13 @@ does not use. The checks gate is binary, so one drop can fail a level: it is why
 confirms 10 while 32 passes on latency, and why 55 VUs at pool 80 reads `fail (checks)` at an 820ms p95.
 Next: count `status == 0` per route in the CSV, then either keep the binary gate and accept the noise or
 gate correctness at a rate; an edge-path smoke separates the rig from the app.
+
+## Next
+
+The same sweep over the cloudflared path into the ingress, no NodePort(since NodePort bypass cloudflared and ingress)
+so the edge is in the number too. It will not be comparable to these numbers, because Cloudflare and the tunnel are in that path;
+it answers what the edge costs, not where the app breaks.
+
+The full sweep is paused: Neon's compute is at about 90% of its limit. The 55 VU pool-80 probe ran after
+that, because it was one three minute window; the edge path and any full sweep wait for the budget.
+I will continue to expand this dataset and experiment the data with different architecture.
