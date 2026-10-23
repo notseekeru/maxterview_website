@@ -228,6 +228,23 @@ The two reads at every turn are both `_chat_session`: the interview with its res
 Three of those rows are model-bearing, `chat/kickoff`, `chat/stream` and `finish`, and they are the
 rows the latency gates exclude; the gates cover the rest.
 
+The mix, measured over the 55 VU window of the pool-80 run: 13,635 requests and 31,572 queries in three
+minutes, 2.3 queries per request and about 27 requests per iteration.
+
+| Sent           | Count  | Share |
+| -------------- | ------ | ----- |
+| GET request    | 6,230  | 46%   |
+| POST request   | 5,884  | 43%   |
+| DELETE request | 1,521  | 11%   |
+| SELECT         | 17,210 | 55%   |
+| INSERT         | 9,269  | 29%   |
+| UPDATE         | 2,527  | 8%    |
+| DELETE query   | 1,008  | 3%    |
+| WITH           | 1,558  | 5%    |
+
+`WITH` is the first keyword of both the interview insert and the stats aggregates, so it is not cleanly
+one side: SELECT is the read side, INSERT, UPDATE and DELETE the write side.
+
 Every virtual user is the same identity and they all share one account. One identity is the first cut
 because it is one candidate moving through the app, and the cleanup has one owner to delete. A real
 deployment is many people at once, so the next architecture will give different VUs different identities, measured separately as well.
@@ -311,13 +328,13 @@ Confirm the highest passing level by re-running it 3 times, each measured for 5 
 
 The boundary after each change, in the order the runs happened:
 
-| When       | Config                      | Highest pass           | rps there | First fail | Confirmed            |
-| ---------- | --------------------------- | ---------------------- | --------- | ---------- | -------------------- |
-| 2026-10-22 | pool 10, before the changes | 10                     | 17        | 20         | 10 VUs, 3 of 3       |
-| 2026-10-22 | six changes, the 500 live   | none, 10 failed on 5xx | 0         | 10         | none                 |
-| 2026-10-23 | pool 20, the fix in         | 32                     | 50        | 55         | 10 VUs, 3 of 3       |
-| 2026-10-23 | pool 40                     | 55                     | 70        | 100        | none, single windows |
-| 2026-10-23 | pool 80                     | not measured           |           | 100        | none, one level      |
+| When       | Config                      | Highest pass               | rps there | First fail | Confirmed            |
+| ---------- | --------------------------- | -------------------------- | --------- | ---------- | -------------------- |
+| 2026-10-22 | pool 10, before the changes | 10                         | 17        | 20         | 10 VUs, 3 of 3       |
+| 2026-10-22 | six changes, the 500 live   | none, 10 failed on 5xx     | 0         | 10         | none                 |
+| 2026-10-23 | pool 20, the fix in         | 32                         | 50        | 55         | 10 VUs, 3 of 3       |
+| 2026-10-23 | pool 40                     | 55                         | 70        | 100        | none, single windows |
+| 2026-10-23 | pool 80                     | 55 (latency; checks flake) | 71        | 100        | none, single levels  |
 
 The first table below is the application before any optimisation, with the pool at 10 and the NodePort path,
 read from `results/sweep-*.csv`. Latency, rps and errors come from the harness; CPU, memory, pool wait,
@@ -492,16 +509,18 @@ is the ceiling.
 
 ## The pool probes
 
-Same build, same NodePort path, same workload as the optimized sweep; only the pool changed. `p95` and
-`rps` are k6's; the rest are Grafana over the measure window.
+Same build, same NodePort path, same workload as the optimized sweep; only the pool changed. `p95`, `rps`
+and the verdict are k6's; the rest are Grafana over the measure window. The 40 VU rows predate
+`measure_start`, so their Grafana columns were aligned by hand.
 
-| Pool | VUs | Verdict | p95 | rps | Wait p50 | Wait p95 | Query mean | Query p95 | CPU | Memory |
-| ---- | --- | ------- | --- | --- | -------- | -------- | ---------- | --------- | --- | ------ |
-| 20   | 55  | fail    | 1.096s | 50.0 | 170ms | 491ms | 112ms | 276ms | 0.40 | 50% |
-| 20   | 100 | fail    | 1.90s | 54.9 | 505ms | 1.31s | 116ms | 360ms | 0.39 | 46% |
-| 40   | 55  | pass    | 832ms | 70.3 | 5ms | 10ms | 150ms | 451ms | 0.54 | 52% |
-| 40   | 100 | fail    | 1.64s | 66.7 | 209ms | 838ms | 163ms | 433ms | 0.52 | 56% |
-| 80   | 100 | fail    | 1.87s | 75.0 | 6ms | 162ms | 248ms | 797ms | 0.64 | 74% |
+| Pool | VUs | Verdict       | p95    | rps  | Wait p50 | Wait p95 | Query mean | Query p95 | CPU  | Memory |
+| ---- | --- | ------------- | ------ | ---- | -------- | -------- | ---------- | --------- | ---- | ------ |
+| 20   | 55  | fail          | 1.096s | 50.0 | 170ms    | 491ms    | 112ms      | 276ms     | 0.40 | 50%    |
+| 20   | 100 | fail          | 1.90s  | 54.9 | 505ms    | 1.31s    | 116ms      | 360ms     | 0.39 | 46%    |
+| 40   | 55  | pass          | 832ms  | 70.3 | 5ms      | 10ms     | 150ms      | 451ms     | 0.54 | 52%    |
+| 40   | 100 | fail          | 1.64s  | 66.7 | 209ms    | 838ms    | 163ms      | 433ms     | 0.52 | 56%    |
+| 80   | 55  | fail (checks) | 820ms  | 71.1 | 5ms      | 10ms     | 124ms      | 336ms     | 0.59 | 64%    |
+| 80   | 100 | fail          | 1.87s  | 75.0 | 6ms      | 162ms    | 248ms      | 797ms     | 0.64 | 74%    |
 
 Raising the pool was the largest single move after the six changes: 40 turned 55 VUs from a failure into
 a pass and cut the wait at 100 VUs from 505ms to 209ms. At 80 the wait all but disappears at 100 VUs,
@@ -520,12 +539,14 @@ compute is what inflates as the pool grows.
 The levers left are Neon's compute size, the query count on the chat turn, and the analytics history
 scan that survives the one-statement rewrite. The pool is not one of them at 100 VUs any more.
 
-Pool capacity is connections over mean query time: 20 gives 172 queries a second, 40 gives 245, 80 gives
-323. The pool keeps buying capacity, but each doubling also raises the query mean, 116 to 163 to 248ms,
-so the gain shrinks to 43% and then 32%, and the tail and the memory pay for it.
+Pool capacity is connections over mean query time: at 100 VUs, 20 gives 172 queries a second, 40 gives
+245, 80 gives 323. The pool keeps buying capacity, but each doubling also raises the query mean there,
+116 to 163 to 248ms, so the gain shrinks to 43% and then 32%, and the tail and the memory pay for it.
 
-The one cell not run is 55 VUs at pool 80. At 40 the wait there is already 5ms, so the run can only show
-the query inflation and the memory, not a gain; it waits for the Neon budget.
+At 55 VUs the extra connections have nothing to remove: 80 gives p95 820ms against 832ms at 40, rps 71.1
+against 70.3, and memory 64% against 52%. The wait is already 5ms at 40, so the pool is not the
+constraint there. That run's checks gate failed on one broken opener in 759 iterations, the same
+transport flake as the 32 VU confirmation, not on latency.
 
 A warm `SELECT 1` from inside the pod is 37ms at the median, and a first-row read is the same. The mean
 query is 97ms at 32 VUs and 248ms at 100 with 80 connections, so the inflation is the database's own
@@ -555,5 +576,5 @@ The same sweep over the cloudflared path into the ingress, no NodePort, so the e
 It will not be comparable to these numbers, because Cloudflare and the tunnel are in that path; it answers
 what the edge costs, not where the app breaks.
 
-Testing stops here for now: Neon's compute is at about 90% of its limit, so the next sweep is deferred and
-the edge path stays unmeasured.
+The full sweep is paused: Neon's compute is at about 90% of its limit. The 55 VU pool-80 probe ran after
+that, because it was one three minute window; the edge path and any full sweep wait for the budget.
