@@ -492,30 +492,44 @@ is the ceiling.
 
 ## The pool probes
 
-Same build, same NodePort path, same workload as the optimized sweep; only the pool changed. Each cell
-is verdict, p95, rps, and pool wait p50.
+Same build, same NodePort path, same workload as the optimized sweep; only the pool changed. `p95` and
+`rps` are k6's; the rest are Grafana over the measure window.
 
-| Pool | 55 VUs                        | 100 VUs                      |
-| ---- | ----------------------------- | ---------------------------- |
-| 20   | fail, 1.096s, 50.0 rps, 170ms | fail, 1.90s, 54.9 rps, 505ms |
-| 40   | pass, 832ms, 70.3 rps, 6ms    | fail, 1.64s, 66.7 rps, 239ms |
-| 80   | not measured                  | fail, 1.87s, 75.0 rps, 7ms   |
+| Pool | VUs | Verdict | p95 | rps | Wait p50 | Wait p95 | Query mean | Query p95 | CPU | Memory |
+| ---- | --- | ------- | --- | --- | -------- | -------- | ---------- | --------- | --- | ------ |
+| 20   | 55  | fail    | 1.096s | 50.0 | 170ms | 491ms | 112ms | 276ms | 0.40 | 50% |
+| 20   | 100 | fail    | 1.90s | 54.9 | 505ms | 1.31s | 116ms | 360ms | 0.39 | 46% |
+| 40   | 55  | pass    | 832ms | 70.3 | 5ms | 10ms | 150ms | 451ms | 0.54 | 52% |
+| 40   | 100 | fail    | 1.64s | 66.7 | 209ms | 838ms | 163ms | 433ms | 0.52 | 56% |
+| 80   | 100 | fail    | 1.87s | 75.0 | 6ms | 162ms | 248ms | 797ms | 0.64 | 74% |
 
 Raising the pool was the largest single move after the six changes: 40 turned 55 VUs from a failure into
-a pass and halved the wait at 100. At 80 the app's wait disappeared, but the database's own query p95
-rose to 962ms and the request p95 to 1.87s, worse than 1.64s at 40. So 40 ships, the wall at 100 is now
-the database's service time, and the pod's memory caps the pool near 80: it was already 75% of 256Mi.
+a pass and cut the wait at 100 VUs from 505ms to 209ms. At 80 the wait all but disappears at 100 VUs,
+6ms at p50 against 209ms, but the queries themselves slow down: the mean query goes from 163ms to 248ms
+and the p95 from 433ms to 797ms. The request p95 ends up worse, 1.87s against 1.64s, and memory goes from
+56% to 74% of the 256Mi limit.
+
+That is why 80 is flat at p50 and slower at p95: no one waits for a connection, but every query runs
+against a busier Neon. A request that pays two or three queries at the p95 lands near two seconds with no
+queue at all.
+
+So 40 ships. The extra 40 connections bought 12% more rps (66.7 to 75.0), a worse tail, and about 50MB less
+headroom on a single replica with no autoscaler. The pod's memory is what caps the pool, and Neon's
+compute is what inflates as the pool grows.
 
 The levers left are Neon's compute size, the query count on the chat turn, and the analytics history
 scan that survives the one-statement rewrite. The pool is not one of them at 100 VUs any more.
 
-The arithmetic of the wall: a pool drains at connections over mean query time, so 20 gives 172 queries a
-second, 40 gives 320, and 80 gives 322 because the query mean doubles. That is why 80 removed the wait
-and did not move the request tail.
+Pool capacity is connections over mean query time: 20 gives 172 queries a second, 40 gives 245, 80 gives
+323. The pool keeps buying capacity, but each doubling also raises the query mean, 116 to 163 to 248ms,
+so the gain shrinks to 43% and then 32%, and the tail and the memory pay for it.
+
+The one cell not run is 55 VUs at pool 80. At 40 the wait there is already 5ms, so the run can only show
+the query inflation and the memory, not a gain; it waits for the Neon budget.
 
 A warm `SELECT 1` from inside the pod is 37ms at the median, and a first-row read is the same. The mean
-query is 100ms at 32 VUs and 234 to 339ms at 100 with 80 connections, so the inflation is the database's
-own service time under concurrency, not the round trip. Co-location could save the 37ms floor; it
+query is 97ms at 32 VUs and 248ms at 100 with 80 connections, so the inflation is the database's own
+service time under concurrency, not the round trip. Co-location could save the 37ms floor; it
 cannot save the inflation.
 
 ## What the record does not carry
