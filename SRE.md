@@ -385,7 +385,7 @@ Six changes, all of them on round trips, read size or the pool rather than on th
 | `/usage`           | two checkouts in the window, three to four in prod | one                                          |
 | `GET /interviews`  | every run the owner had                            | 50 per page, archived filtered in the query  |
 | Home counters      | derived in the browser from that full list         | one statement over the full history          |
-| pool               | 10                                                 | `DB_POOL_MAX`, 20 by default                 |
+| pool               | 10                                                 | `DB_POOL_MAX`, 40                            |
 
 ## The retest, and the regression it caught
 
@@ -468,7 +468,13 @@ whole window; the 15.9 in the table is the achieved rate, and the queue is what 
 
 CPU stays near a tenth of the four cores and memory near half of 256Mi in all three windows, so neither
 is the ceiling. The levers left are the mean Neon round trip, the query count on the chat turn, the
-analytics history scan that survives the one-statement rewrite, and the pool size.
+analytics history scan that survives the one-statement rewrite, and Neon's compute size.
+
+The pool was then probed at 40 and 80. At 55 VUs, 40 turned the failure into a pass: p95 832ms, 70.3
+rps, pool wait 6ms. At 100 VUs, 80 removed the wait (7ms) and lifted throughput to 75 rps, but the
+database's own query p95 rose to 962ms and the request p95 to 1.87s, worse than 1.64s at 40. So 40
+ships, and the wall at 100 is now the database's service time rather than the app's pool. The pool is
+used up there; memory at 80 connections was already 75% of the 256Mi pod.
 
 ## What the record does not carry
 
