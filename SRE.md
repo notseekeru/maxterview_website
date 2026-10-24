@@ -329,12 +329,14 @@ Confirm the highest passing level by re-running it 3 times, each measured for 5 
 
 The boundary after each change, in the order the runs happened:
 
-| When       | Config                      | Highest pass | rps there | First fail | Confirmed      |
-| ---------- | --------------------------- | ------------ | --------- | ---------- | -------------- |
-| 2026-10-22 | pool 10, before the changes | 10           | 17        | 20         | 10 VUs, 3 of 3 |
-| 2026-10-23 | optimized changes (pool 20) | 32           | 50        | 55         | 10 VUs, 3 of 3 |
-| 2026-10-23 | pool 40                     | 55           | 70        | 100        | none           |
-| 2026-10-23 | pool 80                     | 55 (latency) | 71        | 100        | none           |
+| When       | Config                      | Passed once  | rps there | First fail |
+| ---------- | --------------------------- | ------------ | --------- | ---------- |
+| 2026-10-22 | pool 10, before the changes | 10           | 17        | 20         |
+| 2026-10-23 | optimized changes (pool 20) | 32           | 50        | 55         |
+| 2026-10-23 | pool 40                     | 55           | 70        | 100        |
+| 2026-10-23 | pool 80                     | 55 (latency) | 71        | 100        |
+
+Only 10 VUs passed the plan's three 5 minute confirmation. Everything above it is one window.
 
 The first table below is the application before any optimisation, with the pool at 10 and the NodePort path,
 read from `results/sweep-*.csv`. Latency, rps and errors come from the harness; CPU, memory, pool wait,
@@ -544,8 +546,9 @@ second, not 55 real people.
 Some windows lose a few chat streams: 56 in 7,794 iterations, 0.72%, but clustered, 29 in one 55 VU
 window and 0 in another at the same level, so it does not follow VUs or pool. The failed requests left no
 app log line when they were checked, and the sweep reaches the pod over the NodePort, which production
-does not use. The checks gate is binary, so one drop can fail a level: it is why the boundary table
-confirms 10 while 32 passes on latency, and why 55 VUs at pool 80 reads `fail (checks)` at an 820ms p95.
+does not use. The checks gate is binary, so one drop can fail a level: it is why 10 is the
+only confirmed level while 32 and 55 are single windows, and why 55 VUs at pool 80 reads `fail (checks)` at
+an 820ms p95.
 Next: count `status == 0` per route in the CSV, then either keep the binary gate and accept the noise or
 gate correctness at a rate; an edge-path smoke separates the rig from the app.
 
