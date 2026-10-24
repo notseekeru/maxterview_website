@@ -545,10 +545,10 @@ second, not 55 real people.
 
 Some windows lose a few chat streams: 56 in 7,794 iterations, 0.72%, but clustered, 29 in one 55 VU
 window and 0 in another at the same level, so it does not follow VUs or pool. The failed requests left no
-app log line when they were checked, and the sweep reaches the pod over the NodePort, which production
-does not use. The checks gate is binary, so one drop can fail a level: it is why 10 is the
-only confirmed level while 32 and 55 are single windows, and why 55 VUs at pool 80 reads `fail (checks)` at
-an 820ms p95.
+app log line when they were checked, so the drop is most likely on the sweep path (laptop, Tailscale,
+NodePort), which production does not use. The checks gate is binary, so one drop can fail a level: it is
+why 10 is the only confirmed level while 32 and 55 are single windows, and why 55 VUs at pool 80 reads
+`fail (checks)` at an 820ms p95.
 Next: count `status == 0` per route in the CSV, then either keep the binary gate and accept the noise or
 gate correctness at a rate; an edge-path smoke separates the rig from the app.
 
