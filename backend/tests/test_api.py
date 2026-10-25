@@ -719,7 +719,7 @@ def test_dimensions_aggregate_averages_rated_runs_and_the_newest_window(client):
         )
     )
 
-    r = c.get("/api/stats/dimensions")
+    r = c.get("/api/stats/dashboard")
     assert r.status_code == 200
     d = r.json()
     assert d["count"] == 6
@@ -732,8 +732,8 @@ def test_dimensions_aggregate_averages_rated_runs_and_the_newest_window(client):
     for iid in ids:
         assert c.delete(f"/api/interviews/{iid}").status_code == 204
 
-    empty = c.get("/api/stats/dimensions").json()
-    assert empty == {"count": 0, "recent_n": 0, "averages": {}, "recent": {}}
+    empty = c.get("/api/stats/dashboard").json()
+    assert {k: empty[k] for k in ("count", "recent_n", "averages", "recent")} == {"count": 0, "recent_n": 0, "averages": {}, "recent": {}}
 
 
 def test_dimensions_are_owner_scoped(client):
@@ -751,7 +751,8 @@ def test_dimensions_are_owner_scoped(client):
             await conn.close()
 
     foreign = asyncio.run(seed_foreign())
-    assert client.get("/api/stats/dimensions").json() == {"count": 0, "recent_n": 0, "averages": {}, "recent": {}}
+    empty = client.get("/api/stats/dashboard").json()
+    assert {k: empty[k] for k in ("count", "recent_n", "averages", "recent")} == {"count": 0, "recent_n": 0, "averages": {}, "recent": {}}
 
     async def cleanup():
         conn = await asyncpg.connect(DB_URL)

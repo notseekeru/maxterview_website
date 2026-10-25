@@ -34,7 +34,6 @@ from app.models import (
     FeedbackCreate,
     Interview,
     InterviewCreate,
-    InterviewDimensions,
     InterviewTemplate,
     LLMProvider,
     LLMProviderUpdate,
@@ -642,42 +641,6 @@ TREND_DOTS = 20
 SPARK_DAYS = 14
 DELTA_WINDOW = 5
 
-# The radar in ONE row: two averages (all rated runs, the newest RECENT_WINDOW) plus their counts.
-# Finished AND scored only: accuracy lives on feedback, not interviews. ROUND(...,1) matches the UI.
-DIMENSIONS_SQL = f"""
-WITH runs AS (
-    SELECT i.created_at, f.scores
-    FROM interviews i
-    JOIN feedback f ON f.interview_id = i.id
-    WHERE i.owner_id = $1
-      AND i.status = 'completed'
-      AND f.accuracy IS NOT NULL
-),
-recent AS (
-    SELECT scores FROM runs ORDER BY created_at DESC LIMIT {RECENT_WINDOW}
-)
-SELECT
-    (SELECT count(*) FROM runs) AS count,
-    (SELECT least((SELECT count(*) FROM runs), {RECENT_WINDOW})) AS recent_n,
-    (SELECT coalesce(jsonb_object_agg(d, avg_val), '{{}}'::jsonb)
-       FROM (SELECT s.dim AS d, ROUND(avg(s.value::numeric), 1) AS avg_val
-               FROM runs, jsonb_each_text(runs.scores) AS s(dim, value)
-              GROUP BY s.dim) per_dim) AS averages,
-    (SELECT coalesce(jsonb_object_agg(d, avg_val), '{{}}'::jsonb)
-       FROM (SELECT s.dim AS d, ROUND(avg(s.value::numeric), 1) AS avg_val
-               FROM recent, jsonb_each_text(recent.scores) AS s(dim, value)
-              GROUP BY s.dim) per_dim_recent) AS recent
-"""
-
-
-@api.get("/stats/dimensions", response_model=InterviewDimensions)
-async def get_interview_dimensions(user: CurrentUser) -> dict:
-    # /stats, not /interviews/dimensions: a literal sibling matches the {interview_id} route and 500s.
-    # Aggregated per request; `averages` is untrimmed on purpose, `recent` is the windowed one.
-    row = await fetchrow(DIMENSIONS_SQL, user.sub)
-    assert row is not None  # scalar subqueries and no FROM: always exactly one row
-    return dict(row)
-
 
 # Analytics: the same one-aggregate rule as the dashboard above.
 
@@ -786,9 +749,11 @@ async def get_analytics(user: CurrentUser) -> dict:
     }
 
 
+# The radar in ONE row: two averages (all rated runs, the newest RECENT_WINDOW) plus their counts.
+# Finished AND scored only: accuracy lives on feedback, not interviews. ROUND(...,1) matches the UI.
 DASHBOARD_SQL = f"""
 WITH owned AS (
-    SELECT i.created_at, i.status, f.accuracy, f.decision, f.certainty
+    SELECT i.created_at, i.status, f.accuracy, f.decision, f.certainty, f.scores
     FROM interviews i
     LEFT JOIN feedback f ON f.interview_id = i.id
     WHERE i.owner_id = $1
@@ -804,6 +769,10 @@ WITH owned AS (
     SELECT DISTINCT (created_at AT TIME ZONE 'UTC')::date AS d FROM owned
 ), ranked AS (
     SELECT (CURRENT_DATE - d) - row_number() OVER (ORDER BY d DESC) AS gap FROM days
+), dim_runs AS (
+    SELECT created_at, scores FROM owned WHERE status = 'completed' AND accuracy IS NOT NULL
+), dim_recent AS (
+    SELECT scores FROM dim_runs ORDER BY created_at DESC LIMIT {RECENT_WINDOW}
 )
 SELECT
     (SELECT count(*) FROM owned) AS total,
@@ -836,7 +805,17 @@ SELECT
        FROM (SELECT i, sum(hit) OVER (ORDER BY i) AS hits
                FROM (SELECT row_number() OVER (ORDER BY created_at) AS i,
                             CASE WHEN decision IN ({HIRING_SQL}) THEN 1 ELSE 0 END AS hit FROM decided) d) s
-      WHERE i > (SELECT count(*) FROM decided) - {TREND_DOTS}) AS hire_spark
+      WHERE i > (SELECT count(*) FROM decided) - {TREND_DOTS}) AS hire_spark,
+    (SELECT count(*) FROM dim_runs) AS count,
+    (SELECT least((SELECT count(*) FROM dim_runs), {RECENT_WINDOW})) AS recent_n,
+    (SELECT coalesce(jsonb_object_agg(d, avg_val), '{{}}'::jsonb)
+       FROM (SELECT s.dim AS d, ROUND(avg(s.value::numeric), 1) AS avg_val
+               FROM dim_runs, jsonb_each_text(dim_runs.scores) AS s(dim, value)
+              GROUP BY s.dim) per_dim) AS averages,
+    (SELECT coalesce(jsonb_object_agg(d, avg_val), '{{}}'::jsonb)
+       FROM (SELECT s.dim AS d, ROUND(avg(s.value::numeric), 1) AS avg_val
+               FROM dim_recent, jsonb_each_text(dim_recent.scores) AS s(dim, value)
+              GROUP BY s.dim) per_dim_recent) AS recent
 """
 
 

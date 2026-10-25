@@ -171,14 +171,6 @@ class Feedback(BaseModel):
         return rating.grade(self.accuracy, failed=self.failed_turn is not None)
 
 
-class InterviewDimensions(BaseModel):
-    count: int
-    # Runs behind `recent`, never more than RECENT_WINDOW. Sent so the radar labels the series with the real window.
-    recent_n: int
-    averages: dict
-    recent: dict
-
-
 class AccuracyPoint(BaseModel):
     created_at: datetime
     accuracy: int
@@ -204,6 +196,11 @@ class DashboardDims(BaseModel):
     daily_runs: list[int]
     daily_finished: list[int]
     hire_spark: list[float]
+    count: int
+    # Runs behind `recent`, never more than RECENT_WINDOW. Sent so the radar labels the series with the real window.
+    recent_n: int
+    averages: dict
+    recent: dict
 
 
 class AnalyticsRun(BaseModel):

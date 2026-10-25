@@ -183,12 +183,7 @@ export interface InterviewDimensions {
     recent: Record<string, number>;
 }
 
-export async function getInterviewDimensions(): Promise<InterviewDimensions> {
-    const { data } = await api.get<InterviewDimensions>("/stats/dimensions");
-    return data;
-}
-
-export interface DashboardDims {
+export interface DashboardDims extends InterviewDimensions {
     total: number;
     completed: number;
     rated: number;

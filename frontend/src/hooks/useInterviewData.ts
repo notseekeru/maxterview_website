@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { type Analytics, type DashboardDims, getAnalytics, getDashboardDims, getInterviewDimensions, type Interview, type InterviewDimensions, listInterviews } from "@/lib/api";
+import { type Analytics, type DashboardDims, getAnalytics, getDashboardDims, type Interview, listInterviews } from "@/lib/api";
 
 const PAGE = 50;
 
@@ -44,27 +44,6 @@ export function useInterviews(archived: boolean) {
     }, [load, interviews]);
 
     return { interviews: interviews ?? [], loading: interviews === null && !error, error, refresh, hasMore, loadMore };
-}
-
-export function useDashboardStats() {
-    const [stats, setStats] = useState<InterviewDimensions | null>(null);
-    const [error, setError] = useState<string | null>(null);
-
-    useEffect(() => {
-        let alive = true;
-        getInterviewDimensions()
-            .then((s) => {
-                if (alive) setStats(s);
-            })
-            .catch(() => {
-                if (alive) setError("Could not load the secondary breakdown.");
-            });
-        return () => {
-            alive = false;
-        };
-    }, []);
-
-    return { stats, error, loading: stats === null && !error };
 }
 
 export const TREND_WINDOW = 5;
@@ -136,15 +115,15 @@ function toDims(d: DashboardDims): InterviewDims {
     };
 }
 
-export function useDashboardDims() {
-    const [dims, setDims] = useState<InterviewDims | null>(null);
+export function useDashboard() {
+    const [data, setData] = useState<{ dims: InterviewDims; stats: DashboardDims } | null>(null);
     const [error, setError] = useState<string | null>(null);
 
     useEffect(() => {
         let alive = true;
         getDashboardDims()
             .then((d) => {
-                if (alive) setDims(toDims(d));
+                if (alive) setData({ dims: toDims(d), stats: d });
             })
             .catch(() => {
                 if (alive) setError("Could not load the dashboard.");
@@ -154,7 +133,7 @@ export function useDashboardDims() {
         };
     }, []);
 
-    return { dims: dims ?? EMPTY_DIMS, error, loading: dims === null && !error };
+    return { dims: data?.dims ?? EMPTY_DIMS, stats: data?.stats ?? null, error, loading: data === null && !error };
 }
 
 export function useAnalytics() {

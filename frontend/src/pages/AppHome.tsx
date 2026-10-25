@@ -6,19 +6,18 @@ import { DashboardStats } from "@/components/DashboardStats";
 import { Page } from "@/components/PagePrimitives";
 import { UpgradePendingNotice } from "@/components/UpgradePendingNotice";
 import { Button } from "@/components/ui/button";
-import { type InterviewDims, useDashboardDims, useDashboardStats } from "@/hooks/useInterviewData";
+import { type InterviewDims, useDashboard } from "@/hooks/useInterviewData";
 import { clerkEnabled } from "@/lib/config";
 
 export function AppHome() {
     const navigate = useNavigate();
-    const { loading, dims } = useDashboardDims();
-    const { stats, loading: statsLoading, error: statsError } = useDashboardStats();
+    const { loading, dims, stats, error } = useDashboard();
 
     return (
         <Page wide title="Dashboard" heading={<Greeting />} description={statusLine(dims)} actions={<QuickActions />}>
             <UpgradePendingNotice />
 
-            <DashboardStats loading={loading || statsLoading} dims={dims} stats={stats} statsError={statsError} />
+            <DashboardStats loading={loading} dims={dims} stats={stats} statsError={error} />
 
             <section id="new-interview" className="scroll-mt-20">
                 <CreateInterviewForm onCreated={(id) => navigate(`/interviews/${id}`)} variant="featured" />
