@@ -43,6 +43,7 @@ export function ResumePage() {
     }, []);
 
     const load = useCallback(async () => {
+        const usage = getUsage().catch(() => null);
         try {
             const list = await listResumes();
             setRows(list);
@@ -53,11 +54,7 @@ export function ResumePage() {
         } catch {
             setError("Could not load your resumes.");
         }
-        try {
-            setLimit((await getUsage()).resume_limit ?? null);
-        } catch {
-            setLimit(null);
-        }
+        setLimit((await usage)?.resume_limit ?? null);
     }, []);
 
     useEffect(() => {
