@@ -58,24 +58,6 @@ async def test_resolve_tier_free_when_no_subscription(monkeypatch):
     assert await resolve_tier(_User("plain-user", "free")) == "free"
 
 
-async def test_chat_turns_used_defaults_zero_when_no_row(monkeypatch):
-    monkeypatch.setattr(billing, "fetchrow", _async_none)
-    assert await billing.chat_turns_used("some-owner") == 0
-
-
-async def test_bump_upserts_global_row(monkeypatch):
-    calls = []
-
-    async def _fake(q, *a, **k):
-        calls.append((q, a))
-        return {"id": "r"}
-
-    monkeypatch.setattr(billing, "fetchrow", _fake)
-    await billing.bump_chat_turn("owner-1")
-    assert calls and "turn_usage" in calls[0][0]
-    assert calls[0][1][0] == "owner-1"  # owner_id bound; row keyed by owner+day
-
-
 def test_utc_day_is_date_object():
     from datetime import date
 

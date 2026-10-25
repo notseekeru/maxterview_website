@@ -102,18 +102,18 @@ def _utc_day() -> date:
     return datetime.now(UTC).date()
 
 
-async def chat_turns_used(owner_id: str) -> int:
+async def spend_chat_turn(owner_id: str, limit: int) -> bool:
     row = await fetchrow(
-        "SELECT turns FROM turn_usage WHERE owner_id = $1 AND day = $2",
+        """
+        INSERT INTO turn_usage (owner_id, day, turns)
+        SELECT $1, $2, 1
+        WHERE $3 > 0
+        ON CONFLICT (owner_id, day) DO UPDATE SET turns = turn_usage.turns + 1
+        WHERE turn_usage.turns < $3
+        RETURNING turns
+        """,
         owner_id,
         _utc_day(),
+        limit,
     )
-    return (row["turns"] or 0) if row else 0
-
-
-async def bump_chat_turn(owner_id: str) -> None:
-    await fetchrow(
-        "INSERT INTO turn_usage (owner_id, day, turns) VALUES ($1, $2, 1) ON CONFLICT (owner_id, day) DO UPDATE SET turns = turn_usage.turns + 1",
-        owner_id,
-        _utc_day(),
-    )
+    return row is not None

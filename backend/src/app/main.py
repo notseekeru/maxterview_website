@@ -1115,9 +1115,8 @@ def _lockout_detail(tier: str, byok: bool, limit: int) -> str:
 async def _spend_chat_turn(user: CurrentUser, config: llm.LLMConfig) -> None:
     tier = await billing.resolve_tier(user)
     limit = billing.chat_turn_limit(tier, byok=config.byok)
-    if await billing.chat_turns_used(user.sub) >= limit:
+    if not await billing.spend_chat_turn(user.sub, limit):
         raise HTTPException(status_code=status.HTTP_402_PAYMENT_REQUIRED, detail=_lockout_detail(tier, config.byok, limit))
-    await billing.bump_chat_turn(user.sub)
 
 
 async def _reply_frames(

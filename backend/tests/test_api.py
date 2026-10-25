@@ -1088,21 +1088,22 @@ def test_byok_chat_turn_skips_the_tier_quota_but_is_still_metered(client, monkey
 
     monkeypatch.setenv("BYOK_ENCRYPTION_KEY", Fernet.generate_key().decode())
     byok._fernet.cache_clear()
-    seen = {"tiers": 0, "bumps": 0}
+    seen = {"tiers": 0, "spends": 0}
 
     async def _count_tier(*_args, **_kwargs):
         seen["tiers"] += 1
         return "free"
 
-    async def _count_bump(_owner):
-        seen["bumps"] += 1
+    async def _count_spend(_owner, _limit):
+        seen["spends"] += 1
+        return True
 
     async def _fake_stream(_history, config):
         assert config.byok is True  # the owner's target, not the system one
         yield "Sure - "
 
     monkeypatch.setattr(billing, "resolve_tier", _count_tier)
-    monkeypatch.setattr(billing, "bump_chat_turn", _count_bump)
+    monkeypatch.setattr(billing, "spend_chat_turn", _count_spend)
     monkeypatch.setattr(llm, "stream_chat", _fake_stream)
     try:
         client.put("/api/settings/llm", json={"base_url": "https://api.example.com/v1", "model": "m", "api_key": "sk-unit-test-key-abcd"})
@@ -1111,7 +1112,7 @@ def test_byok_chat_turn_skips_the_tier_quota_but_is_still_metered(client, monkey
         r = client.post(f"/api/interviews/{iid}/chat/stream", json={"interview_id": iid, "content": "hi"})
         assert r.status_code == 200
         assert "Sure - " in r.text
-        assert (seen["tiers"], seen["bumps"]) == (1, 1)  # tier read for the ceiling, turn metered
+        assert (seen["tiers"], seen["spends"]) == (1, 1)  # tier read for the ceiling, turn metered
         assert client.get("/api/usage").json()["byok"] is True
         client.delete(f"/api/interviews/{iid}")
     finally:
@@ -1123,6 +1124,8 @@ def test_byok_turns_stop_at_the_byok_ceiling(client, monkeypatch):
     # The ceiling is the half of the waiver that is NOT negotiable, and it is the same number /usage
     # reports, so the counter in the UI and the 402 can never disagree. This client is the dev
     # identity, so the ceiling under test is premium's BYOK one.
+    import asyncio
+
     from cryptography.fernet import Fernet
 
     from app import billing, byok
@@ -1132,23 +1135,29 @@ def test_byok_turns_stop_at_the_byok_ceiling(client, monkeypatch):
     monkeypatch.setitem(billing.LIMITS["dev"], "byok_turns", 3)
     byok._fernet.cache_clear()
 
-    async def _used(_owner):
-        return 3  # exactly at the ceiling
+    async def _seed_at_ceiling():
+        import asyncpg
 
-    async def _refuse_to_meter(_owner):
-        raise AssertionError("a refused turn must not spend a credit")
+        conn = await asyncpg.connect(DB_URL)
+        try:
+            await conn.execute(
+                "INSERT INTO turn_usage (owner_id, day, turns) VALUES ('dev-user', $1, 3) ON CONFLICT (owner_id, day) DO UPDATE SET turns = 3",
+                billing._utc_day(),
+            )
+        finally:
+            await conn.close()
 
-    monkeypatch.setattr(billing, "chat_turns_used", _used)
-    monkeypatch.setattr(billing, "bump_chat_turn", _refuse_to_meter)
     try:
         client.put("/api/settings/llm", json={"base_url": "https://api.example.com/v1", "model": "m", "api_key": "sk-unit-test-key-abcd"})
+        asyncio.run(_seed_at_ceiling())
         usage = client.get("/api/usage").json()
-        assert (usage["byok"], usage["chat_turns_per_day_dev"], usage["chat_turns_remaining_today"]) == (True, 3, 0)
+        assert (usage["byok"], usage["chat_turns_per_day_dev"], usage["chat_turns_used_today"], usage["chat_turns_remaining_today"]) == (True, 3, 3, 0)
         iid = client.post("/api/interviews", json={"role": "BYOK ceiling"}).json()["id"]
         client.post(f"/api/interviews/{iid}/start")
         r = client.post(f"/api/interviews/{iid}/chat/stream", json={"interview_id": iid, "content": "hi"})
         assert r.status_code == 402
         assert "your own provider" in r.json()["detail"]
+        assert client.get("/api/usage").json()["chat_turns_used_today"] == 3
         client.delete(f"/api/interviews/{iid}")
     finally:
         client.delete("/api/settings/llm")
