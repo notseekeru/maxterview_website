@@ -112,29 +112,32 @@ export function InterviewChat({ interviewId, onExit }: Props) {
     useEffect(() => {
         let cancelled = false;
         (async () => {
-            try {
-                const started = await startInterview(interviewId);
-                if (cancelled) return;
-                setHardcoreRun(Boolean(started.hardcore));
-                await loadMessages();
-                setStatus("ready");
-            } catch (e: unknown) {
-                if (!cancelled) {
-                    const st = httpStatus(e);
-                    if (st !== 409) {
-                        setError("Could not start interview.");
-                        setStatus("ready");
-                    } else {
-                        setStatus(await loadExisting(interviewId));
-                    }
+            const rows = getMessages(interviewId);
+            const [started] = await Promise.allSettled([startInterview(interviewId), rows]);
+            if (cancelled) return;
+            if (started.status === "fulfilled") {
+                setHardcoreRun(Boolean(started.value.hardcore));
+                try {
+                    setMessages(await rows);
+                } catch {
+                    setError("Could not load conversation.");
                 }
+                setStatus("ready");
+                return;
+            }
+            const st = httpStatus(started.reason);
+            if (st !== 409) {
+                setError("Could not start interview.");
+                setStatus("ready");
+            } else {
+                setStatus(await loadExisting(interviewId));
             }
         })();
         return () => {
             cancelled = true;
             abortRef.current?.abort();
         };
-    }, [interviewId, loadMessages, loadExisting]);
+    }, [interviewId, loadExisting]);
 
     // biome-ignore lint/correctness/useExhaustiveDependencies: runTurn is a fresh closure every render, so it cannot be a dependency; the ref is the guard.
     useEffect(() => {
