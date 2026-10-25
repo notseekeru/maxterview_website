@@ -50,9 +50,11 @@
 
 # OPTIMIZATION
 
-- Optimize pool, maybe could use Neon Pooler
+- Optimize pool
 - Redis with caching strategies
 - Set uvicorn workers to CPU Core count or less(probably 3)
-- Limit Backend Query using paramaters and Pagination, Lazy-loading for frontend(dont matter in test but helpful for browser)
-- Batching queries and request
+- Limit Backend Query using LIMIT and Pagination
+- Lazy-loading for frontend(dont matter in test but helpful for browser)
+- Aggregate queries
+- Batching request and Parrarel fetching: only where two calls read the same rows, or the second does not depend on the first
 - Async request, non blocking potentially parrarel
