@@ -1,6 +1,8 @@
 # SRE
 
-A minimal SRE path for loading metrics and load testing the application, by generating randomized structured requests with k6
+A minimal SRE path for collecting metrics and benchmarking the application under load, by generating randomized structured requests with k6.
+
+Benchmarking here means measuring the app against a stated bar, not guessing from a dashboard.
 
 Inspired by Arjay McCandless's $12 VPS load testing videos, known for detailed, informative takes on system design.
 
@@ -10,16 +12,35 @@ The specification comes first, and the runs follow it in the order they happened
 
 At what load does the prod deployment stop behaving acceptably, and which resource runs out first?
 
+## Vocabulary
+
+| Term | Meaning |
+| --- | --- |
+| benchmarking | measuring the app against a stated bar |
+| VU | one virtual user running one whole interview |
+| sweep | the whole experiment |
+| phase | one stage of the sweep: smoke, ladder, search, confirm, or only for a one-level probe |
+| round | one confirmation attempt: up to three 5 minute runs at the same level; the confirm phase allows three rounds |
+| ladder | the climb through levels; also the name of the phase that walks them |
+| level | one VU target in the ladder, with its ramp, hold, and measurement window |
+| ladder step | plain name for a level |
+| window | the measured part of a level |
+| perf window | the period the perf overlay is open |
+| boundary | the highest level that passes |
+| SLO | the pass/fail bar |
+| p95 / p99 | latency at the 95th / 99th percentile |
+| RPS | requests per second |
+
 ## Pipeline flow
 
-One sweep, window open to boundary. Each measure box writes one CSV row per run, tagged with its phase.
+One sweep, perf window open to boundary. Each measure box writes one CSV row per run, tagged with its phase.
 
 ```
-gitops overlay opens the window    NodePort 30090 on the backend Service
+gitops overlay opens the perf window    NodePort 30090 on the backend Service
         |
 cleanup        delete every row the sweep identity owns            -> deleted_before
         |
-measure 10s at 10 VUs  the harness check, before any rung          -> phase=smoke
+measure 10s at 10 VUs  the harness check, before the first level          -> phase=smoke
         |
         +-- fail: abort the sweep, the harness or the app is broken
         |
@@ -29,22 +50,22 @@ measure 3 min          the only window that counts                 -> phase=ladd
         |
 gates                  SLO
         |
-        +-- pass, rungs left: double the VUs, repeat
+        +-- pass, levels left: double the VUs, repeat
         +-- pass at 800 VUs: stop and raise --max-vus, no confirmation
         +-- fail: binary search the gap down to the 10 VU smoke    -> phase=search
                               |
-                    confirm the highest passing rung 3 times,
+                    confirm the highest passing level 3 times,
                     measure 5 min each, all three must pass        -> phase=confirm
                               |
                     any run fails: search below it and confirm
-                    again, at most three confirmation phases
+                    again, at most three confirmation rounds
                               |
                     boundary, from the CSV and Grafana
                               |
-                    close the window, then --cleanup-only
+                    close the perf window, then --cleanup-only
 ```
 
-The gap and the cleanup between two boxes, and why they stay at 60 seconds, are in Between steps.
+The gap and the cleanup between two boxes, and why they stay at 60 seconds, are in Between levels.
 
 ## What is measured
 
@@ -55,7 +76,7 @@ The gap and the cleanup between two boxes, and why they stay at 60 seconds, are 
 | Throughput        | k6 RPS, and the server histogram's own sample count                                                         | route                 |
 | Database pressure | `db.pool.size` against `db.pool.idle`, bounded by `DB_POOL_MAX`                                             | sampled at acquire    |
 | Saturation        | `container_*` from the kubelet, root cgroup for the node and pod cgroups for pods; `machine_*` for capacity |                       |
-| Architecture      | Architecture of machine/optimization framework or tools used                                                | baseline              |
+| Architecture      | the machine, runtime, and tools used                                                                        | baseline              |
 
 Server numbers are read as `increase` over the window that starts at `measure_start` and lasts
 `measure_s`; an instant `rate` is a different number and is not used. The two pool gauges are emitted per
@@ -75,7 +96,7 @@ time times queries per second, not an average of those samples.
 
 The latency gates cover the app-owned routes. The model-bearing ones are excluded, the same set the alert rules exclude: `chat/stream`, `chat/kickoff`, `feedback/generate`, `voice/stt`, `voice/tts`, and `finish`, which runs the whole feedback pipeline inside the request rather than returning a read.
 
-I established the baseline of acceptable for this particular architecture. Latency depends on the programming language and the framework it uses, which matters more than it seems when testing application performance.
+I set the pass bar for this architecture. Latency depends on the language and framework the app uses, and that matters when you compare runs.
 
 p50 is there for reporting. No gate, since p95 would fail first, but I added it anyway.
 
@@ -97,23 +118,23 @@ with ingress-nginx, the tunnel and Cloudflare outside the number.
 
 ## Configuration
 
-### Load generator(The one who runs k6)
+### Load generator (the machine that runs k6)
 
-The desktop is the box the plan was written against; the laptop is the second one, measured doing it.
+The desktop is the machine the plan was written against. The laptop is the second one, and the machine measured running the load.
 
 | Component  | Desktop                                                                                                                    | Laptop                                      |
 | ---------- | -------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------- |
 | CPU        | AMD Ryzen 5 3600 (6 cores / 12 threads)                                                                                    | Intel i7-10610U (4 cores / 8 threads, 15 W) |
 | RAM        | 32 GB                                                                                                                      | 16 GB                                       |
-| Monitoring | Lightweight/manual monitoring initially; observe CPU, memory, and k6 process behavior if generator saturation is suspected | Same                                        |
+| Monitoring | Manual. Watch CPU, memory, and k6 when saturation is suspected                                                              | Same                                        |
 
-The Windows machine is the load generating machine, and so is the laptop. I monitor them minimally, not systematically, which is enough here: the generator is not expected to saturate much. Focus on the application under load rather than other concerns, though CSV metrics would be an option.
+The Windows desktop and the laptop both generate load. I watch them minimally, which is enough here: neither is expected to saturate. The app under load is the thing to watch, though CSV metrics would be an option.
 
 The laptop measured about a quarter of one core at 240 RPS, 1.15 CPU-seconds per 1,000 requests, on the same workload the ladder runs. Neither box is the expected ceiling.
 
-If the generator approaches sustained CPU or memory pressure or can't maintain the intended VU load, the measured capacity ceiling could generator limitations rather than application limitations.
+If the generator reaches sustained CPU or memory pressure, or cannot hold the intended VU load, the measured ceiling may be the generator, not the app.
 
-### The box(The main machine we're testing)
+### The box (the machine under test)
 
 | Component  | Specification                      |
 | ---------- | ---------------------------------- |
@@ -141,7 +162,7 @@ These bound what one client can do, so they set the roof on the loop.
 | Limit                    | Value                                                    |
 | ------------------------ | -------------------------------------------------------- |
 | DB pool                  | `DB_POOL_MAX`, `min_size=0`                              |
-| app rate limit           | 120/minute per client IP by default, `off` in the window |
+| app rate limit           | 120/minute per client IP by default, `off` in the perf window |
 | templates                | 20, a module constant                                    |
 | resume parse concurrency | 2                                                        |
 | feedback attempts        | 3 attempts, 800ms apart                                  |
@@ -173,9 +194,9 @@ These bound what one client can do, so they set the roof on the loop.
 
 ## Neon
 
-At first, I considered running this test on a PVC Postgres Pod in my K3s cluster. Even though it's not directly equivalent to production (for example, the round-trip latency from my backend to Neon's servers, which is not that significant at my scale), I was worried my free tier limit on Neon would block me from generating all these requests. However, I did some numbers and realized that Neon’s free tier limits are actually generous enough to handle my test volume without hitting any storage or compute caps.
+At first I considered running this test on a PVC Postgres pod in my K3s cluster. It is not directly equivalent to production: the round-trip latency from my backend to Neon's servers disappears, though that is not significant at my scale. I was worried the Neon free tier would block the request volume. I did the numbers, and the free tier is generous enough for this test without hitting storage or compute caps.
 
-The sweep runs against prod's default branch, so it spends prod's own budget and its rows land in prod's data. The cleanup between steps is what keeps that bounded instead of accumulating.
+The sweep runs against prod's default branch, so it spends prod's own budget and its rows land in prod's data. The cleanup between levels is what keeps that bounded instead of accumulating.
 
 It uses scale-to-zero so we don't pay for compute when the application is not used. That has tradeoffs like cold starts, but at this scale I decided to leave it alone, since we warm the Neon database anyway.
 
@@ -209,7 +230,7 @@ It is simple: change the values, commit the perf overlay, see the sync land in A
 
 The two reads at every turn are both `_chat_session`: the interview with its resume text, and the whole transcript, so the transcript read grows with the run and is re-paid on every turn rather than once at session open.
 
-| Request                                                                        | Phase         |
+| Request                                                                        | Run stage     |
 | ------------------------------------------------------------------------------ | ------------- |
 | `POST /interviews`                                                             | Run start     |
 | `POST /interviews/{id}/start`                                                  | Run start     |
@@ -248,19 +269,19 @@ one side: SELECT is the read side, INSERT, UPDATE and DELETE the write side.
 Every virtual user is the same identity and they all share one account. One identity is the first cut
 because it is one candidate moving through the app, and the cleanup has one owner to delete. A real
 deployment is many people at once, so the next architecture will give different VUs different identities, measured separately as well.
-That also changes two things: each owner's history stays small instead of growing with the whole window, and the cleanup has to delete a set of owners. It puts authentication back in the measured path too, since one `DEV_USER_SUB` is what makes the shared account possible.
+That also changes two things: each owner's history stays small instead of growing with the whole perf window, and the cleanup has to delete a set of owners. It puts authentication back in the measured path too, since one `DEV_USER_SUB` is what makes the shared account possible.
 
 The number of turns per VU is randomized but follows the run's own plan, with a think time to simulate a real user: the chitchat, behavioural and technical mix dials set how many questions the interviewer will ask, so a VU stops at the last planned question instead of asking past it and collecting a refusal.
 
 Exclusions, for different reasons.
 
-Hardcore stays off in the loop. A run that fails the judge refuses every later turn, so it would end early for a reason that has nothing to do with capacity, and the turns after it would arrive as refusals rather than as load.
+Hardcore stays off in the workload. A run that fails the judge refuses every later turn, so it would end early for a reason that has nothing to do with capacity, and the turns after it would arrive as refusals rather than as load.
 
 NvidiaNIM (LLM output) and Cloudflare Workers AI (voice) are out. These vendors use credit and would only limit the workload, which is why NvidiaNIM is stubbed and Cloudflare Workers AI is off. They are outside generation: vendors that could fail the experiment on free-tier and rate limits.
 
 For edge tunneling, the tunnel exists because of CGNAT, and Cloudflare's bot protection on Free cannot be skipped: the only lever is an IP Access rule, and any IP Access rule disables BFM zone-wide, not just for the runner. So I simplified the architecture and used Tailscale to connect the load machine and the application machine. Cloudflare could measure production-like latency, but the plan was about SRE principles rather than what real users feel.
 
-**PDF import is out of the loop.** `PLAN.md` has the measurement: a 40MB `/Contents` peaks 1.74GB for zero characters of text against a 256Mi pod limit, so one upload can OOMKill the only replica. That would read as a capacity failure when it is a known unfixed bug, and it is its own piece of work.
+PDF import is out of the workload. `PLAN.md` has the measurement: a 40MB `/Contents` peaks 1.74GB for zero characters of text against a 256Mi pod limit, so one upload can OOMKill the only replica. That would read as a capacity failure when it is a known unfixed bug, and it is its own piece of work.
 
 ## Correctness (k6 checks)
 
@@ -275,7 +296,7 @@ Latency says nothing about whether the app worked, so each iteration checks, as 
 
 A sweep that passes on latency while any of those is false is not a pass.
 
-The stub is read at import, so a pod that never restarted is a window that never opened.
+The stub is read at import, so a pod that never restarted is a perf window that never opened.
 
 ## What the reads cost
 
@@ -283,31 +304,31 @@ The reads that scale with history are in the loop, so the loop's own writes chan
 
 The first draft left pagination and Redis out, to stay close to the current unoptimized architecture. But on second thought I opted in: pagination goes in, first and foremost without coupling it to Redis or any other optimization strategy. A LIMIT and OFFSET is a minimal change to the query itself, not a dependency to run, so it comes before anything else is added or measured. The list is paginated from the optimized sweep on, so the baseline rows measured the unpaginated architecture and the optimized rows did not.
 
-Redis stays out: it is a different tier, a second compute and a cache to invalidate, and does not belong in the same step as a LIMIT.
+Redis stays out: it is a different tier, a second compute and a cache to invalidate, and does not belong in the same change as a LIMIT.
 
-## Between steps
+## Between levels
 
-A sweep is the whole experiment: warm the database, climb the ladder, bracket the failure, binary search, confirm, and record the boundary for estimated max users relative to RPS. A step is one level inside it. The sweep is automated end to end, so there are no human gaps between steps. That matters here, because let's say I forget to actually run the test for a certain period, it will eventually close because there's no one using the application. A gap long enough would let the asyncpg pool close its idle connections and Neon return to scale-to-zero, and the next step would pay the wake again before any number is taken.
+A sweep is the whole experiment: warm the database, climb the ladder, bracket the failure, binary search, confirm, and record the boundary for estimated max users relative to RPS. A level is one VU target inside it. The sweep is automated end to end, so there are no human gaps between levels. That matters here: if I leave the app idle long enough, the asyncpg pool closes its idle connections and Neon returns to scale-to-zero, and the next level pays the wake before any number is taken.
 
 So first, we warm the database. `min_size=0` means the first requests pay pool creation and a fresh TLS handshake, and Neon scale-to-zero means the first request after an idle gap pays the compute wake.
 
-Then every step is a 30 second ramp to the target VUs and a 60 second hold at them, neither of which
-enters a gate, then a 3 minute measurement window. Only the window counts. After it, a 60 second gap separates this step from the next: 15 seconds of
+Then every level is a 30 second ramp to the target VUs and a 60 second hold at them, neither of which
+enters a gate, then a 3 minute measurement window. Only the window counts. After it, a 60 second gap separates this level from the next: 15 seconds of
 silence, up to 30 seconds of cleanup, 15 seconds of silence again. 60 seconds stays well inside asyncpg's idle close and Neon's scale-to-zero, so the gap costs neither the pool nor the wake of our cloud database.
 
-The cleanup deletes the k6 identity's rows, so every run starts from the same empty account. That deletion runs for 30 seconds, more than enough time to delete all the data relevant to our k6 account, and a cleanup that runs out of that budget aborts the sweep instead of letting the next window read a bigger account than the last. The cleanup's delete count is recorded as `deleted_before` and the owner's row count after the window as `rows_after`, so the account's growth within the window is reported rather than assumed.
+The cleanup deletes the k6 identity's rows, so every run starts from the same empty account. That deletion runs for 30 seconds, more than enough time to delete all the data relevant to our k6 account, and a cleanup that runs out of that budget aborts the sweep instead of letting the next level read a bigger account than the last. The cleanup's delete count is recorded as `deleted_before` and the owner's row count after the window as `rows_after`, so the account's growth within the window is reported rather than assumed.
 
 The sweep opens with a 10 VU smoke on the same workload, with a 10 second window. It warms the pool and
 the Neon compute, and it is the harness check: a failure there is the app or the generator, not load.
-The smoke is not optional, and a failed smoke aborts the sweep before any rung.
+The smoke is not optional, and a failed smoke aborts the sweep before the first level.
 
-Then the ladder starts at 100 VUs and doubles. A failed rung is the boundary rather than a broken
+Then the ladder starts at the 100 VU level and doubles. A failed level is the boundary rather than a broken
 harness, because the smoke already cleared that. The search runs between the last pass and the failure,
-and it can go as low as the smoke's 10 VUs when 100 is the rung that fails.
+and it can go as low as the smoke's 10 VUs when the 100 VU level fails.
 
 Each level passes or fails. If it passes, we go up. If it fails on an SLO, we stop going up, but the run keeps going. That failure becomes the top of the range, and we split the gap between the last pass and that failure to find the highest level that still passes. If 200 passes and 400 fails, try 300; if 300 passes, try 350. That is a binary search. We only need the boundary between pass and fail, not an exact number.
 
-Confirm the highest passing level by re-running it 3 times, each measured for 5 minutes, and all three must pass. Since the boundary moves about 10%, a single pass is not proof. A failing run ends that phase at once and reopens the search between the level and the highest rung below it that passed, for at most three confirmation phases in total. If none of them reaches 3/3, the sweep stops unconfirmed.
+Confirm the highest passing level by re-running it 3 times, each measured for 5 minutes, and all three must pass. Since the boundary moves about 10%, a single pass is not proof. A failing run ends that round at once and reopens the search between the level and the highest level below it that passed, for at most three confirmation rounds in total. If none of them reaches 3/3, the sweep stops unconfirmed.
 
 ## Decisions
 
@@ -371,14 +392,14 @@ At 100 VUs the shape changes: p50 1.17s, of which 0.94s is pool wait, and pool w
 
 I actually ran the same workload on the laptop first, docker compose with the stub model, and it passed
 at 100 VUs. So I went into the prod run expecting the number to be somewhere in the hundreds, and it
-failed on the first rung instead: p95 3.44s and a max of 8.54s at 100 VUs, and an error rate of zero.
+failed on the first level instead: p95 3.44s and a max of 8.54s at 100 VUs, and an error rate of zero.
 The part that surprised me is that the machine was pretty much idle while it failed, 0.27 of 4 cores
 and 134Mi of 256Mi. Nothing was out of CPU or memory, so the latency was not a resource running out.
 
-If you noticed, I ran the test and wondered where my p99 was, and apparently when I was telling my AI to
-code this with my specs, it just somehow glossed over the p99 export, which is why we only see max latency
-on the pre-optimized run. It is still my fault, and the AI did pretty well on writing it and still gated p99
-so we didn't lose the gates, just the numbers. Fixed it and from here on out we will be running it with p99.
+I did not notice the missing p99 until I looked for it. When I asked my AI to code the harness from my
+spec, it exported max but not p99. That is still my fault. The gate itself used a real p99 inside k6, so
+the runs did not lose the gate, only the number. I fixed the export, and every run after the baseline
+carries p99.
 
 At 100 VUs the pool was the queue: p50 1.17s, and 0.94s of that was wait for a connection that was not
 doing anything yet. That is where I got worried, because 10 was a default I had set and not a number I
@@ -387,7 +408,7 @@ had found.
 So I dropped to 10 VUs, expecting to find something wrong with the k6 harness. It passed, three times
 over three 5 minute windows, so the harness was clean and the application was the thing. The 100 VU run
 had already finished 348 iterations with every check passing, which I did not read that way at the time.
-The rung above it failed at 20 VUs with a max of 17.6s, and no single statement explained it, since the
+The next level up failed at 20 VUs with a max of 17.6s, and no single statement explained it, since the
 slowest query stayed under 2.12s at p99. The routes that failed were the ones that pay several round trips in a row:
 `/stats/analytics` at 4.8s p95 across five sequential queries, `/templates` at 3.8s with a seed write
 before its read, `/usage` at 2.9s across two. The queries were not slow, they were stacked, one behind
@@ -400,7 +421,7 @@ but it is the read whose cost rises with history. And there is no cache anywhere
 left out on purpose. A cache is not a quick drop in, and if I had added it before the first run I would
 not know what the app does without it.
 
-I also read that first-rung failure as the harness or the app, not load. That was wrong. 100 VUs was not
+I also read that first-level failure as the harness or the app, not load. That was wrong. 100 VUs was not
 a low number for this app, it was five to ten times above where it stops, so the failure was the
 boundary, not a broken run.
 
@@ -429,13 +450,13 @@ rule was wrong: it was capacity, not a broken harness.
 
 And from here on out we smoke 10 VUs first, so we catch what's wrong before the 100 VU ladder starts.
 
-The harness enforces it now: the smoke is the sweep's first window, it aborts before any rung, and its
-result is the floor the search can reach when 100 is the rung that fails.
+The harness enforces it now: the smoke is the sweep's first phase, it aborts before the first level, and its
+result is the floor the search can reach when the 100 VU level fails.
 
 ## The optimized sweep
 
 Same workload, same target, the image with the six changes and the analytics fix, pool 20, over the
-NodePort. The smoke passed at a 239ms p95, the ladder failed at its first rung, and the search put the
+NodePort. The smoke passed at a 239ms p95, the ladder failed at its first level, and the search put the
 boundary between 32 and 55. The `probe` row is the 32 VU re-run from the next section, not a window of
 this sweep.
 
@@ -512,11 +533,11 @@ So 40 ships. The extra 40 connections bought 12% more rps (66.7 to 75.0), a wors
 headroom on a single replica with no autoscaler. The pod's memory is what caps the pool, and Neon's
 compute is what inflates as the pool grows.
 
-The levers left are Neon's compute size, the query count on the chat turn, and the analytics history
+The options left are Neon's compute size, the query count on the chat turn, and the analytics history
 scan that survives the one-statement rewrite. The pool is not one of them at 100 VUs any more.
 
 Pool capacity is connections over mean query time: at 100 VUs, 20 gives 172 queries a second, 40 gives
-245, 80 gives 323. The pool keeps buying capacity, but each doubling also raises the query mean there,
+245, 80 gives 323. The pool keeps adding capacity, but each doubling also raises the query mean there,
 116 to 163 to 248ms, so the gain shrinks to 43% and then 32%, and the tail and the memory pay for it.
 
 At 55 VUs the extra connections have nothing to remove: 80 gives p95 820ms against 832ms at 40, rps 71.1
@@ -560,4 +581,15 @@ it answers what the edge costs, not where the app breaks.
 
 The full sweep is paused: Neon's compute is at about 90% of its limit. The 55 VU pool-80 probe ran after
 that, because it was one three minute window; the edge path and any full sweep wait for the budget.
-I will continue to expand this dataset and experiment the data with different architecture.
+I will keep expanding this dataset and run the same experiment against different architectures.
+
+## Since this record
+
+After the last sweep, four small changes landed:
+
+- The daily chat-turn credit is now spent in one atomic upsert. It removes one round trip per chat turn and closes the double-spend race.
+- The dashboard counters and the dimension averages now come from one statement. `/stats/dimensions` is gone; `/stats/dashboard` carries both.
+- The resume page starts its usage read beside the resume list.
+- The chat page starts the transcript read beside the start request.
+
+The request table above still describes the sweep that ran, including `/stats/dimensions`. None of these four changes has been through the sweep yet, so every number above still describes the earlier build.
