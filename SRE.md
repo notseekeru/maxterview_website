@@ -14,22 +14,22 @@ At what load does the prod deployment stop behaving acceptably, and which resour
 
 ## Vocabulary
 
-| Term | Meaning |
-| --- | --- |
-| benchmarking | measuring the app against a stated bar |
-| VU | one virtual user running one whole interview |
-| sweep | the whole experiment |
-| phase | one stage of the sweep: smoke, ladder, search, confirm, or only for a one-level probe |
-| round | one confirmation attempt: up to three 5 minute runs at the same level; the confirm phase allows three rounds |
-| ladder | the climb through levels; also the name of the phase that walks them |
-| level | one VU target in the ladder, with its ramp, hold, and measurement window |
-| ladder step | plain name for a level |
-| window | the measured part of a level |
-| perf window | the period the perf overlay is open |
-| boundary | the highest level that passes |
-| SLO | the pass/fail bar |
-| p95 / p99 | latency at the 95th / 99th percentile |
-| RPS | requests per second |
+| Term         | Meaning                                                                                                      |
+| ------------ | ------------------------------------------------------------------------------------------------------------ |
+| benchmarking | measuring the app against a stated bar                                                                       |
+| VU           | one virtual user running one whole interview                                                                 |
+| sweep        | the whole experiment                                                                                         |
+| phase        | one stage of the sweep: smoke, ladder, search, confirm, or only for a one-level probe                        |
+| round        | historical: one old confirmation round: up to three 5 minute runs, repeated up to three times.               |
+| ladder       | the climb through levels; also the name of the phase that walks them                                         |
+| level        | one VU target in the ladder, with its ramp, hold, and measurement window                                     |
+| ladder step  | plain name for a level                                                                                       |
+| window       | the measured part of a level                                                                                 |
+| perf window  | the period the perf overlay is open                                                                          |
+| boundary     | the highest level that passes                                                                                |
+| SLO          | the pass/fail bar                                                                                            |
+| p95 / p99    | latency at the 95th / 99th percentile                                                                        |
+| RPS          | requests per second                                                                                          |
 
 ## Pipeline flow
 
@@ -122,11 +122,11 @@ with ingress-nginx, the tunnel and Cloudflare outside the number.
 
 The desktop is the machine the plan was written against. The laptop is the second one, and the machine measured running the load.
 
-| Component  | Desktop                                                                                                                    | Laptop                                      |
-| ---------- | -------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------- |
-| CPU        | AMD Ryzen 5 3600 (6 cores / 12 threads)                                                                                    | Intel i7-10610U (4 cores / 8 threads, 15 W) |
-| RAM        | 32 GB                                                                                                                      | 16 GB                                       |
-| Monitoring | Manual. Watch CPU, memory, and k6 when saturation is suspected                                                              | Same                                        |
+| Component  | Desktop                                                        | Laptop                                      |
+| ---------- | -------------------------------------------------------------- | ------------------------------------------- |
+| CPU        | AMD Ryzen 5 3600 (6 cores / 12 threads)                        | Intel i7-10610U (4 cores / 8 threads, 15 W) |
+| RAM        | 32 GB                                                          | 16 GB                                       |
+| Monitoring | Manual. Watch CPU, memory, and k6 when saturation is suspected | Same                                        |
 
 The Windows desktop and the laptop both generate load. I watch them minimally, which is enough here: neither is expected to saturate. The app under load is the thing to watch, though CSV metrics would be an option.
 
@@ -159,13 +159,13 @@ The overlay itself lives in the gitops repo, so those values are read from there
 
 These bound what one client can do, so they set the roof on the loop.
 
-| Limit                    | Value                                                    |
-| ------------------------ | -------------------------------------------------------- |
-| DB pool                  | `DB_POOL_MAX`, `min_size=0`                              |
+| Limit                    | Value                                                         |
+| ------------------------ | ------------------------------------------------------------- |
+| DB pool                  | `DB_POOL_MAX`, `min_size=0`                                   |
 | app rate limit           | 120/minute per client IP by default, `off` in the perf window |
-| templates                | 20, a module constant                                    |
-| resume parse concurrency | 2                                                        |
-| feedback attempts        | 3 attempts, 800ms apart                                  |
+| templates                | 20, a module constant                                         |
+| resume parse concurrency | 2                                                             |
+| feedback attempts        | 3 attempts, 800ms apart                                       |
 
 ## Tools
 
@@ -593,3 +593,25 @@ After the last sweep, four small changes landed:
 - The chat page starts the transcript read beside the start request.
 
 The request table above still describes the sweep that ran, including `/stats/dimensions`. None of these four changes has been through the sweep yet, so every number above still describes the earlier build.
+
+## Batching
+
+I had three layers of batching.
+
+Request Batching means one request where several used to go out.
+
+Aggregate Queries means one statement where several reads used to run.
+
+Group Commits means several database writes grouped into one round trip or transaction. I did not use that here; it is here as the third layer, and I usually see it in SQLite work, not this Postgres app.
+
+Parallel requests are a separate technique, not batching. Two reads that depend on nothing can run together, but that is not one request.
+
+## Current harness
+
+| Setting             | The run in this record           | Current harness                     |
+| ------------------- | -------------------------------- | ----------------------------------- |
+| Ladder measurement   | 3 min                            | 2 min                               |
+| Confirmation         | 3 runs of 5 min, repeated 3 times | single-run confirm: one 5 min run   |
+| Failed confirmation  | Search below, up to 3 times      | Abort; boundary unproven             |
+
+I changed the measurement window to 2 minutes and the confirmation to one 5-minute run because the sweep was taking too much of my time, and I am fine losing some of this data for the experiment. That is a real trade: fewer samples make p95 and p99 noisier, one run is weaker proof than the old 3/3, and a failed single-run confirm aborts the sweep instead of searching below.

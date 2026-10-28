@@ -139,11 +139,10 @@ python3 sweep.py
 It opens with the 10 VU smoke, mandatory: a failed smoke aborts before the first level, since that is
 the harness or the app and not load. Then it climbs 100, 200, 400, 800. A failed level is the boundary,
 and the search runs between the last pass and it, down to the smoke's 10 VUs when the 100 VU level
-fails. Between levels it waits 15 seconds, cleans up for up to 30, then waits 15 again. The winner is
-re-run three times at a 5 minute window; all three must pass, and a failing run ends that round and
-searches below the level again, for at most three rounds. Every window writes a row to
-`results/sweep-<utc>.csv` and a k6 summary to `results/level-<n>-<phase>-<run_id>.json`, one file per run,
-the same `run_id` the row carries.
+fails. Between levels it waits 15 seconds, cleans up for up to 30, then waits 15 again. The winner gets
+one 5 minute confirmation run; a failure aborts the sweep because the boundary is unproven. Every window
+writes a row to `results/sweep-<utc>.csv` and a k6 summary to
+`results/level-<n>-<phase>-<run_id>.json`, one file per run, the same `run_id` the row carries.
 
 ### 4b. A one-level probe
 
@@ -195,11 +194,9 @@ the "which resource runs out first" half of the question.
 
 ## Time
 
-About 5.5 minutes per level at the defaults (30 second ramp, 60 second warm, 3 minute measure, plus the
-gap), and about 7.5 for each of the three confirmations at their 5 minute window, so a ladder that
-brackets a failure plus the three confirmations is roughly an hour, assuming the first failure is not
-at 100 VUs. Each failed confirmation adds a search and another round, so two of them roughly double the
-run. A one-level probe is one level plus two syncs, about ten minutes.
+About 4.5 minutes per level at the defaults (30 second ramp, 60 second warm, 2 minute measure, plus the
+gap), and about 7.5 for the single 5 minute confirmation. The total depends on how many search steps
+the bracket needs. A one-level probe is one level plus two syncs, about ten minutes.
 
 ## Abort and rollback
 
@@ -213,6 +210,7 @@ run. A one-level probe is one level plus two syncs, about ten minutes.
 | The pool override is still in the perf overlay | Remove it after the probe; the next perf window would silently run that pool                       |
 | The 10 VU smoke fails                          | The sweep aborts. Fix the harness or the app; a failed smoke is not capacity                  |
 | A level fails                                  | Expected. That is the boundary; the search runs from the last pass down to 10 VUs             |
+| The single confirmation run fails              | The sweep aborts; the boundary is unproven. Re-run the sweep.                                 |
 | Anything unexpected                            | Close the perf-val-change first, then debug. Leaving it open leaves prod unauthenticated      |
 
 ## The relay in every number
