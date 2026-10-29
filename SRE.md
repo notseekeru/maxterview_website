@@ -14,22 +14,22 @@ At what load does the prod deployment stop behaving acceptably, and which resour
 
 ## Vocabulary
 
-| Term         | Meaning                                                                                                      |
-| ------------ | ------------------------------------------------------------------------------------------------------------ |
-| benchmarking | measuring the app against a stated bar                                                                       |
-| VU           | one virtual user running one whole interview                                                                 |
-| sweep        | the whole experiment                                                                                         |
-| phase        | one stage of the sweep: smoke, ladder, search, confirm, or only for a one-level probe                        |
-| round        | historical: one old confirmation round: up to three 5 minute runs, repeated up to three times.               |
-| ladder       | the climb through levels; also the name of the phase that walks them                                         |
-| level        | one VU target in the ladder, with its ramp, hold, and measurement window                                     |
-| ladder step  | plain name for a level                                                                                       |
-| window       | the measured part of a level                                                                                 |
-| perf window  | the period the perf overlay is open                                                                          |
-| boundary     | the highest level that passes                                                                                |
-| SLO          | the pass/fail bar                                                                                            |
-| p95 / p99    | latency at the 95th / 99th percentile                                                                        |
-| RPS          | requests per second                                                                                          |
+| Term         | Meaning                                                                                        |
+| ------------ | ---------------------------------------------------------------------------------------------- |
+| benchmarking | measuring the app against a stated bar                                                         |
+| VU           | one virtual user running one whole interview                                                   |
+| sweep        | the whole experiment                                                                           |
+| phase        | one stage of the sweep: smoke, ladder, search, confirm, or only for a one-level probe          |
+| round        | historical: one old confirmation round: up to three 5 minute runs, repeated up to three times. |
+| ladder       | the climb through levels; also the name of the phase that walks them                           |
+| level        | one VU target in the ladder, with its ramp, hold, and measurement window                       |
+| ladder step  | plain name for a level                                                                         |
+| window       | the measured part of a level                                                                   |
+| perf window  | the period the perf overlay is open                                                            |
+| boundary     | the highest level that passes                                                                  |
+| SLO          | the pass/fail bar                                                                              |
+| p95 / p99    | latency at the 95th / 99th percentile                                                          |
+| RPS          | requests per second                                                                            |
 
 ## Pipeline flow
 
@@ -342,24 +342,13 @@ Confirm the highest passing level by re-running it 3 times, each measured for 5 
 8. The model stubbed for the sweep. Rejected: real generation, where the ceiling is the provider's quota and not this one.
 9. Direct host, not the pooler. A `-pooler` DSN flips `statement_cache_size`, a different code path than prod runs.
 10. The sweep runs under its own identity, named by `DEV_USER_SUB`.
-11. Capacity sweep at a small fixed floor, and the unbounded read on its own N-sweep. N grew inside every window anyway (159 rows at 10 VUs, 415 at 100), because the cleanup runs between levels. The read never surfaced in the tail, the 100 VU failure was attributed to pool wait without an N-sweep, and pagination shipped on code grounds. The N-sweep is still unrun.
+11. Capacity sweep at a small fixed floor, and the unbounded read on its own N-sweep. N grew inside every window anyway (159 rows at 10 VUs, 415 at 100), because the cleanup runs between levels. The read never surfaced in the slow end, the 100 VU failure was attributed to pool wait without an N-sweep, and pagination shipped on code grounds. The N-sweep is still unrun.
 
 # The runs
 
-## Result
+## The first run
 
-The boundary after each change, in the order the runs happened:
-
-| When       | Config                      | Passed once  | rps there | First fail |
-| ---------- | --------------------------- | ------------ | --------- | ---------- |
-| 2026-10-22 | pool 10, before the changes | 10           | 17        | 20         |
-| 2026-10-23 | optimized changes (pool 20) | 32           | 50        | 55         |
-| 2026-10-23 | pool 40                     | 55           | 70        | 100        |
-| 2026-10-23 | pool 80                     | 55 (latency) | 71        | 100        |
-
-Only 10 VUs passed the plan's three 5 minute confirmation. Everything above it is one window.
-
-The first table below is the application before any optimisation, with the pool at 10 and the NodePort path,
+The table below is the application before any optimisation, with the pool at 10 and the NodePort path,
 read from `results/sweep-*.csv`. Latency, rps and errors come from the harness; CPU, memory, pool wait,
 the per-route and the per-query numbers are Grafana readings over the same windows. The laptop row is
 docker compose against the stub; the rest are the prod pod, which is read from those latencies because
@@ -381,8 +370,8 @@ now, so every sweep after the baseline carries both.
 Ten to twenty VUs raises throughput 29% and doubles p95, so that is the knee.
 
 Nothing is saturated at 20 VUs: 0.21 of 4 cores, 100Mi of 256Mi, pool wait p50 35ms. The gate fails on
-tails: `/stats/analytics` 4.8s p95, `/templates` 3.8s, `/usage` 2.9s, about one request in nine. No
-query passed 425ms at p95 or 2.12s at p99, so the tail is sequential round trips stacking, not one slow
+the slow end: `/stats/analytics` 4.8s p95, `/templates` 3.8s, `/usage` 2.9s, about one request in nine. No
+query passed 425ms at p95 or 2.12s at p99, so the slow end is sequential round trips stacking, not one slow
 statement.
 
 At 100 VUs the shape changes: p50 1.17s, of which 0.94s is pool wait, and pool wait p95 is 2.4s against
@@ -416,7 +405,7 @@ another, and every one of them was its own checkout from a pool of ten.
 
 The run also showed two things that are not latency numbers. The list read every run the owner had,
 with no limit, and the account grew inside every window: 159 rows at 10 VUs, 241 at 20, 415 at 100.
-That is a code gap rather than a measured tail. The list route was never the slowest one in the report,
+That is a code gap rather than a measured slow end. The list route was never the slowest one in the report,
 but it is the read whose cost rises with history. And there is no cache anywhere in this path, which I
 left out on purpose. A cache is not a quick drop in, and if I had added it before the first run I would
 not know what the app does without it.
@@ -428,6 +417,17 @@ boundary, not a broken run.
 That is why this run exists in this shape. I wanted the numbers for the application on the day I planned
 this, before any of the optimisation, so that every later state has its own data and the difference is
 what the optimisation is actually worth.
+
+## What the run taught me about the harness
+
+I skipped the manual smoke that time and went straight to the ladder, which turned a sixteen second
+check into a five minute failed level. The 100 VU failure in the first sweep had already told me the old
+rule was wrong: it was capacity, not a broken harness.
+
+And from here on out we smoke 10 VUs first, so we catch what's wrong before the 100 VU ladder starts.
+
+The harness enforces it now: the smoke is the sweep's first phase, it aborts before the first level, and its
+result is the floor the search can reach when the 100 VU level fails.
 
 ## What changed after the first runs
 
@@ -441,17 +441,6 @@ Six changes, all of them on round trips, read size or the pool rather than on th
 | `GET /interviews`  | every run the owner had                            | 50 per page, archived filtered in the query  |
 | Home counters      | derived in the browser from that full list         | one statement over the full history          |
 | pool               | 10                                                 | `DB_POOL_MAX`, 20 then 40                    |
-
-## What the run taught me about the harness
-
-I skipped the manual smoke that time and went straight to the ladder, which turned a sixteen second
-check into a five minute failed level. The 100 VU failure in the first sweep had already told me the old
-rule was wrong: it was capacity, not a broken harness.
-
-And from here on out we smoke 10 VUs first, so we catch what's wrong before the 100 VU ladder starts.
-
-The harness enforces it now: the smoke is the sweep's first phase, it aborts before the first level, and its
-result is the floor the search can reach when the 100 VU level fails.
 
 ## The optimized sweep
 
@@ -474,7 +463,7 @@ this sweep.
 
 Against the baseline, 100 VUs now carries 54.9 rps instead of 38.3, with p50 719ms instead of 1.17s and
 p95 1.90s instead of 3.44s. The highest level that passes moved from 10 to 32, and the first level that
-fails moved from 20 to 55. The tail did not improve: the max at 100 VUs went from 8.54s to 27s, and the
+fails moved from 20 to 55. The slow end did not improve: the max at 100 VUs went from 8.54s to 27s, and the
 last 10 VU confirmation saw 19.6s.
 
 ## What is the bottleneck now
@@ -491,7 +480,7 @@ queries in flight, and the wait is the other half of the request.
 
 At 32 VUs nothing waits on the pool, and the latency is the round trips: 2.3 queries per request at about
 100ms each. `/stats/analytics` is still the slowest app-owned route at 1.41s p95, then `/messages` at
-0.7s. The rest of the tail is model routes, which the gate excludes but the pool still serves.
+0.7s. The rest of the slow end is model routes, which the gate excludes but the pool still serves.
 
 At 55 VUs every route multiplies: analytics 1.41s to 7.75s, messages 0.7s to 5.08s, finish 3.46s to
 14.2s. That is the pool of 20 running out, not the app work changing. At 100 VUs the wait is most of the
@@ -529,7 +518,7 @@ That is why 80 is flat at p50 and slower at p95: no one waits for a connection, 
 against a busier Neon. A request that pays two or three queries at the p95 lands near two seconds with no
 queue at all.
 
-So 40 ships. The extra 40 connections bought 12% more rps (66.7 to 75.0), a worse tail, and about 50MB less
+So 40 ships. The extra 40 connections bought 12% more rps (66.7 to 75.0), a worse swing, and about 50MB less
 headroom on a single replica with no autoscaler. The pod's memory is what caps the pool, and Neon's
 compute is what inflates as the pool grows.
 
@@ -538,7 +527,7 @@ scan that survives the one-statement rewrite. The pool is not one of them at 100
 
 Pool capacity is connections over mean query time: at 100 VUs, 20 gives 172 queries a second, 40 gives
 245, 80 gives 323. The pool keeps adding capacity, but each doubling also raises the query mean there,
-116 to 163 to 248ms, so the gain shrinks to 43% and then 32%, and the tail and the memory pay for it.
+116 to 163 to 248ms, so the gain shrinks to 43% and then 32%, and the swing and the memory pay for it.
 
 At 55 VUs the extra connections have nothing to remove: 80 gives p95 820ms against 832ms at 40, rps 71.1
 against 70.3, and memory 64% against 52%. The wait is already 5ms at 40, so the pool is not the
@@ -570,10 +559,23 @@ app log line when they were checked, so the drop is most likely on the sweep pat
 NodePort), which production does not use. The checks gate is binary, so one drop can fail a level: it is
 why 10 is the only confirmed level while 32 and 55 are single windows, and why 55 VUs at pool 80 reads
 `fail (checks)` at an 820ms p95.
-Next: count `status == 0` per route in the CSV, then either keep the binary gate and accept the noise or
-gate correctness at a rate; an edge-path smoke separates the rig from the app.
+
+## Result
+
+The boundary after each change, in the order the runs happened:
+
+| When       | Config                      | Passed once  | rps there | First fail |
+| ---------- | --------------------------- | ------------ | --------- | ---------- |
+| 2026-10-22 | pool 10, before the changes | 10           | 17        | 20         |
+| 2026-10-23 | optimized changes (pool 20) | 32           | 50        | 55         |
+| 2026-10-23 | pool 40                     | 55           | 70        | 100        |
+| 2026-10-23 | pool 80                     | 55 (latency) | 71        | 100        |
+
+Only 10 VUs passed the plan's three 5 minute confirmation. Everything above it is one window.
 
 ## Next
+
+Count `status == 0` per route in the CSV, then either keep the binary gate and accept the noise or gate correctness at a rate; an edge-path smoke separates the rig from the app.
 
 The same sweep over the cloudflared path into the ingress, no NodePort(since NodePort bypass cloudflared and ingress)
 so the edge is in the number too. It will not be comparable to these numbers, because Cloudflare and the tunnel are in that path;
@@ -596,22 +598,30 @@ The request table above still describes the sweep that ran, including `/stats/di
 
 ## Batching
 
-I had three layers of batching.
+I had three layers of batching. They sit at different points between the client and the database.
 
-Request Batching means one request where several used to go out.
+Request Batching means one request where several used to go out. Think of one call that asks for a batch of records instead of one call per record.
 
-Aggregate Queries means one statement where several reads used to run.
+Aggregate Queries means one statement where several reads used to run. Think of one query that returns five counts instead of five queries.
 
-Group Commits means several database writes grouped into one round trip or transaction. I did not use that here; it is here as the third layer, and I usually see it in SQLite work, not this Postgres app.
+Group Commits means several database writes grouped into one round trip or transaction. Think of one transaction for several writes instead of one commit per write. I did not use that here; it is the third layer, and I usually see it in SQLite work, not this Postgres app.
 
-Parallel requests are a separate technique, not batching. Two reads that depend on nothing can run together, but that is not one request.
+| Layer             | What gets fewer    | Where it sits      | Generic software example                              |
+| ----------------- | ------------------ | ------------------ | ----------------------------------------------------- |
+| Request Batching  | HTTP requests      | client to server   | one call for a batch of records, not one per record   |
+| Aggregate Queries | SQL statements     | server to database | one query for five counts, not five queries           |
+| Group Commits     | commit round trips | database writes    | one transaction for several writes, not one per write |
+
+Parallel requests are a separate technique, not batching. Two calls run at the same time; that is not one call carrying both.
 
 ## Current harness
 
-| Setting             | The run in this record           | Current harness                     |
-| ------------------- | -------------------------------- | ----------------------------------- |
-| Ladder measurement   | 3 min                            | 2 min                               |
-| Confirmation         | 3 runs of 5 min, repeated 3 times | single-run confirm: one 5 min run   |
-| Failed confirmation  | Search below, up to 3 times      | Abort; boundary unproven             |
+As of `6280421`:
+
+| Setting             | The run in this record            | Current harness                   |
+| ------------------- | --------------------------------- | --------------------------------- |
+| Ladder measurement  | 3 min                             | 2 min                             |
+| Confirmation        | 3 runs of 5 min, repeated 3 times | single-run confirm: one 5 min run |
+| Failed confirmation | Search below, up to 3 times       | Abort; boundary unproven          |
 
 I changed the measurement window to 2 minutes and the confirmation to one 5-minute run because the sweep was taking too much of my time, and I am fine losing some of this data for the experiment. That is a real trade: fewer samples make p95 and p99 noisier, one run is weaker proof than the old 3/3, and a failed single-run confirm aborts the sweep instead of searching below.
