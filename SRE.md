@@ -614,9 +614,19 @@ Group Commits means several database writes grouped into one round trip or trans
 
 Parallel requests are a separate technique, not batching. Two calls run at the same time; that is not one call carrying both.
 
-## Current harness
+The earlier optimization was mostly Aggregate Queries. The latest batch is mixed.
 
-As of `6280421`:
+| Batch   | Change                                                      | Layer                           |
+| ------- | ----------------------------------------------------------- | ------------------------------- |
+| Earlier | `/stats/analytics`, `/usage`, home counters                 | Aggregate Queries               |
+| Earlier | `GET /interviews` pagination, `/templates` seed write, pool | Not batching                    |
+| Latest  | Dashboard: two stats requests become one                    | Request Batching                |
+| Latest  | Dashboard: counters and dimension averages in one statement | Aggregate Queries               |
+| Latest  | Resume: usage read beside the list                          | Parallel requests, not batching |
+| Latest  | Chat: transcript read beside start                          | Parallel requests, not batching |
+| Latest  | Turn spend: one atomic upsert                               | Atomic write, not batching      |
+
+## Current harness
 
 | Setting             | The run in this record            | Current harness                   |
 | ------------------- | --------------------------------- | --------------------------------- |
