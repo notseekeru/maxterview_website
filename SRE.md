@@ -634,4 +634,4 @@ The earlier optimization was mostly Aggregate Queries. The latest batch is mixed
 | Confirmation        | 3 runs of 5 min, repeated 3 times | single-run confirm: one 5 min run |
 | Failed confirmation | Search below, up to 3 times       | Abort; boundary unproven          |
 
-I changed the measurement window to 2 minutes and the confirmation to one 5-minute run because the sweep was taking too much of my time, and I am fine losing some of this data for the experiment. That is a real trade: fewer samples make p95 and p99 noisier, one run is weaker proof than the old 3/3, and a failed single-run confirm aborts the sweep instead of searching below.
+I changed the measurement window to 2 minutes and the confirmation to one 5-minute run because the sweep was taking too much of my time, and I am fine losing some of this data for the experiment. The shorter windows also spend less Neon compute, which is the other reason for the change: the full sweep is paused near the free-tier limit. That is a real trade: fewer samples make p95 and p99 noisier, one run is weaker proof than the old 3/3, and a failed single-run confirm aborts the sweep instead of searching below.
