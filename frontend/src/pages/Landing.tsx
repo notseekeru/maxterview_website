@@ -25,7 +25,7 @@ const SECTIONS = [
 const HERO_FACTS = ["Review and verdict on every run", "Behavioral, technical and case rounds", "No credit card"];
 
 const FEATURES = [
-    { title: "AI interviewer", body: "One question at a time, chitchat through technical, reacting to the answer you just gave." },
+    { title: "AI interviewer", body: "One question at a time, rapport through technical, reacting to the answer you just gave." },
     { title: "Graded, not summarized", body: "Every answer is annotated on its own, and every run ends in a verdict you can act on." },
     { title: "Progress that persists", body: "Replay any transcript with its annotations, and watch accuracy trend across runs." },
 ];
@@ -81,7 +81,7 @@ const FLOW_TICK: { q: string; row: (typeof TURN_LOG)[number] }[] = [
 
 const STEPS = [
     { title: "Set the interview", body: "Pick the role, level and company size. Add a topic, or dial how cynical and how brutally honest the interviewer should be." },
-    { title: "Answer in the chat", body: "One question at a time: chitchat, then behavioral, then technical, until the arc is spent." },
+    { title: "Answer in the chat", body: "One question at a time: rapport, then behavioral, then technical, until the arc is spent." },
     { title: "Get reviewed", body: "Each answer is annotated on its own, plus whether this run would convert and how much evidence backs that." },
 ];
 

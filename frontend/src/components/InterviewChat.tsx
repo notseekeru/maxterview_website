@@ -5,6 +5,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
 import { MAX_TAKE_S, useRecorder, useSpeaker, useVoiceCapability } from "@/hooks/useInterviewVoice";
 import { apiDetail, type Feedback, finishInterview, getFeedback, getInterview, getMessages, getOffer, httpStatus, kickoffInterview, MAX_TURN_CHARS, type Message, type Offer, regenerateFeedback, type StreamEvent, startInterview, streamChat } from "@/lib/api";
+import { segmentsFromPlan } from "@/lib/interviewOptions";
 import { cn } from "@/lib/utils";
 import { readVoicePref, writeVoicePref } from "@/lib/voice";
 import { Icon } from "./AppIcons";
@@ -36,6 +37,7 @@ export function InterviewChat({ interviewId, onExit }: Props) {
     const [quotaLocked, setQuotaLocked] = useState(false);
     const [interviewOver, setInterviewOver] = useState(false);
     const [hardcoreRun, setHardcoreRun] = useState(false);
+    const [plan, setPlan] = useState<string[]>([]);
     const [hardcoreFailed, setHardcoreFailed] = useState<{ turn: number; class: string } | null>(null);
     const [finishing, setFinishing] = useState<{ title: string; dismissed: boolean; done: boolean } | null>(null);
     const isFinishing = finishing !== null;
@@ -94,6 +96,7 @@ export function InterviewChat({ interviewId, onExit }: Props) {
         async (id: string) => {
             const [iv] = await Promise.all([getInterview(id), loadMessages()]);
             setHardcoreRun(iv.hardcore);
+            setPlan(iv.plan);
             if (iv.failed_turn) {
                 setHardcoreFailed({ turn: iv.failed_turn, class: iv.failed_class ?? "fault" });
                 setInterviewOver(true);
@@ -117,6 +120,7 @@ export function InterviewChat({ interviewId, onExit }: Props) {
             if (cancelled) return;
             if (started.status === "fulfilled") {
                 setHardcoreRun(Boolean(started.value.hardcore));
+                setPlan(started.value.plan);
                 try {
                     setMessages(await rows);
                 } catch {
@@ -328,6 +332,10 @@ export function InterviewChat({ interviewId, onExit }: Props) {
     }
 
     const hardcoreBar = hardcoreFailed ? "border-destructive bg-destructive/10" : hardcoreRun && status !== "completed" ? "border-destructive/40 bg-destructive/5" : undefined;
+    const askedCount = messages.reduce((n, m) => n + (m.role === "assistant" ? 1 : 0), 0);
+    // The current phase is the one on screen: the question being answered, or the one streaming in.
+    const currentSlot = interviewOver ? plan.length : Math.max(0, askedCount - 1 + (status === "streaming" ? 1 : 0));
+    const phases = segmentsFromPlan(plan);
     const lastOfRun = new Set(messages.filter((m, i) => messages[i + 1]?.role !== m.role).map((m) => m.id));
     const speech = speaker.spoken;
     const caption = (id: string, content: string) => (speech === null || id !== replyId.current ? content : content.slice(0, speech));
@@ -364,6 +372,21 @@ export function InterviewChat({ interviewId, onExit }: Props) {
                     {isFinishing ? <Spinner label="Reviewing" className="size-3.5" /> : <Icon name="complete" />}
                 </Button>
             </header>
+            {plan.length > 0 && status !== "loading" && status !== "completed" && (
+                <nav aria-label="Interview plan" className="border-b bg-background">
+                    <ol className="mx-auto flex w-full max-w-[100rem] items-center gap-1 overflow-x-auto px-3 py-1.5 text-[11px] sm:px-5">
+                        {phases.map((p) => {
+                            const done = currentSlot > p.start + p.slots - 1;
+                            const current = !done && currentSlot >= p.start;
+                            return (
+                                <li key={p.start} aria-current={current ? "step" : undefined} className={cn("shrink-0 rounded-full px-1.5 py-0.5", current && "bg-primary/10 font-medium text-primary", done && "text-muted-foreground", !done && !current && "text-muted-foreground/50")}>
+                                    {p.label}
+                                </li>
+                            );
+                        })}
+                    </ol>
+                </nav>
+            )}
             {voiceNote && <p className="border-b bg-muted/40 px-4 py-1.5 text-center text-xs text-muted-foreground">{voiceNote}</p>}
 
             <div className="min-h-0 flex-1 overflow-y-auto" ref={scrollRef} role="log" aria-live="polite" aria-busy={status === "streaming"} aria-label="Interview transcript">
@@ -403,7 +426,7 @@ export function InterviewChat({ interviewId, onExit }: Props) {
                                 <>
                                     <p className="font-medium text-foreground">That was the whole interview.</p>
                                     <p className="mt-1">
-                                        This run has asked every question in its mix, so there's nothing left to answer here. Press the <span className="font-medium text-foreground">✓</span> at the top right for your feedback, or start a new interview with a wider mix.
+                                        This run has asked every question in its plan, so there's nothing left to answer here. Press the <span className="font-medium text-foreground">✓</span> at the top right for your feedback, or start a new interview at a deeper level.
                                     </p>
                                 </>
                             )}

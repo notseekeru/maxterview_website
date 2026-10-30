@@ -394,9 +394,9 @@ TEMPLATE_CREATE_DIAL_PARAM = 7
 TEMPLATE_UPDATE_DIAL_PARAM = 8
 
 DEFAULT_TEMPLATES: tuple[TemplateCreate, ...] = (
-    TemplateCreate(name="The Killer", role="Software Engineer", company_size="5k+", cynicism="skeptical", brutally_honest=True, human_mode=False, hardcore=True, mix_behavioural=1),
-    TemplateCreate(name="The Griller", role="Software Engineer", company_size="201-1k", cynicism="skeptical", brutally_honest=True),
-    TemplateCreate(name="The Chiller", role="Software Engineer", company_size="1-10", cynicism="kind", mix_chitchat=2, mix_behavioural=1, mix_technical=2),
+    TemplateCreate(name="Killer", role="Software Engineer", company_size="5k+", cynicism="skeptical", brutally_honest=True, human_mode=False, hardcore=True, depth="screen"),
+    TemplateCreate(name="Griller", role="Software Engineer", company_size="201-1k", cynicism="skeptical", brutally_honest=True),
+    TemplateCreate(name="Chiller", role="Software Engineer", company_size="1-10", cynicism="kind", depth="screen"),
 )
 # Rows as plain dicts: the asyncpg jsonb codec encodes them (a pre-dumped STRING would arrive as a
 # JSON scalar, and jsonb_to_recordset would refuse it).
@@ -411,7 +411,7 @@ SEED_DEFAULTS_SQL = f"""
         )
         INSERT INTO interview_templates (owner_id, name, role, level, topic, resume_id, {", ".join(DIAL_FIELDS)}, created_at)
         SELECT $1, d.name, d.role, d.level, d.topic, d.resume_id, {", ".join(f"d.{f}" for f in DIAL_FIELDS)}, now() - (d.ordinality * interval '1 microsecond')
-        FROM seed, ROWS FROM (jsonb_to_recordset($2::jsonb) AS (name text, role text, level text, topic text, resume_id uuid, company_size text, cynicism text, brutally_honest boolean, human_mode boolean, hardcore boolean, mix_chitchat smallint, mix_behavioural smallint, mix_technical smallint)) WITH ORDINALITY AS d
+        FROM seed, ROWS FROM (jsonb_to_recordset($2::jsonb) AS (name text, role text, level text, topic text, resume_id uuid, company_size text, cynicism text, brutally_honest boolean, human_mode boolean, hardcore boolean, depth text)) WITH ORDINALITY AS d
         """
 
 
@@ -704,8 +704,7 @@ WITH runs AS (
         SELECT 'level' AS dial, level AS value, accuracy, decision FROM completed
         UNION ALL SELECT 'cynicism', cynicism, accuracy, decision FROM completed
         UNION ALL SELECT 'company_size', company_size, accuracy, decision FROM completed
-        UNION ALL SELECT 'mix', CASE WHEN mix_technical >= mix_behavioural AND mix_technical >= mix_chitchat THEN 'technical'
-                                     WHEN mix_behavioural >= mix_chitchat THEN 'behavioural' ELSE 'chitchat' END, accuracy, decision FROM completed
+        UNION ALL SELECT 'depth', depth, accuracy, decision FROM completed
         UNION ALL SELECT 'hardcore', CASE WHEN hardcore THEN 'hardcore' ELSE 'standard' END, accuracy, decision FROM completed
         UNION ALL SELECT 'honesty', CASE WHEN brutally_honest THEN 'brutally_honest' ELSE 'diplomatic' END, accuracy, decision FROM completed
         UNION ALL SELECT 'register', CASE WHEN human_mode THEN 'human' ELSE 'corporate' END, accuracy, decision FROM completed
@@ -841,7 +840,7 @@ ANALYTICS_DIALS: tuple[tuple[str, dict[str, str]], ...] = (
     ("level", {s: levels.label(s) for s in levels.LEVELS}),
     ("cynicism", dict(zip(dials.CYNICISM, ("Kind", "Neutral", "Skeptical"), strict=True))),
     ("company_size", dict(zip(dials.COMPANY_SIZES, ("Any", "1-10", "11-50", "51-200", "201-1k", "1k-5k", "5k+"), strict=True))),
-    ("mix", {"technical": "Technical-heavy", "behavioural": "Behavioural-heavy", "chitchat": "Chitchat-heavy"}),
+    ("depth", {"screen": "Screen", "standard": "Standard", "full": "Full loop"}),
     ("hardcore", {"hardcore": "Hardcore", "standard": "Standard"}),
     ("honesty", {"brutally_honest": "Brutally honest", "diplomatic": "Diplomatic"}),
     ("register", {"human": "Human", "corporate": "Corporate"}),
@@ -1088,7 +1087,7 @@ async def _chat_session(interview_id: str, user: CurrentUser) -> tuple[dict, lis
     if llm.is_interview_finished(asked, dials):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="This interview has asked all of its questions. Press Finish to get your feedback, or start a new interview with a wider question mix.",
+            detail="This interview has asked all of its questions. Press Finish to get your feedback, or start a new interview at a deeper level.",
         )
     return interview, prior_rows, asked, dials
 

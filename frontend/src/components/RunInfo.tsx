@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 
 import type { Interview } from "@/lib/api";
-import { CYNICISM, companySizeLabel, levelLabel } from "@/lib/interviewOptions";
+import { CYNICISM, companySizeLabel, levelLabel, planSummary, segmentsFromPlan } from "@/lib/interviewOptions";
 import { DecisionChip } from "./DecisionVerdict";
 
 export function RunInfo({ interview }: { interview: Interview }) {
@@ -20,7 +20,7 @@ export function RunInfo({ interview }: { interview: Interview }) {
                 <Field label="Status">{interview.status}</Field>
                 <Field label="Accuracy">{accuracy}</Field>
                 <Field label="Decision">{interview.decision ? <DecisionChip decision={interview.decision} certainty={interview.certainty} /> : <span className="text-muted-foreground">undecided</span>}</Field>
-                <Field label="Questions budgeted">{`${interview.mix_chitchat} warm-up / ${interview.mix_behavioural} behavioural / ${interview.mix_technical} technical`}</Field>
+                <Field label="Interview plan">{planSummary(segmentsFromPlan(interview.plan))}</Field>
                 <Field label="Tone">{tone.length > 0 ? tone.join(" · ") : "baseline (neutral, human mode)"}</Field>
             </dl>
         </div>

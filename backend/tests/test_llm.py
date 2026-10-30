@@ -12,7 +12,13 @@ MOVES_JSON = '{"moves": [{"turn": 1, "class": "great", "comment": "Your own deci
 
 
 def _interview(*answers: str) -> list[ChatMessage]:
-    history: list[ChatMessage] = []
+    # Rapport and background are behind us, so every answer below lands in a graded phase.
+    history: list[ChatMessage] = [
+        ChatMessage(role="assistant", content="Before we start - how is your week going?"),
+        ChatMessage(role="user", content="Busy, but fine."),
+        ChatMessage(role="assistant", content="Tell me about yourself."),
+        ChatMessage(role="user", content="I am a backend engineer."),
+    ]
     for a in answers:
         history.append(ChatMessage(role="assistant", content="And what happened next?"))
         history.append(ChatMessage(role="user", content=a))
@@ -48,45 +54,55 @@ def test_system_prompt_walks_the_arc_by_interviewer_turn_count():
     # Regression: the arc used to be one prose sentence that a small model ignored, so real
     # transcripts skipped straight from background to technical. Each turn now names its phase.
     opener = llm.system_prompt("Software Engineer", "mid", "", asked=0)
-    assert "Current phase: OPENING" in opener
+    assert "Current phase: RAPPORT" in opener
     assert "Current phase: BACKGROUND" in llm.system_prompt("Software Engineer", "mid", "", asked=1)
 
-    for asked in (2, 3):
-        behavioural = llm.system_prompt("Software Engineer", "mid", "", asked=asked)
-        assert "Current phase: BEHAVIOURAL" in behavioural
-        assert "Do not ask technical" in behavioural or "no technical" in behavioural
+    for asked in (2, 4, 6):
+        competency = llm.system_prompt("Software Engineer", "mid", "", asked=asked)
+        assert "Current phase: COMPETENCY" in competency
+        assert "no technical" in competency
 
-    technical = llm.system_prompt("Software Engineer", "mid", "", asked=4)
+    technical = llm.system_prompt("Software Engineer", "mid", "", asked=8)
     assert "Current phase: TECHNICAL" in technical
+    assert "Current phase: THEIR QUESTIONS" in llm.system_prompt("Software Engineer", "mid", "", asked=18)
     # Past the last question the tail becomes the sign-off, which is the one phase that asks nothing -
     # so PATH_PROMPT's "ask exactly ONE question" is gone with it.
-    closing = llm.system_prompt("Software Engineer", "mid", "", asked=8)
+    closing = llm.system_prompt("Software Engineer", "mid", "", asked=19)
     assert "Current phase: CLOSING" in closing
     assert llm.PATH_PROMPT not in closing
 
 
-def test_interview_plan_honours_the_mix_budgets():
+def test_interview_plan_is_the_structured_arc():
+    from app import dials
     from app.models import Dials
 
-    kinds = [p.split(" - ")[0].split(" ")[0] for p in llm.interview_plan(Dials(mix_chitchat=2, mix_behavioural=1, mix_technical=3))]
-    assert kinds == ["CHITCHAT", "CHITCHAT", "OPENING", "BACKGROUND", "BEHAVIOURAL", "TECHNICAL", "TECHNICAL", "TECHNICAL"]
-    # Even with every slider on 0 there is a whole interview: the material ask, tell-me-about-yourself,
-    # then the close.
-    assert [p.split(" - ")[0] for p in llm.interview_plan(Dials(mix_chitchat=0, mix_behavioural=0, mix_technical=0))] == ["OPENING", "BACKGROUND"]
-    plan = llm.interview_plan(Dials(mix_chitchat=0, mix_behavioural=2, mix_technical=0))
-    assert "BEHAVIOURAL 1 of 2" in plan[2]
-    assert "BEHAVIOURAL 2 of 2" in plan[3]
+    expected = {
+        "screen": (["rapport", "background"] + ["competency", "competency_followup"] * 2 + ["technical", "technical_followup"] * 2 + ["questions", "close"]),
+        "standard": (["rapport", "background"] + ["competency", "competency_followup"] * 3 + ["technical", "technical_followup"] * 5 + ["questions", "close"]),
+        "full": (["rapport"] * 2 + ["background"] + ["competency", "competency_followup"] * 4 + ["technical", "technical_followup"] * 7 + ["questions", "close"]),
+    }
+    for depth, phases in expected.items():
+        assert dials.plan_phases(depth) == tuple(phases)  # what the API serves
+        assert llm.plan_phases(Dials(depth=depth)) == tuple(phases)  # what the prompt is built from
+        assert len(llm.interview_plan(Dials(depth=depth))) == len(phases)
+    # Every competency and technical question owns the follow-up turn after it, and that turn stays on
+    # the same answer: the dial's question counts are the counts, not a floor.
+    standard = llm.interview_plan(Dials(depth="standard"))
+    assert "FOLLOW-UP on COMPETENCY 1 of 3" in standard[3]
+    assert "stay on the answer" in standard[3]
+    assert "theme this run has not covered" not in standard[3]
+    assert "FOLLOW-UP on TECHNICAL 5 of 5" in standard[17]
 
 
 def test_plan_end_is_the_closing_turn_and_then_the_interview_is_finished():
     from app.models import Dials
 
-    d = Dials(mix_chitchat=0, mix_behavioural=0, mix_technical=0)
-    assert (llm.is_closing_turn(1, d), llm.is_closing_turn(2, d)) == (False, True)
-    assert (llm.is_interview_finished(2, d), llm.is_interview_finished(3, d)) == (False, True)
-    assert llm.is_closing_turn(7, Dials()) is False
-    assert llm.is_closing_turn(8, Dials()) is True
-    assert llm.is_interview_finished(8, Dials()) is False  # 8 is the sign-off itself, not past it
+    d = Dials(depth="screen")
+    last = len(llm.interview_plan(d)) - 1
+    assert (llm.is_closing_turn(last - 1, d), llm.is_closing_turn(last, d)) == (False, True)
+    assert (llm.is_interview_finished(last, d), llm.is_interview_finished(last + 1, d)) == (False, True)
+    assert llm.is_closing_turn(18, Dials()) is False  # their-questions turn, not the sign-off
+    assert llm.is_closing_turn(19, Dials()) is True
 
 
 async def test_closing_line_is_generated_but_never_asks_anything(monkeypatch):
@@ -114,11 +130,12 @@ def test_interviewer_never_invents_candidate_material():
 
     for asked in (0, 1, 5):
         assert llm.GROUNDING_PROMPT in llm.system_prompt("Software Engineer", "mid", "", asked=asked)
-    assert "Current phase: OPENING" in llm.system_prompt("Software Engineer", "mid", "", asked=0)
+    assert "Current phase: RAPPORT" in llm.system_prompt("Software Engineer", "mid", "", asked=0)
     assert llm.BACKGROUND_PROMPT in llm.system_prompt("Software Engineer", "mid", "", asked=0)
-    d = Dials(mix_chitchat=2)
-    assert "Current phase: BACKGROUND" in llm.system_prompt("Software Engineer", "mid", "", asked=3, dials=d)
-    assert "Current phase: BACKGROUND" not in llm.system_prompt("Software Engineer", "mid", "", asked=4, dials=d)
+    d = Dials(depth="full")
+    assert "Current phase: RAPPORT" in llm.system_prompt("Software Engineer", "mid", "", asked=1, dials=d)
+    assert "Current phase: BACKGROUND" in llm.system_prompt("Software Engineer", "mid", "", asked=2, dials=d)
+    assert "Current phase: BACKGROUND" not in llm.system_prompt("Software Engineer", "mid", "", asked=3, dials=d)
     assert llm.BACKGROUND_PHASE in llm.system_prompt("Software Engineer", "mid", "", asked=1, resume="CV")
 
 
@@ -131,20 +148,20 @@ def test_every_turn_binds_one_question_the_phase_and_the_scope():
     assert llm.PATH_PROMPT in llm.system_prompt("Backend Engineer", "mid", "", asked=2)  # no topic, same rules
 
 
-def test_behavioural_budget_walks_the_profile_themes_and_ops_is_level_aware():
+def test_competency_plan_walks_the_profile_themes_and_ops_is_level_aware():
     from app.models import Dials
 
-    plan = llm.interview_plan(Dials(mix_chitchat=0, mix_behavioural=4, mix_technical=0))
-    assert all(theme in phase for theme, phase in zip(llm.PROFILE_THEMES, plan[2:], strict=True))
+    plan = [p for p in llm.interview_plan(Dials(depth="full")) if p.startswith("COMPETENCY")]
+    assert [theme in phase for theme, phase in zip(llm.PROFILE_THEMES, plan, strict=True)] == [True] * len(llm.PROFILE_THEMES)
 
     # The ops question exists at every level, at the level's depth: a junior has shipped less and is
     # not asked for on-call war stories. Only the WORDING changes - main.py's closing math reads the
     # plan's length, so the level must never move it.
-    d = Dials(mix_chitchat=0, mix_behavioural=0, mix_technical=4)
+    d = Dials(depth="standard")
     junior, senior = llm.interview_plan(d, "junior"), llm.interview_plan(d, "senior")
     assert len(junior) == len(senior) == len(llm.interview_plan(d))
-    assert llm.JUNIOR_OPS_THEME in junior[4] and llm.JUNIOR_OPS_THEME not in senior[4]
-    assert llm.SENIOR_OPS_THEME in senior[4] and llm.SENIOR_OPS_THEME not in junior[4]
+    assert llm.JUNIOR_OPS_THEME in junior[12] and llm.JUNIOR_OPS_THEME not in senior[12]
+    assert llm.SENIOR_OPS_THEME in senior[12] and llm.SENIOR_OPS_THEME not in junior[12]
 
 
 def test_coverage_directive_names_the_axes_the_grader_scores():
@@ -237,7 +254,7 @@ def test_blunt_mode_reaches_the_grader_only_when_asked():
 
     assert llm.BRUTAL_GRADER_PROMPT not in llm.grader_prompt()
     assert llm.BRUTAL_GRADER_PROMPT in llm.grader_prompt(Dials(brutally_honest=True))
-    assert llm.BRUTAL_GRADER_PROMPT not in llm.grader_prompt(Dials(cynicism="skeptical", mix_technical=0))
+    assert llm.BRUTAL_GRADER_PROMPT not in llm.grader_prompt(Dials(cynicism="skeptical"))
 
 
 def test_system_prompt_keeps_the_register_conversational():
@@ -339,8 +356,8 @@ def test_evidence_cap_scales_with_answer_count_then_saturates():
     def answers(n):
         return _interview(*(f"answer {i}" for i in range(n)))
 
-    assert llm._evidence_cap(answers(1), None) == 48
-    assert llm._evidence_cap(answers(4), None) == 72
+    assert llm._evidence_cap(answers(1), None) == 56
+    assert llm._evidence_cap(answers(4), None) == 80
     assert llm._evidence_cap(answers(8), None) == 100
     assert llm._evidence_cap(answers(40), None) == 100  # no overshoot past 100
     assert llm._evidence_cap([], None) == 40
@@ -350,7 +367,7 @@ def test_evidence_cap_scales_with_answer_count_then_saturates():
 def test_evidence_cap_clamps_model_certainty():
     # The model may WANT to be certain; a one-answer transcript doesn't support it.
     loud = FeedbackSummary(scores={d: 8 for d in llm.FEEDBACK_DIMS}, verdict="v", tips=["a"], decision="hire", certainty=99)
-    assert llm._apply_evidence_cap(loud, _interview("one answer"), None).certainty == 48
+    assert llm._apply_evidence_cap(loud, _interview("one answer"), None).certainty == 56
     quiet = FeedbackSummary(scores={d: 5 for d in llm.FEEDBACK_DIMS}, verdict="v", tips=["a"], decision="lean_reject", certainty=20)
     assert llm._apply_evidence_cap(quiet, _interview(*(f"x{i}" for i in range(20))), None).certainty == 20
     certain = FeedbackSummary(scores={d: 5 for d in llm.FEEDBACK_DIMS}, verdict="v", tips=["a"], decision="reject", certainty=100)

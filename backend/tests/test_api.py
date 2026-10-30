@@ -35,13 +35,18 @@ def client(migrated_db):
 
 
 def test_interview_dials_round_trip_and_default(client):
+    from app import llm
+    from app.models import Dials
+
     c = client
-    # Defaults: neutral, human-sounding, 0 chitchat / 2 behavioural / max technical.
+    # Defaults: neutral, human-sounding, standard depth.
     r = c.post("/api/interviews", json={"role": "Dials Default"})
     assert r.status_code == 201
     d = r.json()
     assert (d["company_size"], d["cynicism"], d["brutally_honest"], d["human_mode"]) == ("any", "neutral", False, True)
-    assert (d["mix_chitchat"], d["mix_behavioural"], d["mix_technical"]) == (0, 2, 4)
+    assert d["depth"] == "standard"
+    # The arc rides on the payload, so the client renders phases instead of restating their shape.
+    assert d["plan"] == list(llm.plan_phases(Dials(depth="standard")))
     c.delete(f"/api/interviews/{d['id']}")
 
     r = c.post(
@@ -53,14 +58,12 @@ def test_interview_dials_round_trip_and_default(client):
             "cynicism": "skeptical",
             "brutally_honest": True,
             "human_mode": False,
-            "mix_chitchat": 1,
-            "mix_behavioural": 0,
-            "mix_technical": 3,
+            "depth": "full",
         },
     )
     assert r.status_code == 201
     iid = r.json()["id"]
-    expected = {"company_size": "51-200", "cynicism": "skeptical", "brutally_honest": True, "human_mode": False, "mix_chitchat": 1, "mix_behavioural": 0, "mix_technical": 3}
+    expected = {"company_size": "51-200", "cynicism": "skeptical", "brutally_honest": True, "human_mode": False, "depth": "full"}
     for payload in (r.json(), c.get(f"/api/interviews/{iid}").json(), next(i for i in c.get("/api/interviews").json() if i["id"] == iid)):
         assert {k: payload[k] for k in expected} == expected
 
@@ -75,30 +78,29 @@ def test_interview_dials_round_trip_and_default(client):
     c.delete(f"/api/interviews/{iid}")
 
 
-def test_chat_refuses_turns_after_the_question_mix_is_spent(client):
+def test_chat_refuses_turns_after_the_plan_is_spent(client):
     from app import llm
+    from app.models import Dials
 
     c = client
-    # Every budget on 0 -> the arc is the material ask + tell-me-about-yourself, so the opener, two
-    # replies and the sign-off are the whole run; the turn after that is over the plan.
-    iv = c.post("/api/interviews", json={"role": "Mix Exhausted", "mix_chitchat": 0, "mix_behavioural": 0, "mix_technical": 0}).json()
+    turns = len(llm.interview_plan(Dials(depth="screen")))
+    iv = c.post("/api/interviews", json={"role": "Plan Exhausted", "depth": "screen"}).json()
     iid = iv["id"]
     c.post(f"/api/interviews/{iid}/start")
     before = c.get("/api/usage").json()["chat_turns_used_today"]
     assert c.post(f"/api/interviews/{iid}/chat/kickoff").status_code == 200
-    for i in range(2):
+    for i in range(turns - 1):
         assert c.post(f"/api/interviews/{iid}/chat/stream", json={"interview_id": iid, "content": f"answer {i}"}).status_code == 200
-    assert c.get("/api/usage").json()["chat_turns_used_today"] == before + 3
+    assert c.get("/api/usage").json()["chat_turns_used_today"] == before + turns
 
     transcript_before = c.get(f"/api/interviews/{iid}/messages").json()
-    assert [m["role"] for m in transcript_before] == ["assistant", "user", "assistant", "user", "assistant"]
     assert llm.CLOSING_MESSAGE in transcript_before[-1]["content"]
     r = c.post(f"/api/interviews/{iid}/chat/stream", json={"interview_id": iid, "content": "one more thing"})
     assert r.status_code == 409
     assert "Press Finish" in r.json()["detail"]
     # Refused BEFORE the model call, the chat credit, and the write: an over-plan turn must not
     # cost a quota credit or leave an unanswered user turn in the transcript.
-    assert c.get("/api/usage").json()["chat_turns_used_today"] == before + 3
+    assert c.get("/api/usage").json()["chat_turns_used_today"] == before + turns
     assert c.get(f"/api/interviews/{iid}/messages").json() == transcript_before
     c.delete(f"/api/interviews/{iid}")
 
@@ -220,9 +222,8 @@ def test_interview_dials_reject_values_outside_the_vocabulary(client):
     for bad in (
         {"company_size": "1-10k"},
         {"cynicism": "harsh"},
-        {"mix_chitchat": 5},
-        {"mix_technical": -1},
-        {"mix_behavioural": 2.5},
+        {"depth": "deep"},
+        {"depth": 3},
     ):
         r = c.post("/api/interviews", json={"role": "Bad Dials", **bad})
         assert r.status_code == 422, bad
@@ -266,7 +267,7 @@ def test_interview_lifecycle_owner_scoped(client):
     r = c.get(f"/api/interviews/{iid}/feedback")
     assert r.status_code == 200
     assert r.json()["verdict"]
-    assert (r.json()["decision"], r.json()["certainty"]) == ("lean_hire", 48)
+    assert (r.json()["decision"], r.json()["certainty"]) == ("lean_hire", 40)
     assert (r.json()["accuracy"], r.json()["grade"]) == (85, "A")
     r = c.get(f"/api/interviews/{iid}/messages")
     msgs = r.json()
@@ -277,7 +278,7 @@ def test_interview_lifecycle_owner_scoped(client):
 
     r = c.get("/api/interviews")
     row = next(i for i in r.json() if i["id"] == iid)
-    assert (row["decision"], row["certainty"]) == ("lean_hire", 48)
+    assert (row["decision"], row["certainty"]) == ("lean_hire", 40)
     assert (row["accuracy"], row["grade"]) == (85, "A")
 
     r = c.post(f"/api/interviews/{iid}/feedback", json={"scores": {"clarity": 4}, "verdict": "Good", "tips": ["be concise"]})
@@ -359,7 +360,7 @@ def test_default_templates_seeded_once(client):
 
     asyncio.run(unseed())
     seeded = c.get("/api/templates").json()
-    assert [t["name"] for t in seeded] == ["The Killer", "The Griller", "The Chiller"]
+    assert [t["name"] for t in seeded] == ["Killer", "Griller", "Chiller"]
 
     killer = seeded[0]
     assert (killer["hardcore"], killer["brutally_honest"], killer["human_mode"]) == (True, True, False)
@@ -371,7 +372,7 @@ def test_default_templates_seeded_once(client):
 
     # Deleting one is permanent: the marker, not the row count, decides whether to seed again.
     assert c.delete(f"/api/templates/{killer['id']}").status_code == 204
-    assert [t["name"] for t in c.get("/api/templates").json()] == ["The Griller", "The Chiller"]
+    assert [t["name"] for t in c.get("/api/templates").json()] == ["Griller", "Chiller"]
     _wipe_templates(c)
 
 
@@ -388,9 +389,7 @@ def test_templates_round_trip_rename_and_cap(client):
         "brutally_honest": True,
         "human_mode": False,
         "hardcore": True,
-        "mix_chitchat": 1,
-        "mix_behavioural": 3,
-        "mix_technical": 4,
+        "depth": "full",
     }
     made = c.post("/api/interviews", json={k: v for k, v in body.items() if k != "name"})
     assert made.status_code == 201
@@ -403,7 +402,7 @@ def test_templates_round_trip_rename_and_cap(client):
     assert c.get("/api/templates").json()[0]["id"] == preset["id"]  # newest first
 
     bare = c.post("/api/templates", json={"name": "Bare", "role": "Any Role"}).json()
-    assert (bare["cynicism"], bare["human_mode"], bare["mix_technical"]) == ("neutral", True, 4)
+    assert (bare["cynicism"], bare["human_mode"], bare["depth"]) == ("neutral", True, "standard")
 
     r = c.put(f"/api/templates/{preset['id']}", json={**body, "name": "Renamed", "cynicism": "kind"})
     assert (r.status_code, r.json()["name"], r.json()["cynicism"]) == (200, "Renamed", "kind")
@@ -640,6 +639,8 @@ def test_resume_reaches_both_prompts_from_the_database(client, monkeypatch):
     assert "Tell me about the cluster." in c.post(f"/api/interviews/{iid}/chat/stream", json={"interview_id": iid, "content": "hi"}).text
     assert "40-node K3s cluster" in sent["interviewer"]
     assert sent["interviewer"].startswith(llm.SYSTEM_PROMPT_V1)
+    # One more answer lands in a graded phase, so the review has material to grade.
+    assert c.post(f"/api/interviews/{iid}/chat/stream", json={"interview_id": iid, "content": "I run the platform team."}).status_code == 200
 
     real_grader_prompt = llm.grader_prompt
     monkeypatch.setattr(llm, "grader_prompt", lambda dials=None, resume="", level="any": sent.setdefault("grader", real_grader_prompt(dials, resume, level)))

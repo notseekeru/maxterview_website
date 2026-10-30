@@ -11,6 +11,7 @@ Level = Literal[*levels.LEVELS]
 
 CompanySize = Literal[*dials.COMPANY_SIZES]
 Cynicism = Literal[*dials.CYNICISM]
+Depth = Literal[*dials.DEPTHS]
 
 # Hire/reject SPECTRUM, left to right. Shared by API validation, FEEDBACK_JSON_SCHEMA, DB CHECK (migration 0006) and the frontend badge. `certainty` is the separate axis: how well the transcript evidences the decision.
 DECISIONS: tuple[str, ...] = ("reject", "lean_reject", "lean_hire", "hire")
@@ -37,9 +38,7 @@ class Dials(BaseModel):
     human_mode: bool = True
     # Every answer judged as given; a FAIL_CLASSES rating ends the run on the spot. See main.chat_stream.
     hardcore: bool = False
-    mix_chitchat: int = Field(default=0, ge=0, le=dials.MIX_MAX)
-    mix_behavioural: int = Field(default=2, ge=0, le=dials.MIX_MAX)
-    mix_technical: int = Field(default=dials.MIX_MAX, ge=0, le=dials.MIX_MAX)
+    depth: Depth = "standard"
 
 
 class InterviewCreate(Dials):
@@ -75,6 +74,12 @@ class Interview(Dials):
     @property
     def grade(self) -> Grade | None:
         return rating.grade(self.accuracy, failed=self.failed_turn is not None)
+
+    # The arc this run follows, so the client renders phases instead of restating their shape.
+    @computed_field
+    @property
+    def plan(self) -> list[str]:
+        return list(dials.plan_phases(self.depth))
 
 
 class TemplateCreate(InterviewCreate):

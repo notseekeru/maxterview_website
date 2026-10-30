@@ -271,7 +271,7 @@ because it is one candidate moving through the app, and the cleanup has one owne
 deployment is many people at once, so the next architecture will give different VUs different identities, measured separately as well.
 That also changes two things: each owner's history stays small instead of growing with the whole perf window, and the cleanup has to delete a set of owners. It puts authentication back in the measured path too, since one `DEV_USER_SUB` is what makes the shared account possible.
 
-The number of turns per VU is randomized but follows the run's own plan, with a think time to simulate a real user: the chitchat, behavioural and technical mix dials set how many questions the interviewer will ask, so a VU stops at the last planned question instead of asking past it and collecting a refusal.
+The number of turns per VU is randomized but follows the run's own plan, with a think time to simulate a real user: the depth dial sets how many phases and questions the interviewer will ask, so a VU stops at the last planned question instead of asking past it and collecting a refusal.
 
 Exclusions, for different reasons.
 

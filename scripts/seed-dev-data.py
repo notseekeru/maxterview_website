@@ -285,18 +285,13 @@ def practice_when(rng: random.Random, count: int) -> list[datetime]:
 
 
 def dials(rng: random.Random) -> dict:
-    mix = [rng.randrange(_dials().MIX_MAX + 1) for _ in range(3)]
-    if not any(mix):
-        mix[rng.randrange(3)] = 2
     skeptical = rng.random() < 0.35
     return {
         "company_size": rng.choices(_dials().COMPANY_SIZES, weights=(6, 9, 11, 9, 6, 5, 4), k=1)[0],
         "cynicism": rng.choices(_dials().CYNICISM, weights=(2, 3, 6) if skeptical else (4, 5, 3), k=1)[0],
         "brutally_honest": skeptical and rng.random() < 0.55,
         "human_mode": rng.random() < 0.82,
-        "mix_chitchat": mix[0],
-        "mix_behavioural": mix[1],
-        "mix_technical": mix[2],
+        "depth": rng.choices(_dials().DEPTHS, weights=(3, 5, 2), k=1)[0],
     }
 
 
@@ -316,7 +311,10 @@ def person(c: dict) -> dict:
 
 
 def planned_questions(spec: dict) -> int:
-    return spec.get("mix_chitchat", 0) + 1 + spec.get("mix_behavioural", 2) + spec.get("mix_technical", 4)
+    from app.models import Dials
+
+    llm = app_modules()[0]
+    return len(llm.interview_plan(Dials(depth=spec.get("depth", "standard")), spec["level"]))
 
 MOVE_BANDS: tuple[tuple[float, tuple[tuple[str, int], ...]], ...] = (
     (0.90, (("brilliant", 4), ("great", 4), ("good", 2))),
@@ -346,14 +344,7 @@ def scores_for(spec: dict, classes: list[str]) -> dict:
     base = 4 + spec["strength"] * 5.5
     if spec.get("fail_at") is not None:
         base = min(base, 4.5)
-    out = {}
-    for dim in llm.FEEDBACK_DIMS:
-        if dim == "technical_depth" and not spec.get("mix_technical", 4):
-            continue
-        if dim in ("ownership", "collaboration", "growth_potential") and not spec.get("mix_behavioural", 2):
-            continue
-        out[dim] = float(min(10, max(1, round(base + rng.uniform(-1.2, 1.2), 1))))
-    return out or {"clarity": float(min(10, max(1, round(base, 1))))}
+    return {dim: float(min(10, max(1, round(base + rng.uniform(-1.2, 1.2), 1)))) for dim in llm.FEEDBACK_DIMS}
 
 
 DECISIONS_BY_GRADE = {
@@ -391,13 +382,13 @@ def build_sql(specs: list[dict], owner: str) -> str:
         turns = len(classes)
         iv_id = str(uuid.uuid4())
         stmts.append(
-            "INSERT INTO interviews (id, owner_id, role, level, topic, company_size, cynicism, brutally_honest, human_mode, hardcore, mix_chitchat, mix_behavioural, mix_technical, status, created_at, updated_at, archived_at, failed_turn, failed_class) VALUES ("
+            "INSERT INTO interviews (id, owner_id, role, level, topic, company_size, cynicism, brutally_honest, human_mode, hardcore, depth, status, created_at, updated_at, archived_at, failed_turn, failed_class) VALUES ("
             + ", ".join(
                 [
                     q_(iv_id), q_(owner), q_(spec["role"]), q_(spec["level"]), q_(spec["topic"]),
                     q_(spec.get("company_size", "any")), q_(spec.get("cynicism", "neutral")),
                     str(spec.get("brutally_honest", False)).lower(), str(spec.get("human_mode", True)).lower(), str(spec.get("hardcore", False)).lower(),
-                    str(spec.get("mix_chitchat", 0)), str(spec.get("mix_behavioural", 2)), str(spec.get("mix_technical", 4)),
+                    q_(spec.get("depth", "standard")),
                     q_(spec["status"]), q_(spec["when"].isoformat()), q_(spec["when"].isoformat()),
                     q_(spec["when"].isoformat()) if spec.get("archived") else "NULL",
                     str(failed + 1) if failed is not None else "NULL", q_(classes[failed]) if failed is not None else "NULL",
@@ -431,7 +422,8 @@ def _messages_sql(spec: dict, turns: int, classes: list[str], iv_id: str) -> str
 
 def question(spec: dict, n: int) -> str:
     role, level = spec["role"], spec["level"]
-    chitchat = ["Before we dive in - how's your week going? What are you working on at the moment?", "And whereabouts are you based? How did you get into this line of work?"]
+    counts = app_modules()[0].PLAN_COUNTS[spec.get("depth", "standard")]
+    rapport = ["Before we dive in - how's your week going? What are you working on at the moment?", "And whereabouts are you based? How did you get into this line of work?"]
     behavioural = [
         "Let's start with something you've actually been through. Tell me about a time you and a colleague disagreed about the right approach - how did it resolve, and who conceded?",
         "Tell me about a mistake that was genuinely yours. What did you change in how you work afterwards?",
@@ -444,13 +436,17 @@ def question(spec: dict, n: int) -> str:
         "Tell me about something you shipped that broke. How did you find it, and what did you change before the next rollout?",
         "Give me a design question where the obvious approach is ruled out - what would you do instead?",
     ]
-    plan = [
-        *chitchat[: spec.get("mix_chitchat", 0)],
-        "Before we begin - could you share your resume / background so I can interview you specifically on it?",
-        "Thanks. Now tell me about yourself - what you do now, and how you got here.",
-        *behavioural[: spec.get("mix_behavioural", 2)],
-        *technical[: spec.get("mix_technical", 4)],
-    ]
+    probes = (
+        "Push on that one: what was your own decision in it, and what was the outcome in numbers?",
+        "Go deeper - what would you do differently now, and what did the alternative cost you?",
+    )
+    plan = [*rapport[: counts.rapport]]
+    plan.append("Before we begin - could you share your resume, and tell me a bit about yourself: what you do now and how you got here?")
+    for i in range(counts.competency):
+        plan += [behavioural[i % len(behavioural)], probes[i % len(probes)]]
+    for i in range(counts.technical):
+        plan += [technical[i % len(technical)], probes[i % len(probes)]]
+    plan.append("That's everything I had for you. Anything you'd like to ask me about the role or the team?")
     return plan[min(n, len(plan) - 1)]
 
 

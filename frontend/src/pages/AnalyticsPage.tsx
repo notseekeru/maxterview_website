@@ -12,7 +12,7 @@ import { StateNote } from "@/components/ui/state";
 import { useAnalytics } from "@/hooks/useInterviewData";
 import type { Analytics, AnalyticsActivityWeek, AnalyticsDial, AnalyticsRun } from "@/lib/api";
 import { dimLabel, groupDims, orderDims } from "@/lib/dimensions";
-import { DECISIONS, decisionLabel, isHiring } from "@/lib/interviewOptions";
+import { DECISIONS, DEPTHS, decisionLabel, isHiring } from "@/lib/interviewOptions";
 import { gradeTone, MOVE_CLASSES, moveClassMeta } from "@/lib/moveClasses";
 import { cn } from "@/lib/utils";
 
@@ -396,7 +396,7 @@ const DIAL_TITLES: Record<string, string> = {
     level: "By target level",
     cynicism: "By interviewer stance",
     company_size: "By company size",
-    mix: "By question mix",
+    depth: "By interview depth",
     hardcore: "By hardcore mode",
     honesty: "By honesty setting",
     register: "By register",
@@ -536,7 +536,7 @@ function RunLog({ runs }: { runs: AnalyticsRun[] }) {
     );
 }
 
-const DIAL_DEFAULTS = { cynicism: "neutral", company_size: "any", brutally_honest: false, human_mode: true, hardcore: false, mix_chitchat: 0, mix_behavioural: 2, mix_technical: 4 };
+const DIAL_DEFAULTS = { cynicism: "neutral", company_size: "any", brutally_honest: false, human_mode: true, hardcore: false, depth: "standard" };
 
 function dialSummary(run: AnalyticsRun): string {
     const d = run.dials;
@@ -546,16 +546,7 @@ function dialSummary(run: AnalyticsRun): string {
     if (!d.human_mode) parts.push("corporate");
     if (d.cynicism !== DIAL_DEFAULTS.cynicism) parts.push(d.cynicism);
     if (d.company_size !== DIAL_DEFAULTS.company_size) parts.push(d.company_size);
-    if (d.mix_chitchat !== DIAL_DEFAULTS.mix_chitchat || d.mix_behavioural !== DIAL_DEFAULTS.mix_behavioural || d.mix_technical !== DIAL_DEFAULTS.mix_technical) {
-        const top = (
-            [
-                ["chitchat", d.mix_chitchat],
-                ["behavioural", d.mix_behavioural],
-                ["technical", d.mix_technical],
-            ] as const
-        ).reduce((a, b) => (b[1] > a[1] ? b : a));
-        parts.push(`${top[0]} ${top[1]}`);
-    }
+    if (d.depth !== DIAL_DEFAULTS.depth) parts.push(DEPTHS.find((x) => x.value === d.depth)?.label.toLowerCase() ?? d.depth);
     return parts.join(" · ");
 }
 

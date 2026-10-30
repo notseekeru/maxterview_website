@@ -18,6 +18,14 @@ export function DocsPage() {
             </section>
 
             <section className="space-y-3">
+                <SectionHeading title="Interview depth" />
+                <p className="text-sm leading-6 text-muted-foreground">
+                    Every run follows the same arc: rapport, background, competency, technical, your questions, then the sign-off. Depth sets how far it goes, from a short screen to a full loop. Each competency and technical question comes with a follow-up turn, so a thin answer gets probed instead of scored as
+                    evidence it never gave.
+                </p>
+            </section>
+
+            <section className="space-y-3">
                 <SectionHeading title="Plans" />
                 <p className="text-sm leading-6 text-muted-foreground">
                     Free includes unlimited interviews and {PLANS.free.turns} chat turns a day. {PLANS.premium.name} raises that to {PLANS.premium.turns} turns a day and {PLANS.premium.resumes} resume slots, one payment for {PLANS.premium.term}.

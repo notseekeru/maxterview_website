@@ -4,7 +4,7 @@ import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/componen
 import { Input } from "@/components/ui/input";
 import { Slider } from "@/components/ui/slider";
 import { apiDetail, createInterview, createTemplate, deleteTemplate, type InterviewDials, type InterviewTemplate, listResumes, listTemplates, type ResumeSummary, type TemplateInput, updateTemplate } from "@/lib/api";
-import { COMPANY_SIZES, CYNICISM, companySizeLabel, DIAL_FIELDS, LEVELS, MIX_FIELDS, MIX_MAX, mixCountLabel, ROLE_PRESETS } from "@/lib/interviewOptions";
+import { COMPANY_SIZES, CYNICISM, companySizeLabel, DEPTHS, DIAL_FIELDS, LEVELS, planSegments, planSummary, ROLE_PRESETS } from "@/lib/interviewOptions";
 import { cn } from "@/lib/utils";
 import { RowMenu } from "./RowMenu";
 
@@ -28,7 +28,7 @@ export function CreateInterviewForm({ onCreated }: Props) {
     const [brutallyHonest, setBrutallyHonest] = useState(false);
     const [humanMode, setHumanMode] = useState(true);
     const [hardcore, setHardcore] = useState(false);
-    const [mix, setMix] = useState({ mix_chitchat: 0, mix_behavioural: 2, mix_technical: MIX_MAX });
+    const [depth, setDepth] = useState(1);
     const [error, setError] = useState<string | null>(null);
     const [busy, setBusy] = useState(false);
     const [templates, setTemplates] = useState<InterviewTemplate[] | null>(null);
@@ -60,7 +60,7 @@ export function CreateInterviewForm({ onCreated }: Props) {
             brutally_honest: brutallyHonest,
             human_mode: humanMode,
             hardcore,
-            ...mix,
+            depth: DEPTHS[depth].value,
         };
     }
 
@@ -80,9 +80,7 @@ export function CreateInterviewForm({ onCreated }: Props) {
             brutally_honest: t.brutally_honest,
             human_mode: t.human_mode,
             hardcore: t.hardcore,
-            mix_chitchat: t.mix_chitchat,
-            mix_behavioural: t.mix_behavioural,
-            mix_technical: t.mix_technical,
+            depth: t.depth,
             ...patch,
         };
     }
@@ -118,7 +116,12 @@ export function CreateInterviewForm({ onCreated }: Props) {
         setBrutallyHonest(t.brutally_honest);
         setHumanMode(t.human_mode);
         setHardcore(t.hardcore);
-        setMix({ mix_chitchat: t.mix_chitchat, mix_behavioural: t.mix_behavioural, mix_technical: t.mix_technical });
+        setDepth(
+            Math.max(
+                0,
+                DEPTHS.findIndex((d) => d.value === t.depth),
+            ),
+        );
         remember(t.id);
         setError(null);
         setEditor(null);
@@ -344,21 +347,23 @@ export function CreateInterviewForm({ onCreated }: Props) {
                     </section>
 
                     <section className="space-y-3 px-5 py-4">
-                        <p className="text-sm font-medium">Question mix</p>
-                        <div className="grid gap-x-6 gap-y-4 sm:grid-cols-3">
-                            {MIX_FIELDS.map((f) => (
-                                <Dial
-                                    key={f.field}
-                                    id={f.field}
-                                    label={f.label}
-                                    value={String(mix[f.field])}
-                                    values={Array.from({ length: MIX_MAX + 1 }, (_, n) => String(n))}
-                                    labels={Array.from({ length: MIX_MAX + 1 }, (_, n) => mixCountLabel(n))}
-                                    onChange={(v) => setMix((m) => ({ ...m, [f.field]: Number(v) }))}
-                                    showRange={false}
-                                />
-                            ))}
-                        </div>
+                        <Dial
+                            id="depth"
+                            label="Depth"
+                            value={DEPTHS[depth].value}
+                            values={DEPTHS.map((d) => d.value)}
+                            labels={DEPTHS.map((d) => `${d.label} · ${d.minutes} min`)}
+                            onChange={(v) =>
+                                setDepth(
+                                    Math.max(
+                                        0,
+                                        DEPTHS.findIndex((d) => d.value === v),
+                                    ),
+                                )
+                            }
+                            showRange={false}
+                        />
+                        <p className="text-xs text-muted-foreground">{planSummary(planSegments(DEPTHS[depth].value))}</p>
                     </section>
 
                     <section className="grid gap-x-6 gap-y-4 px-5 py-4 sm:grid-cols-3">

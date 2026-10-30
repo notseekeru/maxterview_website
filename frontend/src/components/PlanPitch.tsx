@@ -19,7 +19,7 @@ export function PlanPitch({ tier }: { tier: PlanTier }) {
                     {includes.map((text) => (
                         <Item key={text} text={text} />
                     ))}
-                    {tier === "free" && <Item text="A full run with every question dial maxed" ok={false} />}
+                    {tier === "free" && <Item text={`${PLANS.premium.turns} turns a day`} ok={false} />}
                 </ul>
             </div>
         </div>

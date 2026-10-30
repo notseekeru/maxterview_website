@@ -8,7 +8,7 @@ from dataclasses import dataclass
 import httpx
 import structlog
 
-from app import dimensions, levels, rating, telemetry
+from app import dials, dimensions, levels, rating, telemetry
 from app.models import DECISIONS, ChatMessage, Dials, FeedbackSummary
 
 log = structlog.get_logger(__name__)
@@ -125,8 +125,8 @@ GROUNDING_PROMPT = (
 )
 
 BACKGROUND_PROMPT = (
-    "Background comes first: your opening turn asks for their resume, or a two-line background if they would rather type it, and the turn after it asks them to tell you about themselves."
-    " No interview question lands before both. If what they give you is vague, thin or unreadable, say plainly what it leaves unclear and name the one thing you need, then carry on with what you have."
+    "Background is a phase, not a formality: small talk first, then their resume or a two-line background, then them telling you about themselves."
+    " No interview question lands before that. If what they give you is vague, thin or unreadable, say plainly what it leaves unclear and name the one thing you need, then carry on with what you have."
 )
 
 # Email and URLs stripped from the resume copy the model reads, never from storage.
@@ -183,24 +183,22 @@ PATH_PROMPT = (
     " If they ask you something, answer in one short line and come straight back to this phase: you drive the arc, not them."
 )
 CLOSING_PHASE = (
-    "CLOSING - every question has been asked: this is your sign-off, and it is the LAST thing you say."
-    " Thank them for their time in one sentence and tell them to press the ✓ at the top right for their full feedback."
+    "CLOSING - the questions are over and this is your sign-off, the LAST thing you say."
+    " If they asked you something in their last turn, answer it in one line first, then thank them for their time and tell them to press the ✓ at the top right for their full feedback."
     " Ask NOTHING: no question, no 'anything you would like to add', no follow-up, no topic left hanging - the transcript is closed after this turn."
-    " Two sentences at most, and do not use a question mark."
+    " Three sentences at most, and do not end on a question mark."
 )
-OPENING_PHASE = (
-    "OPENING - the interview proper starts here, and it opens on their background rather than a real question."
-    " If they have already supplied a background or a resume, react to one concrete detail of it and ask ONE light question about that detail; if they have not, ask once, briefly, for their resume or a two-line background."
-    " Nothing technical or behavioural this turn - the interview proper starts after they have told you about themselves."
-)
+CANDIDATE_QUESTIONS_PHASE = "THEIR QUESTIONS - the questions are over and this turn belongs to them: invite them to ask you anything about the role, the team or how the process works, and answer in one or two honest lines, in character. Ask nothing about their experience this turn."
 BACKGROUND_PHASE = (
     "BACKGROUND - the classic opener: ask them to tell you about themselves - what they do now and how they got here, in their own words."
+    " If they have not given you a resume and stayed thin on it, ask for the resume or two lines of background in the same breath."
     " Their resume is the facts, not the answer, so ask for the account rather than re-reading it back."
-    " If what they gave you is still thin or unreadable, say in one line what is missing and ask for that instead."
     " Nothing else this turn - the first interview question comes after their answer."
 )
 INTRO_TURN = "This is your FIRST turn: open with one short line saying you will be running their mock interview today. You are the interviewer and they are the candidate - never introduce yourself as the applicant or describe the job as your own day-to-day."
-# The mix dials are QUESTION BUDGETS, not weights: the phase is a pure function of the transcript length and the interview's dials, so the arc is reproducible and testable. The sign-off is what stops an interview with every budget on 0 from asking questions forever.
+# The arc's shape is owned by app/dials.py; this module writes the prompt for each slot it names.
+PLAN_COUNTS = dials.PLAN_COUNTS
+GRADED_PHASES = dials.GRADED_PHASES
 CLOSING_MESSAGE = "Thanks - that's everything I had for you. Take a moment if you want, then hit the ✓ at the top right and you'll get your full feedback: how you communicated, the substance of your answers, your profile as a hire, and where you landed on the hire/reject spectrum."
 
 FAIL_MESSAGE = "THAT'S IT. I CALLED THAT ANSWER: {cls}. HARDCORE MODE: ONE VAGUE OR WRONG ANSWER ENDS THE RUN. NO SECOND CHANCES, NO NEXT QUESTION, NO WARM-UP. HIT THE ✓ AT THE TOP RIGHT AND READ WHAT I THOUGHT OF IT."
@@ -216,9 +214,9 @@ of plain shouting - address the candidate directly, name what that answer did wr
 of strengths and no hedge. decision is reject. tips stay normal case and stay actionable."""
 
 
-def _chitchat_phase(n: int, total: int) -> str:
+def _rapport_phase(n: int, total: int) -> str:
     return (
-        f"CHITCHAT {n} of {total} - small talk before the interview starts: react to something they said about themselves and ask ONE light, non-evaluative question"
+        f"RAPPORT {n} of {total} - small talk before the interview starts: react to something they said about themselves and ask ONE light, non-evaluative question"
         " (how their week is going, what they are working on, where they are based, how they got into this field)."
         " Do NOT ask about projects, technologies or past experience and do not start the interview proper yet - the real questions come after."
     )
@@ -241,10 +239,10 @@ SENIOR_OPS_THEME = "a production question - something they shipped that broke, h
 SUBSTANCE_LEVELS = ("mid", "senior", "staff", "principal")
 
 
-def _behavioural_phase(n: int, total: int) -> str:
+def _competency_phase(n: int, total: int) -> str:
     theme = PROFILE_THEMES[(n - 1) % len(PROFILE_THEMES)]
     ask = f"ask ONE question about {theme}" if n == 1 else f"ask ONE more past-experience question on {theme} - a theme the earlier answers have not covered"
-    return f"BEHAVIOURAL {n} of {total} - {ask}. Keep it about people and choices - no technical, tooling, architecture or troubleshooting questions yet."
+    return f"COMPETENCY {n} of {total} - {ask}. Keep it about people and choices - no technical, tooling, architecture or troubleshooting questions yet."
 
 
 def _technical_phase(n: int, total: int, level: str = "any") -> str:
@@ -253,14 +251,35 @@ def _technical_phase(n: int, total: int, level: str = "any") -> str:
     return f"TECHNICAL {n} of {total} - past-experience ground is covered: ask ONE question here - {theme}."
 
 
+def _probe_phase(kind: str, n: int, total: int) -> str:
+    return (
+        f"FOLLOW-UP on {kind.upper()} {n} of {total} - stay on the answer you just heard: if it left out the decision they made, what came of it, or the number that proves it, ask ONE follow-up that gets exactly that."
+        " If it already carried all three, ask ONE harder question about the same story - what they would do differently, what it cost, or what they traded away."
+        " One short line of your own, then the question - do not summarise what they said, and do not open a new topic."
+    )
+
+
+def _slots(dials: Dials | None = None, level: str = "any") -> tuple[tuple[str, str], ...]:
+    c = PLAN_COUNTS[(dials or Dials()).depth]
+    slots: list[tuple[str, str]] = [("rapport", _rapport_phase(n, c.rapport)) for n in range(1, c.rapport + 1)]
+    slots += [("background", BACKGROUND_PHASE)] * c.background
+    for n in range(1, c.competency + 1):
+        slots.append(("competency", _competency_phase(n, c.competency)))
+        slots.append(("competency_followup", _probe_phase("competency", n, c.competency)))
+    for n in range(1, c.technical + 1):
+        slots.append(("technical", _technical_phase(n, c.technical, level)))
+        slots.append(("technical_followup", _probe_phase("technical", n, c.technical)))
+    slots.append(("questions", CANDIDATE_QUESTIONS_PHASE))
+    slots.append(("close", CLOSING_PHASE))
+    return tuple(slots)
+
+
 def interview_plan(dials: Dials | None = None, level: str = "any") -> tuple[str, ...]:
-    d = dials or Dials()
-    plan = [_chitchat_phase(n, d.mix_chitchat) for n in range(1, d.mix_chitchat + 1)]
-    plan.append(OPENING_PHASE)
-    plan.append(BACKGROUND_PHASE)
-    plan += [_behavioural_phase(n, d.mix_behavioural) for n in range(1, d.mix_behavioural + 1)]
-    plan += [_technical_phase(n, d.mix_technical, level) for n in range(1, d.mix_technical + 1)]
-    return tuple(plan)
+    return tuple(text for _phase, text in _slots(dials, level))
+
+
+def plan_phases(dials_value: Dials | None = None) -> tuple[str, ...]:
+    return tuple(phase for phase, _text in _slots(dials_value))
 
 
 def interview_phase(asked: int, dials: Dials | None = None, level: str = "any") -> str:
@@ -269,11 +288,11 @@ def interview_phase(asked: int, dials: Dials | None = None, level: str = "any") 
 
 
 def is_closing_turn(asked: int, dials: Dials | None = None) -> bool:
-    return asked == len(interview_plan(dials))
+    return asked == len(interview_plan(dials)) - 1
 
 
 def is_interview_finished(asked: int, dials: Dials | None = None) -> bool:
-    return asked > len(interview_plan(dials))
+    return asked >= len(interview_plan(dials))
 
 
 def system_prompt(role: str, level: str, topic: str = "", asked: int = 0, dials: Dials | None = None, resume: str = "") -> str:
@@ -290,7 +309,7 @@ def system_prompt(role: str, level: str, topic: str = "", asked: int = 0, dials:
         parts.append(RESUME_BLOCK.format(text=injectable_resume(resume)))
     if d.company_size != "any":
         parts.append(f"Target employer size: {d.company_size} people. Frame scenarios, scale and process weight at that size.")
-    # Exactly one of the two branches, never both. The ask itself belongs to OPENING_PHASE.
+    # Exactly one of the two branches, never both. The ask itself belongs to BACKGROUND_PHASE.
     if resume:
         parts.append("The candidate's background is already in hand (the attached resume above). Tailor questions to it, and never ask them to share a resume.")
     else:
@@ -337,7 +356,7 @@ def _dimension_lines() -> str:
 
 GRADER_PROMPT_V1 = f"""You are maxterview's interview grader. You will be given an interview transcript between an interviewer and a candidate applying for a software role.
 
-Background: the interviewer opened by inviting the candidate to share their resume / background so it could tailor questions, and interviews went: a short bio/rapport warm-up, then behavioural questions, then role-specific technical questions.
+Background: the interviewer opened with a short rapport warm-up, then asked for their resume / background so it could tailor questions, then asked past-behaviour (competency) questions, then role-specific technical questions, then offered the candidate its own questions before signing off.
 
 Assess ONLY the candidate's answers against these dimensions, each on a 1-10 scale:
 {_dimension_lines()}
@@ -627,13 +646,13 @@ EVIDENCE_CAP_BASE, EVIDENCE_CAP_STEP = 40, 8
 
 
 def _graded_answers(history: list[ChatMessage], dials: Dials | None) -> int:
-    first_graded = (dials or Dials()).mix_chitchat + 1
+    phases = plan_phases(dials)
     asked = graded = 0
     for m in history:
         if m.role == "assistant":
             asked += 1
-        elif m.role == "user" and asked >= first_graded:
-            graded += 1
+        elif m.role == "user" and asked:
+            graded += phases[min(asked, len(phases)) - 1] in GRADED_PHASES
     return graded
 
 

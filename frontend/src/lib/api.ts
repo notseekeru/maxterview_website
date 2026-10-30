@@ -58,12 +58,15 @@ export interface Interview extends InterviewDials {
     certainty?: number | null;
     resume_id?: string | null;
     archived_at?: string | null;
+    // The arc this run follows, one entry per interviewer turn. Backend app/dials.py owns it.
+    plan: string[];
 }
 
-// Dials, mirroring backend app/models.Dials. The mix sliders are QUESTION BUDGETS, so 0 skips that kind
-// rather than silencing it.
+// Dials, mirroring backend app/models.Dials. Depth picks which of the structured interview arcs the run
+// follows; the arc itself lives in backend app/llm.py.
 export type CompanySize = "any" | "1-10" | "11-50" | "51-200" | "201-1k" | "1k-5k" | "5k+";
 export type Cynicism = "kind" | "neutral" | "skeptical";
+export type Depth = "screen" | "standard" | "full";
 
 export interface InterviewDials {
     company_size: CompanySize;
@@ -71,9 +74,7 @@ export interface InterviewDials {
     brutally_honest: boolean;
     human_mode: boolean;
     hardcore: boolean;
-    mix_chitchat: number;
-    mix_behavioural: number;
-    mix_technical: number;
+    depth: Depth;
 }
 
 interface InterviewInput extends InterviewDials {

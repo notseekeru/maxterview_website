@@ -16,6 +16,7 @@ Docs:
 
 - `PLAN.md` — binding decisions and open milestones
 - `MONETIZATION.md` — billing spec (quotas + PayMongo period top-up, shipped)
+- `docs/interview-structure.md` — the interview's phases and the research behind each one
 - `BYOK.md` — per-owner LLM provider keys (settings panel → `/settings/system`)
 - `OBSERVABILITY.md` — what telemetry ships, and what is deliberately parked
 - `VOICE.md` — voice: Cloudflare free tier, one engine, TTS + STT shipped and live in prod
