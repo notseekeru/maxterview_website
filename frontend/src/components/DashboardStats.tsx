@@ -55,13 +55,13 @@ export function DashboardStats({ loading, dims, stats, statsError }: Props) {
     return (
         <div className="space-y-8">
             <section className="space-y-4">
-                <SectionHeading title="Overview" hint="Every run you have started, archived ones included." />
+                <SectionHeading title="Overview" />
                 <StatRow dims={dims} />
                 <p className="text-sm leading-[1.75] text-muted-foreground">{readout(dims)}</p>
             </section>
 
             <section className="space-y-4">
-                <SectionHeading title="Trajectory" hint="What the reviews say about how you answer." />
+                <SectionHeading title="Trajectory" />
                 <div className="grid gap-4 lg:grid-cols-2">
                     <AccuracyTrend data={dims.accuracyTrend} />
                     <DimensionScores stats={stats} error={statsError} />
@@ -69,7 +69,7 @@ export function DashboardStats({ loading, dims, stats, statsError }: Props) {
             </section>
 
             <section className="space-y-4">
-                <SectionHeading title="Next steps" hint="Drawn from the numbers above." />
+                <SectionHeading title="Next steps" />
                 <NextSteps dims={dims} stats={stats} />
             </section>
         </div>
@@ -80,28 +80,16 @@ function StatRow({ dims }: { dims: InterviewDims }) {
     const { delta } = dims;
     return (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-            <Stat label="Interviews" value={String(dims.total)} delta={<Delta value={delta.runs} note="the 7 days before" />} spark={dims.sparks.runs} hint={`${dims.weekRuns} in the last 7 days`} />
+            <Stat label="Interviews" value={String(dims.total)} delta={<Delta value={delta.runs} note="the 7 days before" />} spark={dims.sparks.runs} />
             {/* A run can stay open forever; the count of them is the difference the finished count
                 does not show. */}
-            <Stat label="Finished" value={String(dims.completed)} delta={<Delta value={delta.finished} note="the 7 days before" />} spark={dims.sparks.finished} hint={dims.completed === dims.total ? "every run is finished" : `${dims.total - dims.completed} still open`} />
+            <Stat label="Finished" value={String(dims.completed)} delta={<Delta value={delta.finished} note="the 7 days before" />} spark={dims.sparks.finished} />
             {/* A run can be permanently unrated; say so, or the average silently covers fewer runs
                 than "Finished" claims. */}
-            <Stat
-                label="Avg accuracy"
-                value={dims.rated ? `${Math.round(dims.avgAccuracy)}%` : "n/a"}
-                delta={<Delta value={delta.accuracy} unit=" pts" note={`the ${TREND_WINDOW} rated runs before these`} />}
-                spark={dims.sparks.accuracy}
-                hint={dims.rated ? `from ${dims.rated} of ${dims.completed} finished` : "nothing rated yet"}
-            />
+            <Stat label="Avg accuracy" value={dims.rated ? `${Math.round(dims.avgAccuracy)}%` : "n/a"} delta={<Delta value={delta.accuracy} unit=" pts" note={`the ${TREND_WINDOW} rated runs before these`} />} spark={dims.sparks.accuracy} />
             {/* Hire rate is over DECIDED runs only (same denominator honesty as Avg accuracy),
                 with mean certainty because 3 of 3 at 45% is not 3 of 3 at 95%. */}
-            <Stat
-                label="Hire rate"
-                value={dims.decided === 0 ? "n/a" : `${Math.round((dims.hiring / dims.decided) * 100)}%`}
-                delta={<Delta value={delta.hire} unit=" pts" note={`the ${TREND_WINDOW} decided runs before these`} />}
-                spark={dims.sparks.hire}
-                hint={dims.decided === 0 ? "no decided runs yet" : `${dims.hiring} of ${dims.decided} decided${dims.avgCertainty === null ? "" : ` · ${dims.avgCertainty}% mean certainty`}`}
-            />
+            <Stat label="Hire rate" value={dims.decided === 0 ? "n/a" : `${Math.round((dims.hiring / dims.decided) * 100)}%`} delta={<Delta value={delta.hire} unit=" pts" note={`the ${TREND_WINDOW} decided runs before these`} />} spark={dims.sparks.hire} />
         </div>
     );
 }
@@ -215,13 +203,11 @@ function StepLink({ to, label }: { to: string; label: string }) {
 }
 
 function AccuracyTrend({ data }: { data: { label: string; accuracy: number }[] }) {
-    const hint = data.length === 0 ? "one point per rated run, oldest to newest" : `your last ${data.length} rated run${data.length === 1 ? "" : "s"}, oldest to newest`;
     return (
-        <Panel title="Accuracy trend" hint={hint} className="h-80">
+        <Panel title="Accuracy trend" className="h-80">
             {data.length === 0 ? (
                 <StateNote>Finish an interview to see the accuracy chart.</StateNote>
             ) : (
-                // h-full, not a fixed height: the card is h-80 and the hint above takes a line of it.
                 <div className="h-full">
                     <AccuracyTrendChart data={data} />
                 </div>
@@ -251,14 +237,14 @@ function DimensionScores({ stats, error }: { stats: InterviewDimensions | null; 
 
     if (data.length === 0) {
         return (
-            <Panel title="Secondary scores" hint="mean per dimension, 1-10" className="h-80">
+            <Panel title="Secondary scores" className="h-80">
                 <StateNote>{error ?? "Finish an interview with a review to see the secondary breakdown."}</StateNote>
             </Panel>
         );
     }
 
     return (
-        <Panel title="Secondary scores" hint={`mean per dimension, 1-10 · ${stats?.count ?? 0} scored run${stats?.count === 1 ? "" : "s"}`} className="h-80">
+        <Panel title="Secondary scores" className="h-80">
             <div className="flex h-full flex-col gap-1">
                 <ChartContainer config={RADAR_CONFIG} className="min-h-0 w-full grow">
                     {/* outerRadius < 100%: the ten tick labels sit outside the polygon and would clip. */}

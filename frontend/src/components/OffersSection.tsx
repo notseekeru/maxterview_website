@@ -34,18 +34,15 @@ export function OffersSection({ board }: { board: OffersAnalytics }) {
 }
 
 function OfferTiles({ board }: { board: OffersAnalytics }) {
-    const { summary, offers } = board;
-    const best = offers.find((o) => o.interview_id === summary.best_id);
-    const worst = offers.find((o) => o.interview_id === summary.worst_id);
+    const { summary } = board;
     const delta = baseDelta(board.activity);
 
     return (
         <div className="grid grid-cols-2 gap-4 lg:grid-cols-3 xl:grid-cols-6">
-            <Stat label="Offers" value={String(summary.count)} hint="one per graded run" />
+            <Stat label="Offers" value={String(summary.count)} />
             <Stat
                 label="Average base"
                 value={money(summary.avg_base)}
-                hint={`median ${money(summary.median_base)}`}
                 delta={
                     delta && (
                         <span className={cn("font-mono text-xs tabular-nums", deltaTone(delta.amount))}>
@@ -55,10 +52,10 @@ function OfferTiles({ board }: { board: OffersAnalytics }) {
                     )
                 }
             />
-            <Stat label="Lowest" value={money(summary.low_base)} hint={worst ? `${worst.title} · ${worst.tier_label.toLowerCase()}` : undefined} />
-            <Stat label="Highest" value={money(summary.high_base)} hint={best ? `${best.title} · ${best.tier_label.toLowerCase()}` : undefined} />
-            <Stat label="Average total comp" value={money(summary.avg_total)} hint={`+${money(summary.avg_equity)} equity, +${money(summary.avg_signing)} signing`} />
-            <Stat label="Benefits per offer" value={summary.avg_benefits.toFixed(1)} hint={`mean run score ${summary.avg_performance}/100`} />
+            <Stat label="Lowest" value={money(summary.low_base)} />
+            <Stat label="Highest" value={money(summary.high_base)} />
+            <Stat label="Average total comp" value={money(summary.avg_total)} />
+            <Stat label="Benefits per offer" value={summary.avg_benefits.toFixed(1)} />
         </div>
     );
 }
@@ -69,7 +66,7 @@ function OfferTrend({ board }: { board: OffersAnalytics }) {
     const points = board.activity.map((p) => ({ label: p.month.slice(2).replace("-", "/"), base: p.avg_base, offers: p.offers }));
 
     return (
-        <Panel title="Offer trend" hint={`Monthly mean base · ${board.summary.count} offer${board.summary.count === 1 ? "" : "s"}, oldest to newest`} className="h-80">
+        <Panel title="Offer trend" className="h-80">
             <ChartContainer defer config={TREND_CONFIG} className="h-60 w-full">
                 <LineChart data={points} margin={{ left: 4, right: 8, top: 8, bottom: 0 }}>
                     <CartesianGrid vertical={false} strokeDasharray="3 3" />
@@ -87,7 +84,7 @@ const BAND_CONFIG: ChartConfig = { avg_performance: { label: "Up the band", colo
 
 function BandPosition({ groups }: { groups: OfferGroup[] }) {
     return (
-        <Panel title="How far up the band" hint="Mean run score per tier. 100 is the top of that level's range." className="h-80">
+        <Panel title="How far up the band" className="h-80">
             <ChartContainer defer config={BAND_CONFIG} className="h-full w-full">
                 <BarChart data={groups} layout="vertical" margin={{ left: 4, right: 16, top: 8, bottom: 0 }}>
                     <CartesianGrid horizontal={false} strokeDasharray="3 3" />
@@ -142,10 +139,8 @@ function ByLevel({ groups }: { groups: OfferGroup[] }) {
 }
 
 function BenefitLadder({ benefits, offers }: { benefits: OfferBenefitStat[]; offers: number }) {
-    const earned = benefits.filter((b) => b.offers > 0).length;
-
     return (
-        <Panel title="Benefits earned" hint={`${earned} of ${benefits.length} rungs cleared by at least one offer, out of ${offers} offers`}>
+        <Panel title="Benefits earned">
             <div className="grid gap-x-8 gap-y-2.5 md:grid-cols-2">
                 {benefits.map((b) => (
                     <div key={b.key} className="space-y-1">

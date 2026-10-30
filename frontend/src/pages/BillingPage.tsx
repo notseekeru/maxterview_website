@@ -13,7 +13,7 @@ import { PLANS } from "@/lib/plans";
 export function BillingPage() {
     const { usage } = useUsage();
     return (
-        <Page title="Billing" description="Your plan sets your daily allowance and your resume library.">
+        <Page title="Billing">
             <div className="grid gap-4 md:grid-cols-2">
                 <PlanCard tier="free" usage={usage} />
                 <PlanCard tier="premium" usage={usage} />

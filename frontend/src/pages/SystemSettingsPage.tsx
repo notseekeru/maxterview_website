@@ -16,7 +16,7 @@ export function SystemSettingsPage() {
     const { theme, setTheme } = useTheme();
 
     return (
-        <Page title="System" description="Appearance and interview engine for your account.">
+        <Page title="System">
             <Card>
                 <CardHeader>
                     <CardTitle>Appearance</CardTitle>

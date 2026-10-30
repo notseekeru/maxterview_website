@@ -6,7 +6,6 @@ import { Input } from "@/components/ui/input";
 import { StateNote } from "@/components/ui/state";
 import { Textarea } from "@/components/ui/textarea";
 import { apiDetail, createResume, deleteResume, extractResume, getResume, getUsage, httpStatus, listResumes, type Resume as ResumeRecord, type ResumeSummary, updateResume } from "@/lib/api";
-import { PLANS } from "@/lib/plans";
 import { cn } from "@/lib/utils";
 
 interface Draft {
@@ -191,7 +190,7 @@ export function ResumePage() {
     const dirty = draft.id === null ? !!draft.name.trim() || !!draft.text.trim() : !!active && (active.name !== draft.name || active.chars !== draft.text.length);
 
     return (
-        <Page title="Resume" description="The text the interviewer reads. One per role is usually enough." wide>
+        <Page title="Resume" wide>
             <div className="space-y-4">
                 {(!editing || showDrop) && (
                     <label
@@ -246,7 +245,7 @@ export function ResumePage() {
 
                 {rows.length > 0 && (
                     <section className="space-y-3">
-                        <SectionHeading title="Your resumes" hint={limit === null ? undefined : `${rows.length} of ${limit}${limit === 1 ? ` · ${PLANS.premium.name} keeps more` : ""}`} />
+                        <SectionHeading title="Your resumes" />
                         <div className="flex flex-wrap items-center gap-1.5">
                             {rows.map((r) => (
                                 <button key={r.id} type="button" onClick={() => void open(r.id)} className={cn("rounded-full border px-3 py-1 text-xs transition-colors", draft.id === r.id ? "border-primary bg-primary/10 font-medium text-primary" : "border-input text-muted-foreground hover:bg-accent")}>

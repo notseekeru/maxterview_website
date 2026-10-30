@@ -19,7 +19,7 @@ export function AccountSettingsPage() {
     const today = usage ? turnsToday(usage) : null;
 
     return (
-        <Page title="Account" description="Your sign-in details and subscription.">
+        <Page title="Account">
             <Card>
                 <CardHeader className="flex-row items-center justify-between space-y-0">
                     <div>

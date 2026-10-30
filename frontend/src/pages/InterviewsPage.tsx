@@ -32,7 +32,7 @@ export function InterviewsPage() {
     }
 
     return (
-        <Page title="Interviews" description="Every run you have started: open one, review it again, or start the next." wide>
+        <Page title="Interviews" wide>
             <section id="new-interview" className="scroll-mt-20">
                 <CreateInterviewForm onCreated={onCreated} />
             </section>

@@ -72,17 +72,17 @@ export function companySizeLabel(size: string): string {
     return `${size} people`;
 }
 
-export const CYNICISM: { value: Cynicism; label: string; hint: string }[] = [
-    { value: "kind", label: "Kind", hint: "gives you the benefit of the doubt" },
-    { value: "neutral", label: "Neutral", hint: "neither talks you up nor tears you down" },
-    { value: "skeptical", label: "Skeptical", hint: "assumes a polished answer hides an unproven one" },
+export const CYNICISM: { value: Cynicism; label: string }[] = [
+    { value: "kind", label: "Kind" },
+    { value: "neutral", label: "Neutral" },
+    { value: "skeptical", label: "Skeptical" },
 ];
 
 export const MIX_MAX = 4;
 export const MIX_FIELDS = [
-    { field: "mix_chitchat", label: "Chitchat", hint: "warm-up before the real questions" },
-    { field: "mix_behavioural", label: "Behavioural", hint: "past-experience questions" },
-    { field: "mix_technical", label: "Technical", hint: "role-specific questions" },
+    { field: "mix_chitchat", label: "Chitchat" },
+    { field: "mix_behavioural", label: "Behavioural" },
+    { field: "mix_technical", label: "Technical" },
 ] as const;
 
 export const DIAL_FIELDS = ["company_size", "cynicism", "brutally_honest", "human_mode", "hardcore", "mix_chitchat", "mix_behavioural", "mix_technical"] as const;

@@ -332,17 +332,9 @@ export function CreateInterviewForm({ onCreated }: Props) {
 
                     <section className="space-y-4 px-5 py-4">
                         <div className="grid gap-x-6 gap-y-4 sm:grid-cols-3">
-                            <Dial id="level" label="Level" value={level} values={LEVELS.map((l) => l.value)} labels={LEVELS.map((l) => l.label)} onChange={setLevel} hint={level === "any" ? "AI adapts to you" : undefined} />
-                            <Dial
-                                id="company_size"
-                                label="Company size"
-                                value={COMPANY_SIZES[companySize].value}
-                                values={COMPANY_SIZES.map((c) => c.value)}
-                                labels={COMPANY_SIZES.map((c) => companySizeLabel(c.value))}
-                                onChange={(v) => setCompanySize(COMPANY_SIZES.findIndex((c) => c.value === v))}
-                                hint={companySize === 0 ? "scales the scenarios" : undefined}
-                            />
-                            <Dial id="cynicism" label="Cynicism" value={CYNICISM[cynicism].value} values={CYNICISM.map((c) => c.value)} labels={CYNICISM.map((c) => c.label)} onChange={(v) => setCynicism(CYNICISM.findIndex((c) => c.value === v))} hint={CYNICISM[cynicism].hint} />
+                            <Dial id="level" label="Level" value={level} values={LEVELS.map((l) => l.value)} labels={LEVELS.map((l) => l.label)} onChange={setLevel} />
+                            <Dial id="company_size" label="Company size" value={COMPANY_SIZES[companySize].value} values={COMPANY_SIZES.map((c) => c.value)} labels={COMPANY_SIZES.map((c) => companySizeLabel(c.value))} onChange={(v) => setCompanySize(COMPANY_SIZES.findIndex((c) => c.value === v))} />
+                            <Dial id="cynicism" label="Cynicism" value={CYNICISM[cynicism].value} values={CYNICISM.map((c) => c.value)} labels={CYNICISM.map((c) => c.label)} onChange={(v) => setCynicism(CYNICISM.findIndex((c) => c.value === v))} />
                         </div>
                         <div className="space-y-2">
                             <label htmlFor="topic" className="block text-sm font-medium">
@@ -364,7 +356,6 @@ export function CreateInterviewForm({ onCreated }: Props) {
                                     values={Array.from({ length: MIX_MAX + 1 }, (_, n) => String(n))}
                                     labels={Array.from({ length: MIX_MAX + 1 }, (_, n) => mixCountLabel(n))}
                                     onChange={(v) => setMix((m) => ({ ...m, [f.field]: Number(v) }))}
-                                    hint={f.hint}
                                     showRange={false}
                                 />
                             ))}
@@ -372,9 +363,9 @@ export function CreateInterviewForm({ onCreated }: Props) {
                     </section>
 
                     <section className="grid gap-x-6 gap-y-4 px-5 py-4 sm:grid-cols-3">
-                        <Toggle id="brutally_honest" checked={brutallyHonest} onChange={setBrutallyHonest} label="Brutally honest" hint="response with no sugarcoating" />
-                        <Toggle id="hardcore" checked={hardcore} onChange={setHardcore} label="Hardcore" hint="one vague or wrong answer ends the run on the spot." />
-                        <Toggle id="human_mode" checked={humanMode} onChange={setHumanMode} label="Human mode" hint="contractions and plain words, no AI or corporate phrasing" />
+                        <Toggle id="brutally_honest" checked={brutallyHonest} onChange={setBrutallyHonest} label="Brutally honest" />
+                        <Toggle id="hardcore" checked={hardcore} onChange={setHardcore} label="Hardcore" />
+                        <Toggle id="human_mode" checked={humanMode} onChange={setHumanMode} label="Human mode" />
                     </section>
                 </CardContent>
 
@@ -393,7 +384,7 @@ export function CreateInterviewForm({ onCreated }: Props) {
     );
 }
 
-function Dial({ id, label, value, values, labels, onChange, hint, showRange = true }: { id: string; label: string; value: string; values: string[]; labels: string[]; onChange: (value: string) => void; hint?: string; showRange?: boolean }) {
+function Dial({ id, label, value, values, labels, onChange, showRange = true }: { id: string; label: string; value: string; values: string[]; labels: string[]; onChange: (value: string) => void; showRange?: boolean }) {
     const index = Math.max(0, values.indexOf(value));
     return (
         <div className="space-y-1.5">
@@ -410,19 +401,15 @@ function Dial({ id, label, value, values, labels, onChange, hint, showRange = tr
                     <span>{labels[labels.length - 1]}</span>
                 </div>
             )}
-            {hint && <p className="text-xs leading-snug text-muted-foreground">{hint}</p>}
         </div>
     );
 }
 
-function Toggle({ id, checked, onChange, label, hint }: { id: string; checked: boolean; onChange: (v: boolean) => void; label: string; hint: string }) {
+function Toggle({ id, checked, onChange, label }: { id: string; checked: boolean; onChange: (v: boolean) => void; label: string }) {
     return (
         <label htmlFor={id} className="flex cursor-pointer items-start gap-2 text-sm">
             <input id={id} type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} className="mt-0.5 h-4 w-4 shrink-0 accent-primary" />
-            <span className="space-y-0.5">
-                <span className="block font-medium">{label}</span>
-                <span className="block text-xs leading-snug text-muted-foreground">{hint}</span>
-            </span>
+            <span className="font-medium">{label}</span>
         </label>
     );
 }

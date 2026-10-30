@@ -6,7 +6,7 @@ import { DashboardStats } from "@/components/DashboardStats";
 import { Page } from "@/components/PagePrimitives";
 import { UpgradePendingNotice } from "@/components/UpgradePendingNotice";
 import { Button } from "@/components/ui/button";
-import { type InterviewDims, useDashboard } from "@/hooks/useInterviewData";
+import { useDashboard } from "@/hooks/useInterviewData";
 import { clerkEnabled } from "@/lib/config";
 
 export function AppHome() {
@@ -14,7 +14,7 @@ export function AppHome() {
     const { loading, dims, stats, error } = useDashboard();
 
     return (
-        <Page wide title="Dashboard" heading={<Greeting />} description={statusLine(dims)} actions={<QuickActions />}>
+        <Page wide title="Dashboard" heading={<Greeting />} actions={<QuickActions />}>
             <UpgradePendingNotice />
 
             <DashboardStats loading={loading} dims={dims} stats={stats} statsError={error} />
@@ -60,12 +60,4 @@ function QuickActions() {
             </Button>
         </>
     );
-}
-
-function statusLine(dims: InterviewDims): string {
-    if (dims.total === 0) return "No runs yet. Answer a few questions and the review scores every one of them.";
-    const parts = [dims.weekRuns === 0 ? "no runs in the last 7 days" : `${dims.weekRuns} run${dims.weekRuns === 1 ? "" : "s"} in the last 7 days`];
-    if (dims.rated > 0) parts.push(`${Math.round(dims.avgAccuracy)}% average accuracy`);
-    if (dims.streak > 1) parts.push(`${dims.streak}-day streak`);
-    return parts.join(" · ");
 }

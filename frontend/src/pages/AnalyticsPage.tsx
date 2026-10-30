@@ -17,22 +17,21 @@ import { gradeTone, MOVE_CLASSES, moveClassMeta } from "@/lib/moveClasses";
 import { cn } from "@/lib/utils";
 
 const TITLE = "Analytics";
-const DESCRIPTION = "Every run you have started, and what the numbers say about them.";
 
 const SECTIONS = {
-    offers: { title: "Offers", hint: "The simulated letter each graded run earned, and what they add up to." },
-    practice: { title: "Practice", hint: "Accuracy, answer quality and volume across the whole history." },
-    decisions: { title: "Decisions & settings", hint: "How the hiring calls and the dials you chose track your outcomes." },
-    runs: { title: "Run log", hint: "Every run, unfinished and archived included." },
+    offers: { title: "Offers" },
+    practice: { title: "Practice" },
+    decisions: { title: "Decisions & settings" },
+    runs: { title: "Run log" },
 } as const;
 
 type SectionId = keyof typeof SECTIONS;
 
 function Section({ id, children }: { id: SectionId; children: ReactNode }) {
-    const { title, hint } = SECTIONS[id];
+    const { title } = SECTIONS[id];
     return (
         <section id={id} className="scroll-mt-20 space-y-4">
-            <SectionHeading title={title} hint={hint} />
+            <SectionHeading title={title} />
             {children}
         </section>
     );
@@ -55,7 +54,7 @@ export function AnalyticsPage() {
 
     if (loading) {
         return (
-            <Page wide title={TITLE} description={DESCRIPTION}>
+            <Page wide title={TITLE}>
                 <div className="space-y-4" aria-busy="true">
                     <div className="grid grid-cols-2 gap-4 lg:grid-cols-5">
                         {[0, 1, 2, 3, 4].map((i) => (
@@ -80,7 +79,7 @@ export function AnalyticsPage() {
     }
 
     return (
-        <Page wide title={TITLE} description={DESCRIPTION}>
+        <Page wide title={TITLE}>
             <JumpStrip />
             <SummaryRow data={data} />
             <Section id="offers">
@@ -107,7 +106,7 @@ export function AnalyticsPage() {
 
 function Notice({ children }: { children: ReactNode }) {
     return (
-        <Page wide title={TITLE} description={DESCRIPTION}>
+        <Page wide title={TITLE}>
             <Card>
                 <CardContent className="pt-6">
                     <StateNote>{children}</StateNote>
@@ -122,15 +121,14 @@ function SummaryRow({ data }: { data: Analytics }) {
     const avg = scored.length === 0 ? null : scored.reduce((a, b) => a + b, 0) / scored.length;
     const decided = data.runs.filter((r) => r.decision);
     const hiring = decided.filter((r) => isHiring(r.decision));
-    const classed = Object.values(data.move_classes).reduce((a, b) => a + b, 0);
 
     return (
         <div className="grid grid-cols-2 gap-4 lg:grid-cols-5">
-            <Stat label="Interviews" value={String(data.runs.length)} hint={`${data.runs.filter((r) => r.status === "completed").length} finished · ${data.runs.filter((r) => r.status !== "completed").length} open`} />
-            <Stat label="Avg accuracy" value={avg === null ? "n/a" : `${Math.round(avg)}%`} hint={scored.length === 0 ? "nothing scored yet" : `across ${scored.length} scored runs`} />
-            <Stat label="Hire rate" value={decided.length === 0 ? "n/a" : `${Math.round((hiring.length / decided.length) * 100)}%`} hint={decided.length === 0 ? "no decided runs" : `${hiring.length} of ${decided.length} decided`} />
-            <Stat label="Answers given" value={String(data.total_turns)} hint={classed === 0 ? "none classed yet" : `${classed} classed by the reviewer`} />
-            <Stat label="Streak" value={`${data.streak_days}d`} hint={data.hardcore_failures > 0 ? `${data.hardcore_failures} hardcore failure${data.hardcore_failures === 1 ? "" : "s"}` : "consecutive practice days"} />
+            <Stat label="Interviews" value={String(data.runs.length)} />
+            <Stat label="Avg accuracy" value={avg === null ? "n/a" : `${Math.round(avg)}%`} />
+            <Stat label="Hire rate" value={decided.length === 0 ? "n/a" : `${Math.round((hiring.length / decided.length) * 100)}%`} />
+            <Stat label="Answers given" value={String(data.total_turns)} />
+            <Stat label="Streak" value={`${data.streak_days}d`} />
         </div>
     );
 }
@@ -169,12 +167,6 @@ function perDay<K extends string>(runs: AnalyticsRun[], series: (run: AnalyticsR
         });
 }
 
-function describeDays(data: DayPoint[], unit: string): string {
-    if (data.length === 0) return `no ${unit}s yet`;
-    const runs = data.reduce((a, d) => a + d.count, 0);
-    return `${runs} ${unit}${runs === 1 ? "" : "s"} over ${data.length} day${data.length === 1 ? "" : "s"}, oldest to newest`;
-}
-
 const dayLabel = (label: unknown, payload: readonly { payload?: DayPoint }[]) => {
     const n = payload?.[0]?.payload?.count;
     return n ? `${label} · ${n} run${n === 1 ? "" : "s"}` : String(label);
@@ -187,7 +179,7 @@ function AccuracyHistory({ runs }: { runs: AnalyticsRun[] }) {
     );
 
     return (
-        <Panel title="Accuracy over time" hint={describeDays(data, "scored run")} className="h-80">
+        <Panel title="Accuracy over time" className="h-80">
             {data.length === 0 ? <StateNote>Nothing has been scored yet.</StateNote> : <div className="h-60">{<AccuracyTrendChart defer data={data} />}</div>}
         </Panel>
     );
@@ -203,7 +195,7 @@ function ActivityWeekly({ weeks }: { weeks: AnalyticsActivityWeek[] }) {
     const runs = data.reduce((a, d) => a + d.started, 0);
 
     return (
-        <Panel title="Practice activity" hint={runs === 0 ? "no runs in the last 12 weeks" : `${runs} run${runs === 1 ? "" : "s"} started in the last 12 weeks, by ISO week`} className="h-72">
+        <Panel title="Practice activity" className="h-72">
             {runs === 0 ? (
                 <StateNote>No interviews in the last 12 weeks.</StateNote>
             ) : (
@@ -231,7 +223,7 @@ function MoveBreakdown({ counts }: { counts: Analytics["move_classes"] }) {
     const total = rows.reduce((a, r) => a + r.count, 0);
 
     return (
-        <Panel title="Answer quality" hint={total === 0 ? "no turns classed yet" : `${total} annotated answer${total === 1 ? "" : "s"}`} className="h-80">
+        <Panel title="Answer quality" className="h-80">
             {total === 0 ? (
                 <StateNote>Finish an interview to see how your answers were classed.</StateNote>
             ) : (
@@ -276,7 +268,7 @@ function DimensionHistory({ runs }: { runs: AnalyticsRun[] }) {
     }
 
     return (
-        <Panel title="Dimension scores over time" hint={`Daily mean of each axis · ${describeDays(data, "scored run")}`}>
+        <Panel title="Dimension scores over time">
             <div className="grid gap-4 lg:grid-cols-[2fr_1fr]">
                 <ChartContainer defer config={DIM_CONFIG} className="h-full min-h-64 w-full">
                     <LineChart data={data} margin={{ left: 4, right: 8, top: 8, bottom: 0 }}>
@@ -334,7 +326,7 @@ function DecisionHistory({ runs }: { runs: AnalyticsRun[] }) {
     const data = perDay(decided, (r) => ({ certainty: r.certainty ?? null, lean: DECISION_LEAN[r.decision as string] ?? null }));
 
     return (
-        <Panel title="Hiring decisions" hint={`Daily mean · ${describeDays(data, "decided run")}`}>
+        <Panel title="Hiring decisions">
             {decided.length === 0 ? (
                 <StateNote>Once runs come back with a hire/reject call, the lean and its certainty plot here.</StateNote>
             ) : (
@@ -421,7 +413,7 @@ function DialBreakdown({ dials }: { dials: Analytics["dials"] }) {
         );
     }
     return (
-        <Panel title="How your settings track outcomes" hint="Per-value averages over completed runs. Accuracy covers the scored runs; hire rate only the decided ones.">
+        <Panel title="How your settings track outcomes">
             <div className="columns-1 gap-x-8 md:columns-2 xl:columns-3">
                 {groups.map(([key, rows]) => (
                     <div key={key} className="mb-6 break-inside-avoid space-y-2">
@@ -497,7 +489,7 @@ function RunLog({ runs }: { runs: AnalyticsRun[] }) {
     );
 
     return (
-        <Panel title="All runs" hint={`${runs.length} run${runs.length === 1 ? "" : "s"}, newest first. Click a heading to sort.`}>
+        <Panel title="All runs">
             <div className="-mx-3 overflow-x-auto">
                 <table className="w-full min-w-[44rem] border-collapse text-sm">
                     <thead className="text-xs text-muted-foreground">

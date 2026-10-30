@@ -3,7 +3,7 @@ import { PLANS } from "@/lib/plans";
 
 export function DocsPage() {
     return (
-        <Page title="Docs" description="Guide and product notes.">
+        <Page title="Docs">
             <section className="space-y-3">
                 <SectionHeading title="Where things live" />
                 <ul className="list-disc space-y-1.5 pl-5 text-sm leading-6 text-muted-foreground">
