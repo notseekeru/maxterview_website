@@ -16,17 +16,14 @@ prod backend writes. There is no cluster access from this workspace; this is the
 - Project `purple-base-79730983` (`neon_maxterview_website`, aws-ap-southeast-1, PG 18), org
   `org-spring-wind-56300230` ("Stephen"). Default branch `production`, db `neondb`, role
   `neondb_owner`.
-- The Neon MCP is wired in `.pi/mcp.json`: `https://mcp.neon.tech/mcp`, bearer header built from
-  repo `.env` `NEON_API_KEY`. It serves `run_sql` alongside project, branch, role and snapshot
+- The Neon MCP is wired in `.pi/mcp.json` as a bare `https://mcp.neon.tech/mcp`, so pi uses OAuth:
+  `pi mcp login neon` once, and pi stores and refreshes the token in `~/.pi/agent/mcp-auth.json`. No
+  key lives in the repo or in `.env`. It serves `run_sql` alongside project, branch, role and snapshot
   admin tools, `delete_project` and `reset_from_parent` among them. Pi gates none of them:
   `approveTools` is not a pi config key and does nothing.
 - Neon's tool arguments are snake_case (`project_id`, not `projectId`).
 - The raw API v2 (`console.neon.tech/api/v2/projects`) 400s without `org_id`, and there is no
   orgs endpoint, so drive the MCP.
-- One-command kit: `.pi/skills/neon-operator/scripts/neon-sql.py '<SQL>'` from repo root. It
-  carries its own MCP handshake (`initialize`, `notifications/initialized`, `tools/call run_sql`),
-  reads the key from `.env` itself, and refuses non-SELECT unless `--allow-write`. Use it when the
-  MCP tools are not loaded in the session.
 
 ## Schema source of truth
 
@@ -52,9 +49,9 @@ SELECT scores, verdict, tips, decision, certainty, accuracy FROM feedback WHERE 
 
 ## Rules
 
-- SELECT-only by default. Any write goes through the human first; the script's guard is the only
-  enforcement, since the MCP has none.
-- Never print `NEON_API_KEY`; presence check only (`grep -c`).
+- SELECT-only by default. Any write goes through the human first; the MCP has no guard of its own,
+  so this rule is the enforcement.
+- Never print the OAuth token or a connection string; presence checks only.
 - Transcripts are private user data: never commit them, log them, or paste them into docs.
 - Feedback audits: diff the verdict against the transcript. A claim about an answer that does
   not exist in `messages` (or contradicts it) is a grader failure, not a user failure.

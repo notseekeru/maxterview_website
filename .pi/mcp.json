@@ -10,10 +10,7 @@
       ]
     },
     "neon": {
-      "url": "https://mcp.neon.tech/mcp",
-      "headers": {
-        "Authorization": "!sed -n 's|^NEON_API_KEY=||p' .env | head -1 | xargs -I{} echo \"Bearer {}\""
-      }
+      "url": "https://mcp.neon.tech/mcp"
     },
     "grafana": {
       "command": "docker",
