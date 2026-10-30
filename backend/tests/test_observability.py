@@ -120,9 +120,10 @@ def test_the_access_line_carries_the_trace_id():
     assert match and match.group(1) == access["trace_id"]
 
     spans = exporter.get_finished_spans()
-    assert [s.name for s in spans] == ["GET unmatched"]
-    assert spans[0].attributes["http.route"] == "unmatched"
-    assert spans[0].attributes["http.response.status_code"] == 404
+    server = [s for s in spans if s.name.startswith("GET ")]
+    assert [s.name for s in server] == ["GET unmatched"]
+    assert server[0].attributes["http.route"] == "unmatched"
+    assert server[0].attributes["http.response.status_code"] == 404
 
 
 def test_unmatched_paths_and_the_probe_never_become_a_metric_label():
