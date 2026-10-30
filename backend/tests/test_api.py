@@ -1144,9 +1144,13 @@ def test_pro_chat_turn_runs_the_pro_model_but_not_the_grader(client, monkeypatch
     async def _premium(_user):
         return "premium"
 
+    async def _room(_owner, _limit):
+        return True
+
     monkeypatch.setattr(llm, "stream_chat", _capture_stream)
     monkeypatch.setattr(llm, "generate_feedback", _capture_feedback)
     monkeypatch.setattr(billing, "resolve_tier", _premium)
+    monkeypatch.setattr(billing, "spend_chat_turn", _room)
 
     monkeypatch.setenv("BYOK_ENCRYPTION_KEY", Fernet.generate_key().decode())
     byok._fernet.cache_clear()
@@ -1160,11 +1164,22 @@ def test_pro_chat_turn_runs_the_pro_model_but_not_the_grader(client, monkeypatch
         client.post(f"/api/interviews/{iid}/finish")
         assert seen["grader"] == llm.SYSTEM_CONFIG.model
 
+        async def _free(_user):
+            return "free"
+
+        monkeypatch.setattr(billing, "resolve_tier", _free)
+        iid_free = client.post("/api/interviews", json={"role": "Free model"}).json()["id"]
+        client.post(f"/api/interviews/{iid_free}/start")
+        client.post(f"/api/interviews/{iid_free}/chat/kickoff")
+        assert seen["chat"] == llm.SYSTEM_CONFIG.model
+        client.delete(f"/api/interviews/{iid_free}")
+
         client.put("/api/settings/llm", json={"base_url": "https://api.example.com/v1", "model": "byok-unit-test", "api_key": "sk-unit-test-key-abcd"})
         iid_byok = client.post("/api/interviews", json={"role": "Pro BYOK model"}).json()["id"]
         client.post(f"/api/interviews/{iid_byok}/start")
         client.post(f"/api/interviews/{iid_byok}/chat/kickoff")
         assert seen["chat"] == "byok-unit-test"
+
     finally:
         client.delete("/api/settings/llm")
         byok._fernet.cache_clear()
