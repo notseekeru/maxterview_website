@@ -34,7 +34,7 @@ export function InterviewsPage() {
     return (
         <Page title="Interviews" description="Every run you have started: open one, review it again, or start the next." wide>
             <section id="new-interview" className="scroll-mt-20">
-                <CreateInterviewForm onCreated={onCreated} variant="featured" />
+                <CreateInterviewForm onCreated={onCreated} />
             </section>
 
             <InterviewList interviews={interviews} loading={loading} error={error} view={view} onViewChange={setView} hasMore={hasMore} onLoadMore={() => void loadMore()} onRefresh={() => void refresh()} onOpen={(id) => navigate(`/interviews/${id}`)} onDelete={onDelete} onArchive={onArchive} onRescore={onRescore} />

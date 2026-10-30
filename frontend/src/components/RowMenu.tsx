@@ -11,7 +11,7 @@ interface RowMenuItem {
 // AI HERE: no focus trap and no arrow-key navigation - it is a two-to-three item menu on a list row,
 // and the items are ordinary buttons, so Tab reaches them. Upgrade path: a real menu primitive if
 // the item count grows.
-export function RowMenu({ label, items }: { label: string; items: RowMenuItem[] }) {
+export function RowMenu({ label, items, compact }: { label: string; items: RowMenuItem[]; compact?: boolean }) {
     const ref = useRef<HTMLDetailsElement>(null);
     const close = () => {
         if (ref.current) ref.current.open = false;
@@ -37,7 +37,7 @@ export function RowMenu({ label, items }: { label: string; items: RowMenuItem[] 
 
     return (
         <details ref={ref} className="relative">
-            <summary aria-label={label} title={label} className="flex h-11 w-11 cursor-pointer list-none items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground [&::-webkit-details-marker]:hidden">
+            <summary aria-label={label} title={label} className={cn("flex cursor-pointer list-none items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground [&::-webkit-details-marker]:hidden", compact ? "h-6 w-6" : "h-11 w-11")}>
                 <span aria-hidden className="text-base leading-none">
                     ⋮
                 </span>

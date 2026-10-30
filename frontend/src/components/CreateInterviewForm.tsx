@@ -9,24 +9,22 @@ import { cn } from "@/lib/utils";
 import { RowMenu } from "./RowMenu";
 
 const LAST_TEMPLATE_KEY = "maxterview:last-template";
-
-type Variant = "compact" | "featured";
+const VISIBLE_ROLES = 8;
 
 interface Props {
     onCreated: (id: string) => void;
-    variant?: Variant;
-    className?: string;
 }
 
-export function CreateInterviewForm({ onCreated, variant = "compact", className }: Props) {
-    const featured = variant === "featured";
+function chipClass(on: boolean): string {
+    return cn("h-8 rounded-md border px-2.5 text-xs transition-colors", on ? "border-primary bg-primary/10 font-medium text-primary" : "border-input text-muted-foreground hover:bg-accent hover:text-foreground");
+}
+
+export function CreateInterviewForm({ onCreated }: Props) {
     const [role, setRole] = useState("");
     const [level, setLevel] = useState("any");
     const [topic, setTopic] = useState("");
-    // Dials. Index-based state, because the sliders ARE the vocabulary order (see
-    // interviewOptions): moving a slider right must mean "more senior / bigger / harsher".
     const [companySize, setCompanySize] = useState(0);
-    const [cynicism, setCynicism] = useState(1); // neutral
+    const [cynicism, setCynicism] = useState(1);
     const [brutallyHonest, setBrutallyHonest] = useState(false);
     const [humanMode, setHumanMode] = useState(true);
     const [hardcore, setHardcore] = useState(false);
@@ -35,8 +33,6 @@ export function CreateInterviewForm({ onCreated, variant = "compact", className 
     const [busy, setBusy] = useState(false);
     const [templates, setTemplates] = useState<InterviewTemplate[] | null>(null);
     const [resumes, setResumes] = useState<ResumeSummary[]>([]);
-    // null = no resume attached. This is the create-form's bool: it always names WHICH resume, because
-    // an owner with two CVs asking for "my resume" is a question the server cannot answer.
     const [resumeId, setResumeId] = useState<string | null>(null);
     const [lastUsedId, setLastUsedId] = useState<string | null>(() => localStorage.getItem(LAST_TEMPLATE_KEY));
     const [editor, setEditor] = useState<{ mode: "save" } | { mode: "rename"; id: string } | null>(null);
@@ -143,8 +139,6 @@ export function CreateInterviewForm({ onCreated, variant = "compact", className 
     }
 
     async function createPreset(name: string): Promise<boolean> {
-        // A preset is a create body, so a required field is only caught here: the browser's `required`
-        // guards the real submit only. Name the field, or the 422 reads as "could not save".
         if (!role.trim()) {
             setTemplateError("Pick a role or type one first: a preset has to be replayable.");
             return false;
@@ -195,32 +189,37 @@ export function CreateInterviewForm({ onCreated, variant = "compact", className 
             const interview = await createInterview(fieldsFromForm());
             onCreated(interview.id);
         } catch {
-            // POST /interviews has no quota gate: the two 402s are the resume cap
-            // and the daily chat-turn cap, so a failure here is the backend, not the plan.
             setError("Failed to create interview. Is the backend running?");
             setBusy(false);
         }
     }
 
+    const hiddenRoles = ROLE_PRESETS.length - VISIBLE_ROLES;
+
     return (
-        <Card className={cn(featured ? "w-full" : "w-full max-w-lg", className)}>
+        <Card className="w-full overflow-hidden">
             <form onSubmit={submit}>
-                <CardHeader>
-                    <CardTitle>New interview</CardTitle>
+                <CardHeader className="border-b py-4">
+                    <CardTitle className="text-lg">New interview</CardTitle>
                 </CardHeader>
-                <CardContent className={featured ? "grid gap-x-4 gap-y-4 sm:grid-cols-2" : "space-y-4"}>
+
+                <CardContent className="divide-y p-0">
                     {templates && (
-                        <div className={cn("space-y-1.5", featured && "sm:col-span-2")}>
-                            <span className="text-sm font-medium leading-none">Presets</span>
+                        <section className="space-y-2 px-5 py-4">
+                            <p className="text-sm font-medium">Presets</p>
                             <div className="flex flex-wrap items-center gap-1.5">
                                 {templates.map((t) => {
                                     const applied = t.id === lastUsedId && isApplied(t);
                                     return (
-                                        <div key={t.id} className={cn("flex items-center rounded-full border text-xs transition-colors", applied ? "border-primary bg-primary/10 text-primary" : "border-input text-muted-foreground hover:bg-accent", !applied && t.id === lastUsedId && "border-dashed")}>
+                                        <div
+                                            key={t.id}
+                                            className={cn("flex h-8 items-center rounded-md border text-xs transition-colors", applied ? "border-primary bg-primary/10 text-primary" : "border-input text-muted-foreground hover:bg-accent hover:text-foreground", !applied && t.id === lastUsedId && "border-dashed")}
+                                        >
                                             <button type="button" onClick={() => applyTemplate(t)} className={cn("py-1 pl-2.5 pr-0.5", applied && "font-medium")}>
                                                 {t.name}
                                             </button>
                                             <RowMenu
+                                                compact
                                                 label={`${t.name} options`}
                                                 items={[
                                                     {
@@ -251,7 +250,7 @@ export function CreateInterviewForm({ onCreated, variant = "compact", className 
                                             }}
                                             placeholder="Preset name"
                                             maxLength={60}
-                                            className="h-7 w-36 text-xs"
+                                            className="h-8 w-36 rounded-md text-xs"
                                         />
                                         <Button type="button" size="sm" variant="secondary" disabled={templateBusy || !templateName.trim()} onClick={() => void submitTemplate()}>
                                             {templateBusy ? "Saving..." : editor.mode === "save" ? "Save" : "Rename"}
@@ -276,83 +275,88 @@ export function CreateInterviewForm({ onCreated, variant = "compact", className 
                                             setTemplateError(null);
                                             setEditor({ mode: "save" });
                                         }}
-                                        className="rounded-full border border-dashed border-input px-3 py-1 text-xs text-muted-foreground hover:bg-accent"
+                                        className="h-8 rounded-md border border-dashed border-input px-2.5 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
                                     >
                                         + Save current
                                     </button>
                                 )}
                             </div>
                             {templateError && <p className="text-xs text-destructive">{templateError}</p>}
-                        </div>
+                        </section>
                     )}
 
                     {resumes.length > 0 && (
-                        <div className={cn("space-y-1.5", featured && "sm:col-span-2")}>
-                            <span className="text-sm font-medium leading-none">Resume</span>
+                        <section className="space-y-2 px-5 py-4">
+                            <p className="text-sm font-medium">Resume</p>
                             <div className="flex flex-wrap items-center gap-1.5">
-                                <button type="button" onClick={() => setResumeId(null)} className={cn("rounded-full border px-3 py-1 text-xs transition-colors", resumeId === null ? "border-primary bg-primary/10 font-medium text-primary" : "border-input text-muted-foreground hover:bg-accent")}>
+                                <button type="button" aria-pressed={resumeId === null} onClick={() => setResumeId(null)} className={chipClass(resumeId === null)}>
                                     None
                                 </button>
                                 {resumes.map((r) => (
-                                    <button key={r.id} type="button" onClick={() => setResumeId(r.id)} className={cn("rounded-full border px-3 py-1 text-xs transition-colors", resumeId === r.id ? "border-primary bg-primary/10 font-medium text-primary" : "border-input text-muted-foreground hover:bg-accent")}>
+                                    <button key={r.id} type="button" aria-pressed={resumeId === r.id} onClick={() => setResumeId(r.id)} className={chipClass(resumeId === r.id)}>
                                         {r.name}
                                     </button>
                                 ))}
                             </div>
                             <p className="text-xs text-muted-foreground">The interviewer asks about what it claims, and the reviewer holds you to it.</p>
-                        </div>
+                        </section>
                     )}
 
-                    <div className={cn("space-y-1.5", featured && "sm:col-span-2")}>
-                        <label htmlFor="role" className="text-sm font-medium leading-none">
+                    <section className="space-y-2 px-5 py-4">
+                        <label htmlFor="role" className="block text-sm font-medium">
                             Role
                         </label>
                         <div className="flex flex-wrap gap-1.5">
-                            {(showAllRoles ? ROLE_PRESETS : ROLE_PRESETS.slice(0, 8)).map((preset) => (
+                            {(showAllRoles ? ROLE_PRESETS : ROLE_PRESETS.slice(0, VISIBLE_ROLES)).map((preset) => (
                                 <button
                                     key={preset}
                                     type="button"
+                                    aria-pressed={role === preset}
                                     onClick={() => {
                                         setError(null);
                                         setRole(preset);
                                     }}
-                                    className={cn("rounded-full border px-3 py-1 text-xs transition-colors", role === preset ? "border-primary bg-primary/10 font-medium text-primary" : "border-input text-muted-foreground hover:bg-accent")}
+                                    className={chipClass(role === preset)}
                                 >
                                     {preset}
                                 </button>
                             ))}
-                            {ROLE_PRESETS.length > 9 && (
-                                <button type="button" onClick={() => setShowAllRoles((v) => !v)} aria-expanded={showAllRoles} className="rounded-full border border-dashed border-input px-3 py-1 text-xs text-muted-foreground hover:bg-accent">
-                                    {showAllRoles ? "Show fewer" : `+${ROLE_PRESETS.length - 9} more`}
+                            {hiddenRoles > 0 && (
+                                <button type="button" onClick={() => setShowAllRoles((v) => !v)} aria-expanded={showAllRoles} className="h-8 rounded-md border border-dashed border-input px-2.5 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground">
+                                    {showAllRoles ? "Show fewer" : `+${hiddenRoles} more`}
                                 </button>
                             )}
                         </div>
-                        <Input id="role" value={role} onChange={(e) => setRole(e.target.value)} maxLength={200} placeholder="e.g. Software Engineer, or pick a preset above" required />
-                    </div>
+                        <Input id="role" value={role} onChange={(e) => setRole(e.target.value)} maxLength={200} placeholder="e.g. Software Engineer, or pick a preset above" required className="max-w-xl rounded-md" />
+                    </section>
 
-                    <DialSlider id="level" label="Level" value={level} values={LEVELS.map((l) => l.value)} labels={LEVELS.map((l) => l.label)} onChange={setLevel} hint={level === "any" ? "AI adapts to you" : undefined} />
-                    <DialSlider
-                        id="company_size"
-                        label="Company size"
-                        value={COMPANY_SIZES[companySize].value}
-                        values={COMPANY_SIZES.map((c) => c.value)}
-                        labels={COMPANY_SIZES.map((c) => companySizeLabel(c.value))}
-                        onChange={(v) => setCompanySize(COMPANY_SIZES.findIndex((c) => c.value === v))}
-                        hint={companySize === 0 ? "scales the scenarios" : undefined}
-                    />
-                    <DialSlider id="cynicism" label="Cynicism" value={CYNICISM[cynicism].value} values={CYNICISM.map((c) => c.value)} labels={CYNICISM.map((c) => c.label)} onChange={(v) => setCynicism(CYNICISM.findIndex((c) => c.value === v))} hint={CYNICISM[cynicism].hint} />
-                    <div className="space-y-1.5">
-                        <label htmlFor="topic" className="text-sm font-medium leading-none">
-                            Topic (optional)
-                        </label>
-                        <Input id="topic" value={topic} onChange={(e) => setTopic(e.target.value)} maxLength={500} placeholder="e.g. system design" />
-                    </div>
+                    <section className="space-y-4 px-5 py-4">
+                        <div className="grid gap-x-6 gap-y-4 sm:grid-cols-3">
+                            <Dial id="level" label="Level" value={level} values={LEVELS.map((l) => l.value)} labels={LEVELS.map((l) => l.label)} onChange={setLevel} hint={level === "any" ? "AI adapts to you" : undefined} />
+                            <Dial
+                                id="company_size"
+                                label="Company size"
+                                value={COMPANY_SIZES[companySize].value}
+                                values={COMPANY_SIZES.map((c) => c.value)}
+                                labels={COMPANY_SIZES.map((c) => companySizeLabel(c.value))}
+                                onChange={(v) => setCompanySize(COMPANY_SIZES.findIndex((c) => c.value === v))}
+                                hint={companySize === 0 ? "scales the scenarios" : undefined}
+                            />
+                            <Dial id="cynicism" label="Cynicism" value={CYNICISM[cynicism].value} values={CYNICISM.map((c) => c.value)} labels={CYNICISM.map((c) => c.label)} onChange={(v) => setCynicism(CYNICISM.findIndex((c) => c.value === v))} hint={CYNICISM[cynicism].hint} />
+                        </div>
+                        <div className="space-y-2">
+                            <label htmlFor="topic" className="block text-sm font-medium">
+                                Topic (optional)
+                            </label>
+                            <Input id="topic" value={topic} onChange={(e) => setTopic(e.target.value)} maxLength={500} placeholder="e.g. system design" className="max-w-xl rounded-md" />
+                        </div>
+                    </section>
 
-                    <details open={featured} className={cn("rounded-md border px-3 py-2", featured && "sm:col-span-2")}>
-                        <summary className="cursor-pointer text-sm font-medium">Question mix</summary>
-                        <div className="mt-3 grid gap-x-4 gap-y-3 sm:grid-cols-3">
+                    <section className="space-y-3 px-5 py-4">
+                        <p className="text-sm font-medium">Question mix</p>
+                        <div className="grid gap-x-6 gap-y-4 sm:grid-cols-3">
                             {MIX_FIELDS.map((f) => (
-                                <DialSlider
+                                <Dial
                                     key={f.field}
                                     id={f.field}
                                     label={f.label}
@@ -361,26 +365,26 @@ export function CreateInterviewForm({ onCreated, variant = "compact", className 
                                     labels={Array.from({ length: MIX_MAX + 1 }, (_, n) => mixCountLabel(n))}
                                     onChange={(v) => setMix((m) => ({ ...m, [f.field]: Number(v) }))}
                                     hint={f.hint}
-                                    numbered
+                                    showRange={false}
                                 />
                             ))}
                         </div>
-                    </details>
+                    </section>
 
-                    <div className={cn("flex flex-wrap gap-x-6 gap-y-2", featured && "sm:col-span-2")}>
+                    <section className="grid gap-x-6 gap-y-4 px-5 py-4 sm:grid-cols-3">
                         <Toggle id="brutally_honest" checked={brutallyHonest} onChange={setBrutallyHonest} label="Brutally honest" hint="response with no sugarcoating" />
                         <Toggle id="hardcore" checked={hardcore} onChange={setHardcore} label="Hardcore" hint="one vague or wrong answer ends the run on the spot." />
                         <Toggle id="human_mode" checked={humanMode} onChange={setHumanMode} label="Human mode" hint="contractions and plain words, no AI or corporate phrasing" />
-                    </div>
-
-                    {error && (
-                        <div className={cn("space-y-2", featured && "sm:col-span-2")}>
-                            <p className="text-sm text-destructive">{error}</p>
-                        </div>
-                    )}
+                    </section>
                 </CardContent>
-                <CardFooter>
-                    <Button type="submit" disabled={busy}>
+
+                <CardFooter className="flex-wrap items-center justify-end gap-3 border-t py-4">
+                    {error && (
+                        <p role="alert" className="mr-auto text-sm text-destructive">
+                            {error}
+                        </p>
+                    )}
+                    <Button type="submit" disabled={busy} className="h-10 px-6">
                         {busy ? "Creating..." : "Start interview"}
                     </Button>
                 </CardFooter>
@@ -389,31 +393,35 @@ export function CreateInterviewForm({ onCreated, variant = "compact", className 
     );
 }
 
-function DialSlider({ id, label, value, values, labels, onChange, hint, numbered }: { id: string; label: string; value: string; values: string[]; labels: string[]; onChange: (value: string) => void; hint?: string; numbered?: boolean }) {
+function Dial({ id, label, value, values, labels, onChange, hint, showRange = true }: { id: string; label: string; value: string; values: string[]; labels: string[]; onChange: (value: string) => void; hint?: string; showRange?: boolean }) {
     const index = Math.max(0, values.indexOf(value));
     return (
-        <div className="space-y-1">
-            <label htmlFor={id} className="flex flex-wrap items-baseline gap-x-1.5 text-sm font-medium leading-none">
-                {label}
-                <span className="text-xs font-normal text-foreground">{labels[index]}</span>
-                {hint && <span className="text-xs font-normal text-muted-foreground">· {hint}</span>}
-            </label>
-            <Slider id={id} name={id} min={0} max={values.length - 1} step={1} value={index} aria-valuetext={labels[index]} onChange={(e) => onChange(values[Number(e.target.value)])} />
-            <div className="flex justify-between text-[10px] leading-none text-muted-foreground" aria-hidden>
-                <span>{numbered ? "off" : labels[0]}</span>
-                <span>{labels[labels.length - 1]}</span>
+        <div className="space-y-1.5">
+            <div className="flex items-baseline justify-between gap-3">
+                <label htmlFor={id} className="text-sm font-medium">
+                    {label}
+                </label>
+                <span className="shrink-0 text-sm tabular-nums">{labels[index]}</span>
             </div>
+            <Slider id={id} name={id} min={0} max={values.length - 1} step={1} value={index} aria-valuetext={labels[index]} onChange={(e) => onChange(values[Number(e.target.value)])} className="w-full" />
+            {showRange && (
+                <div aria-hidden className="flex justify-between text-[10px] leading-none text-muted-foreground">
+                    <span>{labels[0]}</span>
+                    <span>{labels[labels.length - 1]}</span>
+                </div>
+            )}
+            {hint && <p className="text-xs leading-snug text-muted-foreground">{hint}</p>}
         </div>
     );
 }
 
 function Toggle({ id, checked, onChange, label, hint }: { id: string; checked: boolean; onChange: (v: boolean) => void; label: string; hint: string }) {
     return (
-        <label htmlFor={id} className="flex max-w-sm cursor-pointer items-start gap-2 text-sm">
-            <input id={id} type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} className="mt-0.5 h-4 w-4 accent-primary" />
-            <span>
-                {label}
-                <span className="block text-xs text-muted-foreground">{hint}</span>
+        <label htmlFor={id} className="flex cursor-pointer items-start gap-2 text-sm">
+            <input id={id} type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} className="mt-0.5 h-4 w-4 shrink-0 accent-primary" />
+            <span className="space-y-0.5">
+                <span className="block font-medium">{label}</span>
+                <span className="block text-xs leading-snug text-muted-foreground">{hint}</span>
             </span>
         </label>
     );

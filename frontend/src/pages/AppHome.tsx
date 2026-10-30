@@ -20,7 +20,7 @@ export function AppHome() {
             <DashboardStats loading={loading} dims={dims} stats={stats} statsError={error} />
 
             <section id="new-interview" className="scroll-mt-20">
-                <CreateInterviewForm onCreated={(id) => navigate(`/interviews/${id}`)} variant="featured" />
+                <CreateInterviewForm onCreated={(id) => navigate(`/interviews/${id}`)} />
             </section>
         </Page>
     );
