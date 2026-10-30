@@ -17,7 +17,7 @@ dependencies = [
     "opentelemetry-exporter-otlp-proto-http>=1.44",
     "yoyo-migrations>=8.3",
     "limits>=5",
-    "pypdf>=6.16.1",
+    "pypdf>=6.21.2",
     "python-multipart>=0.0.18",
 ]
 
