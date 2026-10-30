@@ -7,6 +7,9 @@ os.environ["CLERK_JWKS_URL"] = ""
 os.environ["LLM_BASE_URL"] = ""
 os.environ["LLM_MODEL"] = ""
 os.environ["LLM_API_KEY"] = ""
+os.environ["LLM_PRO_BASE_URL"] = ""
+os.environ["LLM_PRO_MODEL"] = ""
+os.environ["LLM_PRO_API_KEY"] = ""
 os.environ.setdefault("DATABASE_URL", "postgresql://x:x@localhost:5432/x")
 os.environ["RATE_LIMIT"] = "off"
 

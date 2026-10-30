@@ -1121,6 +1121,58 @@ def test_byok_chat_turn_skips_the_tier_quota_but_is_still_metered(client, monkey
         byok._fernet.cache_clear()
 
 
+def test_pro_chat_turn_runs_the_pro_model_but_not_the_grader(client, monkeypatch):
+    # The up-tier is the interview turn only: if the pro config leaked into grading, a Pro review would
+    # not be comparable with a Free one (MONETIZATION.md §0). BYOK still wins, because that owner pays.
+    from cryptography.fernet import Fernet
+
+    from app import billing, byok, llm
+
+    monkeypatch.setattr(llm, "PRO_CONFIG", llm.LLMConfig(base_url="", model="pro-unit-test"))
+    seen: dict[str, str] = {}
+
+    async def _capture_stream(_history, config):
+        seen["chat"] = config.model
+        yield "Go on."
+
+    real_generate = llm.generate_feedback
+
+    async def _capture_feedback(history, dials, config, **kwargs):
+        seen["grader"] = config.model
+        return await real_generate(history, dials, config, **kwargs)
+
+    async def _premium(_user):
+        return "premium"
+
+    monkeypatch.setattr(llm, "stream_chat", _capture_stream)
+    monkeypatch.setattr(llm, "generate_feedback", _capture_feedback)
+    monkeypatch.setattr(billing, "resolve_tier", _premium)
+
+    monkeypatch.setenv("BYOK_ENCRYPTION_KEY", Fernet.generate_key().decode())
+    byok._fernet.cache_clear()
+    iid = client.post("/api/interviews", json={"role": "Pro model"}).json()["id"]
+    iid_byok = None
+    try:
+        client.post(f"/api/interviews/{iid}/start")
+        assert "Go on." in client.post(f"/api/interviews/{iid}/chat/kickoff").text
+        assert seen["chat"] == "pro-unit-test"
+        client.post(f"/api/interviews/{iid}/chat/stream", json={"interview_id": iid, "content": "hi"})
+        client.post(f"/api/interviews/{iid}/finish")
+        assert seen["grader"] == llm.SYSTEM_CONFIG.model
+
+        client.put("/api/settings/llm", json={"base_url": "https://api.example.com/v1", "model": "byok-unit-test", "api_key": "sk-unit-test-key-abcd"})
+        iid_byok = client.post("/api/interviews", json={"role": "Pro BYOK model"}).json()["id"]
+        client.post(f"/api/interviews/{iid_byok}/start")
+        client.post(f"/api/interviews/{iid_byok}/chat/kickoff")
+        assert seen["chat"] == "byok-unit-test"
+    finally:
+        client.delete("/api/settings/llm")
+        byok._fernet.cache_clear()
+        client.delete(f"/api/interviews/{iid}")
+        if iid_byok:
+            client.delete(f"/api/interviews/{iid_byok}")
+
+
 def test_byok_turns_stop_at_the_byok_ceiling(client, monkeypatch):
     # The ceiling is the half of the waiver that is NOT negotiable, and it is the same number /usage
     # reports, so the counter in the UI and the 402 can never disagree. This client is the dev

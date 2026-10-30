@@ -14,6 +14,7 @@ Decisions: PLAN D10 (owner-scoping is a hard rule).
 | Review redos / run                        | **1** (`FREE_REDOS`)       | **10** (`PREMIUM_REDOS`)             | **10** (`DEV_REDOS`)       |
 | Price                                     | ₱0                         | **₱99 / 30 days** (one payment)      | ₱0                         |
 | Chat turns / day (GLOBAL, all interviews) | **10** (`FREE_CHAT_TURNS`) | **100** (`PREMIUM_CHAT_TURNS`)       | **100000000** (`DEV_CHAT_TURNS`) |
+| Interview turn model                      | `LLM_MODEL`                | `LLM_PRO_MODEL` (`LLM_PRO_*`)        | `LLM_MODEL`                 |
 
 - The gate is a **global daily credit per owner** spanning ALL their interviews in one UTC day, reset
   at 00:00 UTC. No per-interview cap, no daily-interview cap, no free trial. Count **turns, not
@@ -30,6 +31,9 @@ Decisions: PLAN D10 (owner-scoping is a hard rule).
   `/settings/billing` quotes that factor (`BillingPage`), so a retune that moves one cap alone makes it
   a lie.
 - **Feedback is not feature-gated** — same quality across tiers. The turn cap is the cost lever.
+  The up-tier is the interview turn only (`LLM_PRO_MODEL`, empty = every tier on `LLM_MODEL`); the
+  grader and formatter stay shared, so a review never depends on what the owner paid. A BYOK row
+  still wins over both (`BYOK.md`).
 - Billing is **one payment at a time**, single-user: period mode sells 30 days and does not
   auto-renew. PayMongo bills in PHP only; we handle tax (no merchant-of-record).
 

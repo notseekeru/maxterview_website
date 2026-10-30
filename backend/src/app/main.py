@@ -82,6 +82,15 @@ async def _llm_config(user: CurrentUser) -> llm.LLMConfig:
 LLMConfigDep = Annotated[llm.LLMConfig, Depends(_llm_config)]
 
 
+async def _chat_config(user: CurrentUser, config: LLMConfigDep) -> llm.LLMConfig:
+    if config.byok or llm.PRO_CONFIG is None:
+        return config
+    return llm.pro_config(config) if await billing.resolve_tier(user) == "premium" else config
+
+
+ChatLLMDep = Annotated[llm.LLMConfig, Depends(_chat_config)]
+
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     telemetry.configure()
@@ -1136,7 +1145,7 @@ async def _reply_frames(
 
 
 @api.post("/interviews/{interview_id}/chat/kickoff")
-async def chat_kickoff(interview_id: str, user: CurrentUser, config: LLMConfigDep) -> StreamingResponse:
+async def chat_kickoff(interview_id: str, user: CurrentUser, config: LLMConfigDep, chat: ChatLLMDep) -> StreamingResponse:
     interview, _transcript, asked, dials = await _chat_session(interview_id, user)
     if asked:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="This interview has already opened.")
@@ -1146,7 +1155,7 @@ async def chat_kickoff(interview_id: str, user: CurrentUser, config: LLMConfigDe
     ]
 
     async def _stream_events():
-        async for frame in _reply_frames(history, interview_id, config, asked):
+        async for frame in _reply_frames(history, interview_id, chat, asked):
             yield frame
 
     return StreamingResponse(_stream_events(), media_type="text/event-stream")
@@ -1158,6 +1167,7 @@ async def chat_stream(
     body: ChatTurn,
     user: CurrentUser,
     config: LLMConfigDep,
+    chat: ChatLLMDep,
 ) -> StreamingResponse:
     interview, prior_rows, asked, dials = await _chat_session(interview_id, user)
     await _spend_chat_turn(user, config)
@@ -1228,7 +1238,7 @@ async def chat_stream(
         # Generated like any other turn, so it spends a chat turn. The canned line guards the case where
         # the model asks a question the API would refuse (llm.closing_line).
         if llm.is_closing_turn(asked, dials):
-            closing = await llm.closing_line(history, config)
+            closing = await llm.closing_line(history, chat)
             await fetchrow(
                 "INSERT INTO messages (interview_id, role, content) VALUES ($1, 'assistant', $2) RETURNING id",
                 interview_id,
@@ -1240,7 +1250,7 @@ async def chat_stream(
             return
 
         try:
-            async for frame in _reply_frames(history, interview_id, config, asked, on_error=_discard_turn):
+            async for frame in _reply_frames(history, interview_id, chat, asked, on_error=_discard_turn):
                 yield frame
         except BaseException:
             # Client went away (CancelledError/GeneratorExit): same rollback, nobody left to notify.

@@ -45,6 +45,14 @@ class LLMConfig:
 
 SYSTEM_CONFIG = LLMConfig(base_url=LLM_BASE_URL, model=LLM_MODEL, api_key=LLM_API_KEY, grader_base_url=LLM_GRADER_BASE_URL, grader_model=LLM_GRADER_MODEL)
 
+LLM_PRO_BASE_URL = os.getenv("LLM_PRO_BASE_URL", "").rstrip("/")
+LLM_PRO_MODEL = os.getenv("LLM_PRO_MODEL", "")
+LLM_PRO_API_KEY = os.getenv("LLM_PRO_API_KEY", "")
+
+# Pro's chat turn. `LLM_PRO_MODEL` is the switch: empty means every tier runs the base model. Chat only,
+# so the grader and formatter stay on SYSTEM_CONFIG and reviews are comparable across tiers.
+PRO_CONFIG = LLMConfig(base_url=LLM_PRO_BASE_URL or LLM_BASE_URL, model=LLM_PRO_MODEL, api_key=LLM_PRO_API_KEY or LLM_API_KEY) if LLM_PRO_MODEL else None
+
 
 def grader_config(config: LLMConfig) -> LLMConfig:
     base_url = config.grader_base_url or config.base_url
@@ -52,6 +60,10 @@ def grader_config(config: LLMConfig) -> LLMConfig:
     if (base_url, model) == (config.base_url, config.model):
         return config
     return LLMConfig(base_url=base_url, model=model, api_key=config.api_key)
+
+
+def pro_config(config: LLMConfig) -> LLMConfig:
+    return PRO_CONFIG or config
 
 
 def _headers(config: LLMConfig) -> dict:

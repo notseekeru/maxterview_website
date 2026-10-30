@@ -5,7 +5,7 @@ type PlanTier = "free" | "premium";
 
 export function PlanPitch({ tier }: { tier: PlanTier }) {
     const plan = PLANS[tier];
-    const includes = tier === "free" ? ["Unlimited interviews", "A daily turn allowance for practice", "Review, verdict and analytics on every run"] : ["A daily allowance that covers real practice", "More resumes on file", "Your own model key, with the highest ceiling", "Subject to higher quality model"];
+    const includes = tier === "free" ? ["Unlimited interviews", "A daily turn allowance for practice", "Review, verdict and analytics on every run"] : ["A daily allowance that covers real practice", "More resumes on file", "Your own model key, with the highest ceiling", "Better models for better sessions"];
     return (
         <div className="flex flex-col gap-5">
             <p className="text-sm leading-relaxed text-muted-foreground">{plan.audience}</p>
