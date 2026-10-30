@@ -130,9 +130,6 @@ function ByLevel({ groups }: { groups: OfferGroup[] }) {
                         <RangeBar start={g.low_base} end={g.high_base} avg={g.avg_base} max={max} />
                     </div>
                 ))}
-                <p className="pt-1 text-xs text-muted-foreground">
-                    The shaded span is what you were offered at that level, not the level's full band; {groups.reduce((a, g) => a + g.offers, 0)} offers across {groups.length} levels.
-                </p>
             </div>
         </Panel>
     );

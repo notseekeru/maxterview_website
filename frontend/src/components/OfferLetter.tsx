@@ -15,7 +15,7 @@ export function OfferLetter({ offer }: { offer: Offer }) {
 
             <p>Dear candidate,</p>
             <p>
-                Following your interview, we are pleased to offer you the position of <strong>{offer.title}</strong>, starting <strong>{offer.starts_on}</strong>. The terms below are simulated from how that interview read.
+                Following your interview, we are pleased to offer you the position of <strong>{offer.title}</strong>, starting <strong>{offer.starts_on}</strong>.
             </p>
 
             <table className="w-full">

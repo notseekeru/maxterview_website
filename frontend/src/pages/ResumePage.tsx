@@ -280,7 +280,6 @@ export function ResumePage() {
                                     Resume text
                                 </label>
                                 <Textarea id="resume-text" value={draft.text} onChange={(e) => setDraft((d) => ({ ...d, text: e.target.value }))} placeholder="Paste your resume here…" className="min-h-[28rem] font-mono text-xs leading-5" />
-                                <p className="text-xs text-muted-foreground">{draft.text.length.toLocaleString()} characters. The first 8,000 are used per interview.</p>
                             </div>
                         </CardContent>
                         <div className="flex items-center gap-2 px-6 pb-6">

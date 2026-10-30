@@ -110,7 +110,6 @@ function PlanCard({ tier, usage }: { tier: "free" | "premium"; usage: Usage | nu
             </CardContent>
             <CardFooter className="flex-col items-stretch gap-2 pt-0">
                 {cta}
-                {isPremium && periodMode && onPremium && <p className="text-xs text-muted-foreground">One payment, no auto-renew. Buy again when it ends.</p>}
                 {ctaError && <p className="text-xs text-destructive">{ctaError}</p>}
                 {modal}
             </CardFooter>

@@ -316,7 +316,6 @@ function DimensionAverages({ runs, keys }: { runs: AnalyticsRun[]; keys: string[
                     })}
                 </div>
             ))}
-            <p className="pt-1 text-xs text-muted-foreground">Score / number of runs that assessed it.</p>
         </div>
     );
 }

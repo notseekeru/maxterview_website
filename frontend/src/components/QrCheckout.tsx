@@ -72,7 +72,6 @@ export function useQrCheckout() {
             ) : (
                 <>
                     <img src={qr?.image_url} alt="QR Ph code" className="mx-auto h-56 w-56" />
-                    <p className="text-muted-foreground">Any QR Ph app works: GCash, Maya, or your bank app.</p>
                     <p className="text-xs text-muted-foreground">
                         Expires in {Math.floor(left / 60)}:{String(left % 60).padStart(2, "0")}. Waiting for your payment…
                     </p>

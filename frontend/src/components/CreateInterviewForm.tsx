@@ -298,7 +298,6 @@ export function CreateInterviewForm({ onCreated }: Props) {
                                     </button>
                                 ))}
                             </div>
-                            <p className="text-xs text-muted-foreground">The interviewer asks about what it claims, and the reviewer holds you to it.</p>
                         </section>
                     )}
 

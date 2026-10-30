@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { apiDetail, clearLLMProvider, getLLMProvider, type LLMProviderStatus, saveLLMProvider, testLLMProvider } from "@/lib/api";
 
@@ -103,7 +103,6 @@ export function LLMProviderCard() {
             <CardHeader className="flex-row items-start justify-between space-y-0">
                 <div>
                     <CardTitle>Interview engine (BYOK)</CardTitle>
-                    <CardDescription className="mt-1">Run interviews on your own OpenAI-compatible provider. The key is encrypted at rest and never read back.</CardDescription>
                 </div>
                 {status && <Badge variant={status.byok ? "default" : "outline"}>{status.byok ? "Your key" : "System default"}</Badge>}
             </CardHeader>

@@ -54,7 +54,6 @@ export function AccountSettingsPage() {
             <Card>
                 <CardHeader>
                     <CardTitle>Profile</CardTitle>
-                    <CardDescription>Manage your sign-in and profile via Clerk.</CardDescription>
                 </CardHeader>
                 {clerkEnabled ? (
                     <CardContent>

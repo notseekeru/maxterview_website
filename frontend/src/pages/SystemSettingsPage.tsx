@@ -1,7 +1,7 @@
 import { Icon } from "@/components/AppIcons";
 import { LLMProviderCard } from "@/components/LLMProviderCard";
 import { Page } from "@/components/PagePrimitives";
-import { Card, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { useTheme } from "@/hooks/useTheme";
 import type { Theme } from "@/lib/theme";
 import { cn } from "@/lib/utils";
@@ -20,7 +20,6 @@ export function SystemSettingsPage() {
             <Card>
                 <CardHeader>
                     <CardTitle>Appearance</CardTitle>
-                    <CardDescription>Applies to every page and chart.</CardDescription>
                 </CardHeader>
                 <CardFooter className="flex flex-wrap gap-2">
                     {THEME_OPTIONS.map((opt) => (
