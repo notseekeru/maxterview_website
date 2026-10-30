@@ -85,7 +85,7 @@ LLMConfigDep = Annotated[llm.LLMConfig, Depends(_llm_config)]
 async def _chat_config(user: CurrentUser, config: LLMConfigDep) -> llm.LLMConfig:
     if config.byok or llm.PRO_CONFIG is None:
         return config
-    return llm.pro_config(config) if await billing.resolve_tier(user) == "premium" else config
+    return llm.PRO_CONFIG if await billing.resolve_tier(user) == "premium" else config
 
 
 ChatLLMDep = Annotated[llm.LLMConfig, Depends(_chat_config)]
