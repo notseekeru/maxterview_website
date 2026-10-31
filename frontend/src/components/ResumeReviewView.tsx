@@ -15,13 +15,6 @@ const CALL: Record<string, { label: string; tone: string; glyph: string }> = {
     fails: { label: "Fails", tone: "border-destructive/40 bg-destructive/10 text-destructive", glyph: "✕" },
 };
 
-const SECTION: Record<string, { label: string; tone: string }> = {
-    strong: { label: "Strong", tone: CALL.passes.tone },
-    fine: { label: "Fine", tone: "border-input text-muted-foreground" },
-    weak: { label: "Weak", tone: CALL.close.tone },
-    bloat: { label: "Bloat", tone: CALL.fails.tone },
-};
-
 const LINE: Record<string, string> = {
     weak: "border-destructive/40 text-destructive",
     safe: "border-input text-muted-foreground",
@@ -79,6 +72,7 @@ export function ResumeReviewView({
     onRetry,
     onFocusLine,
     restored,
+    onHover,
 }: {
     review: ResumeReview | null;
     busy: boolean;
@@ -89,6 +83,7 @@ export function ResumeReviewView({
     onRetry: (source: string) => Promise<void>;
     onFocusLine: (text: string) => void;
     restored?: { source: string; n: number } | null;
+    onHover: (hover: { source: string; rewrite: string } | null) => void;
 }) {
     // One band by default, the one the page reads at; the rest of the ladder stays one click away so
     // the comparison is still there without a wall of cards. A new review arrives under a new key
@@ -99,7 +94,7 @@ export function ResumeReviewView({
     // from here (an applied line no longer matches what the reviewer quoted).
     const [done, setDone] = useState<Set<string>>(new Set());
     const [retrying, setRetrying] = useState<string | null>(null);
-    const [linesOpen, setLinesOpen] = useState(false);
+    const [linesOpen, setLinesOpen] = useState(true);
     const open = (review?.rewrites ?? []).filter((line) => !done.has(line.source));
 
     // Undoing an applied rewrite puts the text back, so the row that produced it has to come back too.
@@ -172,34 +167,6 @@ export function ResumeReviewView({
                 <CardContent className="min-h-0 flex-1 space-y-3 overflow-y-auto">
                     <p className="text-sm leading-relaxed">{review.verdict}</p>
 
-                    {audits.length > 0 && (
-                        <div className="space-y-1.5">
-                            <div className="flex items-center justify-between gap-2">
-                                <p className={LABEL}>Lines</p>
-                                <div className="flex items-center gap-2 text-[11px]">
-                                    <span className="text-destructive">{tally.weak} weak</span>
-                                    <span className="text-muted-foreground">{tally.safe} safe</span>
-                                    <span className="text-emerald-600 dark:text-emerald-400">{tally.strong} strong</span>
-                                    <button type="button" onClick={() => setLinesOpen((value) => !value)} className="text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground">
-                                        {linesOpen ? "Hide" : "Show"}
-                                    </button>
-                                </div>
-                            </div>
-                            {linesOpen && (
-                                <ul className="max-h-40 divide-y overflow-y-auto rounded-xl border">
-                                    {audits.map((line) => (
-                                        <li key={`${line.call}:${line.text}`}>
-                                            <button type="button" onClick={() => onFocusLine(line.text)} className="flex w-full items-start gap-2 px-3 py-1 text-left transition-colors hover:bg-accent">
-                                                <span className={cn("mt-0.5 shrink-0 rounded border px-1 text-[10px] uppercase", LINE[line.call])}>{line.call}</span>
-                                                <span className="min-w-0 text-xs leading-snug text-muted-foreground">{line.text}</span>
-                                            </button>
-                                        </li>
-                                    ))}
-                                </ul>
-                            )}
-                        </div>
-                    )}
-
                     <div className="flex flex-wrap items-center justify-between gap-2">
                         <div className="flex flex-wrap gap-1">
                             {review.levels.map((level) => {
@@ -247,7 +214,7 @@ export function ResumeReviewView({
                             <p className={LABEL}>Rewrites</p>
                             <ul className="divide-y rounded-xl border">
                                 {open.map((line) => (
-                                    <li key={line.source} className="space-y-0.5 px-3 py-1.5">
+                                    <li key={line.source} className="space-y-0.5 px-3 py-1.5" onMouseEnter={() => onHover({ source: line.source, rewrite: line.rewrite })} onMouseLeave={() => onHover(null)}>
                                         <div className="flex items-start justify-between gap-2">
                                             <p className="min-w-0 text-xs leading-snug text-muted-foreground line-through">{line.source}</p>
                                             <div className="flex shrink-0 items-center">
@@ -269,19 +236,33 @@ export function ResumeReviewView({
                             </ul>
                         </div>
                     )}
-                    <div className="flex flex-wrap items-center gap-1.5">
-                        {review.sections.map((section) => (
-                            <span
-                                key={section.name}
-                                // The note is the detail behind the badge, not another line to scroll past.
-                                title={section.note}
-                                className={cn("inline-flex items-baseline gap-1.5 rounded-md border px-2 py-0.5 text-[11px]", SECTION[section.call]?.tone ?? "border-input text-muted-foreground")}
-                            >
-                                <span className="font-medium uppercase tracking-wide">{section.name}</span>
-                                <span className="opacity-80">{SECTION[section.call]?.label ?? section.call}</span>
-                            </span>
-                        ))}
-                    </div>
+                    {audits.length > 0 && (
+                        <div className="space-y-1.5">
+                            <div className="flex items-center justify-between gap-2">
+                                <p className={LABEL}>Lines</p>
+                                <div className="flex items-center gap-2 text-[11px]">
+                                    <span className="text-destructive">{tally.weak} weak</span>
+                                    <span className="text-muted-foreground">{tally.safe} safe</span>
+                                    <span className="text-emerald-600 dark:text-emerald-400">{tally.strong} strong</span>
+                                    <button type="button" onClick={() => setLinesOpen((value) => !value)} className="text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground">
+                                        {linesOpen ? "Hide" : "Show"}
+                                    </button>
+                                </div>
+                            </div>
+                            {linesOpen && (
+                                <ul className="max-h-40 divide-y overflow-y-auto rounded-xl border">
+                                    {audits.map((line) => (
+                                        <li key={`${line.call}:${line.text}`}>
+                                            <button type="button" onClick={() => onFocusLine(line.text)} className="flex w-full items-start gap-2 px-3 py-1 text-left transition-colors hover:bg-accent">
+                                                <span className={cn("mt-0.5 shrink-0 rounded border px-1 text-[10px] uppercase", LINE[line.call])}>{line.call}</span>
+                                                <span className="min-w-0 text-xs leading-snug text-muted-foreground">{line.text}</span>
+                                            </button>
+                                        </li>
+                                    ))}
+                                </ul>
+                            )}
+                        </div>
+                    )}
                 </CardContent>
             )}
         </Card>

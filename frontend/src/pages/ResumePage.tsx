@@ -48,6 +48,7 @@ export function ResumePage() {
     const [past, setPast] = useState<UndoStep[]>([]);
     const [undone, setUndone] = useState<{ source: string; n: number } | null>(null);
     const [focusLine, setFocusLine] = useState<{ quote: string; n: number } | null>(null);
+    const [hover, setHover] = useState<{ source: string; rewrite: string } | null>(null);
     const burst = useRef(0);
     const undos = useRef(0);
     const editing = draft.id !== null || pasting;
@@ -116,6 +117,7 @@ export function ResumePage() {
         if (next === null) return false;
         remember(source);
         burst.current = 0;
+        setHover(null);
         setDraft((d) => ({ ...d, text: next }));
         return true;
     }
@@ -138,6 +140,7 @@ export function ResumePage() {
         if (!last) return;
         setPast((list) => list.slice(0, -1));
         burst.current = 0;
+        setHover(null);
         setDraft((d) => ({ ...d, text: last.text }));
         if (last.source) {
             undos.current += 1;
@@ -406,7 +409,7 @@ export function ResumePage() {
                                     <label htmlFor="resume-text" className="text-sm font-medium leading-none">
                                         Resume text
                                     </label>
-                                    <HighlightedTextarea id="resume-text" value={draft.text} onChange={editText} focus={focusLine} lines={review?.lines ?? []} latex={latex} placeholder="Paste your resume here…" />
+                                    <HighlightedTextarea id="resume-text" value={draft.text} onChange={editText} focus={focusLine} ghost={hover ? { quote: hover.source, rewrite: hover.rewrite } : null} lines={review?.lines ?? []} latex={latex} placeholder="Paste your resume here…" />
                                 </div>
                             </CardContent>
                             <div className="flex items-center gap-2 px-6 pb-6">
@@ -442,6 +445,7 @@ export function ResumePage() {
                                 onApply={applyRewrite}
                                 onRetry={retryEdit}
                                 onFocusLine={(quote) => setFocusLine((current) => ({ quote, n: (current?.n ?? 0) + 1 }))}
+                                onHover={setHover}
                                 restored={undone}
                             />
                         )}

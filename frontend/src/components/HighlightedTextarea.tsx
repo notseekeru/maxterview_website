@@ -17,14 +17,43 @@ const MARK: Record<LineCall, string> = {
 // the layer's, so the textarea's own text is transparent, which is why metrics here are load-bearing.
 const BOX = "whitespace-pre-wrap break-words px-3 py-2 font-mono text-xs leading-5";
 
-export function HighlightedTextarea({ id, value, onChange, lines, latex, placeholder, focus }: { id: string; value: string; onChange: (value: string) => void; lines: QuotedLine[]; latex: boolean; placeholder: string; focus?: { quote: string; n: number } | null }) {
+export function HighlightedTextarea({
+    id,
+    value,
+    onChange,
+    lines,
+    latex,
+    placeholder,
+    focus,
+    ghost,
+}: {
+    id: string;
+    value: string;
+    onChange: (value: string) => void;
+    lines: QuotedLine[];
+    latex: boolean;
+    placeholder: string;
+    focus?: { quote: string; n: number } | null;
+    ghost?: { quote: string; rewrite: string } | null;
+}) {
     const mirror = useRef<HTMLDivElement | null>(null);
     const area = useRef<HTMLTextAreaElement | null>(null);
     const seen = useRef(0);
     const calls = useMemo(() => callByLine(value, lines), [value, lines]);
     const rows = useMemo(() => value.split("\n"), [value]);
+    const ghostLine = useMemo(() => (ghost ? lineOf(value, ghost.quote) : null), [ghost, value]);
     const quote = focus?.quote ?? "";
     const bump = focus?.n ?? 0;
+
+    // Hovering a rewrite in the panel points here. The suggestion is only readable if its line has room
+    // below it, so a line near the bottom is scrolled up first.
+    useEffect(() => {
+        if (ghostLine === null) return;
+        const node = area.current;
+        if (!node) return;
+        const top = ghostLine * LINE_HEIGHT;
+        if (top < node.scrollTop || top + LINE_HEIGHT > node.scrollTop + node.clientHeight - LINE_HEIGHT * 2) node.scrollTop = Math.max(0, top - LINE_HEIGHT * 3);
+    }, [ghostLine]);
 
     // A row in the review panel points at a line here: scroll it into view and select it, so the mark
     // the panel is talking about is the one under the cursor.
@@ -49,9 +78,10 @@ export function HighlightedTextarea({ id, value, onChange, lines, latex, placeho
             <div ref={mirror} aria-hidden className={cn("pointer-events-none absolute inset-0 overflow-hidden rounded-xl border border-transparent", BOX)}>
                 {rows.map((row, index) => {
                     const call = calls.get(index);
+                    const ghosted = ghostLine === index;
                     return (
                         // biome-ignore lint/suspicious/noArrayIndexKey: a resume line has no id and repeats verbatim by design
-                        <span key={index} className={cn("text-foreground", call && MARK[call], call && "underline")}>
+                        <span key={index} className={cn("text-foreground", call && !ghosted && MARK[call], call && "underline", ghosted && "bg-primary/15")}>
                             {latex
                                 ? tokenize(row).map((token, at) => (
                                       // biome-ignore lint/suspicious/noArrayIndexKey: token order is the line itself
@@ -64,6 +94,12 @@ export function HighlightedTextarea({ id, value, onChange, lines, latex, placeho
                         </span>
                     );
                 })}
+                {ghost && ghostLine !== null && (
+                    <div className="absolute inset-x-1 space-y-1 whitespace-normal rounded-lg border border-primary/40 bg-background p-2 font-sans text-xs leading-snug text-foreground shadow-lg" style={{ top: (ghostLine + 1) * LINE_HEIGHT + 2 }}>
+                        <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Suggested rewrite</p>
+                        <p>{ghost.rewrite}</p>
+                    </div>
+                )}
             </div>
             <Textarea
                 id={id}
