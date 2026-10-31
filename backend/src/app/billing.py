@@ -8,10 +8,10 @@ from app.db import fetchrow
 from app.models import ClerkUser
 
 # Daily GLOBAL chat-turn credits PER OWNER, across all interviews in one UTC day.
-FREE_CHAT_TURNS = int(os.getenv("FREE_CHAT_TURNS", "10"))
-PREMIUM_CHAT_TURNS = int(os.getenv("PREMIUM_CHAT_TURNS", "100"))
+FREE_CHAT_TURNS = int(os.getenv("FREE_CHAT_TURNS", "30"))
+PREMIUM_CHAT_TURNS = int(os.getenv("PREMIUM_CHAT_TURNS", "300"))
 DEV_CHAT_TURNS = int(os.getenv("DEV_CHAT_TURNS", "100000000"))
-BYOK_CHAT_TURNS = int(os.getenv("BYOK_CHAT_TURNS", "300"))
+BYOK_CHAT_TURNS = int(os.getenv("BYOK_CHAT_TURNS", "600"))
 BYOK_PREMIUM_CHAT_TURNS = int(os.getenv("BYOK_PREMIUM_CHAT_TURNS", "5000"))
 
 FREE_RESUMES = int(os.getenv("FREE_RESUMES", "1"))

@@ -22,8 +22,8 @@ async def _async_none(*_args, **_kwargs):
 
 
 def test_quota_defaults():
-    assert _quota("free", "chat_turns") == 10
-    assert _quota("premium", "chat_turns") == 100
+    assert _quota("free", "chat_turns") == 30
+    assert _quota("premium", "chat_turns") == 300
     assert _quota("dev", "chat_turns") == 100000000
 
 
