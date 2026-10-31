@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { Icon } from "@/components/AppIcons";
 import { LABEL } from "@/components/PagePrimitives";
 import { Button } from "@/components/ui/button";
@@ -71,8 +71,9 @@ export function ResumeReviewView({
     onApply,
     onRetry,
     onFocusLine,
-    restored,
     onHover,
+    finished,
+    onFinish,
 }: {
     review: ResumeReview | null;
     busy: boolean;
@@ -82,8 +83,9 @@ export function ResumeReviewView({
     onApply: (source: string, rewrite: string) => boolean;
     onRetry: (source: string) => Promise<void>;
     onFocusLine: (text: string) => void;
-    restored?: { source: string; n: number } | null;
     onHover: (hover: { source: string; rewrite: string } | null) => void;
+    finished: Set<string>;
+    onFinish: (source: string) => void;
 }) {
     // One band by default, the one the page reads at; the rest of the ladder stays one click away so
     // the comparison is still there without a wall of cards. A new review arrives under a new key
@@ -91,22 +93,11 @@ export function ResumeReviewView({
     const [focus, setFocus] = useState<string | null>(null);
     const [all, setAll] = useState(false);
     // Applied and dismissed edits are both finished: the row goes, and its line is the editor's problem
-    // from here (an applied line no longer matches what the reviewer quoted).
-    const [done, setDone] = useState<Set<string>>(new Set());
+    // from here (an applied line no longer matches what the reviewer quoted). The page owns that set, so
+    // undo can put a row back.
     const [retrying, setRetrying] = useState<string | null>(null);
     const [linesOpen, setLinesOpen] = useState(true);
-    const open = (review?.rewrites ?? []).filter((line) => !done.has(line.source));
-
-    // Undoing an applied rewrite puts the text back, so the row that produced it has to come back too.
-    useEffect(() => {
-        if (!restored) return;
-        setDone((set) => {
-            if (!set.has(restored.source)) return set;
-            const next = new Set(set);
-            next.delete(restored.source);
-            return next;
-        });
-    }, [restored]);
+    const open = (review?.rewrites ?? []).filter((line) => !finished.has(line.source));
 
     const audits = useMemo(() => {
         const seen = new Set<string>();
@@ -121,7 +112,7 @@ export function ResumeReviewView({
     for (const line of audits) tally[line.call] += 1;
 
     function apply(source: string, rewrite: string) {
-        if (onApply(source, rewrite)) setDone((set) => new Set(set).add(source));
+        if (onApply(source, rewrite)) onFinish(source);
     }
 
     async function retry(source: string) {
@@ -225,7 +216,7 @@ export function ResumeReviewView({
                                                 <Button variant="ghost" size="icon" className="size-7" aria-label="Retry this edit" title="Retry" disabled={busy || retrying !== null} onClick={() => retry(line.source)}>
                                                     <Icon name="retry" className={cn("h-4 w-4", retrying === line.source && "animate-spin")} />
                                                 </Button>
-                                                <Button variant="ghost" size="icon" className="size-7" aria-label="Dismiss this edit" title="Dismiss" onClick={() => setDone((set) => new Set(set).add(line.source))}>
+                                                <Button variant="ghost" size="icon" className="size-7" aria-label="Dismiss this edit" title="Dismiss" onClick={() => onFinish(line.source)}>
                                                     <Icon name="x" className="h-4 w-4" />
                                                 </Button>
                                             </div>

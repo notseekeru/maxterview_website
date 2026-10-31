@@ -47,11 +47,11 @@ export function ResumePage() {
     const [reviewing, setReviewing] = useState(false);
     const [reviewError, setReviewError] = useState<string | null>(null);
     const [past, setPast] = useState<UndoStep[]>([]);
-    const [undone, setUndone] = useState<{ source: string; n: number } | null>(null);
+    const [future, setFuture] = useState<UndoStep[]>([]);
+    const [finished, setFinished] = useState<Set<string>>(new Set());
     const [focusLine, setFocusLine] = useState<{ quote: string; n: number } | null>(null);
     const [hover, setHover] = useState<{ source: string; rewrite: string } | null>(null);
     const burst = useRef(0);
-    const undos = useRef(0);
     const editing = draft.id !== null || pasting;
     const showDrop = !editing && importing;
 
@@ -65,6 +65,11 @@ export function ResumePage() {
         return () => document.removeEventListener("drop", swallow);
     }, []);
 
+    const resetHistory = useCallback(() => {
+        setPast([]);
+        setFuture([]);
+    }, []);
+
     const load = useCallback(async () => {
         const usage = getUsage().catch(() => null);
         try {
@@ -73,13 +78,13 @@ export function ResumePage() {
             if (list.length) {
                 const full = await getResume(list[0].id);
                 setDraft({ id: full.id, name: full.name, text: full.text });
-                setPast([]);
+                resetHistory();
             }
         } catch {
             setError("Could not load your resumes.");
         }
         setLimit((await usage)?.resume_limit ?? null);
-    }, []);
+    }, [resetHistory]);
 
     useEffect(() => {
         void load();
@@ -87,6 +92,7 @@ export function ResumePage() {
 
     const loadReview = useCallback(async (id: string | null) => {
         setReviewError(null);
+        setFinished(new Set());
         setReview(id ? await getResumeReview(id).catch(() => null) : null);
     }, []);
 
@@ -100,6 +106,7 @@ export function ResumePage() {
         if (!draft.id) return;
         setReviewing(true);
         setReviewError(null);
+        setFinished(new Set());
         try {
             setReview(await reviewResume(draft.id));
         } catch (e) {
@@ -125,6 +132,7 @@ export function ResumePage() {
 
     function remember(source?: string) {
         setPast((list) => [...list.slice(-(MAX_UNDO - 1)), { text: draft.text, source }]);
+        setFuture([]);
     }
 
     function editText(text: string) {
@@ -135,19 +143,53 @@ export function ResumePage() {
     }
 
     // Native undo dies when React rewrites a textarea's value, which is exactly what an applied rewrite
-    // does, so the stack covers both the edits the app made and the typing it replaced.
+    // does, so the stack covers both the edits the app made and the typing it replaced. Undo and redo are
+    // one stack with a cursor: a new edit throws the redo side away.
     function undo() {
         const last = past[past.length - 1];
         if (!last) return;
         setPast((list) => list.slice(0, -1));
+        setFuture((list) => [...list.slice(-(MAX_UNDO - 1)), { text: draft.text, source: last.source }]);
         burst.current = 0;
         setHover(null);
         setDraft((d) => ({ ...d, text: last.text }));
-        if (last.source) {
-            undos.current += 1;
-            setUndone({ source: last.source, n: undos.current });
-        }
+        if (last.source) finish(last.source, false);
     }
+
+    function redo() {
+        const next = future[future.length - 1];
+        if (!next) return;
+        setFuture((list) => list.slice(0, -1));
+        setPast((list) => [...list.slice(-(MAX_UNDO - 1)), { text: draft.text, source: next.source }]);
+        burst.current = 0;
+        setHover(null);
+        setDraft((d) => ({ ...d, text: next.text }));
+        if (next.source) finish(next.source, true);
+    }
+
+    function finish(source: string, done: boolean) {
+        setFinished((set) => {
+            if (set.has(source) === done) return set;
+            const next = new Set(set);
+            if (done) next.add(source);
+            else next.delete(source);
+            return next;
+        });
+    }
+
+    // Ctrl/Cmd+Z and +Shift are the two keys every editor answers; the name field keeps the browser's own
+    // undo, which is what a one-line input expects.
+    useEffect(() => {
+        function key(event: KeyboardEvent) {
+            if (!(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== "z") return;
+            if ((event.target as HTMLElement | null)?.id === "resume-name" || !editing) return;
+            event.preventDefault();
+            if (event.shiftKey) redo();
+            else undo();
+        }
+        window.addEventListener("keydown", key);
+        return () => window.removeEventListener("keydown", key);
+    });
 
     async function retryEdit(source: string) {
         if (!draft.id) return;
@@ -194,7 +236,7 @@ export function ResumePage() {
         try {
             const got = await extractResume(file);
             setDraft({ id: null, name: file.name.replace(/\.pdf$/i, "").slice(0, 80), text: got.text });
-            setPast([]);
+            resetHistory();
             setPasting(true);
             setImporting(false);
             setRestore(null);
@@ -242,7 +284,7 @@ export function ResumePage() {
         try {
             const full: ResumeRecord = await getResume(id);
             setDraft({ id: full.id, name: full.name, text: full.text });
-            setPast([]);
+            resetHistory();
             setRestore(null);
         } catch (e) {
             fail(e, "Could not open that resume.");
@@ -252,7 +294,7 @@ export function ResumePage() {
     function startNew() {
         setRestore(draft);
         setDraft(EMPTY_DRAFT);
-        setPast([]);
+        resetHistory();
         setPasting(false);
         setImporting(true);
         setDropping(false);
@@ -265,7 +307,7 @@ export function ResumePage() {
     // existed yet: with one, the drop zone's only exit was Cancel and a new resume had to be a PDF.
     function pasteInstead() {
         setDraft(EMPTY_DRAFT);
-        setPast([]);
+        resetHistory();
         setPasting(true);
         setImporting(false);
         setError(null);
@@ -275,7 +317,7 @@ export function ResumePage() {
     function cancelNew() {
         setImporting(false);
         setDraft(restore ?? EMPTY_DRAFT);
-        setPast([]);
+        resetHistory();
         setPasting(false);
         setRestore(null);
         setError(null);
@@ -305,7 +347,7 @@ export function ResumePage() {
             const rest = rows.filter((r) => r.id !== draft.id);
             setRows(rest);
             setDraft(EMPTY_DRAFT);
-            setPast([]);
+            resetHistory();
             setPasting(false);
             setImporting(false);
             setRestore(null);
@@ -438,6 +480,9 @@ export function ResumePage() {
                                 <Button variant="ghost" disabled={busy || past.length === 0} onClick={undo}>
                                     Undo
                                 </Button>
+                                <Button variant="ghost" disabled={busy || future.length === 0} onClick={redo}>
+                                    Redo
+                                </Button>
                                 {draft.id ? (
                                     <Button variant="ghost" disabled={busy} onClick={() => void remove()}>
                                         Delete
@@ -465,7 +510,8 @@ export function ResumePage() {
                                 onRetry={retryEdit}
                                 onFocusLine={(quote) => setFocusLine((current) => ({ quote, n: (current?.n ?? 0) + 1 }))}
                                 onHover={setHover}
-                                restored={undone}
+                                finished={finished}
+                                onFinish={(source) => finish(source, true)}
                             />
                         )}
                     </div>
