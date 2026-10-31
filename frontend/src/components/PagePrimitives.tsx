@@ -28,7 +28,7 @@ export function SectionHeading({ title }: { title: string }) {
     );
 }
 
-export function Stat({ label, value, delta, spark }: { label: string; value: string; delta?: ReactNode; spark?: number[] }) {
+export function Stat({ label, value, delta }: { label: string; value: string; delta?: ReactNode }) {
     return (
         <Card className="flex flex-col">
             <CardHeader className="pb-2">
@@ -39,13 +39,12 @@ export function Stat({ label, value, delta, spark }: { label: string; value: str
                     <p className="font-serif text-4xl leading-none tracking-[-0.03em] tabular-nums">{value}</p>
                     {delta}
                 </div>
-                {spark && <Sparkline data={spark} />}
             </CardContent>
         </Card>
     );
 }
 
-function Sparkline({ data }: { data: number[] }) {
+export function Sparkline({ data }: { data: number[] }) {
     if (data.length < 2) return null;
     const min = Math.min(...data);
     const span = Math.max(...data) - min || 1;
