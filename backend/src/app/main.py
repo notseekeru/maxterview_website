@@ -616,13 +616,10 @@ async def delete_resume(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Resume not found")
 
 
-# A review is derived from one column of a resume, so it dies with the resume (CASCADE) and is only
-# served while the text it read is still the text on the row. sha256 runs in Postgres: the alternative
-# is pulling 60k chars over the wire to hash them here.
-
-
-# AI HERE: an edit returns null rather than a review flagged stale. Ceiling: the candidate cannot see
-# what they are editing away from. Upgrade path: return `stale: true` with the old review and badge it.
+# A review is derived from one column of a resume, so it dies with the resume (CASCADE). An edit does
+# NOT retire it: the review is what the candidate paid a turn for, so it stays on the page marked stale
+# and the next review replaces it. sha256 runs in Postgres: the alternative is pulling 60k chars over the
+# wire to hash them here.
 @api.get("/resumes/{resume_id}/review", response_model=ResumeReview | None)
 async def get_resume_review(
     resume_id: str,
@@ -630,15 +627,15 @@ async def get_resume_review(
 ) -> dict | None:
     row = await fetchrow(
         """
-        SELECT rr.review, rr.created_at
+        SELECT rr.review, rr.created_at,
+               rr.source_hash = encode(sha256(convert_to(r.text, 'UTF8')), 'hex') AS fresh
         FROM resume_reviews rr JOIN resumes r ON r.id = rr.resume_id
         WHERE rr.resume_id = $1 AND r.owner_id = $2
-          AND rr.source_hash = encode(sha256(convert_to(r.text, 'UTF8')), 'hex')
         """,
         resume_id,
         user.sub,
     )
-    return {**row["review"], "created_at": row["created_at"]} if row else None
+    return {**row["review"], "created_at": row["created_at"], "stale": not row["fresh"]} if row else None
 
 
 @api.post("/resumes/{resume_id}/review", response_model=ResumeReview, status_code=status.HTTP_201_CREATED)

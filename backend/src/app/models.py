@@ -165,6 +165,9 @@ class ResumeReview(BaseModel):
     # Defaulted: reviews stored before these passes carry neither key.
     rewrites: list[ReviewRewrite] = Field(default_factory=list)
     lines: list[ReviewLine] = Field(default_factory=list)
+    # True when the resume text changed after this review read it: the page still shows it, because the
+    # advice is the work the candidate would otherwise lose, and the marks simply stop matching.
+    stale: bool = False
     created_at: datetime
 
     @computed_field

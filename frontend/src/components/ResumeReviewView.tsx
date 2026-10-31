@@ -156,6 +156,7 @@ export function ResumeReviewView({
 
             {review && (
                 <CardContent className="min-h-0 flex-1 space-y-3 overflow-y-auto">
+                    {review.stale && <p className="text-xs text-muted-foreground">Read the version before your last save. Re-review to match the page.</p>}
                     <p className="text-sm leading-relaxed">{review.verdict}</p>
 
                     <div className="flex flex-wrap items-center justify-between gap-2">
@@ -213,7 +214,7 @@ export function ResumeReviewView({
                                                 <Button variant="ghost" size="icon" className="size-7" aria-label="Apply this edit" title="Apply" disabled={busy} onClick={() => apply(line.source, line.rewrite)}>
                                                     <Icon name="complete" className="h-4 w-4" />
                                                 </Button>
-                                                <Button variant="ghost" size="icon" className="size-7" aria-label="Retry this edit" title="Retry" disabled={busy || retrying !== null} onClick={() => retry(line.source)}>
+                                                <Button variant="ghost" size="icon" className="size-7" aria-label="Retry this edit" title={review.stale ? "Re-review first: this edit was written for the earlier version" : "Retry"} disabled={busy || retrying !== null || review.stale} onClick={() => retry(line.source)}>
                                                     <Icon name="retry" className={cn("h-4 w-4", retrying === line.source && "animate-spin")} />
                                                 </Button>
                                                 <Button variant="ghost" size="icon" className="size-7" aria-label="Dismiss this edit" title="Dismiss" onClick={() => onFinish(line.source)}>

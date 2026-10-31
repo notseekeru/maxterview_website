@@ -177,8 +177,8 @@ export async function deleteResume(id: string): Promise<void> {
     await api.delete(`/resumes/${id}`);
 }
 
-// A review is derived from the resume's text: the server retires it when the text changes, so null
-// here means "no review of what is on the page right now".
+// A review is kept when the text changes, so null here means "never reviewed" and `stale` means the
+// page has moved on since it was read.
 
 export type ReviewCall = "passes" | "close" | "fails";
 export type SectionCall = "strong" | "fine" | "weak" | "bloat";
@@ -213,6 +213,7 @@ export interface ResumeReview {
     rewrites: ReviewRewrite[];
     lines: ReviewLine[];
     reads_at: string | null;
+    stale: boolean;
     created_at: string;
 }
 

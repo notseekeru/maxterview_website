@@ -616,9 +616,10 @@ def test_resume_write_paths_share_one_hygiene(client):
     assert c.delete(f"/api/resumes/{made.json()['id']}").status_code == 204
 
 
-def test_resume_review_is_served_only_for_the_text_it_read(client, monkeypatch):
+def test_resume_review_survives_an_edit_and_is_marked_stale(client, monkeypatch):
     # The reviewer is one network hop; everything the page reads back is the stored row, so the two
-    # ways it can be wrong are a review that outlives an edit and a review that leaks across owners.
+    # ways it can be wrong are a review that survives an edit without saying so, and one that leaks
+    # across owners. A paid-for review is not thrown away by a save.
     from app import llm, review
 
     c = client
@@ -643,12 +644,14 @@ def test_resume_review_is_served_only_for_the_text_it_read(client, monkeypatch):
     body = made.json()
     # reads_at is derived from the ladder, never a field the model fills in.
     assert (body["reads_at"], len(body["levels"]), body["levels"][0]["level"]) == ("mid", len(review.RUNGS), "intern")
+    assert body["stale"] is False
     assert c.get(f"/api/resumes/{rid}/review").json()["verdict"] == body["verdict"]
 
-    # An edit retires it: the hash no longer matches, so the page shows nothing rather than advice
-    # about a resume that no longer exists.
+    # An edit keeps the review: it was paid for with a chat turn, so it stays on the page and says it read
+    # an earlier version instead of vanishing. The next review is what replaces it.
     assert c.put(f"/api/resumes/{rid}", json=_resume_payload("Review me", "Rewritten.")).status_code == 200
-    assert c.get(f"/api/resumes/{rid}/review").json() is None
+    kept = c.get(f"/api/resumes/{rid}/review").json()
+    assert (kept["verdict"], kept["stale"], kept["created_at"]) == (body["verdict"], True, body["created_at"])
 
     # And it goes with the resume (CASCADE), not through it.
     assert c.delete(f"/api/resumes/{rid}").status_code == 204
