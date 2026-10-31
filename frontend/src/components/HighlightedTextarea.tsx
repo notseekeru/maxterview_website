@@ -1,4 +1,4 @@
-import { type ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
+import { type ChangeEvent, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Textarea } from "@/components/ui/textarea";
 import { LATEX_CLASS, tokenize } from "@/lib/latex";
 import { callByLine, type LineCall, lineOf, type QuotedLine } from "@/lib/resumeText";
@@ -45,6 +45,47 @@ export function HighlightedTextarea({
     const rows = useMemo(() => value.split("\n"), [value]);
     const ghostLine = useMemo(() => (ghost ? lineOf(value, ghost.quote) : null), [ghost, value]);
     const [overLine, setOverLine] = useState<number | null>(null);
+    const [padRight, setPadRight] = useState<number | null>(null);
+
+    // A textarea's scrollbar sits inside its box, so the text it wraps is narrower than the layer behind
+    // it by the scrollbar. Without paying that gutter back, every wrapped line drifts and the caret lands
+    // off the words it is next to. Measured, because the width is zero on overlay scrollbars and not on
+    // the classic ones.
+    useLayoutEffect(() => {
+        const node = area.current;
+        if (!node) return;
+        const measure = () => {
+            const style = getComputedStyle(node);
+            const borders = Number.parseFloat(style.borderLeftWidth) + Number.parseFloat(style.borderRightWidth);
+            setPadRight(Number.parseFloat(style.paddingRight) + Math.max(0, node.offsetWidth - node.clientWidth - borders));
+        };
+        measure();
+        const watch = new ResizeObserver(measure);
+        watch.observe(node);
+        return () => watch.disconnect();
+    }, []);
+
+    // AI HERE: the two layers have to wrap the same or the marks point at the wrong words; in dev the
+    // disagreement is named instead of being chased as "the editor is broken". Upgrade path is a real
+    // test once the frontend has a runner.
+    useEffect(() => {
+        if (!import.meta.env.DEV) return;
+        const frame = requestAnimationFrame(() => {
+            const node = area.current;
+            const layer = mirror.current;
+            if (node && layer && Math.abs(node.scrollHeight - layer.scrollHeight) > 1) console.warn(`editor layers disagree: textarea ${node.scrollHeight}, layer ${layer.scrollHeight}`);
+        });
+        return () => cancelAnimationFrame(frame);
+    });
+
+    // Wrapped lines make "line index times line height" a lie, so every position the editor needs (the
+    // card, the jump from the panel, the line under the pointer) reads the layer's real boxes instead.
+    const boxes = useRef<{ top: number; bottom: number }[]>([]);
+    useLayoutEffect(() => {
+        const layer = mirror.current;
+        if (!layer) return;
+        boxes.current = [...layer.children].filter((child): child is HTMLElement => child.tagName === "SPAN").map((child) => ({ top: child.offsetTop, bottom: child.offsetTop + child.offsetHeight }));
+    });
     // The panel and the text point at the same thing: a line that has a rewrite waiting for it. Hovering
     // the line itself does not scroll anywhere, because the line is already under the pointer.
     const byLine = useMemo(() => {
@@ -58,6 +99,7 @@ export function HighlightedTextarea({
     const hinted = overLine === null ? null : (byLine.get(overLine) ?? null);
     const shown = ghost ?? hinted;
     const shownLine = ghost ? ghostLine : hinted ? overLine : null;
+    const cardTop = shownLine === null ? 0 : (boxes.current[shownLine]?.bottom ?? (shownLine + 1) * LINE_HEIGHT) + 2;
     const quote = focus?.quote ?? "";
     const bump = focus?.n ?? 0;
 
@@ -66,9 +108,9 @@ export function HighlightedTextarea({
     useEffect(() => {
         if (ghostLine === null) return;
         const node = area.current;
-        if (!node) return;
-        const top = ghostLine * LINE_HEIGHT;
-        if (top < node.scrollTop || top + LINE_HEIGHT > node.scrollTop + node.clientHeight - LINE_HEIGHT * 2) node.scrollTop = Math.max(0, top - LINE_HEIGHT * 3);
+        const box = boxes.current[ghostLine];
+        if (!node || !box) return;
+        if (box.top < node.scrollTop || box.bottom > node.scrollTop + node.clientHeight - LINE_HEIGHT * 2) node.scrollTop = Math.max(0, box.top - LINE_HEIGHT * 3);
     }, [ghostLine]);
 
     // A row in the review panel points at a line here: scroll it into view and select it, so the mark
@@ -82,8 +124,17 @@ export function HighlightedTextarea({
         const at = rows.slice(0, line).reduce((sum, row) => sum + row.length + 1, 0);
         node.focus();
         node.setSelectionRange(at, at + rows[line].length);
-        node.scrollTop = Math.max(0, line * LINE_HEIGHT - LINE_HEIGHT * 2);
+        node.scrollTop = Math.max(0, (boxes.current[line]?.top ?? line * LINE_HEIGHT) - LINE_HEIGHT * 2);
     }, [quote, bump, value, rows]);
+
+    function lineAt(clientY: number): number {
+        const node = area.current;
+        if (!node || !boxes.current.length) return -1;
+        const y = clientY - node.getBoundingClientRect().top + node.scrollTop;
+        const at = boxes.current.findIndex((box) => y >= box.top && y < box.bottom);
+        if (at >= 0) return at;
+        return Math.max(0, Math.min(boxes.current.length - 1, Math.floor(y / LINE_HEIGHT) - 1));
+    }
 
     function change(event: ChangeEvent<HTMLTextAreaElement>) {
         onChange(event.target.value);
@@ -91,7 +142,7 @@ export function HighlightedTextarea({
 
     return (
         <div className="relative min-h-0 flex-1">
-            <div ref={mirror} aria-hidden className={cn("pointer-events-none absolute inset-0 overflow-hidden rounded-xl border border-transparent", BOX)}>
+            <div ref={mirror} aria-hidden style={padRight === null ? undefined : { paddingRight: padRight }} className={cn("pointer-events-none absolute inset-0 overflow-hidden rounded-xl border border-transparent", BOX)}>
                 {rows.map((row, index) => {
                     const call = calls.get(index);
                     const ghosted = shownLine === index;
@@ -111,7 +162,7 @@ export function HighlightedTextarea({
                     );
                 })}
                 {shown && shownLine !== null && (
-                    <div className="absolute inset-x-1 space-y-1 whitespace-normal rounded-lg border border-primary/40 bg-background p-2 font-sans text-xs leading-snug text-foreground shadow-lg" style={{ top: (shownLine + 1) * LINE_HEIGHT + 2 }}>
+                    <div className="absolute inset-x-1 space-y-1 whitespace-normal rounded-lg border border-primary/40 bg-background p-2 font-sans text-xs leading-snug text-foreground shadow-lg" style={{ top: cardTop }}>
                         <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Suggested rewrite</p>
                         <p>{shown.rewrite}</p>
                     </div>
@@ -127,9 +178,7 @@ export function HighlightedTextarea({
                 }}
                 onMouseMove={(event) => {
                     if (!byLine.size) return;
-                    const node = event.currentTarget;
-                    const y = event.clientY - node.getBoundingClientRect().top + node.scrollTop - 8;
-                    const line = Math.max(0, Math.floor(y / LINE_HEIGHT));
+                    const line = lineAt(event.clientY);
                     setOverLine((current) => (current === line ? current : line));
                 }}
                 onMouseLeave={() => setOverLine(null)}
