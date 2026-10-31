@@ -1,4 +1,4 @@
-import { type ChangeEvent, useEffect, useMemo, useRef } from "react";
+import { type ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
 import { Textarea } from "@/components/ui/textarea";
 import { LATEX_CLASS, tokenize } from "@/lib/latex";
 import { callByLine, type LineCall, lineOf, type QuotedLine } from "@/lib/resumeText";
@@ -26,6 +26,7 @@ export function HighlightedTextarea({
     placeholder,
     focus,
     ghost,
+    suggestions,
 }: {
     id: string;
     value: string;
@@ -35,6 +36,7 @@ export function HighlightedTextarea({
     placeholder: string;
     focus?: { quote: string; n: number } | null;
     ghost?: { quote: string; rewrite: string } | null;
+    suggestions?: { source: string; rewrite: string }[];
 }) {
     const mirror = useRef<HTMLDivElement | null>(null);
     const area = useRef<HTMLTextAreaElement | null>(null);
@@ -42,6 +44,20 @@ export function HighlightedTextarea({
     const calls = useMemo(() => callByLine(value, lines), [value, lines]);
     const rows = useMemo(() => value.split("\n"), [value]);
     const ghostLine = useMemo(() => (ghost ? lineOf(value, ghost.quote) : null), [ghost, value]);
+    const [overLine, setOverLine] = useState<number | null>(null);
+    // The panel and the text point at the same thing: a line that has a rewrite waiting for it. Hovering
+    // the line itself does not scroll anywhere, because the line is already under the pointer.
+    const byLine = useMemo(() => {
+        const map = new Map<number, { source: string; rewrite: string }>();
+        for (const item of suggestions ?? []) {
+            const line = lineOf(value, item.source);
+            if (line !== null && !map.has(line)) map.set(line, item);
+        }
+        return map;
+    }, [suggestions, value]);
+    const hinted = overLine === null ? null : (byLine.get(overLine) ?? null);
+    const shown = ghost ?? hinted;
+    const shownLine = ghost ? ghostLine : hinted ? overLine : null;
     const quote = focus?.quote ?? "";
     const bump = focus?.n ?? 0;
 
@@ -78,7 +94,7 @@ export function HighlightedTextarea({
             <div ref={mirror} aria-hidden className={cn("pointer-events-none absolute inset-0 overflow-hidden rounded-xl border border-transparent", BOX)}>
                 {rows.map((row, index) => {
                     const call = calls.get(index);
-                    const ghosted = ghostLine === index;
+                    const ghosted = shownLine === index;
                     return (
                         // biome-ignore lint/suspicious/noArrayIndexKey: a resume line has no id and repeats verbatim by design
                         <span key={index} className={cn("text-foreground", call && !ghosted && MARK[call], call && "underline", ghosted && "bg-primary/15")}>
@@ -94,10 +110,10 @@ export function HighlightedTextarea({
                         </span>
                     );
                 })}
-                {ghost && ghostLine !== null && (
-                    <div className="absolute inset-x-1 space-y-1 whitespace-normal rounded-lg border border-primary/40 bg-background p-2 font-sans text-xs leading-snug text-foreground shadow-lg" style={{ top: (ghostLine + 1) * LINE_HEIGHT + 2 }}>
+                {shown && shownLine !== null && (
+                    <div className="absolute inset-x-1 space-y-1 whitespace-normal rounded-lg border border-primary/40 bg-background p-2 font-sans text-xs leading-snug text-foreground shadow-lg" style={{ top: (shownLine + 1) * LINE_HEIGHT + 2 }}>
                         <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Suggested rewrite</p>
-                        <p>{ghost.rewrite}</p>
+                        <p>{shown.rewrite}</p>
                     </div>
                 )}
             </div>
@@ -109,6 +125,14 @@ export function HighlightedTextarea({
                 onScroll={(event) => {
                     if (mirror.current) mirror.current.scrollTop = event.currentTarget.scrollTop;
                 }}
+                onMouseMove={(event) => {
+                    if (!byLine.size) return;
+                    const node = event.currentTarget;
+                    const y = event.clientY - node.getBoundingClientRect().top + node.scrollTop - 8;
+                    const line = Math.max(0, Math.floor(y / LINE_HEIGHT));
+                    setOverLine((current) => (current === line ? current : line));
+                }}
+                onMouseLeave={() => setOverLine(null)}
                 spellCheck={false}
                 placeholder={placeholder}
                 className={cn("relative size-full min-h-[28rem] resize-none bg-transparent text-transparent caret-foreground selection:bg-primary/30 xl:min-h-0", BOX)}

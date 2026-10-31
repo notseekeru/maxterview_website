@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { HighlightedTextarea } from "@/components/HighlightedTextarea";
 import { LatexPreview } from "@/components/LatexPreview";
 import { Page } from "@/components/PagePrimitives";
@@ -211,6 +211,8 @@ export function ResumePage() {
         setDraft((d) => ({ ...d, text: next }));
         setNotice(draft.id ? "Converted to LaTeX. Check the structure on the right, then Save." : "Converted to LaTeX. Save it to see the preview.");
     }
+
+    const suggestions = useMemo(() => (review?.rewrites ?? []).filter((line) => !finished.has(line.source)).map(({ source, rewrite }) => ({ source, rewrite })), [review, finished]);
 
     function fail(e: unknown, fallback: string) {
         setError(apiDetail(e, fallback));
@@ -470,7 +472,7 @@ export function ResumePage() {
                                             </button>
                                         )}
                                     </div>
-                                    <HighlightedTextarea id="resume-text" value={draft.text} onChange={editText} focus={focusLine} ghost={hover ? { quote: hover.source, rewrite: hover.rewrite } : null} lines={review?.lines ?? []} latex={latex} placeholder="Paste your resume here…" />
+                                    <HighlightedTextarea id="resume-text" value={draft.text} onChange={editText} focus={focusLine} ghost={hover ? { quote: hover.source, rewrite: hover.rewrite } : null} suggestions={suggestions} lines={review?.lines ?? []} latex={latex} placeholder="Paste your resume here…" />
                                 </div>
                             </CardContent>
                             <div className="flex items-center gap-2 px-6 pb-6">
