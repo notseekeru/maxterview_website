@@ -727,6 +727,8 @@ def test_review_prompt_carries_every_band_and_the_staircase_rule():
     p = llm.RESUME_REVIEW_PROMPT
     assert all(llm.REVIEW_BANDS[rung] in p for rung in review.RUNGS)
     assert "staircase" in p and llm.UNTRUSTED_INPUT in p
+    # The audit over-praises when strong reads as "names an outcome"; the rarity clause is what holds it back.
+    assert "Strong is the exception" in p
     # The shape example has to be the ladder the server validates, or a weak backend copies a rung
     # the vocabulary does not have.
     assert [r["level"] for r in llm.REVIEW_EXAMPLE["levels"]] == list(review.RUNGS)

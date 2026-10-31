@@ -457,7 +457,9 @@ PASS 3 - THE REWRITES. The lines to replace, biggest gap first, 2-3 of them. `so
 `rewrite` is that same line carrying the evidence the page already has, in the candidate's own facts and voice; where one fact is missing and only they can supply it, leave a bracketed slot (`[which team adopted it]`) instead of inventing it.
 Never add a number, an employer, a team, a tool or an outcome the page does not state. A line already earning its space is not rewritten.
 
-PASS 4 - THE LINES. Every claim-bearing line or bullet, in page order: `text` quoted exactly as it appears on the page, and `call` is weak (an assertion with no outcome, no evidence or padding), safe (correct and unremarkable) or strong (carries what it claims: an owner, a change, a number, an outcome).
+PASS 4 - THE LINES. Every claim-bearing line or bullet, in page order: `text` quoted exactly as it appears on the page.
+`call` is weak (an assertion with no outcome, no evidence or padding), safe (correct and unremarkable) or strong (something broke or was owned, and the line says what moved because of it, as a number, a named result or a before-and-after).
+Strong is the exception, not the default: a page where every bullet is strong has none. Naming tools, a job title, or the work performed is safe at best. Expect most lines safe, several weak, and a handful strong.
 Skip the name, contact details, section headings and anything that carries no claim. This is what the editor paints over, so a paraphrased line cannot be found on the page and is dropped: quote it, never describe it.
 The page may be LaTeX source: judge the claims inside the markup and quote whole source lines, never fragments of one, so a rewrite can replace the line and still compile.
 

@@ -230,7 +230,7 @@ export function ResumeReviewView({
                     {audits.length > 0 && (
                         <div className="space-y-1.5">
                             <div className="flex items-center justify-between gap-2">
-                                <p className={LABEL}>Lines</p>
+                                <p className={LABEL}>Bullets</p>
                                 <div className="flex items-center gap-2 text-[11px]">
                                     <span className="text-destructive">{tally.weak} weak</span>
                                     <span className="text-muted-foreground">{tally.safe} safe</span>
@@ -241,12 +241,14 @@ export function ResumeReviewView({
                                 </div>
                             </div>
                             {linesOpen && (
-                                <ul className="max-h-40 divide-y overflow-y-auto rounded-xl border">
+                                <ul className="divide-y rounded-xl border">
                                     {audits.map((line) => (
                                         <li key={`${line.call}:${line.text}`}>
                                             <button type="button" onClick={() => onFocusLine(line.text)} className="flex w-full items-start gap-2 px-3 py-1 text-left transition-colors hover:bg-accent">
                                                 <span className={cn("mt-0.5 shrink-0 rounded border px-1 text-[10px] uppercase", LINE[line.call])}>{line.call}</span>
-                                                <span className="min-w-0 text-xs leading-snug text-muted-foreground">{line.text}</span>
+                                                <span className="min-w-0 truncate text-xs text-muted-foreground" title={line.text}>
+                                                    {line.text}
+                                                </span>
                                             </button>
                                         </li>
                                     ))}
