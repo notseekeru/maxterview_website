@@ -10,6 +10,7 @@ import { StateNote } from "@/components/ui/state";
 import { apiDetail, createResume, deleteResume, extractResume, getResume, getResumeReview, getUsage, httpStatus, listResumes, type Resume as ResumeRecord, type ResumeReview, type ResumeSummary, retryRewrite, reviewResume, updateResume } from "@/lib/api";
 import { isLatex } from "@/lib/latex";
 import { replaceLine } from "@/lib/resumeText";
+import { toLatex } from "@/lib/toLatex";
 import { cn } from "@/lib/utils";
 
 interface Draft {
@@ -156,6 +157,17 @@ export function ResumePage() {
         } catch (e) {
             setReviewError(apiDetail(e, "Could not retry that edit."));
         }
+    }
+
+    // The LaTeX preview only exists once the text is a document, so the door to it is a button: the same
+    // click that explains the option is the one that turns it on, and undo is right there if it is not wanted.
+    function convertToLatex() {
+        const next = toLatex(draft.text);
+        remember();
+        burst.current = 0;
+        setHover(null);
+        setDraft((d) => ({ ...d, text: next }));
+        setNotice(draft.id ? "Converted to LaTeX. Check the structure on the right, then Save." : "Converted to LaTeX. Save it to see the preview.");
     }
 
     function fail(e: unknown, fallback: string) {
@@ -406,9 +418,16 @@ export function ResumePage() {
                                     <Input id="resume-name" value={draft.name} maxLength={80} placeholder="Title" onChange={(e) => setDraft((d) => ({ ...d, name: e.target.value }))} />
                                 </div>
                                 <div className="flex min-h-0 flex-1 flex-col gap-1.5">
-                                    <label htmlFor="resume-text" className="text-sm font-medium leading-none">
-                                        Resume text
-                                    </label>
+                                    <div className="flex items-baseline justify-between gap-2">
+                                        <label htmlFor="resume-text" className="text-sm font-medium leading-none">
+                                            Resume text
+                                        </label>
+                                        {!latex && draft.text.trim() !== "" && (
+                                            <button type="button" onClick={convertToLatex} title="Wrap this text in a LaTeX document so the PDF preview turns on" className="text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground">
+                                                Convert to LaTeX
+                                            </button>
+                                        )}
+                                    </div>
                                     <HighlightedTextarea id="resume-text" value={draft.text} onChange={editText} focus={focusLine} ghost={hover ? { quote: hover.source, rewrite: hover.rewrite } : null} lines={review?.lines ?? []} latex={latex} placeholder="Paste your resume here…" />
                                 </div>
                             </CardContent>
