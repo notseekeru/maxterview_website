@@ -1,11 +1,13 @@
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Slider } from "@/components/ui/slider";
-import { apiDetail, createInterview, createTemplate, deleteTemplate, type InterviewDials, type InterviewTemplate, listResumes, listTemplates, type ResumeSummary, type TemplateInput, updateTemplate } from "@/lib/api";
-import { COMPANY_SIZES, CYNICISM, companySizeLabel, DEPTHS, DIAL_FIELDS, LEVELS, planSegments, planSummary, ROLE_PRESETS } from "@/lib/interviewOptions";
+import { apiDetail, createInterview, createTemplate, type Depth, deleteTemplate, type InterviewDials, type InterviewTemplate, listResumes, listTemplates, type ResumeSummary, type TemplateInput, updateTemplate } from "@/lib/api";
+import { COMPANY_SIZES, CYNICISM, companySizeLabel, DEPTHS, DIAL_FIELDS, LEVELS, planBar, planSegments, planSummary, planTotals, ROLE_PRESETS } from "@/lib/interviewOptions";
 import { cn } from "@/lib/utils";
+import { Icon } from "./AppIcons";
+import { LABEL } from "./PagePrimitives";
 import { RowMenu } from "./RowMenu";
 
 const LAST_TEMPLATE_KEY = "maxterview:last-template";
@@ -198,18 +200,17 @@ export function CreateInterviewForm({ onCreated }: Props) {
     }
 
     const hiddenRoles = ROLE_PRESETS.length - VISIBLE_ROLES;
+    const totals = planTotals(DEPTHS[depth].value);
+    const summary = `${totals.questions} questions · ${totals.turns} turns · ${DEPTHS[depth].minutes} min`;
 
     return (
-        <Card className="w-full overflow-hidden">
-            <form onSubmit={submit}>
-                <CardHeader className="border-b py-4">
-                    <CardTitle className="text-lg">New interview</CardTitle>
-                </CardHeader>
-
-                <CardContent className="divide-y p-0">
+        <Card className="relative w-full overflow-hidden">
+            <div aria-hidden className="dotgrid pointer-events-none absolute inset-x-0 top-0 h-80 opacity-50 [mask-image:radial-gradient(75%_100%_at_50%_0%,#000_10%,transparent_80%)]" />
+            <form onSubmit={submit} className="relative">
+                <div className="space-y-7 px-5 py-6 sm:px-8 sm:py-8">
                     {templates && (
-                        <section className="space-y-2 px-5 py-4">
-                            <p className="text-sm font-medium">Presets</p>
+                        <section className="space-y-2.5">
+                            <p className={LABEL}>Start from</p>
                             <div className="flex flex-wrap items-center gap-1.5">
                                 {templates.map((t) => {
                                     const applied = t.id === lastUsedId && isApplied(t);
@@ -288,26 +289,23 @@ export function CreateInterviewForm({ onCreated }: Props) {
                         </section>
                     )}
 
-                    {resumes.length > 0 && (
-                        <section className="space-y-2 px-5 py-4">
-                            <p className="text-sm font-medium">Resume</p>
-                            <div className="flex flex-wrap items-center gap-1.5">
-                                <button type="button" aria-pressed={resumeId === null} onClick={() => setResumeId(null)} className={chipClass(resumeId === null)}>
-                                    None
-                                </button>
-                                {resumes.map((r) => (
-                                    <button key={r.id} type="button" aria-pressed={resumeId === r.id} onClick={() => setResumeId(r.id)} className={chipClass(resumeId === r.id)}>
-                                        {r.name}
-                                    </button>
-                                ))}
-                            </div>
-                        </section>
-                    )}
-
-                    <section className="space-y-2 px-5 py-4">
-                        <label htmlFor="role" className="block text-sm font-medium">
-                            Role
+                    <section className="space-y-4">
+                        <label htmlFor="role" className={LABEL}>
+                            Who are you interviewing for?
                         </label>
+                        <input
+                            id="role"
+                            value={role}
+                            onChange={(e) => {
+                                setError(null);
+                                setRole(e.target.value);
+                            }}
+                            maxLength={200}
+                            required
+                            autoComplete="off"
+                            placeholder="Software Engineer"
+                            className="w-full min-w-0 border-b border-input bg-transparent pb-2 font-serif text-[clamp(1.75rem,4vw,2.75rem)] leading-[1.05] tracking-[-0.03em] caret-primary outline-none transition-colors placeholder:text-muted-foreground/50 focus:border-primary"
+                        />
                         <div className="flex flex-wrap gap-1.5">
                             {(showAllRoles ? ROLE_PRESETS : ROLE_PRESETS.slice(0, VISIBLE_ROLES)).map((preset) => (
                                 <button
@@ -329,62 +327,113 @@ export function CreateInterviewForm({ onCreated }: Props) {
                                 </button>
                             )}
                         </div>
-                        <Input id="role" value={role} onChange={(e) => setRole(e.target.value)} maxLength={200} placeholder="e.g. Software Engineer, or pick a preset above" required className="max-w-xl rounded-md" />
                     </section>
 
-                    <section className="space-y-4 px-5 py-4">
-                        <div className="grid gap-x-6 gap-y-4 sm:grid-cols-3">
-                            <Dial id="level" label="Level" value={level} values={LEVELS.map((l) => l.value)} labels={LEVELS.map((l) => l.label)} onChange={setLevel} />
+                    <div className="grid gap-6 sm:grid-cols-[1.4fr_1fr]">
+                        <section className="space-y-2.5">
+                            <p className={LABEL}>Level</p>
+                            <div className="flex flex-wrap gap-1.5">
+                                {LEVELS.map((l) => (
+                                    <button key={l.value} type="button" aria-pressed={level === l.value} onClick={() => setLevel(l.value)} className={chipClass(level === l.value)}>
+                                        {l.label}
+                                    </button>
+                                ))}
+                            </div>
+                        </section>
+
+                        {resumes.length > 0 && (
+                            <section className="space-y-2.5">
+                                <p className={LABEL}>Resume</p>
+                                <div className="flex flex-wrap gap-1.5">
+                                    <button type="button" aria-pressed={resumeId === null} onClick={() => setResumeId(null)} className={chipClass(resumeId === null)}>
+                                        None
+                                    </button>
+                                    {resumes.map((r) => (
+                                        <button key={r.id} type="button" aria-pressed={resumeId === r.id} onClick={() => setResumeId(r.id)} className={chipClass(resumeId === r.id)}>
+                                            {r.name}
+                                        </button>
+                                    ))}
+                                </div>
+                            </section>
+                        )}
+                    </div>
+
+                    <fieldset className="space-y-3">
+                        <legend className={LABEL}>How deep</legend>
+                        <div className="grid gap-2 sm:grid-cols-3">
+                            {DEPTHS.map((d, i) => (
+                                <label key={d.value} className="relative block cursor-pointer">
+                                    <input type="radio" name="depth" value={d.value} checked={depth === i} onChange={() => setDepth(i)} className="peer sr-only" />
+                                    <span className="flex h-full flex-col justify-between gap-3 rounded-lg border border-input px-3.5 py-3 transition-colors hover:bg-accent/50 peer-checked:border-primary peer-checked:bg-primary/5 peer-focus-visible:ring-2 peer-focus-visible:ring-ring peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-background">
+                                        <span className="font-mono text-[0.65rem] uppercase tracking-[0.18em] text-foreground/70">{d.label}</span>
+                                        <span className="flex items-baseline justify-between gap-2">
+                                            <span className="font-serif text-xl leading-none tracking-[-0.02em]">{d.minutes} min</span>
+                                            <span className="text-xs text-muted-foreground tabular-nums">{planTotals(d.value).questions} questions</span>
+                                        </span>
+                                    </span>
+                                    <span aria-hidden className="pointer-events-none absolute right-3.5 top-3.5 size-1.5 rounded-full bg-primary opacity-0 transition-opacity peer-checked:opacity-100" />
+                                </label>
+                            ))}
+                        </div>
+                        <PhaseBar depth={DEPTHS[depth].value} />
+                        <p className="text-xs text-muted-foreground">{planSummary(planSegments(DEPTHS[depth].value))}</p>
+                    </fieldset>
+
+                    <details className="group border-t pt-4">
+                        <summary className="flex cursor-pointer list-none items-center justify-between gap-3 rounded-md py-1 [&::-webkit-details-marker]:hidden">
+                            <span className="flex items-center gap-2">
+                                <Icon name="sliders" className="size-4 shrink-0 text-muted-foreground" />
+                                <span className={LABEL}>Tune the interviewer</span>
+                            </span>
+                            <Icon name="chevron" className="size-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-180" />
+                        </summary>
+                        <div className="mt-5 grid gap-x-8 gap-y-5 sm:grid-cols-2">
                             <Dial id="company_size" label="Company size" value={COMPANY_SIZES[companySize].value} values={COMPANY_SIZES.map((c) => c.value)} labels={COMPANY_SIZES.map((c) => companySizeLabel(c.value))} onChange={(v) => setCompanySize(COMPANY_SIZES.findIndex((c) => c.value === v))} />
                             <Dial id="cynicism" label="Cynicism" value={CYNICISM[cynicism].value} values={CYNICISM.map((c) => c.value)} labels={CYNICISM.map((c) => c.label)} onChange={(v) => setCynicism(CYNICISM.findIndex((c) => c.value === v))} />
+                            <div className="space-y-2 sm:col-span-2">
+                                <label htmlFor="topic" className="block text-sm font-medium">
+                                    Topic (optional)
+                                </label>
+                                <Input id="topic" value={topic} onChange={(e) => setTopic(e.target.value)} maxLength={500} placeholder="e.g. system design" className="max-w-xl rounded-md" />
+                            </div>
+                            <div className="flex flex-wrap items-center gap-x-6 gap-y-3 sm:col-span-2">
+                                <Toggle id="brutally_honest" checked={brutallyHonest} onChange={setBrutallyHonest} label="Brutally honest" />
+                                <Toggle id="hardcore" checked={hardcore} onChange={setHardcore} label="Hardcore" />
+                                <Toggle id="human_mode" checked={humanMode} onChange={setHumanMode} label="Human mode" />
+                            </div>
                         </div>
-                        <div className="space-y-2">
-                            <label htmlFor="topic" className="block text-sm font-medium">
-                                Topic (optional)
-                            </label>
-                            <Input id="topic" value={topic} onChange={(e) => setTopic(e.target.value)} maxLength={500} placeholder="e.g. system design" className="max-w-xl rounded-md" />
-                        </div>
-                    </section>
+                    </details>
+                </div>
 
-                    <section className="space-y-3 px-5 py-4">
-                        <Dial
-                            id="depth"
-                            label="Depth"
-                            value={DEPTHS[depth].value}
-                            values={DEPTHS.map((d) => d.value)}
-                            labels={DEPTHS.map((d) => `${d.label} · ${d.minutes} min`)}
-                            onChange={(v) =>
-                                setDepth(
-                                    Math.max(
-                                        0,
-                                        DEPTHS.findIndex((d) => d.value === v),
-                                    ),
-                                )
-                            }
-                            showRange={false}
-                        />
-                        <p className="text-xs text-muted-foreground">{planSummary(planSegments(DEPTHS[depth].value))}</p>
-                    </section>
-
-                    <section className="grid gap-x-6 gap-y-4 px-5 py-4 sm:grid-cols-3">
-                        <Toggle id="brutally_honest" checked={brutallyHonest} onChange={setBrutallyHonest} label="Brutally honest" />
-                        <Toggle id="hardcore" checked={hardcore} onChange={setHardcore} label="Hardcore" />
-                        <Toggle id="human_mode" checked={humanMode} onChange={setHumanMode} label="Human mode" />
-                    </section>
-                </CardContent>
-
-                <CardFooter className="flex-wrap items-center justify-end gap-3 border-t py-4">
-                    {error && (
-                        <p role="alert" className="mr-auto text-sm text-destructive">
-                            {error}
-                        </p>
-                    )}
-                    <Button type="submit" disabled={busy} className="h-10 px-6">
-                        {busy ? "Creating..." : "Start interview"}
-                    </Button>
-                </CardFooter>
+                <div className="sticky bottom-0 border-t bg-card/95 px-5 py-3 backdrop-blur supports-[backdrop-filter]:bg-card/80 sm:px-8">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                        {error ? (
+                            <p role="alert" className="text-sm text-destructive">
+                                {error}
+                            </p>
+                        ) : (
+                            <p className="text-xs text-muted-foreground tabular-nums">{summary}</p>
+                        )}
+                        <Button type="submit" disabled={busy} className="h-10 px-6">
+                            {busy ? "Creating..." : "Start interview"}
+                        </Button>
+                    </div>
+                </div>
             </form>
         </Card>
+    );
+}
+
+function PhaseBar({ depth }: { depth: Depth }) {
+    const segments = planBar(depth);
+    const total = segments.reduce((n, s) => n + s.turns, 0);
+    const tones = ["bg-foreground/12", "bg-foreground/12", "bg-foreground/30", "bg-foreground/55", "bg-foreground/35", "bg-primary"];
+    return (
+        <div aria-hidden className="flex h-2 w-full gap-px overflow-hidden rounded-full bg-muted">
+            {segments.map((s, i) => (
+                <span key={s.label} title={`${s.label} · ${s.turns} ${s.turns === 1 ? "turn" : "turns"}`} style={{ width: `${(s.turns / total) * 100}%` }} className={cn("h-full transition-[width] duration-300", tones[i])} />
+            ))}
+        </div>
     );
 }
 
@@ -393,7 +442,7 @@ function Dial({ id, label, value, values, labels, onChange, showRange = true }: 
     return (
         <div className="space-y-1.5">
             <div className="flex items-baseline justify-between gap-3">
-                <label htmlFor={id} className="text-sm font-medium">
+                <label htmlFor={id} className={LABEL}>
                     {label}
                 </label>
                 <span className="shrink-0 text-sm tabular-nums">{labels[index]}</span>

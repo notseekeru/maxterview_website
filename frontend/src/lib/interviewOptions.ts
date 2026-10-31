@@ -131,4 +131,22 @@ export function planSummary(segments: { label: string; count: number }[]): strin
     return segments.map((s) => (s.count > 1 ? `${s.count} ${s.label.toLowerCase()}` : s.label.toLowerCase())).join(" · ");
 }
 
+// Turns, not questions: the bar's widths are what the run actually spends, follow-up slots included.
+export function planBar(depth: Depth): { label: string; turns: number }[] {
+    const c = PLAN_COUNTS[depth] ?? PLAN_COUNTS.standard;
+    return [
+        { label: PHASE_LABELS.rapport, turns: c.rapport },
+        { label: PHASE_LABELS.background, turns: c.background },
+        { label: PHASE_LABELS.competency, turns: c.competency * 2 },
+        { label: PHASE_LABELS.technical, turns: c.technical * 2 },
+        { label: PHASE_LABELS.questions, turns: 1 },
+        { label: PHASE_LABELS.close, turns: 1 },
+    ];
+}
+
+export function planTotals(depth: Depth): { questions: number; turns: number } {
+    const c = PLAN_COUNTS[depth] ?? PLAN_COUNTS.standard;
+    return { questions: c.rapport + c.background + c.competency + c.technical, turns: planBar(depth).reduce((n, s) => n + s.turns, 0) };
+}
+
 export const DIAL_FIELDS = ["company_size", "cynicism", "brutally_honest", "human_mode", "hardcore", "depth"] as const;

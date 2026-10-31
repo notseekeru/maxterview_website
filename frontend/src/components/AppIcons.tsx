@@ -1,7 +1,7 @@
-import { ArrowLeft, BookOpen, ChartLine, Check, CreditCard, FileText, LayoutDashboard, LogOut, type LucideIcon, Menu, MessageSquare, Mic, Monitor, Moon, Send, Settings, ShieldCheck, Square, Sun, User, Volume2, VolumeX, X } from "lucide-react";
+import { ArrowLeft, BookOpen, ChartLine, Check, ChevronDown, CreditCard, FileText, LayoutDashboard, LogOut, type LucideIcon, Menu, MessageSquare, Mic, Monitor, Moon, Send, Settings, ShieldCheck, SlidersHorizontal, Square, Sun, User, Volume2, VolumeX, X } from "lucide-react";
 import type { ComponentProps } from "react";
 
-export type IconName = "dashboard" | "chat" | "chart" | "file" | "settings" | "user" | "shield" | "card" | "book" | "sun" | "moon" | "monitor" | "logout" | "menu" | "x" | "sound" | "mute" | "mic" | "stop" | "send" | "complete" | "back";
+export type IconName = "dashboard" | "chat" | "chart" | "file" | "settings" | "user" | "shield" | "card" | "book" | "sun" | "moon" | "monitor" | "logout" | "menu" | "x" | "sound" | "mute" | "mic" | "stop" | "send" | "complete" | "back" | "chevron" | "sliders";
 
 const MAP: Record<IconName, LucideIcon> = {
     dashboard: LayoutDashboard,
@@ -26,6 +26,8 @@ const MAP: Record<IconName, LucideIcon> = {
     send: Send,
     complete: Check,
     back: ArrowLeft,
+    chevron: ChevronDown,
+    sliders: SlidersHorizontal,
 };
 
 type IconProps = ComponentProps<LucideIcon> & { name: IconName };
