@@ -432,7 +432,6 @@ REVIEW_EXAMPLE: dict = {
     "levels": [{"level": rung, "call": call, "thinks": "one line naming what on the page decides the call", "move": "" if call == "passes" else "the one edit that raises it"} for rung, call in zip(review.RUNGS, _REVIEW_EXAMPLE_CALLS, strict=True)],
     "sections": [{"name": "a heading as the resume spells it", "call": "fine", "note": "one line on what decides the call"}],
     "rewrites": [{"source": "a line, quoted as it appears on the page", "rewrite": "that line rewritten with the facts the page already states"}],
-    "tips": ["first edit", "second edit"],
 }
 assert len(_REVIEW_EXAMPLE_CALLS) == len(review.RUNGS)
 
@@ -455,7 +454,7 @@ PASS 3 - THE REWRITES. The lines to replace, biggest gap first, 2-3 of them. `so
 `rewrite` is that same line carrying the evidence the page already has, in the candidate's own facts and voice; where one fact is missing and only they can supply it, leave a bracketed slot (`[which team adopted it]`) instead of inventing it.
 Never add a number, an employer, a team, a tool or an outcome the page does not state. A line already earning its space is not rewritten.
 
-Then `verdict`, 2-3 sentences to the candidate in second person: the band the page reads at and the one gap that keeps it there. Then `tips`, 2-4 edits in the order to make them.
+Then `verdict`, 2-3 sentences to the candidate in second person: the band the page reads at and the one gap that keeps it there.
 
 Every line names something on THIS page. Advice that would fit any resume ("be more specific", "add metrics") is a failed line: say which line, and what to put in its place. Plain prose, no markdown, no lists inside a field, no em dashes.
 Return a JSON object ONLY, exactly matching this shape:
@@ -507,9 +506,8 @@ REVIEW_JSON_SCHEMA = {
                 "additionalProperties": False,
             },
         },
-        "tips": {"type": "array", "items": {"type": "string"}, "minItems": 2, "maxItems": 4},
     },
-    "required": ["verdict", "levels", "sections", "rewrites", "tips"],
+    "required": ["verdict", "levels", "sections", "rewrites"],
     "additionalProperties": False,
 }
 
@@ -551,9 +549,6 @@ def _valid_review(obj) -> dict | None:
         log.warning("llm.review.sections_missing")
         return None
 
-    tips = [t for t in (review.claim(tip, review.FIELD_MAX) for tip in (obj.get("tips") if isinstance(obj.get("tips"), list) else [])) if t][:4]
-    if len(tips) < 2:
-        return None
     # The rewrites are the part the candidate acts on: an empty list fails the review, not a section.
     rewrites: list[dict] = []
     for item in obj.get("rewrites") if isinstance(obj.get("rewrites"), list) else []:
@@ -571,7 +566,6 @@ def _valid_review(obj) -> dict | None:
         "levels": [{"level": rung, "call": call, **{key: rungs[rung][key] for key in ("thinks", "move")}} for rung, call in ladder],
         "sections": sections[: review.MAX_SECTIONS],
         "rewrites": rewrites[: review.MAX_REWRITES],
-        "tips": tips,
     }
 
 

@@ -206,7 +206,6 @@ export interface ResumeReview {
     levels: ReviewLevel[];
     sections: ReviewSection[];
     rewrites: ReviewRewrite[];
-    tips: string[];
     reads_at: string | null;
     created_at: string;
 }

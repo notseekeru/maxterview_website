@@ -149,7 +149,6 @@ class ResumeReview(BaseModel):
     sections: list[ReviewSection]
     # Defaulted: reviews stored before the rewrites pass carry no such key.
     rewrites: list[ReviewRewrite] = Field(default_factory=list)
-    tips: list[str]
     created_at: datetime
 
     @computed_field

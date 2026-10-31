@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Page, SectionHeading } from "@/components/PagePrimitives";
+import { Page } from "@/components/PagePrimitives";
 import { ResumeReviewView } from "@/components/ResumeReviewView";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -202,12 +202,16 @@ export function ResumePage() {
         setError(null);
         try {
             await deleteResume(draft.id);
-            setRows((list) => list.filter((r) => r.id !== draft.id));
+            // The list lives inside the editor card, so a delete has to open what is left or the card
+            // (and with it the only way back to another resume) disappears with the last row.
+            const rest = rows.filter((r) => r.id !== draft.id);
+            setRows(rest);
             setDraft(EMPTY_DRAFT);
             setPasting(false);
             setImporting(false);
             setRestore(null);
             setNotice(null);
+            if (rest.length) await open(rest[0].id);
         } catch (e) {
             fail(e, "Could not delete that resume.");
         } finally {
@@ -273,36 +277,32 @@ export function ResumePage() {
                     </div>
                 )}
 
-                {rows.length > 0 && (
-                    <section className="space-y-3">
-                        <SectionHeading title="Your resumes" />
-                        <div className="flex flex-wrap items-center gap-1.5">
-                            {rows.map((r) => (
-                                <button key={r.id} type="button" onClick={() => void open(r.id)} className={cn("rounded-full border px-3 py-1 text-xs transition-colors", draft.id === r.id ? "border-primary bg-primary/10 font-medium text-primary" : "border-input text-muted-foreground hover:bg-accent")}>
-                                    {r.name}
-                                    <span className="ml-1.5 text-[10px] text-muted-foreground">{r.chars.toLocaleString()} chars</span>
-                                </button>
-                            ))}
-                            {draft.id && !atCap && (
-                                <button type="button" onClick={startNew} className="rounded-full border border-dashed border-input px-3 py-1 text-xs text-muted-foreground transition-colors hover:bg-accent">
-                                    + New
-                                </button>
-                            )}
-                        </div>
-                    </section>
-                )}
-
                 {editing && (
                     // AI HERE: paired panels fit the viewport and scroll inside, so the resume and the review
                     // stay readable side by side. The ceiling is the hard-coded header height in the calc: if
                     // the stack above the grid changes, this offset is wrong. Upgrade path is a measured offset.
-                    <div className={cn("grid gap-4", draft.id && !importing && "xl:h-[calc(100dvh-14rem)] xl:grid-cols-2")}>
+                    <div className={cn("grid gap-4", draft.id && !importing && "xl:h-[calc(100dvh-10rem)] xl:grid-cols-2")}>
                         <Card className="flex min-h-0 flex-col">
                             <CardHeader className="flex-row items-baseline justify-between space-y-0">
                                 <CardTitle>{draft.id ? "Resume" : "New resume"}</CardTitle>
                                 {dirty && <span className="text-xs text-muted-foreground">{draft.id ? "Unsaved changes" : "Not saved"}</span>}
                             </CardHeader>
                             <CardContent className="flex min-h-0 flex-1 flex-col gap-3">
+                                {rows.length > 0 && (
+                                    <div className="flex flex-wrap items-center gap-1.5">
+                                        {rows.map((r) => (
+                                            <button key={r.id} type="button" onClick={() => void open(r.id)} className={cn("rounded-full border px-3 py-1 text-xs transition-colors", draft.id === r.id ? "border-primary bg-primary/10 font-medium text-primary" : "border-input text-muted-foreground hover:bg-accent")}>
+                                                {r.name}
+                                                <span className="ml-1.5 text-[10px] text-muted-foreground">{r.chars.toLocaleString()} chars</span>
+                                            </button>
+                                        ))}
+                                        {draft.id && !atCap && (
+                                            <button type="button" onClick={startNew} className="rounded-full border border-dashed border-input px-3 py-1 text-xs text-muted-foreground transition-colors hover:bg-accent">
+                                                + New
+                                            </button>
+                                        )}
+                                    </div>
+                                )}
                                 <div className="space-y-1.5">
                                     <label htmlFor="resume-name" className="text-sm font-medium leading-none">
                                         Name

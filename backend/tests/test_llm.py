@@ -717,7 +717,6 @@ def _review_json(calls=("passes", "passes", "passes", "close", "fails", "fails")
         "levels": _ladder(calls),
         "sections": [{"name": "Experience", "call": "fine", "note": "numbers"}],
         "rewrites": [{"source": "Responsible for checkout.", "rewrite": "Cut p99 checkout latency from 40s to 900ms."}],
-        "tips": ["one", "two"],
         **over,
     }
 
@@ -748,7 +747,6 @@ def test_valid_review_refuses_a_hole_in_the_ladder_or_a_section_with_no_call():
         _review_json(levels=_ladder(("passes", "passes"))),  # four rungs short
         _review_json(sections=[{"name": "Skills", "call": "great", "note": "x"}]),
         _review_json(sections=[]),
-        _review_json(tips=["only one"]),
         # The rewrites are the actionable half: a review without one is a shape, not an answer.
         _review_json(rewrites=[]),
         _review_json(rewrites=[{"source": "Responsible for checkout."}]),
