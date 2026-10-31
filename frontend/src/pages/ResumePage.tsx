@@ -197,10 +197,21 @@ export function ResumePage() {
         setNotice(null);
     }
 
-    function cancelNew(blank = false) {
+    // The drop zone's second door. The draft the user came from stays in `restore`, so a Cancel on the
+    // blank card returns to it, unsaved text included. This used to be reachable only when no resume
+    // existed yet: with one, the drop zone's only exit was Cancel and a new resume had to be a PDF.
+    function pasteInstead() {
+        setDraft(EMPTY_DRAFT);
+        setPasting(true);
         setImporting(false);
-        setDraft(blank ? EMPTY_DRAFT : (restore ?? EMPTY_DRAFT));
-        setPasting(blank);
+        setError(null);
+        setNotice(null);
+    }
+
+    function cancelNew() {
+        setImporting(false);
+        setDraft(restore ?? EMPTY_DRAFT);
+        setPasting(false);
         setRestore(null);
         setError(null);
     }
@@ -282,9 +293,17 @@ export function ResumePage() {
                                 pick(file);
                             }}
                         />
-                        <button type="button" onClick={() => (restore ? discardDraft() : cancelNew(true))} className="text-xs underline underline-offset-2 hover:text-foreground">
-                            {rows.length ? "Cancel" : "Paste resume instead"}
-                        </button>
+                        {/* Disabled while a PDF is being read: the extraction lands last and would overwrite whatever was typed here. */}
+                        <div className="flex items-center gap-3">
+                            <button type="button" onClick={pasteInstead} disabled={busy} className="text-xs underline underline-offset-2 hover:text-foreground disabled:opacity-50">
+                                Paste resume instead
+                            </button>
+                            {restore && (
+                                <button type="button" onClick={() => discardDraft()} disabled={busy} className="text-xs underline underline-offset-2 hover:text-foreground disabled:opacity-50">
+                                    Cancel
+                                </button>
+                            )}
+                        </div>
                     </label>
                 )}
 
