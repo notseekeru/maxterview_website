@@ -16,7 +16,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse, StreamingResponse
 from pydantic import ValidationError
 
-from app import API_PREFIX, billing, byok, dials, levels, llm, offer, payments, rating, resumes, telemetry, voice
+from app import API_PREFIX, billing, byok, dials, levels, llm, offer, payments, rating, resumes, review, telemetry, voice
 from app.auth import CLERK_ENABLED, get_current_user
 from app.db import close_pool, fetch, fetchrow, init_pool
 from app.dials import DIAL_FIELDS
@@ -42,6 +42,7 @@ from app.models import (
     Resume,
     ResumeCreate,
     ResumeExtract,
+    ResumeReview,
     ResumeSummary,
     TemplateCreate,
     VoiceCapability,
@@ -611,6 +612,57 @@ async def delete_resume(
     row = await fetchrow("DELETE FROM resumes WHERE id = $1 AND owner_id = $2 RETURNING id", resume_id, user.sub)
     if row is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Resume not found")
+
+
+# A review is derived from one column of a resume, so it dies with the resume (CASCADE) and is only
+# served while the text it read is still the text on the row. sha256 runs in Postgres: the alternative
+# is pulling 60k chars over the wire to hash them here.
+
+
+# AI HERE: an edit returns null rather than a review flagged stale. Ceiling: the candidate cannot see
+# what they are editing away from. Upgrade path: return `stale: true` with the old review and badge it.
+@api.get("/resumes/{resume_id}/review", response_model=ResumeReview | None)
+async def get_resume_review(
+    resume_id: str,
+    user: CurrentUser,
+) -> dict | None:
+    row = await fetchrow(
+        """
+        SELECT rr.review, rr.created_at
+        FROM resume_reviews rr JOIN resumes r ON r.id = rr.resume_id
+        WHERE rr.resume_id = $1 AND r.owner_id = $2
+          AND rr.source_hash = encode(sha256(convert_to(r.text, 'UTF8')), 'hex')
+        """,
+        resume_id,
+        user.sub,
+    )
+    return {**row["review"], "created_at": row["created_at"]} if row else None
+
+
+@api.post("/resumes/{resume_id}/review", response_model=ResumeReview, status_code=status.HTTP_201_CREATED)
+async def create_resume_review(
+    resume_id: str,
+    user: CurrentUser,
+    config: ChatLLMDep,
+) -> dict:
+    row = await fetchrow("SELECT text FROM resumes WHERE id = $1 AND owner_id = $2", resume_id, user.sub)
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Resume not found")
+    if config.stub:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="No scoring engine is configured on this deployment, so a review cannot run.")
+    # One chat turn, charged before the call like every other turn: a provider timeout is the price of
+    # asking, and a free retry loop is not what the daily cap is for.
+    await _spend_chat_turn(user, config)
+    got = await llm.review_resume(row["text"], config)
+    if got is None:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="The reviewer could not read this resume right now. Try again in a moment.")
+    saved = await fetchrow(
+        "INSERT INTO resume_reviews (resume_id, source_hash, review) VALUES ($1, $2, $3) ON CONFLICT (resume_id) DO UPDATE SET source_hash = EXCLUDED.source_hash, review = EXCLUDED.review, created_at = now() RETURNING review, created_at",
+        resume_id,
+        review.source_hash(row["text"]),
+        got,
+    )
+    return {**saved["review"], "created_at": saved["created_at"]}
 
 
 # Voice: Workers AI is the only engine, and it is optional infrastructure.

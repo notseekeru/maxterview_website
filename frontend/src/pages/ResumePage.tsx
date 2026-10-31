@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
 import { Page, SectionHeading } from "@/components/PagePrimitives";
+import { ResumeReviewView } from "@/components/ResumeReviewView";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { StateNote } from "@/components/ui/state";
 import { Textarea } from "@/components/ui/textarea";
-import { apiDetail, createResume, deleteResume, extractResume, getResume, getUsage, httpStatus, listResumes, type Resume as ResumeRecord, type ResumeSummary, updateResume } from "@/lib/api";
+import { apiDetail, createResume, deleteResume, extractResume, getResume, getResumeReview, getUsage, httpStatus, listResumes, type Resume as ResumeRecord, type ResumeReview, type ResumeSummary, reviewResume, updateResume } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 interface Draft {
@@ -28,6 +29,9 @@ export function ResumePage() {
     const [pasting, setPasting] = useState(false);
     const [importing, setImporting] = useState(false);
     const [restore, setRestore] = useState<Draft | null>(null);
+    const [review, setReview] = useState<ResumeReview | null>(null);
+    const [reviewing, setReviewing] = useState(false);
+    const [reviewError, setReviewError] = useState<string | null>(null);
     const editing = draft.id !== null || pasting;
     const showDrop = !editing && importing;
 
@@ -59,6 +63,30 @@ export function ResumePage() {
     useEffect(() => {
         void load();
     }, [load]);
+
+    const loadReview = useCallback(async (id: string | null) => {
+        setReviewError(null);
+        setReview(id ? await getResumeReview(id).catch(() => null) : null);
+    }, []);
+
+    // Keyed on the id alone: a save rewrites the stored text and the server retires the review on its
+    // own, so the refetch after save is what keeps an edited resume from showing the old advice.
+    useEffect(() => {
+        void loadReview(draft.id);
+    }, [draft.id, loadReview]);
+
+    async function reviewCurrent() {
+        if (!draft.id) return;
+        setReviewing(true);
+        setReviewError(null);
+        try {
+            setReview(await reviewResume(draft.id));
+        } catch (e) {
+            setReviewError(apiDetail(e, "Could not review this resume."));
+        } finally {
+            setReviewing(false);
+        }
+    }
 
     function fail(e: unknown, fallback: string) {
         setError(apiDetail(e, fallback));
@@ -112,6 +140,8 @@ export function ResumePage() {
             setImporting(false);
             setRestore(null);
             setNotice("Saved.");
+            // An edit keeps the id, so the effect above cannot see it: only a create fires that one.
+            if (draft.id) await loadReview(saved.id);
         } catch (e) {
             fail(e, "Could not save this resume.");
         } finally {
@@ -263,40 +293,48 @@ export function ResumePage() {
                 )}
 
                 {editing && (
-                    <Card>
-                        <CardHeader className="flex-row items-baseline justify-between space-y-0">
-                            <CardTitle>{draft.id ? "Resume" : "New resume"}</CardTitle>
-                            {dirty && <span className="text-xs text-muted-foreground">{draft.id ? "Unsaved changes" : "Not saved"}</span>}
-                        </CardHeader>
-                        <CardContent className="space-y-3">
-                            <div className="space-y-1.5">
-                                <label htmlFor="resume-name" className="text-sm font-medium leading-none">
-                                    Name
-                                </label>
-                                <Input id="resume-name" value={draft.name} maxLength={80} placeholder="Title" onChange={(e) => setDraft((d) => ({ ...d, name: e.target.value }))} />
-                            </div>
-                            <div className="space-y-1.5">
-                                <label htmlFor="resume-text" className="text-sm font-medium leading-none">
-                                    Resume text
-                                </label>
-                                <Textarea id="resume-text" value={draft.text} onChange={(e) => setDraft((d) => ({ ...d, text: e.target.value }))} placeholder="Paste your resume here…" className="min-h-[28rem] font-mono text-xs leading-5" />
-                            </div>
-                        </CardContent>
-                        <div className="flex items-center gap-2 px-6 pb-6">
-                            <Button disabled={busy || !dirty} onClick={() => void save()}>
-                                {busy ? "Saving…" : draft.id ? "Save" : "Save resume"}
-                            </Button>
-                            {draft.id ? (
-                                <Button variant="ghost" disabled={busy} onClick={() => void remove()}>
-                                    Delete
+                    // AI HERE: paired panels fit the viewport and scroll inside, so the resume and the review
+                    // stay readable side by side. The ceiling is the hard-coded header height in the calc: if
+                    // the stack above the grid changes, this offset is wrong. Upgrade path is a measured offset.
+                    <div className={cn("grid gap-4", draft.id && !importing && "xl:h-[calc(100dvh-14rem)] xl:grid-cols-2")}>
+                        <Card className="flex min-h-0 flex-col">
+                            <CardHeader className="flex-row items-baseline justify-between space-y-0">
+                                <CardTitle>{draft.id ? "Resume" : "New resume"}</CardTitle>
+                                {dirty && <span className="text-xs text-muted-foreground">{draft.id ? "Unsaved changes" : "Not saved"}</span>}
+                            </CardHeader>
+                            <CardContent className="flex min-h-0 flex-1 flex-col gap-3">
+                                <div className="space-y-1.5">
+                                    <label htmlFor="resume-name" className="text-sm font-medium leading-none">
+                                        Name
+                                    </label>
+                                    <Input id="resume-name" value={draft.name} maxLength={80} placeholder="Title" onChange={(e) => setDraft((d) => ({ ...d, name: e.target.value }))} />
+                                </div>
+                                <div className="flex min-h-0 flex-1 flex-col gap-1.5">
+                                    <label htmlFor="resume-text" className="text-sm font-medium leading-none">
+                                        Resume text
+                                    </label>
+                                    <Textarea id="resume-text" value={draft.text} onChange={(e) => setDraft((d) => ({ ...d, text: e.target.value }))} placeholder="Paste your resume here…" className="min-h-[28rem] flex-1 font-mono text-xs leading-5 xl:min-h-0 xl:resize-none" />
+                                </div>
+                            </CardContent>
+                            <div className="flex items-center gap-2 px-6 pb-6">
+                                <Button disabled={busy || !dirty} onClick={() => void save()}>
+                                    {busy ? "Saving…" : draft.id ? "Save" : "Save resume"}
                                 </Button>
-                            ) : (
-                                <Button variant="ghost" disabled={busy} onClick={discardDraft}>
-                                    {dirty ? "Discard" : "Cancel"}
-                                </Button>
-                            )}
-                        </div>
-                    </Card>
+                                {draft.id ? (
+                                    <Button variant="ghost" disabled={busy} onClick={() => void remove()}>
+                                        Delete
+                                    </Button>
+                                ) : (
+                                    <Button variant="ghost" disabled={busy} onClick={discardDraft}>
+                                        {dirty ? "Discard" : "Cancel"}
+                                    </Button>
+                                )}
+                            </div>
+                        </Card>
+
+                        {/* Saved text only: the review reads the row, so unsaved edits cannot be what it looks at. A new review is a new key: that is what drops the focused band and the all-levels toggle. */}
+                        {draft.id && !importing && <ResumeReviewView key={review?.created_at ?? "none"} review={review} busy={reviewing} error={reviewError} disabled={busy || dirty} onReview={() => void reviewCurrent()} />}
+                    </div>
                 )}
             </div>
         </Page>

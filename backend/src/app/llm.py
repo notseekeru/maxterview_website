@@ -8,7 +8,7 @@ from dataclasses import dataclass
 import httpx
 import structlog
 
-from app import dials, dimensions, levels, rating, telemetry
+from app import dials, dimensions, levels, rating, review, telemetry
 from app.models import DECISIONS, ChatMessage, Dials, FeedbackSummary
 
 log = structlog.get_logger(__name__)
@@ -24,6 +24,7 @@ LLM_MAX_TOKENS = int(os.getenv("LLM_MAX_TOKENS", "512"))
 LLM_MAX_GRADER_TOKENS = int(os.getenv("LLM_MAX_GRADER_TOKENS", "1024"))
 LLM_MAX_FEEDBACK_TOKENS = int(os.getenv("LLM_MAX_FEEDBACK_TOKENS", "1024"))
 LLM_MAX_CLOSING_TOKENS = int(os.getenv("LLM_MAX_CLOSING_TOKENS", "160"))
+LLM_MAX_REVIEW_TOKENS = int(os.getenv("LLM_MAX_REVIEW_TOKENS", "1800"))
 LLM_DISABLE_THINKING = os.getenv("LLM_DISABLE_THINKING", "true").lower() == "true"
 
 RESUME_PROMPT_CHARS = int(os.getenv("RESUME_PROMPT_CHARS", "8000"))
@@ -410,6 +411,195 @@ def grader_prompt(dials: Dials | None = None, resume: str = "", level: str = "an
     return prompt + (GRADER_RESUME_PROMPT.format(text=injectable_resume(resume)) if resume else "")
 
 
+# The bar each band is screened against, cheapest first. app/review.py owns the ladder; this owns what
+# each rung on it means, and `BANDS_PROSE` is generated so a rung cannot arrive without a bar.
+REVIEW_BANDS: dict[str, str] = {
+    "intern": "coursework and a project they built themselves: the first evidence that they finish what they start",
+    "junior": "1-2 years executing on someone else's plan: tasks with a clear owner above them, work that someone reviewed",
+    "mid": "owning a feature end to end: their own decisions, a number the work moved, debugging they did themselves",
+    "senior": "owning a system and its failure modes: what they chose not to build, what broke in production and who it hurt",
+    "staff": "moving people who do not report to them: a migration, a standard or a decision across teams, with the trade-off named",
+    "principal": "setting direction past the current org: a bet nobody had scoped yet, or a signal the wider industry read",
+}
+BANDS_PROSE = "\n".join(f"- {levels.label(level).lower()}: {REVIEW_BANDS[level]}" for level in review.RUNGS)
+assert set(REVIEW_BANDS) == set(review.RUNGS)
+
+# Shape only: every string here is an instruction the model cannot mistake for an answer, because an
+# example written in prose gets copied, and a copied example carries facts the page never stated.
+_REVIEW_EXAMPLE_CALLS = ("passes", "passes", "passes", "close", "fails", "fails")
+REVIEW_EXAMPLE: dict = {
+    "verdict": "2-3 sentences: the band the page reads at and the gap that keeps it there.",
+    "levels": [{"level": rung, "call": call, "thinks": "one line naming what on the page decides the call", "move": "" if call == "passes" else "the one edit that raises it"} for rung, call in zip(review.RUNGS, _REVIEW_EXAMPLE_CALLS, strict=True)],
+    "sections": [{"name": "a heading as the resume spells it", "call": "fine", "note": "one line on what decides the call"}],
+    "rewrites": [{"source": "a line, quoted as it appears on the page", "rewrite": "that line rewritten with the facts the page already states"}],
+    "tips": ["first edit", "second edit"],
+}
+assert len(_REVIEW_EXAMPLE_CALLS) == len(review.RUNGS)
+
+RESUME_REVIEW_PROMPT = f"""You are maxterview's resume reviewer. You read ONE resume twice: as the screen that decides whether it earns an interview, and as the interviewer who then has to turn it into evidence they can defend.
+
+Your user message is the resume, and it is your only evidence. {GROUNDING_PROMPT}
+You grade the page, not the person: name what the words do not show, and never tell the candidate what their career is worth. {UNTRUSTED_INPUT}
+
+What a resume can carry: who owned what, what broke, what number moved, what they decided alone. What it cannot carry: a list of tools nobody shipped with, a title with no outcome behind it, a school. Read the words, never the intent behind them.
+
+PASS 1 - THE LADDER. Grade the same resume against every band below, in this order:
+{BANDS_PROSE}
+Each rung: `call` is passes, close or fails; `thinks` is one line naming what on the page decides that call; `move` is the single edit that raises it a rung, empty only when no edit can.
+The ladder is a staircase: once a rung fails, every rung above it fails too. Never inflate a call to be encouraging, and never fail a rung for what that band is not asked to prove.
+
+PASS 2 - THE SECTIONS. One entry per block you can find on the page, named the way the resume names it: `call` is strong (earns its lines: evidence with an outcome), fine (correct and unremarkable), weak (claims with no outcome, or missing what the block needs) or bloat (takes space and proves nothing).
+`note` is one line on what decides it.
+
+PASS 3 - THE REWRITES. The lines to replace, biggest gap first, 2-3 of them. `source` is the line exactly as it appears on the page.
+`rewrite` is that same line carrying the evidence the page already has, in the candidate's own facts and voice; where one fact is missing and only they can supply it, leave a bracketed slot (`[which team adopted it]`) instead of inventing it.
+Never add a number, an employer, a team, a tool or an outcome the page does not state. A line already earning its space is not rewritten.
+
+Then `verdict`, 2-3 sentences to the candidate in second person: the band the page reads at and the one gap that keeps it there. Then `tips`, 2-4 edits in the order to make them.
+
+Every line names something on THIS page. Advice that would fit any resume ("be more specific", "add metrics") is a failed line: say which line, and what to put in its place. Plain prose, no markdown, no lists inside a field, no em dashes.
+Return a JSON object ONLY, exactly matching this shape:
+{json.dumps(REVIEW_EXAMPLE)}"""
+
+REVIEW_JSON_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "verdict": {"type": "string"},
+        "levels": {
+            "type": "array",
+            "minItems": len(review.RUNGS),
+            "maxItems": len(review.RUNGS),
+            "items": {
+                "type": "object",
+                "properties": {
+                    "level": {"type": "string", "enum": list(review.RUNGS)},
+                    "call": {"type": "string", "enum": list(review.CALLS)},
+                    "thinks": {"type": "string"},
+                    "move": {"type": "string"},
+                },
+                "required": ["level", "call", "thinks", "move"],
+                "additionalProperties": False,
+            },
+        },
+        "sections": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": review.MAX_SECTIONS,
+            "items": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string"},
+                    "call": {"type": "string", "enum": list(review.SECTION_CALLS)},
+                    "note": {"type": "string"},
+                },
+                "required": ["name", "call", "note"],
+                "additionalProperties": False,
+            },
+        },
+        "rewrites": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": review.MAX_REWRITES,
+            "items": {
+                "type": "object",
+                "properties": {"source": {"type": "string"}, "rewrite": {"type": "string"}},
+                "required": ["source", "rewrite"],
+                "additionalProperties": False,
+            },
+        },
+        "tips": {"type": "array", "items": {"type": "string"}, "minItems": 2, "maxItems": 4},
+    },
+    "required": ["verdict", "levels", "sections", "rewrites", "tips"],
+    "additionalProperties": False,
+}
+
+
+def _valid_review(obj) -> dict | None:
+    if not isinstance(obj, dict):
+        return None
+    verdict = review.claim(obj.get("verdict"), review.VERDICT_MAX)
+    if not verdict:
+        return None
+    rungs: dict[str, dict] = {}
+    raw_levels = obj.get("levels") if isinstance(obj.get("levels"), list) else []
+    for item in raw_levels:
+        if not isinstance(item, dict):
+            continue
+        rung = review.rung(item.get("level"))
+        call = review.slug(item.get("call"))
+        if rung in review.RUNGS and call in review.CALLS and rung not in rungs:
+            rungs[rung] = {"call": call, "thinks": review.claim(item.get("thinks")), "move": review.claim(item.get("move"))}
+    # A rung the model skipped is a ladder with a hole in it: retry, then fail, never guess the call.
+    if len(rungs) != len(review.RUNGS):
+        log.warning("llm.review.ladder_incomplete", rungs=len(rungs))
+        return None
+    ladder, clamped = review.staircase([(rung, rungs[rung]["call"]) for rung in review.RUNGS])
+    if clamped:
+        log.warning("llm.review.ladder_clamped")
+    if any(not rungs[rung]["thinks"] for rung, _call in ladder):
+        return None
+
+    sections: list[dict] = []
+    for item in obj.get("sections") if isinstance(obj.get("sections"), list) else []:
+        if not isinstance(item, dict):
+            continue
+        call = review.slug(item.get("call"))
+        name = review.claim(item.get("name"), review.NAME_MAX)
+        if call in review.SECTION_CALLS and name:
+            sections.append({"name": name, "call": call, "note": review.claim(item.get("note"))})
+    if not sections:
+        log.warning("llm.review.sections_missing")
+        return None
+
+    tips = [t for t in (review.claim(tip, review.FIELD_MAX) for tip in (obj.get("tips") if isinstance(obj.get("tips"), list) else [])) if t][:4]
+    if len(tips) < 2:
+        return None
+    # The rewrites are the part the candidate acts on: an empty list fails the review, not a section.
+    rewrites: list[dict] = []
+    for item in obj.get("rewrites") if isinstance(obj.get("rewrites"), list) else []:
+        if not isinstance(item, dict):
+            continue
+        source = review.claim(item.get("source"), review.LINE_MAX)
+        rewrite = review.claim(item.get("rewrite"), review.LINE_MAX)
+        if source and rewrite:
+            rewrites.append({"source": source, "rewrite": rewrite})
+    if not rewrites:
+        log.warning("llm.review.rewrites_missing")
+        return None
+    return {
+        "verdict": verdict,
+        "levels": [{"level": rung, "call": call, **{key: rungs[rung][key] for key in ("thinks", "move")}} for rung, call in ladder],
+        "sections": sections[: review.MAX_SECTIONS],
+        "rewrites": rewrites[: review.MAX_REWRITES],
+        "tips": tips,
+    }
+
+
+async def review_resume(text: str, config: LLMConfig) -> dict | None:
+    if config.stub:
+        log.warning("llm.review.stub")
+        return None
+    body = f"<resume>\n{injectable_resume(text)}\n</resume>"
+    for _ in range(2):
+        content = await _completion(
+            RESUME_REVIEW_PROMPT,
+            body,
+            config=grader_config(config),
+            max_tokens=LLM_MAX_REVIEW_TOKENS,
+            stage="review",
+            json_output=True,
+            json_schema=REVIEW_JSON_SCHEMA,
+        )
+        if content is None:
+            continue
+        got = _valid_review(_extract_json_object(content))
+        if got is not None:
+            return got
+        log.warning("llm.review.schema_mismatch")
+    log.error("llm.review.unavailable")
+    return None
+
+
 MOVE_CLASS_RUBRIC = """brilliant - went beyond the question: an insight, a trade-off nobody asked for, or a concrete number that proves it.
 great - strong and specific: a real example with the candidate's own decisions visible in it.
 good - solid and correct: the answer the question was asking for.
@@ -488,7 +678,7 @@ FAIL_SHOUT_PROMPT = (
 FAIL_SHOUT_TOKENS = 120
 FAIL_SHOUT_MAX = 240
 
-assert all(UNTRUSTED_INPUT in p for p in (GRADER_PROMPT_V1, MOVES_PROMPT_V1, JUDGE_PROMPT_V1, FAIL_SHOUT_PROMPT))
+assert all(UNTRUSTED_INPUT in p for p in (GRADER_PROMPT_V1, MOVES_PROMPT_V1, JUDGE_PROMPT_V1, FAIL_SHOUT_PROMPT, RESUME_REVIEW_PROMPT))
 
 # Concrete JSON example inlined: DeepSeek's JSON mode requires a shape example, and it hard-codes the schema so a weak local backend cannot drift the field names. Generated from FEEDBACK_DIMS so a dim cannot silently vanish. The formatter runs on short grader notes, not the long raw transcript.
 _EXAMPLE_SCORES: dict[str, int | None] = {

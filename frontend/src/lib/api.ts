@@ -177,6 +177,51 @@ export async function deleteResume(id: string): Promise<void> {
     await api.delete(`/resumes/${id}`);
 }
 
+// A review is derived from the resume's text: the server retires it when the text changes, so null
+// here means "no review of what is on the page right now".
+
+export type ReviewCall = "passes" | "close" | "fails";
+export type SectionCall = "strong" | "fine" | "weak" | "bloat";
+
+interface ReviewLevel {
+    level: string;
+    call: ReviewCall;
+    thinks: string;
+    move: string;
+}
+
+interface ReviewSection {
+    name: string;
+    call: SectionCall;
+    note: string;
+}
+
+export interface ReviewRewrite {
+    source: string;
+    rewrite: string;
+}
+
+export interface ResumeReview {
+    verdict: string;
+    levels: ReviewLevel[];
+    sections: ReviewSection[];
+    rewrites: ReviewRewrite[];
+    tips: string[];
+    reads_at: string | null;
+    created_at: string;
+}
+
+export async function getResumeReview(id: string): Promise<ResumeReview | null> {
+    const { data } = await api.get<ResumeReview | null>(`/resumes/${id}/review`);
+    return data;
+}
+
+// Costs one chat turn, charged by the server like any other model call.
+export async function reviewResume(id: string): Promise<ResumeReview> {
+    const { data } = await api.post<ResumeReview>(`/resumes/${id}/review`);
+    return data;
+}
+
 export interface InterviewDimensions {
     count: number;
     recent_n: number;

@@ -616,6 +616,48 @@ def test_resume_write_paths_share_one_hygiene(client):
     assert c.delete(f"/api/resumes/{made.json()['id']}").status_code == 204
 
 
+def test_resume_review_is_served_only_for_the_text_it_read(client, monkeypatch):
+    # The reviewer is one network hop; everything the page reads back is the stored row, so the two
+    # ways it can be wrong are a review that outlives an edit and a review that leaks across owners.
+    from app import llm, review
+
+    c = client
+    _wipe_resumes(c)
+    rid = c.post("/api/resumes", json=_resume_payload("Review me", "Alex cut p99 from 40s to 900ms on a 40-node K3s cluster.")).json()["id"]
+    assert c.get(f"/api/resumes/{rid}/review").json() is None
+
+    monkeypatch.setattr(llm, "SYSTEM_CONFIG", llm.LLMConfig(base_url="http://127.0.0.1:9/v1", model="qwen-unit-test"))
+    seen = {}
+
+    async def _fake_review(text, config):
+        seen["text"] = text
+        return dict(llm.REVIEW_EXAMPLE)
+
+    monkeypatch.setattr(llm, "review_resume", _fake_review)
+    turns = c.get("/api/usage").json()["chat_turns_used_today"]
+    made = c.post(f"/api/resumes/{rid}/review")
+    assert made.status_code == 201
+    # The review is not free: it spends exactly one of the same daily chat turns an interview does.
+    assert c.get("/api/usage").json()["chat_turns_used_today"] == turns + 1
+    assert "40-node K3s cluster" in seen["text"]
+    body = made.json()
+    # reads_at is derived from the ladder, never a field the model fills in.
+    assert (body["reads_at"], len(body["levels"]), body["levels"][0]["level"]) == ("mid", len(review.RUNGS), "intern")
+    assert c.get(f"/api/resumes/{rid}/review").json()["verdict"] == body["verdict"]
+
+    # An edit retires it: the hash no longer matches, so the page shows nothing rather than advice
+    # about a resume that no longer exists.
+    assert c.put(f"/api/resumes/{rid}", json=_resume_payload("Review me", "Rewritten.")).status_code == 200
+    assert c.get(f"/api/resumes/{rid}/review").json() is None
+
+    # And it goes with the resume (CASCADE), not through it.
+    assert c.delete(f"/api/resumes/{rid}").status_code == 204
+    assert c.get(f"/api/resumes/{rid}/review").json() is None
+
+    # Nobody reviews a resume they do not own.
+    assert c.post(f"/api/resumes/{rid}/review").status_code == 404
+
+
 def test_resume_reaches_both_prompts_from_the_database(client, monkeypatch):
     # The attach point is a ROW, so what the prompts receive is what the candidate actually imported -
     # not whatever a request body might claim. Two different prompts, two different calls, same text.

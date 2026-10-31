@@ -703,3 +703,67 @@ async def test_judge_answer_labels_the_opening_turn(monkeypatch):
     assert await llm.judge_answer("", "\\documentclass[10pt,letterpaper]{article}...", REAL, turn=1) == rating.Move("book", None)
     assert seen["user"].startswith(f"Question: {llm.OPENING_QUESTION}")
     assert "LaTeX" in seen["system"] and "resume" in seen["system"]
+
+
+def _ladder(calls) -> list[dict]:
+    from app import review
+
+    return [{"level": rung, "call": call, "thinks": f"{rung} reason", "move": "one edit"} for rung, call in zip(review.RUNGS[: len(calls)], calls, strict=True)]
+
+
+def _review_json(calls=("passes", "passes", "passes", "close", "fails", "fails"), **over) -> dict:
+    return {
+        "verdict": "Reads mid.",
+        "levels": _ladder(calls),
+        "sections": [{"name": "Experience", "call": "fine", "note": "numbers"}],
+        "rewrites": [{"source": "Responsible for checkout.", "rewrite": "Cut p99 checkout latency from 40s to 900ms."}],
+        "tips": ["one", "two"],
+        **over,
+    }
+
+
+def test_review_prompt_carries_every_band_and_the_staircase_rule():
+    from app import review
+
+    p = llm.RESUME_REVIEW_PROMPT
+    assert all(llm.REVIEW_BANDS[rung] in p for rung in review.RUNGS)
+    assert "staircase" in p and llm.UNTRUSTED_INPUT in p
+    # The shape example has to be the ladder the server validates, or a weak backend copies a rung
+    # the vocabulary does not have.
+    assert [r["level"] for r in llm.REVIEW_EXAMPLE["levels"]] == list(review.RUNGS)
+
+
+def test_valid_review_clamps_a_ladder_that_clears_a_band_it_failed():
+    from datetime import UTC, datetime
+
+    from app.models import ResumeReview
+
+    got = llm._valid_review(_review_json(("passes", "fails", "passes", "passes", "close", "fails")))
+    assert [r["call"] for r in got["levels"]] == ["passes", "fails", "fails", "fails", "fails", "fails"]
+    assert ResumeReview(**got, created_at=datetime.now(UTC)).reads_at == "intern"
+
+
+def test_valid_review_refuses_a_hole_in_the_ladder_or_a_section_with_no_call():
+    for broken in (
+        _review_json(levels=_ladder(("passes", "passes"))),  # four rungs short
+        _review_json(sections=[{"name": "Skills", "call": "great", "note": "x"}]),
+        _review_json(sections=[]),
+        _review_json(tips=["only one"]),
+        # The rewrites are the actionable half: a review without one is a shape, not an answer.
+        _review_json(rewrites=[]),
+        _review_json(rewrites=[{"source": "Responsible for checkout."}]),
+        _review_json(verdict="   "),
+        _review_json(levels=[{**r, "thinks": ""} for r in _ladder(("passes",) * 6)]),
+        "not an object",
+    ):
+        assert llm._valid_review(broken) is None
+
+
+def test_valid_review_takes_the_label_a_weak_backend_was_shown():
+    got = llm._valid_review(_review_json(levels=[{**r, "level": r["level"].capitalize()} for r in _ladder(("passes",) * 6)], sections=[{"name": "Experience", "call": "Strong", "note": "numbers"}]))
+    assert [r["level"] for r in got["levels"]] == ["intern", "junior", "mid", "senior", "staff", "principal"]
+    assert got["sections"][0]["call"] == "strong"
+
+
+async def test_review_resume_has_nothing_to_say_without_an_engine():
+    assert await llm.review_resume("Alex cut p99.", llm.LLMConfig(base_url="", model="")) is None

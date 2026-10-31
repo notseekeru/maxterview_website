@@ -4,7 +4,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field, computed_field
 
-from app import dials, levels, rating, resumes, voice
+from app import dials, levels, rating, resumes, review, voice
 
 # Unpacked from the canonical levels vocabulary, so API, DB CHECK, prompt and frontend cannot drift.
 Level = Literal[*levels.LEVELS]
@@ -115,6 +115,47 @@ class ResumeExtract(BaseModel):
     text: str
     pages: int
     truncated: bool
+
+
+Call = Literal[*review.CALLS]
+SectionCall = Literal[*review.SECTION_CALLS]
+
+
+class ReviewLevel(BaseModel):
+    level: Level
+    call: Call
+    # What on the page decides the call, then the one edit that would raise it.
+    thinks: str
+    move: str
+
+
+class ReviewSection(BaseModel):
+    # The block as the resume names it: a resume's own headings are the only reliable section labels.
+    name: str = Field(min_length=1, max_length=review.NAME_MAX)
+    call: SectionCall
+    note: str
+
+
+class ReviewRewrite(BaseModel):
+    # The line as it stands, and the line that replaces it. A bracketed slot marks the one fact only
+    # the candidate can supply: the reviewer never invents one to fill it.
+    source: str
+    rewrite: str
+
+
+class ResumeReview(BaseModel):
+    verdict: str
+    levels: list[ReviewLevel]
+    sections: list[ReviewSection]
+    # Defaulted: reviews stored before the rewrites pass carry no such key.
+    rewrites: list[ReviewRewrite] = Field(default_factory=list)
+    tips: list[str]
+    created_at: datetime
+
+    @computed_field
+    @property
+    def reads_at(self) -> str | None:
+        return review.reads_at((level.level, level.call) for level in self.levels)
 
 
 class VoiceCapability(BaseModel):
