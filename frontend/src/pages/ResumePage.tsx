@@ -1,12 +1,15 @@
 import { useCallback, useEffect, useState } from "react";
+import { HighlightedTextarea } from "@/components/HighlightedTextarea";
+import { LatexPreview } from "@/components/LatexPreview";
 import { Page } from "@/components/PagePrimitives";
 import { ResumeReviewView } from "@/components/ResumeReviewView";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { StateNote } from "@/components/ui/state";
-import { Textarea } from "@/components/ui/textarea";
-import { apiDetail, createResume, deleteResume, extractResume, getResume, getResumeReview, getUsage, httpStatus, listResumes, type Resume as ResumeRecord, type ResumeReview, type ResumeSummary, reviewResume, updateResume } from "@/lib/api";
+import { apiDetail, createResume, deleteResume, extractResume, getResume, getResumeReview, getUsage, httpStatus, listResumes, type Resume as ResumeRecord, type ResumeReview, type ResumeSummary, retryRewrite, reviewResume, updateResume } from "@/lib/api";
+import { isLatex } from "@/lib/latex";
+import { replaceLine } from "@/lib/resumeText";
 import { cn } from "@/lib/utils";
 
 interface Draft {
@@ -85,6 +88,25 @@ export function ResumePage() {
             setReviewError(apiDetail(e, "Could not review this resume."));
         } finally {
             setReviewing(false);
+        }
+    }
+
+    // Apply rewrites into the editor, not the database: the candidate decides what lands, and a save is
+    // still a save. Dismissing or applying drops the row, which the review view owns.
+    function applyRewrite(source: string, rewrite: string) {
+        setDraft((d) => {
+            const next = replaceLine(d.text, source, rewrite);
+            return next === null ? d : { ...d, text: next };
+        });
+    }
+
+    async function retryEdit(source: string) {
+        if (!draft.id) return;
+        setReviewError(null);
+        try {
+            setReview(await retryRewrite(draft.id, source));
+        } catch (e) {
+            setReviewError(apiDetail(e, "Could not retry that edit."));
         }
     }
 
@@ -222,6 +244,7 @@ export function ResumePage() {
     const atCap = limit !== null && rows.length >= limit;
     const active = rows.find((r) => r.id === draft.id);
     const dirty = draft.id === null ? !!draft.name.trim() || !!draft.text.trim() : !!active && (active.name !== draft.name || active.chars !== draft.text.length);
+    const latex = isLatex(draft.text);
 
     return (
         <Page title="Resume" wide>
@@ -281,7 +304,7 @@ export function ResumePage() {
                     // AI HERE: paired panels fit the viewport and scroll inside, so the resume and the review
                     // stay readable side by side. The ceiling is the hard-coded header height in the calc: if
                     // the stack above the grid changes, this offset is wrong. Upgrade path is a measured offset.
-                    <div className={cn("grid gap-4", draft.id && !importing && "xl:h-[calc(100dvh-10rem)] xl:grid-cols-2")}>
+                    <div className={cn("grid gap-4", draft.id && !importing && "xl:h-[calc(100dvh-10rem)]", draft.id && !importing && (latex ? "xl:grid-cols-3" : "xl:grid-cols-2"))}>
                         <Card className="flex min-h-0 flex-col">
                             <CardHeader className="flex-row items-baseline justify-between space-y-0">
                                 <CardTitle>{draft.id ? "Resume" : "New resume"}</CardTitle>
@@ -313,7 +336,7 @@ export function ResumePage() {
                                     <label htmlFor="resume-text" className="text-sm font-medium leading-none">
                                         Resume text
                                     </label>
-                                    <Textarea id="resume-text" value={draft.text} onChange={(e) => setDraft((d) => ({ ...d, text: e.target.value }))} placeholder="Paste your resume here…" className="min-h-[28rem] flex-1 font-mono text-xs leading-5 xl:min-h-0 xl:resize-none" />
+                                    <HighlightedTextarea id="resume-text" value={draft.text} onChange={(text) => setDraft((d) => ({ ...d, text }))} lines={review?.lines ?? []} latex={latex} placeholder="Paste your resume here…" />
                                 </div>
                             </CardContent>
                             <div className="flex items-center gap-2 px-6 pb-6">
@@ -332,8 +355,10 @@ export function ResumePage() {
                             </div>
                         </Card>
 
+                        {draft.id && !importing && latex && <LatexPreview text={draft.text} />}
+
                         {/* Saved text only: the review reads the row, so unsaved edits cannot be what it looks at. A new review is a new key: that is what drops the focused band and the all-levels toggle. */}
-                        {draft.id && !importing && <ResumeReviewView key={review?.created_at ?? "none"} review={review} busy={reviewing} error={reviewError} disabled={busy || dirty} onReview={() => void reviewCurrent()} />}
+                        {draft.id && !importing && <ResumeReviewView key={review?.created_at ?? "none"} review={review} busy={reviewing} error={reviewError} disabled={busy || dirty} onReview={() => void reviewCurrent()} onApply={applyRewrite} onRetry={retryEdit} />}
                     </div>
                 )}
             </div>

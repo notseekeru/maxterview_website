@@ -201,11 +201,17 @@ export interface ReviewRewrite {
     rewrite: string;
 }
 
+interface ReviewLine {
+    text: string;
+    call: "weak" | "safe" | "strong";
+}
+
 export interface ResumeReview {
     verdict: string;
     levels: ReviewLevel[];
     sections: ReviewSection[];
     rewrites: ReviewRewrite[];
+    lines: ReviewLine[];
     reads_at: string | null;
     created_at: string;
 }
@@ -218,6 +224,18 @@ export async function getResumeReview(id: string): Promise<ResumeReview | null> 
 // Costs one chat turn, charged by the server like any other model call.
 export async function reviewResume(id: string): Promise<ResumeReview> {
     const { data } = await api.post<ResumeReview>(`/resumes/${id}/review`);
+    return data;
+}
+
+// One line, one turn: the server refuses a line this resume does not contain.
+export async function retryRewrite(id: string, source: string): Promise<ResumeReview> {
+    const { data } = await api.post<ResumeReview>(`/resumes/${id}/review/rewrite`, { source });
+    return data;
+}
+
+// Compiles what is in the editor, not what is saved: the preview follows the typing.
+export async function compileLatex(text: string): Promise<Blob> {
+    const { data } = await api.post<Blob>("/resumes/preview", { text }, { responseType: "blob" });
     return data;
 }
 

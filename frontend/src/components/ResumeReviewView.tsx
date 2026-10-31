@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Icon } from "@/components/AppIcons";
 import { LABEL } from "@/components/PagePrimitives";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -46,24 +47,6 @@ function RungCard({ level }: { level: Rung }) {
     );
 }
 
-function CopyLine({ text }: { text: string }) {
-    const [copied, setCopied] = useState(false);
-    return (
-        <button
-            type="button"
-            onClick={() =>
-                void navigator.clipboard.writeText(text).then(() => {
-                    setCopied(true);
-                    setTimeout(() => setCopied(false), 1500);
-                })
-            }
-            className="shrink-0 text-[11px] text-muted-foreground underline underline-offset-2 hover:text-foreground"
-        >
-            {copied ? "Copied" : "Copy"}
-        </button>
-    );
-}
-
 function EmptyReview({ busy, error, disabled, onReview }: { busy: boolean; error: string | null; disabled: boolean; onReview: () => void }) {
     return (
         <Card className="flex min-h-[16rem] flex-col items-center justify-center gap-3 border-dashed p-6 text-center">
@@ -80,12 +63,31 @@ function EmptyReview({ busy, error, disabled, onReview }: { busy: boolean; error
     );
 }
 
-export function ResumeReviewView({ review, busy, error, disabled, onReview }: { review: ResumeReview | null; busy: boolean; error: string | null; disabled: boolean; onReview: () => void }) {
+export function ResumeReviewView({ review, busy, error, disabled, onReview, onApply, onRetry }: { review: ResumeReview | null; busy: boolean; error: string | null; disabled: boolean; onReview: () => void; onApply: (source: string, rewrite: string) => void; onRetry: (source: string) => Promise<void> }) {
     // One band by default, the one the page reads at; the rest of the ladder stays one click away so
     // the comparison is still there without a wall of cards. A new review arrives under a new key
     // from the page, which drops the pick.
     const [focus, setFocus] = useState<string | null>(null);
     const [all, setAll] = useState(false);
+    // Applied and dismissed edits are both finished: the row goes, and its line is the editor's problem
+    // from here (an applied line no longer matches what the reviewer quoted).
+    const [done, setDone] = useState<Set<string>>(new Set());
+    const [retrying, setRetrying] = useState<string | null>(null);
+    const open = (review?.rewrites ?? []).filter((line) => !done.has(line.source));
+
+    function apply(source: string, rewrite: string) {
+        onApply(source, rewrite);
+        setDone((set) => new Set(set).add(source));
+    }
+
+    async function retry(source: string) {
+        setRetrying(source);
+        try {
+            await onRetry(source);
+        } finally {
+            setRetrying(null);
+        }
+    }
 
     const active = review ? (focus ?? review.reads_at ?? review.levels[0]?.level ?? null) : null;
     const focused = review?.levels.find((level) => level.level === active) ?? null;
@@ -163,17 +165,28 @@ export function ResumeReviewView({ review, busy, error, disabled, onReview }: { 
                         focused && <RungCard level={focused} />
                     )}
 
-                    {review.rewrites.length > 0 && (
+                    {open.length > 0 && (
                         <div className="space-y-1.5">
                             <p className={LABEL}>Rewrites</p>
                             <ul className="divide-y rounded-xl border">
-                                {review.rewrites.map((line) => (
+                                {open.map((line) => (
                                     <li key={line.source} className="space-y-0.5 px-3 py-1.5">
-                                        <p className="text-xs leading-snug text-muted-foreground line-through">{line.source}</p>
-                                        <div className="flex items-start justify-between gap-3">
-                                            <p className="text-sm leading-snug">{line.rewrite}</p>
-                                            <CopyLine text={line.rewrite} />
+                                        <div className="flex items-start justify-between gap-2">
+                                            <p className="min-w-0 text-xs leading-snug text-muted-foreground line-through">{line.source}</p>
+                                            <div className="flex shrink-0 items-center">
+                                                {/* `dirty` only gates generating a review, which reads the saved row. An edit applies to the text in front of the candidate, so these wait on the request in flight, not on unsaved input. */}
+                                                <Button variant="ghost" size="icon" className="size-7" aria-label="Apply this edit" title="Apply" disabled={busy} onClick={() => apply(line.source, line.rewrite)}>
+                                                    <Icon name="complete" className="h-4 w-4" />
+                                                </Button>
+                                                <Button variant="ghost" size="icon" className="size-7" aria-label="Retry this edit" title="Retry" disabled={busy || retrying !== null} onClick={() => retry(line.source)}>
+                                                    <Icon name="retry" className={cn("h-4 w-4", retrying === line.source && "animate-spin")} />
+                                                </Button>
+                                                <Button variant="ghost" size="icon" className="size-7" aria-label="Dismiss this edit" title="Dismiss" onClick={() => setDone((set) => new Set(set).add(line.source))}>
+                                                    <Icon name="x" className="h-4 w-4" />
+                                                </Button>
+                                            </div>
                                         </div>
+                                        <p className="text-sm leading-snug">{line.rewrite}</p>
                                     </li>
                                 ))}
                             </ul>

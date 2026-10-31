@@ -765,3 +765,50 @@ def test_valid_review_takes_the_label_a_weak_backend_was_shown():
 
 async def test_review_resume_has_nothing_to_say_without_an_engine():
     assert await llm.review_resume("Alex cut p99.", llm.LLMConfig(base_url="", model="")) is None
+
+
+def test_review_lines_are_kept_verbatim_and_unknown_calls_dropped():
+    got = llm._valid_review(
+        _review_json(
+            lines=[
+                {"text": "Cut p99 checkout latency from 40s to 900ms.", "call": "strong"},
+                {"text": "Backend engineer who likes boring systems.", "call": "Weak"},
+                {"text": "Go, Python, Kubernetes", "call": "fine"},
+                {"text": 7, "call": "weak"},
+            ]
+        )
+    )
+    # `fine` is a section call, not a line call; a non-string quote is not a line.
+    assert got["lines"] == [
+        {"text": "Cut p99 checkout latency from 40s to 900ms.", "call": "strong"},
+        {"text": "Backend engineer who likes boring systems.", "call": "weak"},
+    ]
+
+
+def test_review_without_lines_still_grades_the_page():
+    # Additive: the overlay is one pass of four, so a model that paraphrased every line must not cost
+    # the candidate their ladder, sections and rewrites.
+    got = llm._valid_review(_review_json(lines=[]))
+    assert got["lines"] == [] and got["rewrites"]
+
+
+async def test_rewrite_line_refuses_a_synonym_swap(monkeypatch):
+    source = "Backend engineer who likes boring systems."
+    replies = iter(['{"rewrite": "Backend engineer who likes boring systems."}', '{"rewrite": "Platform engineer who runs EKS for 40 services."}'])
+    calls = {"n": 0}
+
+    async def _completion(*_a, **kw):
+        calls["n"] += 1
+        return next(replies)
+
+    monkeypatch.setattr(llm, "_completion", _completion)
+    assert await llm.rewrite_line("cv text", source, REAL) == "Platform engineer who runs EKS for 40 services."
+    assert calls["n"] == 2
+
+
+async def test_rewrite_line_gives_up_when_the_model_only_repeats_itself(monkeypatch):
+    async def _completion(*_a, **_kw):
+        return '{"rewrite": "Backend engineer who likes boring systems."}'
+
+    monkeypatch.setattr(llm, "_completion", _completion)
+    assert await llm.rewrite_line("cv text", "Backend engineer who likes boring systems.", REAL) is None

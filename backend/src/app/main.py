@@ -16,7 +16,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse, StreamingResponse
 from pydantic import ValidationError
 
-from app import API_PREFIX, billing, byok, dials, levels, llm, offer, payments, rating, resumes, review, telemetry, voice
+from app import API_PREFIX, billing, byok, dials, latex, levels, llm, offer, payments, rating, resumes, review, telemetry, voice
 from app.auth import CLERK_ENABLED, get_current_user
 from app.db import close_pool, fetch, fetchrow, init_pool
 from app.dials import DIAL_FIELDS
@@ -35,6 +35,7 @@ from app.models import (
     Interview,
     InterviewCreate,
     InterviewTemplate,
+    LatexSource,
     LLMProvider,
     LLMProviderUpdate,
     Message,
@@ -44,6 +45,7 @@ from app.models import (
     ResumeExtract,
     ResumeReview,
     ResumeSummary,
+    ReviewRewriteRequest,
     TemplateCreate,
     VoiceCapability,
     VoiceText,
@@ -663,6 +665,66 @@ async def create_resume_review(
         got,
     )
     return {**saved["review"], "created_at": saved["created_at"]}
+
+
+@api.post("/resumes/{resume_id}/review/rewrite", response_model=ResumeReview)
+async def retry_resume_rewrite(
+    resume_id: str,
+    body: ReviewRewriteRequest,
+    user: CurrentUser,
+    config: ChatLLMDep,
+) -> dict:
+    row = await fetchrow("SELECT text FROM resumes WHERE id = $1 AND owner_id = $2", resume_id, user.sub)
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Resume not found")
+    # The client returns a line the reviewer quoted from this page. One it cannot find is either stale or
+    # forged, and either way it is not a line of this resume.
+    source = review.claim(body.source, review.LINE_MAX)
+    flat = " ".join(row["text"].split())
+    if not source or (source not in row["text"] and " ".join(source.split()) not in flat):
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="That line is not on this resume any more. Re-review it and try again.")
+    current = await fetchrow(
+        "SELECT rr.review, rr.created_at FROM resume_reviews rr JOIN resumes r ON r.id = rr.resume_id WHERE rr.resume_id = $1 AND r.owner_id = $2 AND rr.source_hash = encode(sha256(convert_to(r.text, 'UTF8')), 'hex')",
+        resume_id,
+        user.sub,
+    )
+    if current is None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Review this resume first: there is no edit to retry.")
+    if config.stub:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="No scoring engine is configured on this deployment, so an edit cannot be retried.")
+    await _spend_chat_turn(user, config)
+    got = await llm.rewrite_line(row["text"], source, config)
+    if got is None:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="The reviewer could not write a different line right now. Try again in a moment.")
+    stored = dict(current["review"])
+    rewrites = [item for item in stored.get("rewrites", []) if item.get("source") != source]
+    stored["rewrites"] = ([{"source": source, "rewrite": got}] + rewrites)[: review.MAX_REWRITES]
+    saved = await fetchrow(
+        "UPDATE resume_reviews SET review = $2 WHERE resume_id = $1 RETURNING review, created_at",
+        resume_id,
+        stored,
+    )
+    return {**saved["review"], "created_at": saved["created_at"]}
+
+
+# The LaTeX preview compiles the text in the request, not the stored row: an editor has to render the
+# edit the candidate is typing. Ownership is the only thing this needs from the database.
+
+
+@api.post("/resumes/preview")
+async def compile_resume(body: LatexSource, user: CurrentUser) -> Response:
+    if "\\documentclass" not in body.text:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="That is not a LaTeX document: it needs a \\documentclass line.")
+    if not latex.available():
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="No LaTeX engine is installed on this deployment.")
+    try:
+        pdf = await latex.compile_pdf(body.text)
+    except latex.CompileBusy as exc:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="The preview is busy. Try again in a moment.", headers={"Retry-After": "5"}) from exc
+    except latex.CompileError as exc:
+        # The compiler's own first error, which carries the line number the editor points at.
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=exc.detail) from exc
+    return Response(content=pdf, media_type="application/pdf", headers={"Cache-Control": "no-store"})
 
 
 # Voice: Workers AI is the only engine, and it is optional infrastructure.

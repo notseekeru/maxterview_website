@@ -111,6 +111,10 @@ class ResumeCreate(BaseModel):
     text: str = Field(min_length=1, max_length=resumes.MAX_CHARS)
 
 
+class LatexSource(BaseModel):
+    text: str = Field(min_length=1, max_length=resumes.MAX_CHARS)
+
+
 class ResumeExtract(BaseModel):
     text: str
     pages: int
@@ -119,6 +123,7 @@ class ResumeExtract(BaseModel):
 
 Call = Literal[*review.CALLS]
 SectionCall = Literal[*review.SECTION_CALLS]
+LineCall = Literal[*review.LINE_CALLS]
 
 
 class ReviewLevel(BaseModel):
@@ -143,12 +148,23 @@ class ReviewRewrite(BaseModel):
     rewrite: str
 
 
+class ReviewLine(BaseModel):
+    # A claim-bearing line, quoted as written so the editor can find it and paint it.
+    text: str
+    call: LineCall
+
+
+class ReviewRewriteRequest(BaseModel):
+    source: str = Field(min_length=1, max_length=review.LINE_MAX)
+
+
 class ResumeReview(BaseModel):
     verdict: str
     levels: list[ReviewLevel]
     sections: list[ReviewSection]
-    # Defaulted: reviews stored before the rewrites pass carry no such key.
+    # Defaulted: reviews stored before these passes carry neither key.
     rewrites: list[ReviewRewrite] = Field(default_factory=list)
+    lines: list[ReviewLine] = Field(default_factory=list)
     created_at: datetime
 
     @computed_field

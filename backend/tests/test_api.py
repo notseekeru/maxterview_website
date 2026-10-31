@@ -1613,3 +1613,85 @@ def test_analytics_streak_counts_consecutive_days(client):
     assert asyncio.run(streak_for([0, 3])) == 1  # today only; the older day starts a separate run
     assert asyncio.run(streak_for([5])) == 0  # a week idle is over
     assert asyncio.run(streak_for([])) == 0  # never practised
+
+
+def test_resume_review_retry_rewrites_one_line_and_stores_it(client, monkeypatch):
+    from app import llm
+
+    c = client
+    _wipe_resumes(c)
+    line = "Ran the payroll export pipeline nightly."
+    rid = c.post("/api/resumes", json=_resume_payload("Retry", f"Alex cut p99 from 40s to 900ms.\n{line}")).json()["id"]
+    # Nothing reviewed yet: there is no edit to retry.
+    assert c.post(f"/api/resumes/{rid}/review/rewrite", json={"source": line}).status_code == 409
+
+    monkeypatch.setattr(llm, "SYSTEM_CONFIG", llm.LLMConfig(base_url="http://127.0.0.1:9/v1", model="qwen-unit-test"))
+
+    async def _fake_review(text, config):
+        return dict(llm.REVIEW_EXAMPLE)
+
+    monkeypatch.setattr(llm, "review_resume", _fake_review)
+    assert c.post(f"/api/resumes/{rid}/review").status_code == 201
+
+    # A line this resume does not contain is refused before any model call is paid for.
+    assert c.post(f"/api/resumes/{rid}/review/rewrite", json={"source": "Invented a line."}).status_code == 422
+
+    seen = {}
+
+    async def _fake_rewrite(text, source, config):
+        seen["source"] = source
+        return "Owned the payroll export pipeline, 1.2M records nightly."
+
+    monkeypatch.setattr(llm, "rewrite_line", _fake_rewrite)
+    turns = c.get("/api/usage").json()["chat_turns_used_today"]
+    got = c.post(f"/api/resumes/{rid}/review/rewrite", json={"source": line})
+    assert got.status_code == 200
+    assert seen["source"] == line
+    assert got.json()["rewrites"][0]["rewrite"].startswith("Owned the payroll export")
+    assert c.get("/api/usage").json()["chat_turns_used_today"] == turns + 1
+    # Stored, so a reload keeps the line the candidate asked for.
+    assert c.get(f"/api/resumes/{rid}/review").json()["rewrites"][0]["rewrite"].startswith("Owned the payroll export")
+    c.delete(f"/api/resumes/{rid}")
+
+
+LATEX = "\\documentclass{article}\\begin{document}Alex Mender\\end{document}"
+
+
+def test_resume_preview_compiles_latex_and_rejects_plain_text(client):
+    from app import latex
+
+    c = client
+    assert c.post("/api/resumes/preview", json={"text": "plain text, no documentclass"}).status_code == 422
+    if not latex.available():
+        # The dev/prod image installs TeX; a bare test host does not, and a 503 is the honest answer.
+        assert c.post("/api/resumes/preview", json={"text": LATEX}).status_code == 503
+        return
+    got = c.post("/api/resumes/preview", json={"text": LATEX})
+    assert got.status_code == 200 and got.content[:4] == b"%PDF" and got.headers["content-type"] == "application/pdf"
+    broken = c.post("/api/resumes/preview", json={"text": "\\documentclass{article}\\begin{document}\\nosuchcommand\\end{document}"})
+    assert broken.status_code == 422 and "Undefined control sequence" in broken.json()["detail"]
+
+
+def test_resume_preview_refuses_to_read_outside_its_own_directory(client, tmp_path):
+    from app import latex
+
+    if not latex.available():
+        pytest.skip("pdflatex is not installed on this host")
+    secret = tmp_path / "secret.tex"
+    secret.write_text("TOPSECRET", encoding="utf-8")
+    got = client.post("/api/resumes/preview", json={"text": f"\\documentclass{{article}}\\begin{{document}}\\input{{{secret.with_suffix('')}}}\\end{{document}}"})
+    # openin_any=p: kpathsea refuses an absolute path outside the compile dir, so the request fails
+    # instead of rendering the host filesystem. Without that flag this compiles and answers 200.
+    assert got.status_code == 422
+    assert secret.stem in got.json()["detail"] or "LaTeX Error" in got.json()["detail"]
+    assert "TOPSECRET" not in got.json()["detail"]
+
+
+def test_resume_preview_says_so_when_a_document_has_no_pages(client):
+    from app import latex
+
+    if not latex.available():
+        pytest.skip("pdflatex is not installed on this host")
+    got = client.post("/api/resumes/preview", json={"text": "\\documentclass{article}\n\\begin{document}\n\\end{document}"})
+    assert got.status_code == 422
+    assert "no pages" in got.json()["detail"].lower()

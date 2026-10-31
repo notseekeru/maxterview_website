@@ -24,7 +24,9 @@ LLM_MAX_TOKENS = int(os.getenv("LLM_MAX_TOKENS", "512"))
 LLM_MAX_GRADER_TOKENS = int(os.getenv("LLM_MAX_GRADER_TOKENS", "1024"))
 LLM_MAX_FEEDBACK_TOKENS = int(os.getenv("LLM_MAX_FEEDBACK_TOKENS", "1024"))
 LLM_MAX_CLOSING_TOKENS = int(os.getenv("LLM_MAX_CLOSING_TOKENS", "160"))
-LLM_MAX_REVIEW_TOKENS = int(os.getenv("LLM_MAX_REVIEW_TOKENS", "1800"))
+# One review writes the ladder, the sections, the rewrites and every audited line, all inside one
+# completion: the budget has to hold all four or the JSON truncates and the review retries into a 503.
+LLM_MAX_REVIEW_TOKENS = int(os.getenv("LLM_MAX_REVIEW_TOKENS", "2400"))
 LLM_DISABLE_THINKING = os.getenv("LLM_DISABLE_THINKING", "true").lower() == "true"
 
 RESUME_PROMPT_CHARS = int(os.getenv("RESUME_PROMPT_CHARS", "8000"))
@@ -432,6 +434,7 @@ REVIEW_EXAMPLE: dict = {
     "levels": [{"level": rung, "call": call, "thinks": "one line naming what on the page decides the call", "move": "" if call == "passes" else "the one edit that raises it"} for rung, call in zip(review.RUNGS, _REVIEW_EXAMPLE_CALLS, strict=True)],
     "sections": [{"name": "a heading as the resume spells it", "call": "fine", "note": "one line on what decides the call"}],
     "rewrites": [{"source": "a line, quoted as it appears on the page", "rewrite": "that line rewritten with the facts the page already states"}],
+    "lines": [{"text": "a claim-bearing line, quoted exactly as written", "call": "weak"}],
 }
 assert len(_REVIEW_EXAMPLE_CALLS) == len(review.RUNGS)
 
@@ -453,6 +456,10 @@ PASS 2 - THE SECTIONS. One entry per block you can find on the page, named the w
 PASS 3 - THE REWRITES. The lines to replace, biggest gap first, 2-3 of them. `source` is the line exactly as it appears on the page.
 `rewrite` is that same line carrying the evidence the page already has, in the candidate's own facts and voice; where one fact is missing and only they can supply it, leave a bracketed slot (`[which team adopted it]`) instead of inventing it.
 Never add a number, an employer, a team, a tool or an outcome the page does not state. A line already earning its space is not rewritten.
+
+PASS 4 - THE LINES. Every claim-bearing line or bullet, in page order: `text` quoted exactly as it appears on the page, and `call` is weak (an assertion with no outcome, no evidence or padding), safe (correct and unremarkable) or strong (carries what it claims: an owner, a change, a number, an outcome).
+Skip the name, contact details, section headings and anything that carries no claim. This is what the editor paints over, so a paraphrased line cannot be found on the page and is dropped: quote it, never describe it.
+The page may be LaTeX source: judge the claims inside the markup and quote whole source lines, never fragments of one, so a rewrite can replace the line and still compile.
 
 Then `verdict`, 2-3 sentences to the candidate in second person: the band the page reads at and the one gap that keeps it there.
 
@@ -506,8 +513,19 @@ REVIEW_JSON_SCHEMA = {
                 "additionalProperties": False,
             },
         },
+        "lines": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": review.MAX_LINES,
+            "items": {
+                "type": "object",
+                "properties": {"text": {"type": "string"}, "call": {"type": "string", "enum": list(review.LINE_CALLS)}},
+                "required": ["text", "call"],
+                "additionalProperties": False,
+            },
+        },
     },
-    "required": ["verdict", "levels", "sections", "rewrites"],
+    "required": ["verdict", "levels", "sections", "rewrites", "lines"],
     "additionalProperties": False,
 }
 
@@ -561,11 +579,25 @@ def _valid_review(obj) -> dict | None:
     if not rewrites:
         log.warning("llm.review.rewrites_missing")
         return None
+
+    lines: list[dict] = []
+    for item in obj.get("lines") if isinstance(obj.get("lines"), list) else []:
+        if not isinstance(item, dict):
+            continue
+        call = review.slug(item.get("call"))
+        text = review.claim(item.get("text"), review.LINE_MAX)
+        if call in review.LINE_CALLS and text:
+            lines.append({"text": text, "call": call})
+    # The overlay is additive: a review whose lines were all paraphrased still grades the page, and the
+    # editor simply paints nothing.
+    if not lines:
+        log.warning("llm.review.lines_missing")
     return {
         "verdict": verdict,
         "levels": [{"level": rung, "call": call, **{key: rungs[rung][key] for key in ("thinks", "move")}} for rung, call in ladder],
         "sections": sections[: review.MAX_SECTIONS],
         "rewrites": rewrites[: review.MAX_REWRITES],
+        "lines": lines[: review.MAX_LINES],
     }
 
 
@@ -591,6 +623,55 @@ async def review_resume(text: str, config: LLMConfig) -> dict | None:
             return got
         log.warning("llm.review.schema_mismatch")
     log.error("llm.review.unavailable")
+    return None
+
+
+# One line, one call: the candidate asked for a different edit, not a different review. Same grounding
+# bar as the reviewer, because this is where a confident invented number would be pasted into a resume.
+REWRITE_LINE_PROMPT = f"""You rewrite ONE line of a resume, and nothing else. You are given the whole page, then the line to replace.
+
+Use only facts the page already states: no new employer, tool, number, team, school or outcome. Keep the candidate's voice and the line's shape (a bullet stays a bullet).
+Where one fact is missing and only they can supply it, leave a bracketed slot (`[which team adopted it]`) instead of inventing one.
+If the page is LaTeX source, the replacement must stay valid LaTeX for that same line and must not change the document's preamble, packages or commands.
+The replacement has to be different from the line you were given: a synonym swap is the same line, not a rewrite.
+{GROUNDING_PROMPT}
+{UNTRUSTED_INPUT}
+Return a JSON object ONLY: {{"rewrite": "the replacement line"}}"""
+
+REWRITE_JSON_SCHEMA = {
+    "type": "object",
+    "properties": {"rewrite": {"type": "string"}},
+    "required": ["rewrite"],
+    "additionalProperties": False,
+}
+
+REWRITE_MAX_TOKENS = 400
+
+
+async def rewrite_line(text: str, source: str, config: LLMConfig) -> str | None:
+    if config.stub:
+        log.warning("llm.review_rewrite.stub")
+        return None
+    body = f"<resume>\n{injectable_resume(text)}\n</resume>\n\n<line>\n{source}\n</line>"
+    for _ in range(2):
+        content = await _completion(
+            REWRITE_LINE_PROMPT,
+            body,
+            config=grader_config(config),
+            max_tokens=REWRITE_MAX_TOKENS,
+            stage="review_rewrite",
+            json_output=True,
+            json_schema=REWRITE_JSON_SCHEMA,
+            # This hop writes: greedy decoding hands back the same line twice.
+            temperature=0.7,
+        )
+        if content is None:
+            continue
+        got = review.claim(_extract_json_object(content).get("rewrite"), review.LINE_MAX)
+        if got and got != source:
+            return got
+        log.warning("llm.review_rewrite.unusable")
+    log.error("llm.review_rewrite.unavailable")
     return None
 
 

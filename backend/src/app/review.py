@@ -13,9 +13,14 @@ RUNGS: tuple[str, ...] = levels.LEVELS[1:]
 # Worst to best on both vocabs: the index IS the rank `staircase` clamps with.
 CALLS: tuple[str, ...] = ("fails", "close", "passes")
 SECTION_CALLS: tuple[str, ...] = ("bloat", "weak", "fine", "strong")
+# What one line of the page is worth on its own: the editor paints the first and last, `safe` needs no mark.
+LINE_CALLS: tuple[str, ...] = ("weak", "safe", "strong")
 
 MAX_SECTIONS = 6
 MAX_REWRITES = 3
+# Every line is output the model has to write, and the review's token budget has to hold the ladder,
+# the sections and the rewrites too. Past this a long resume truncates and the whole review 503s.
+MAX_LINES = 24
 NAME_MAX = 40
 FIELD_MAX = 300
 LINE_MAX = 400
@@ -69,9 +74,6 @@ def reads_at(calls) -> str | None:
     return max(passed, key=_RUNG.__getitem__) if passed else None
 
 
-# AI HERE: one framework-free self-check (AGENTS rule 5). A clamp that stops clamping would let the
-# page render "senior: fails" above "staff: passes", which is the one contradiction the ladder exists
-# to prevent.
 # AI HERE: one framework-free self-check (AGENTS rule 5). A clamp that stops clamping would let the
 # page render "senior: fails" above "staff: passes", which is the one contradiction the ladder exists
 # to prevent.
