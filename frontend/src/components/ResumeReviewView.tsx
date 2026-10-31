@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Icon } from "@/components/AppIcons";
 import { LABEL } from "@/components/PagePrimitives";
 import { Button } from "@/components/ui/button";
@@ -20,6 +20,12 @@ const SECTION: Record<string, { label: string; tone: string }> = {
     fine: { label: "Fine", tone: "border-input text-muted-foreground" },
     weak: { label: "Weak", tone: CALL.close.tone },
     bloat: { label: "Bloat", tone: CALL.fails.tone },
+};
+
+const LINE: Record<string, string> = {
+    weak: "border-destructive/40 text-destructive",
+    safe: "border-input text-muted-foreground",
+    strong: "border-emerald-500/40 text-emerald-600 dark:text-emerald-400",
 };
 
 function Chip({ call, meta }: { call: string; meta: Record<string, { label: string; tone: string }> }) {
@@ -63,7 +69,27 @@ function EmptyReview({ busy, error, disabled, onReview }: { busy: boolean; error
     );
 }
 
-export function ResumeReviewView({ review, busy, error, disabled, onReview, onApply, onRetry }: { review: ResumeReview | null; busy: boolean; error: string | null; disabled: boolean; onReview: () => void; onApply: (source: string, rewrite: string) => void; onRetry: (source: string) => Promise<void> }) {
+export function ResumeReviewView({
+    review,
+    busy,
+    error,
+    disabled,
+    onReview,
+    onApply,
+    onRetry,
+    onFocusLine,
+    restored,
+}: {
+    review: ResumeReview | null;
+    busy: boolean;
+    error: string | null;
+    disabled: boolean;
+    onReview: () => void;
+    onApply: (source: string, rewrite: string) => boolean;
+    onRetry: (source: string) => Promise<void>;
+    onFocusLine: (text: string) => void;
+    restored?: { source: string; n: number } | null;
+}) {
     // One band by default, the one the page reads at; the rest of the ladder stays one click away so
     // the comparison is still there without a wall of cards. A new review arrives under a new key
     // from the page, which drops the pick.
@@ -73,11 +99,34 @@ export function ResumeReviewView({ review, busy, error, disabled, onReview, onAp
     // from here (an applied line no longer matches what the reviewer quoted).
     const [done, setDone] = useState<Set<string>>(new Set());
     const [retrying, setRetrying] = useState<string | null>(null);
+    const [linesOpen, setLinesOpen] = useState(false);
     const open = (review?.rewrites ?? []).filter((line) => !done.has(line.source));
 
+    // Undoing an applied rewrite puts the text back, so the row that produced it has to come back too.
+    useEffect(() => {
+        if (!restored) return;
+        setDone((set) => {
+            if (!set.has(restored.source)) return set;
+            const next = new Set(set);
+            next.delete(restored.source);
+            return next;
+        });
+    }, [restored]);
+
+    const audits = useMemo(() => {
+        const seen = new Set<string>();
+        return (review?.lines ?? []).filter((line) => {
+            const key = `${line.call}:${line.text}`;
+            if (seen.has(key)) return false;
+            seen.add(key);
+            return true;
+        });
+    }, [review?.lines]);
+    const tally = { weak: 0, safe: 0, strong: 0 };
+    for (const line of audits) tally[line.call] += 1;
+
     function apply(source: string, rewrite: string) {
-        onApply(source, rewrite);
-        setDone((set) => new Set(set).add(source));
+        if (onApply(source, rewrite)) setDone((set) => new Set(set).add(source));
     }
 
     async function retry(source: string) {
@@ -122,6 +171,34 @@ export function ResumeReviewView({ review, busy, error, disabled, onReview, onAp
             {review && (
                 <CardContent className="min-h-0 flex-1 space-y-3 overflow-y-auto">
                     <p className="text-sm leading-relaxed">{review.verdict}</p>
+
+                    {audits.length > 0 && (
+                        <div className="space-y-1.5">
+                            <div className="flex items-center justify-between gap-2">
+                                <p className={LABEL}>Lines</p>
+                                <div className="flex items-center gap-2 text-[11px]">
+                                    <span className="text-destructive">{tally.weak} weak</span>
+                                    <span className="text-muted-foreground">{tally.safe} safe</span>
+                                    <span className="text-emerald-600 dark:text-emerald-400">{tally.strong} strong</span>
+                                    <button type="button" onClick={() => setLinesOpen((value) => !value)} className="text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground">
+                                        {linesOpen ? "Hide" : "Show"}
+                                    </button>
+                                </div>
+                            </div>
+                            {linesOpen && (
+                                <ul className="max-h-40 divide-y overflow-y-auto rounded-xl border">
+                                    {audits.map((line) => (
+                                        <li key={`${line.call}:${line.text}`}>
+                                            <button type="button" onClick={() => onFocusLine(line.text)} className="flex w-full items-start gap-2 px-3 py-1 text-left transition-colors hover:bg-accent">
+                                                <span className={cn("mt-0.5 shrink-0 rounded border px-1 text-[10px] uppercase", LINE[line.call])}>{line.call}</span>
+                                                <span className="min-w-0 text-xs leading-snug text-muted-foreground">{line.text}</span>
+                                            </button>
+                                        </li>
+                                    ))}
+                                </ul>
+                            )}
+                        </div>
+                    )}
 
                     <div className="flex flex-wrap items-center justify-between gap-2">
                         <div className="flex flex-wrap gap-1">

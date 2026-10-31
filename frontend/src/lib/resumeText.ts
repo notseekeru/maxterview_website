@@ -54,6 +54,11 @@ export function callByLine(text: string, quotes: QuotedLine[]): Map<number, Line
     return calls;
 }
 
+// Which line a quote sits on. The review panel uses it to put the editor on the line it names.
+export function lineOf(text: string, quote: string): number | null {
+    return locate(text.split("\n").map(flatten), quote)?.from ?? null;
+}
+
 // One quote in, one line out: a wrapped bullet collapses into the single rewritten line, and the rest
 // of the document keeps its shape (which LaTeX cares about).
 export function replaceLine(text: string, source: string, rewrite: string): string | null {

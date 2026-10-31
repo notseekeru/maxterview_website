@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { HighlightedTextarea } from "@/components/HighlightedTextarea";
 import { LatexPreview } from "@/components/LatexPreview";
 import { Page } from "@/components/PagePrimitives";
@@ -20,6 +20,16 @@ interface Draft {
 
 const EMPTY_DRAFT: Draft = { id: null, name: "", text: "" };
 
+// A burst of typing is one undo step, a pause starts the next one. Cap the stack so a long session
+// cannot grow it without bound.
+const BURST_MS = 700;
+const MAX_UNDO = 30;
+
+interface UndoStep {
+    text: string;
+    source?: string;
+}
+
 export function ResumePage() {
     const [rows, setRows] = useState<ResumeSummary[]>([]);
     const [draft, setDraft] = useState<Draft>(EMPTY_DRAFT);
@@ -35,6 +45,11 @@ export function ResumePage() {
     const [review, setReview] = useState<ResumeReview | null>(null);
     const [reviewing, setReviewing] = useState(false);
     const [reviewError, setReviewError] = useState<string | null>(null);
+    const [past, setPast] = useState<UndoStep[]>([]);
+    const [undone, setUndone] = useState<{ source: string; n: number } | null>(null);
+    const [focusLine, setFocusLine] = useState<{ quote: string; n: number } | null>(null);
+    const burst = useRef(0);
+    const undos = useRef(0);
     const editing = draft.id !== null || pasting;
     const showDrop = !editing && importing;
 
@@ -56,6 +71,7 @@ export function ResumePage() {
             if (list.length) {
                 const full = await getResume(list[0].id);
                 setDraft({ id: full.id, name: full.name, text: full.text });
+                setPast([]);
             }
         } catch {
             setError("Could not load your resumes.");
@@ -93,11 +109,40 @@ export function ResumePage() {
 
     // Apply rewrites into the editor, not the database: the candidate decides what lands, and a save is
     // still a save. Dismissing or applying drops the row, which the review view owns.
+    // The row only goes when the quote was actually found: a review can be older than the text it is
+    // offered against, and a row that vanishes without changing a line reads as a silent failure.
     function applyRewrite(source: string, rewrite: string) {
-        setDraft((d) => {
-            const next = replaceLine(d.text, source, rewrite);
-            return next === null ? d : { ...d, text: next };
-        });
+        const next = replaceLine(draft.text, source, rewrite);
+        if (next === null) return false;
+        remember(source);
+        burst.current = 0;
+        setDraft((d) => ({ ...d, text: next }));
+        return true;
+    }
+
+    function remember(source?: string) {
+        setPast((list) => [...list.slice(-(MAX_UNDO - 1)), { text: draft.text, source }]);
+    }
+
+    function editText(text: string) {
+        const now = Date.now();
+        if (now - burst.current > BURST_MS) remember();
+        burst.current = now;
+        setDraft((d) => ({ ...d, text }));
+    }
+
+    // Native undo dies when React rewrites a textarea's value, which is exactly what an applied rewrite
+    // does, so the stack covers both the edits the app made and the typing it replaced.
+    function undo() {
+        const last = past[past.length - 1];
+        if (!last) return;
+        setPast((list) => list.slice(0, -1));
+        burst.current = 0;
+        setDraft((d) => ({ ...d, text: last.text }));
+        if (last.source) {
+            undos.current += 1;
+            setUndone({ source: last.source, n: undos.current });
+        }
     }
 
     async function retryEdit(source: string) {
@@ -134,6 +179,7 @@ export function ResumePage() {
         try {
             const got = await extractResume(file);
             setDraft({ id: null, name: file.name.replace(/\.pdf$/i, "").slice(0, 80), text: got.text });
+            setPast([]);
             setPasting(true);
             setImporting(false);
             setRestore(null);
@@ -181,6 +227,7 @@ export function ResumePage() {
         try {
             const full: ResumeRecord = await getResume(id);
             setDraft({ id: full.id, name: full.name, text: full.text });
+            setPast([]);
             setRestore(null);
         } catch (e) {
             fail(e, "Could not open that resume.");
@@ -190,6 +237,7 @@ export function ResumePage() {
     function startNew() {
         setRestore(draft);
         setDraft(EMPTY_DRAFT);
+        setPast([]);
         setPasting(false);
         setImporting(true);
         setDropping(false);
@@ -202,6 +250,7 @@ export function ResumePage() {
     // existed yet: with one, the drop zone's only exit was Cancel and a new resume had to be a PDF.
     function pasteInstead() {
         setDraft(EMPTY_DRAFT);
+        setPast([]);
         setPasting(true);
         setImporting(false);
         setError(null);
@@ -211,6 +260,7 @@ export function ResumePage() {
     function cancelNew() {
         setImporting(false);
         setDraft(restore ?? EMPTY_DRAFT);
+        setPast([]);
         setPasting(false);
         setRestore(null);
         setError(null);
@@ -240,6 +290,7 @@ export function ResumePage() {
             const rest = rows.filter((r) => r.id !== draft.id);
             setRows(rest);
             setDraft(EMPTY_DRAFT);
+            setPast([]);
             setPasting(false);
             setImporting(false);
             setRestore(null);
@@ -355,12 +406,15 @@ export function ResumePage() {
                                     <label htmlFor="resume-text" className="text-sm font-medium leading-none">
                                         Resume text
                                     </label>
-                                    <HighlightedTextarea id="resume-text" value={draft.text} onChange={(text) => setDraft((d) => ({ ...d, text }))} lines={review?.lines ?? []} latex={latex} placeholder="Paste your resume here…" />
+                                    <HighlightedTextarea id="resume-text" value={draft.text} onChange={editText} focus={focusLine} lines={review?.lines ?? []} latex={latex} placeholder="Paste your resume here…" />
                                 </div>
                             </CardContent>
                             <div className="flex items-center gap-2 px-6 pb-6">
                                 <Button disabled={busy || !dirty} onClick={() => void save()}>
                                     {busy ? "Saving…" : draft.id ? "Save" : "Save resume"}
+                                </Button>
+                                <Button variant="ghost" disabled={busy || past.length === 0} onClick={undo}>
+                                    Undo
                                 </Button>
                                 {draft.id ? (
                                     <Button variant="ghost" disabled={busy} onClick={() => void remove()}>
@@ -374,10 +428,23 @@ export function ResumePage() {
                             </div>
                         </Card>
 
-                        {draft.id && !importing && latex && <LatexPreview text={draft.text} />}
+                        {draft.id && !importing && latex && <LatexPreview text={draft.text} lines={review?.lines ?? []} />}
 
                         {/* Saved text only: the review reads the row, so unsaved edits cannot be what it looks at. A new review is a new key: that is what drops the focused band and the all-levels toggle. */}
-                        {draft.id && !importing && <ResumeReviewView key={review?.created_at ?? "none"} review={review} busy={reviewing} error={reviewError} disabled={busy || dirty} onReview={() => void reviewCurrent()} onApply={applyRewrite} onRetry={retryEdit} />}
+                        {draft.id && !importing && (
+                            <ResumeReviewView
+                                key={review?.created_at ?? "none"}
+                                review={review}
+                                busy={reviewing}
+                                error={reviewError}
+                                disabled={busy || dirty}
+                                onReview={() => void reviewCurrent()}
+                                onApply={applyRewrite}
+                                onRetry={retryEdit}
+                                onFocusLine={(quote) => setFocusLine((current) => ({ quote, n: (current?.n ?? 0) + 1 }))}
+                                restored={undone}
+                            />
+                        )}
                     </div>
                 )}
             </div>
