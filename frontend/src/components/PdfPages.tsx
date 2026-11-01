@@ -107,11 +107,11 @@ export function PdfPages({ data, lines }: { data: Uint8Array; lines: QuotedLine[
 
     return (
         <div className="flex min-h-0 flex-1 flex-col">
-            <div ref={box} className="min-h-0 flex-1 overflow-auto bg-neutral-200 p-2 dark:bg-neutral-800">
+            <div ref={box} className="min-h-0 flex-1 overflow-auto bg-neutral-200 p-2 [scrollbar-gutter:stable_both-edges] dark:bg-neutral-800">
                 {failed ? (
                     <p className="m-2 text-xs text-destructive">Could not draw this PDF. Open it in the browser viewer instead.</p>
                 ) : (
-                    <div className="flex flex-col items-center gap-2">
+                    <div className="mx-auto flex min-h-full w-fit flex-col items-center justify-center gap-2">
                         {sheets.map((sheet) => (
                             <SheetView key={sheet.page.pageNumber} sheet={sheet} width={width} lines={lines} />
                         ))}
