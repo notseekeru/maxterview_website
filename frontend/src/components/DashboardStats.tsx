@@ -311,8 +311,9 @@ function RecentRuns({ className }: { className?: string }) {
 
 function Scores({ stats, className }: { stats: InterviewDimensions | null; className?: string }) {
     const recent = stats?.recent ?? {};
+    const averages = stats?.averages ?? {};
     const recentN = stats?.recent_n ?? 0;
-    const groups = axisMeans(stats?.averages ?? {});
+    const groups = axisMeans(averages);
 
     return (
         <Module title="Scores" className={className}>
@@ -321,8 +322,9 @@ function Scores({ stats, className }: { stats: InterviewDimensions | null; class
             ) : (
                 <table className="w-full table-fixed text-[13px]">
                     <colgroup>
+                        <col className="w-36" />
                         <col />
-                        <col className="w-16" />
+                        <col className="w-14" />
                         <col className="w-24" />
                     </colgroup>
                     <thead>
@@ -330,7 +332,10 @@ function Scores({ stats, className }: { stats: InterviewDimensions | null; class
                             <th scope="col" className="pb-1.5 text-left font-normal">
                                 dim
                             </th>
-                            <th scope="col" className="pr-4 pb-1.5 text-right font-normal whitespace-nowrap">
+                            <th scope="col" className="pb-1.5 text-left font-normal">
+                                <span className="sr-only">distribution</span>
+                            </th>
+                            <th scope="col" className="pr-3 pb-1.5 text-right font-normal whitespace-nowrap">
                                 avg
                             </th>
                             <th scope="col" className="pb-1.5 text-right font-normal whitespace-nowrap">
@@ -342,20 +347,26 @@ function Scores({ stats, className }: { stats: InterviewDimensions | null; class
                         {groups.map((group) => (
                             <Fragment key={group.axis}>
                                 <tr className="border-t">
-                                    <th scope="colgroup" colSpan={3} className={cn(LABEL, "pt-2 pb-1 text-left font-normal text-muted-foreground")}>
+                                    <th scope="colgroup" colSpan={4} className={cn(LABEL, "pt-2 pb-1 text-left font-normal text-muted-foreground")}>
                                         {group.label}
                                         <span className="ml-2 font-mono text-[0.65rem] tracking-normal text-foreground">{group.mean === null ? "" : group.mean.toFixed(1)}</span>
                                     </th>
                                 </tr>
-                                {group.dims.map((d) => (
-                                    <tr key={d}>
-                                        <th scope="row" className="py-0.5 pr-3 text-left font-normal text-muted-foreground">
-                                            {dimShort(d)}
-                                        </th>
-                                        <td className="pr-4 py-0.5 text-right font-mono text-[0.65rem] tabular-nums">{fixed(stats?.averages[d])}</td>
-                                        <td className="py-0.5 text-right font-mono text-[0.65rem] tabular-nums text-muted-foreground">{fixed(recent[d])}</td>
-                                    </tr>
-                                ))}
+                                {group.dims.map((d) => {
+                                    const mean = averages[d];
+                                    return (
+                                        <tr key={d}>
+                                            <th scope="row" className="py-0.5 pr-3 text-left font-normal text-muted-foreground">
+                                                {dimShort(d)}
+                                            </th>
+                                            <td aria-hidden className="py-0.5 pr-3">
+                                                <ScoreBar value={mean} />
+                                            </td>
+                                            <td className="pr-3 py-0.5 text-right font-mono text-[0.65rem] tabular-nums">{fixed(mean)}</td>
+                                            <td className="py-0.5 text-right font-mono text-[0.65rem] tabular-nums text-muted-foreground">{fixed(recent[d])}</td>
+                                        </tr>
+                                    );
+                                })}
                             </Fragment>
                         ))}
                     </tbody>
@@ -366,6 +377,15 @@ function Scores({ stats, className }: { stats: InterviewDimensions | null; class
 }
 
 const fixed = (v: number | undefined) => (typeof v === "number" ? v.toFixed(1) : "-");
+
+function ScoreBar({ value }: { value?: number }) {
+    if (typeof value !== "number") return null;
+    return (
+        <div className="h-1 w-full overflow-hidden rounded-full bg-muted">
+            <div className="h-full rounded-full bg-foreground/75" style={{ width: `${Math.max(0, Math.min(100, (value / 10) * 100))}%` }} />
+        </div>
+    );
+}
 
 function avg(nums: number[]): number {
     if (nums.length === 0) return 0;
