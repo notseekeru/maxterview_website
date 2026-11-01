@@ -30,7 +30,7 @@ export interface Layout {
     overrun: number;
 }
 
-const BULLET = /^[•·▪◦‣∙*]\s*/;
+const BULLET = /^(?:[•·▪◦‣∙*]\s*|[-–—+]\s+)/;
 const STUB = 0.5;
 const INDENT = 4;
 
@@ -52,20 +52,22 @@ export function rowsOf(items: Item[]): Row[] {
     return rows.map((row) => ({ ...row, bullet: BULLET.test(row.text) }));
 }
 
-function blocks(rows: Row[], column: number) {
+// A page break can cut the last bullet in half, and half a bullet looks like a stub. Only the last page's
+// final block is a whole block, so the runt test is skipped everywhere else.
+function blocks(rows: Row[], column: number, cut: boolean) {
     const counts = { bullets: 0, long: 0, runts: 0 };
     let open: { left: number; rows: Row[] } | null = null;
-    const close = () => {
+    const close = (split: boolean) => {
         if (!open) return;
         counts.bullets += 1;
         if (open.rows.length > 2) counts.long += 1;
         const last = open.rows[open.rows.length - 1];
-        if (open.rows.length >= 2 && last.right - last.left < column * STUB) counts.runts += 1;
+        if (!split && open.rows.length >= 2 && last.right - last.left < column * STUB) counts.runts += 1;
         open = null;
     };
     for (const row of rows) {
         if (row.bullet) {
-            close();
+            close(false);
             open = { left: row.left, rows: [row] };
             continue;
         }
@@ -73,40 +75,64 @@ function blocks(rows: Row[], column: number) {
             open.rows.push(row);
             continue;
         }
-        close();
+        close(false);
     }
-    close();
+    close(cut);
     return counts;
 }
 
 export function layoutOf(sheets: Sheet[]): Layout | null {
-    const page = sheets[0];
-    if (!page?.rows.length) return null;
-    const left = Math.min(...page.rows.map((row) => row.left));
+    const filled = sheets.filter((sheet) => sheet.rows.length);
+    if (!filled.length) return null;
+    let bullets = 0;
+    let long = 0;
+    let runts = 0;
+    let overrun = 0;
+    for (const [index, sheet] of sheets.entries()) {
+        const { rows } = sheet;
+        if (!rows.length) continue;
+        const left = Math.min(...rows.map((row) => row.left));
+        overrun += rows.filter((row) => row.right > sheet.width - left + 1).length;
+        const counts = blocks(rows, sheet.width - 2 * left, index < sheets.length - 1);
+        bullets += counts.bullets;
+        long += counts.long;
+        runts += counts.runts;
+    }
+    const page = filled[filled.length - 1];
     const top = Math.min(...page.rows.map((row) => row.top));
     const bottom = Math.max(...page.rows.map((row) => row.top + row.height));
-    const column = page.width - 2 * left;
     const usable = page.height - 2 * top;
     return {
         pages: sheets.length,
         fill: usable > 0 ? Math.min(100, Math.round(((bottom - top) / usable) * 100)) : 100,
-        overrun: page.rows.filter((row) => row.right > page.width - left + 1).length,
-        ...blocks(page.rows, column),
+        overrun,
+        bullets,
+        long,
+        runts,
     };
 }
 
-// AI HERE: no frontend test runner. Three rows over two lines and a stub are the two failures the gate
-// exists for, so both are asserted once in dev. Upgrade path is a test file when the app gets a runner.
+// AI HERE: no frontend test runner. Summing pages and skipping the runt test on a cut block are the two
+// behaviors a one-page fixture cannot prove, so both are asserted once in dev. Upgrade path is a test
+// file when the app gets a runner.
 if (import.meta.env.DEV) {
-    const rows = rowsOf([
-        { str: "•", left: 40, top: 100, width: 6, height: 10 },
-        { str: "Shipped a thing that moved a number", left: 52, top: 100, width: 300, height: 10 },
-        { str: "and kept going", left: 52, top: 114, width: 320, height: 10 },
-        { str: "then went one line too far", left: 52, top: 128, width: 300, height: 10 },
-        { str: "•", left: 40, top: 142, width: 6, height: 10 },
-        { str: "A stub", left: 52, top: 142, width: 320, height: 10 },
-        { str: "tail", left: 52, top: 156, width: 100, height: 10 },
+    const first = rowsOf([
+        { str: "•", left: 40, top: 700, width: 6, height: 10 },
+        { str: "Starts a bullet the page break cuts", left: 52, top: 700, width: 300, height: 10 },
+        { str: "tail", left: 52, top: 714, width: 100, height: 10 },
     ]);
-    const report = layoutOf([{ width: 612, height: 792, rows }]);
-    if (report?.bullets !== 2 || report.long !== 1 || report.runts !== 1 || report.overrun !== 0) console.error("layout: self-check failed");
+    const second = rowsOf([
+        { str: "•", left: 40, top: 100, width: 6, height: 10 },
+        { str: "first", left: 52, top: 100, width: 320, height: 10 },
+        { str: "short", left: 52, top: 114, width: 100, height: 10 },
+    ]);
+    const dash = rowsOf([
+        { str: "-", left: 40, top: 10, width: 4, height: 10 },
+        { str: "dash bullet", left: 50, top: 10, width: 200, height: 10 },
+    ]);
+    const report = layoutOf([
+        { width: 612, height: 792, rows: first },
+        { width: 612, height: 792, rows: second },
+    ]);
+    if (report?.pages !== 2 || report.bullets !== 2 || report.long !== 0 || report.runts !== 1 || report.overrun !== 0 || !dash[0].bullet) console.error("layout: self-check failed");
 }
