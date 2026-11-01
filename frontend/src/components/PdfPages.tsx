@@ -1,6 +1,7 @@
 import type { PDFPageProxy } from "pdfjs-dist";
 import workerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 import { useEffect, useRef, useState } from "react";
+import { type Layout, layoutOf, type Row, rowsOf } from "@/lib/layout";
 import { type Box, type Mark, marksFor, pageWords } from "@/lib/pdfText";
 import type { QuotedLine } from "@/lib/resumeText";
 import { cn } from "@/lib/utils";
@@ -16,6 +17,7 @@ interface Sheet {
     width: number;
     height: number;
     words: Box[];
+    rows: Row[];
 }
 
 // The page is drawn to a canvas, so the audit has to be drawn on top of it: pdf.js gives the position
@@ -54,6 +56,7 @@ export function PdfPages({ data, lines }: { data: Uint8Array; lines: QuotedLine[
     const box = useRef<HTMLDivElement | null>(null);
     const [width, setWidth] = useState(0);
     const [sheets, setSheets] = useState<Sheet[]>([]);
+    const [report, setReport] = useState<Layout | null>(null);
     const [failed, setFailed] = useState(false);
 
     useEffect(() => {
@@ -81,19 +84,18 @@ export function PdfPages({ data, lines }: { data: Uint8Array; lines: QuotedLine[
                 const page = await doc.getPage(n);
                 const view = page.getViewport({ scale: 1 });
                 const content = await page.getTextContent();
-                const words = pageWords(
-                    content.items.flatMap((item) => {
-                        if (!("str" in item) || !item.str.trim()) return [];
-                        const at = pdfjs.Util.transform(view.transform, item.transform);
-                        const height = Math.hypot(at[2], at[3]) || item.height;
-                        return [{ str: item.str, left: at[4], top: at[5] - height, width: item.width, height }];
-                    }),
-                );
-                next.push({ page, width: view.width, height: view.height, words });
+                const items = content.items.flatMap((item) => {
+                    if (!("str" in item) || !item.str.trim()) return [];
+                    const at = pdfjs.Util.transform(view.transform, item.transform);
+                    const height = Math.hypot(at[2], at[3]) || item.height;
+                    return [{ str: item.str, left: at[4], top: at[5] - height, width: item.width, height }];
+                });
+                next.push({ page, width: view.width, height: view.height, words: pageWords(items), rows: rowsOf(items) });
                 if (!alive) return;
             }
             setFailed(false);
             setSheets(next);
+            setReport(layoutOf(next));
         })().catch(() => {
             if (alive) setFailed(true);
         });
@@ -104,16 +106,30 @@ export function PdfPages({ data, lines }: { data: Uint8Array; lines: QuotedLine[
     }, [data]);
 
     return (
-        <div ref={box} className="min-h-0 flex-1 overflow-auto rounded-b-xl bg-neutral-200 p-2 dark:bg-neutral-800">
-            {failed ? (
-                <p className="m-2 text-xs text-destructive">Could not draw this PDF. Open it in the browser viewer instead.</p>
-            ) : (
-                <div className="flex flex-col items-center gap-2">
-                    {sheets.map((sheet) => (
-                        <SheetView key={sheet.page.pageNumber} sheet={sheet} width={width} lines={lines} />
-                    ))}
-                </div>
-            )}
+        <div className="flex min-h-0 flex-1 flex-col">
+            <div ref={box} className="min-h-0 flex-1 overflow-auto bg-neutral-200 p-2 dark:bg-neutral-800">
+                {failed ? (
+                    <p className="m-2 text-xs text-destructive">Could not draw this PDF. Open it in the browser viewer instead.</p>
+                ) : (
+                    <div className="flex flex-col items-center gap-2">
+                        {sheets.map((sheet) => (
+                            <SheetView key={sheet.page.pageNumber} sheet={sheet} width={width} lines={lines} />
+                        ))}
+                    </div>
+                )}
+            </div>
+            {report && <LayoutLine report={report} />}
         </div>
     );
+}
+
+// One page and two-line bullets are the shape of an early-career page. A senior page carries more, so
+// the counts are shown without a pass or fail: the candidate decides what their band is worth.
+function LayoutLine({ report }: { report: Layout }) {
+    const count = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+    const parts = [count(report.pages, "page", "pages"), `${report.fill}% of the column`];
+    if (report.long) parts.push(`${count(report.long, "bullet", "bullets")} over 2 lines`);
+    if (report.runts) parts.push(`${count(report.runts, "stub", "stubs")} under half a line`);
+    if (report.overrun) parts.push(`${count(report.overrun, "line", "lines")} past the margin`);
+    return <p className="border-t px-3 py-1.5 text-[11px] leading-4 text-muted-foreground">{parts.join(" · ")}. Early-career target: one page, two-line bullets. Senior pages run longer.</p>;
 }
