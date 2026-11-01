@@ -51,11 +51,12 @@ export function toLatex(text: string): string {
     const flow: string[] = [];
     let bullets: string[] = [];
     let name = true;
-    const named = text
+    const head = text
         .split("\n")
         .map((line) => line.trim())
         .find((line) => line && !BULLET.test(line));
-    const meta = named ? `\n\\hypersetup{pdftitle={${texSafe(named)} resume}, pdfauthor={${texSafe(named)}}}` : "";
+    const author = texSafe((head ?? "").split(/[|\u2022\u00b7\t]| {2,}|@/)[0].trim());
+    const meta = /[a-z\u00a0-\u00ff]/i.test(author) ? `\n\\hypersetup{pdftitle={${author} resume}, pdfauthor={${author}}}` : "";
 
     function flushBullets() {
         if (!bullets.length) return;
@@ -86,7 +87,8 @@ export function toLatex(text: string): string {
         // section, which is exactly what a name would turn into.
         if (name && !BULLET.test(raw)) {
             flush();
-            flow.push(`{\\LARGE\\bfseries ${texSafe(line)}}`);
+            const title = texSafe(line);
+            if (title) flow.push(`{\\LARGE\\bfseries ${title}}`);
             name = false;
             continue;
         }
@@ -118,6 +120,9 @@ export function toLatex(text: string): string {
 // production. Upgrade path is a real test file when the app gets a runner.
 if (import.meta.env.DEV) {
     const out = toLatex("ALEX MENDER\nSKILLS\n\u2022 Go & Rust_ #1\ncontinued here \u2013 done");
+    const contact = toLatex("ALEX MENDER | +63 9000 | alex@mail.com\nSKILLS");
+    const unnamed = toLatex("\u674e\u660e\nSKILLS");
     const ok = ["\\documentclass", "pdfauthor={ALEX MENDER}", "{\\LARGE\\bfseries ALEX MENDER}", "\\section*{SKILLS}", "Go \\& Rust\\_ \\#1 continued here -- done", "\\end{document}"].every((part) => out.includes(part));
-    if (!ok || out.includes("\u2013") || out.includes("\\section*{ALEX MENDER}")) console.error("toLatex: self-check failed");
+    const guarded = contact.includes("pdfauthor={ALEX MENDER}") && !contact.includes("+63") && !unnamed.includes("pdfauthor") && !unnamed.includes("\\bfseries }");
+    if (!ok || !guarded || out.includes("\u2013") || out.includes("\\section*{ALEX MENDER}")) console.error("toLatex: self-check failed");
 }
