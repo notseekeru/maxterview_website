@@ -38,8 +38,9 @@ const HEAD = String.raw`\documentclass[10pt,letterpaper]{article}
 \usepackage{lmodern}
 \usepackage{enumitem}
 \usepackage{titlesec}
-\usepackage[hidelinks]{hyperref}
-\pagestyle{empty}
+\usepackage[hidelinks]{hyperref}`;
+
+const BODY = String.raw`\pagestyle{empty}
 \setlength{\parindent}{0pt}
 \setlist[itemize]{leftmargin=1.2em,itemsep=1pt,topsep=3pt,parsep=0pt}
 \titleformat{\section}{\large\bfseries}{}{0pt}{}[\vspace{-6pt}\rule{\linewidth}{0.4pt}]
@@ -50,6 +51,11 @@ export function toLatex(text: string): string {
     const flow: string[] = [];
     let bullets: string[] = [];
     let name = true;
+    const named = text
+        .split("\n")
+        .map((line) => line.trim())
+        .find((line) => line && !BULLET.test(line));
+    const meta = named ? `\n\\hypersetup{pdftitle={${texSafe(named)} resume}, pdfauthor={${texSafe(named)}}}` : "";
 
     function flushBullets() {
         if (!bullets.length) return;
@@ -105,13 +111,13 @@ export function toLatex(text: string): string {
     }
     flush();
 
-    return `${HEAD}\n\n${body.join("\n\n")}\n\n\\end{document}\n`;
+    return `${HEAD}${meta}\n${BODY}\n\n${body.join("\n\n")}\n\n\\end{document}\n`;
 }
 
 // AI HERE: no test runner in the frontend, so the wrapper proves itself once in dev and stays silent in
 // production. Upgrade path is a real test file when the app gets a runner.
 if (import.meta.env.DEV) {
     const out = toLatex("ALEX MENDER\nSKILLS\n\u2022 Go & Rust_ #1\ncontinued here \u2013 done");
-    const ok = ["\\documentclass", "{\\LARGE\\bfseries ALEX MENDER}", "\\section*{SKILLS}", "Go \\& Rust\\_ \\#1 continued here -- done", "\\end{document}"].every((part) => out.includes(part));
+    const ok = ["\\documentclass", "pdfauthor={ALEX MENDER}", "{\\LARGE\\bfseries ALEX MENDER}", "\\section*{SKILLS}", "Go \\& Rust\\_ \\#1 continued here -- done", "\\end{document}"].every((part) => out.includes(part));
     if (!ok || out.includes("\u2013") || out.includes("\\section*{ALEX MENDER}")) console.error("toLatex: self-check failed");
 }
