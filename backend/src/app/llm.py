@@ -455,13 +455,17 @@ PASS 2 - THE SECTIONS. One entry per block you can find on the page, named the w
 
 PASS 3 - THE REWRITES. The lines to replace, biggest gap first, 2-3 of them. `source` is the line exactly as it appears on the page.
 `rewrite` is that same line carrying the evidence the page already has, in the candidate's own facts and voice; where one fact is missing and only they can supply it, leave a bracketed slot (`[which team adopted it]`) instead of inventing it.
-Never add a number, an employer, a team, a tool or an outcome the page does not state. A line already earning its space is not rewritten.
+Never invent a measured number, an employer, a team, a tool or an outcome the page does not state. An estimate is not an invention: when the work has a measurable outcome and the page gives no number, write one marked `[est.]`. A line already earning its space is not rewritten.
 
 PASS 4 - THE LINES. Every claim-bearing line or bullet, in page order: `text` quoted exactly as it appears on the page.
 `call` is weak (an assertion with no outcome, no evidence or padding), safe (correct and unremarkable) or strong (something broke or was owned, and the line says what moved because of it, as a number, a named result or a before-and-after).
 Strong is the exception, not the default: a page where every bullet is strong has none. Naming tools, a job title, or the work performed is safe at best. Expect most lines safe, several weak, and a handful strong.
 Skip the name, contact details, section headings and anything that carries no claim. This is what the editor paints over, so a paraphrased line cannot be found on the page and is dropped: quote it, never describe it.
 The page may be LaTeX source: judge the claims inside the markup and quote whole source lines, never fragments of one, so a rewrite can replace the line and still compile.
+Line shape, on every rewrite and every call: verb first, never "Responsible for" or a noun opener. One measure per line, and a before-and-after of that measure is still one measure; name only the tool that proves the claim, the rest of the stack belongs in the Skills block.
+A number is not required, but a line that shows what moved beats one that does not: a measurement beats an estimate, and a marked estimate beats a line with nothing to show.
+A third line, or a last line holding a word or two, is two ideas, so merge it with another bullet on the same subject before adding a new one.
+A unit stays what the tool measured: 55 virtual users is not 55 users, and 70 requests a second is not 70 people.
 
 Then `verdict`, 2-3 sentences to the candidate in second person: the band the page reads at and the one gap that keeps it there.
 
