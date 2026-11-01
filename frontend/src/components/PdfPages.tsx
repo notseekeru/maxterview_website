@@ -123,13 +123,22 @@ export function PdfPages({ data, lines }: { data: Uint8Array; lines: QuotedLine[
     );
 }
 
-// One page and two-line bullets are the shape of an early-career page. A senior page carries more, so
-// the counts are shown without a pass or fail: the candidate decides what their band is worth.
+// The counts only, in words a candidate can act on. A senior page is allowed to run long, so the
+// early-career shape is stated only when the page already spills.
 function LayoutLine({ report }: { report: Layout }) {
     const count = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
-    const parts = [count(report.pages, "page", "pages"), report.pages === 1 ? `${report.fill}% full` : `last page ${report.fill}% full`];
-    if (report.bullets) parts.push(`${report.long} over 2 lines`, count(report.runts, "stub", "stubs"));
-    else parts.push("bullet layout not measured");
+    const parts = [count(report.pages, "page", "pages")];
+    if (!report.bullets) parts.push("bullet lines not measured");
+    else {
+        if (report.long) parts.push(`${count(report.long, "bullet", "bullets")} over two lines`);
+        if (report.runts) parts.push(`${count(report.runts, "bullet", "bullets")} with a short last line`);
+        if (!report.long && !report.runts) parts.push("bullets fit");
+    }
     if (report.overrun) parts.push(`${count(report.overrun, "line", "lines")} past the margin`);
-    return <p className="border-t px-3 py-1.5 text-[11px] leading-4 text-muted-foreground">{parts.join(" · ")}. Early-career target: one page, two-line bullets. Senior pages run longer.</p>;
+    return (
+        <p className="border-t px-3 py-1.5 text-[11px] leading-4 text-muted-foreground">
+            {parts.join(" · ")}
+            {report.pages > 1 ? ". Senior resumes run longer." : ""}
+        </p>
+    );
 }

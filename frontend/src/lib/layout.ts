@@ -23,7 +23,6 @@ export interface Sheet {
 
 export interface Layout {
     pages: number;
-    fill: number;
     bullets: number;
     long: number;
     runts: number;
@@ -82,8 +81,7 @@ function blocks(rows: Row[], column: number, cut: boolean) {
 }
 
 export function layoutOf(sheets: Sheet[]): Layout | null {
-    const filled = sheets.filter((sheet) => sheet.rows.length);
-    if (!filled.length) return null;
+    if (!sheets.some((sheet) => sheet.rows.length)) return null;
     let bullets = 0;
     let long = 0;
     let runts = 0;
@@ -98,18 +96,7 @@ export function layoutOf(sheets: Sheet[]): Layout | null {
         long += counts.long;
         runts += counts.runts;
     }
-    const page = filled[filled.length - 1];
-    const top = Math.min(...page.rows.map((row) => row.top));
-    const bottom = Math.max(...page.rows.map((row) => row.top + row.height));
-    const usable = page.height - 2 * top;
-    return {
-        pages: sheets.length,
-        fill: usable > 0 ? Math.min(100, Math.round(((bottom - top) / usable) * 100)) : 100,
-        overrun,
-        bullets,
-        long,
-        runts,
-    };
+    return { pages: sheets.length, overrun, bullets, long, runts };
 }
 
 // AI HERE: no frontend test runner. Summing pages and skipping the runt test on a cut block are the two
