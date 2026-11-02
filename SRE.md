@@ -635,3 +635,11 @@ The earlier optimization was mostly Aggregate Queries. The latest batch is mixed
 | Failed confirmation | Search below, up to 3 times       | Abort; boundary unproven          |
 
 I changed the measurement window to 2 minutes and the confirmation to one 5-minute run because the sweep was taking too much of my time, and I am fine losing some of this data for the experiment. The shorter windows also spend less Neon compute, which is the other reason for the change: the full sweep is paused near the free-tier limit. That is a real trade: fewer samples make p95 and p99 noisier, one run is weaker proof than the old 3/3, and a failed single-run confirm aborts the sweep instead of searching below.
+
+## The next run
+
+The harness was corrected before this run, not the app. The itinerary now matches the one every earlier row measured: the turn count is drawn the way the recorded sweeps drew it, and each scenario ends inside its own window instead of spilling a full iteration into the next. Both live in `main.js` and `sweep.py`.
+
+The run is the same ladder at pool 40 over the NodePort, against the batched build, to answer whether one atomic turn spend, one dashboard statement and two parallel reads carry more virtual users than the 55 the pre-batching build confirmed. Three differences from the rows it is compared against cannot be undone, and they are why a boundary near 55 is not by itself a result: a 120 second window instead of 180, `/stats/dashboard` in place of `/stats/dimensions`, and the resume review and preview routes outside the loop.
+
+The preview compile is the one path the ladder cannot judge. Two pdflatex slots against a 256Mi pod, app-owned, so the p95 gate covers it while its busy 503 is backpressure rather than failure. It gets its own window after this boundary.
