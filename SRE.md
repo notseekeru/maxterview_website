@@ -636,10 +636,43 @@ The earlier optimization was mostly Aggregate Queries. The latest batch is mixed
 
 I changed the measurement window to 2 minutes and the confirmation to one 5-minute run because the sweep was taking too much of my time, and I am fine losing some of this data for the experiment. The shorter windows also spend less Neon compute, which is the other reason for the change: the full sweep is paused near the free-tier limit. That is a real trade: fewer samples make p95 and p99 noisier, one run is weaker proof than the old 3/3, and a failed single-run confirm aborts the sweep instead of searching below.
 
-## The next run
+## The batched build at 100 VUs
 
-The harness was corrected before this run, not the app. The itinerary now matches the one every earlier row measured: the turn count is drawn the way the recorded sweeps drew it, and each scenario ends inside its own window instead of spilling a full iteration into the next. Both live in `main.js` and `sweep.py`.
+I closed both window edges of the harness before this run, so these rows carry neither the warm scenario's
+trailing iteration inside the window's first seconds nor the requests issued after the window closed. The
+rows they are compared against carry both.
 
-The run is the same ladder at pool 40 over the NodePort, against the batched build, to answer whether one atomic turn spend, one dashboard statement and two parallel reads carry more virtual users than the 55 the pre-batching build confirmed. Three differences from the rows it is compared against cannot be undone, and they are why a boundary near 55 is not by itself a result: a 120 second window instead of 180, `/stats/dashboard` in place of `/stats/dimensions`, and the resume review and preview routes outside the loop.
+| At 100 VUs          | Pre-batching, pool 40 | Batched build |
+| ------------------- | --------------------- | ------------- |
+| p50                 | not recorded          | 494ms         |
+| p95                 | 1.64s                 | 1.87s         |
+| p99                 | 3.43s                 | 3.78s         |
+| rps                 | 66.7                  | 62.8          |
+| pool wait p50 / p95 | 209ms / 838ms         | 123ms / 570ms |
+| query mean / p95    | 163ms / 433ms         | 150ms / 462ms |
+| CPU                 | 0.52 of 4             | 0.47 of 4     |
+| memory              | 56% of 256Mi          | 62%           |
+| error rate          | 0.16%                 | 0             |
+| verdict             | fail (p95, checks)    | fail (p95)    |
 
-The preview compile is the one path the ladder cannot judge. Two pdflatex slots against a 256Mi pod, app-owned, so the p95 gate covers it while its busy 503 is backpressure rather than failure. It gets its own window after this boundary.
+The question was whether a build that spends a turn in one upsert, answers the dashboard in one request
+and one statement, and starts two reads beside the work they sit with carries more virtual users than the
+55 the earlier build confirmed.
+
+At 100 VUs it does not. The queue halved and the request did not get faster. Waiting went from 209ms to
+123ms at p50 and from 838ms to 570ms at p95, and what used to wait now takes longer on its own: the mean
+query is flat at 150ms and its p95 is up to 462ms. End to end, 1.87s at p95 against 1.64s, 62.8 rps
+against 66.7. That is the latency the earlier build reached only with the pool at 80. So the pool wait was
+the visible symptom rather than the whole cost, and the time that remains is the SQL plus the round trips
+that are still there.
+
+The number cannot say the batching did it. Between the recorded rows and this build sit the phased arc,
+which does more work per turn, the dashboard rebuilt to answer both stats reads behind one request, and
+the resume review surface: four changes against one comparison. What did change without ambiguity is
+correctness, 12,452 checks with no failure and no errors, where the earlier row failed the checks gate as
+well as p95.
+
+The ladder did not run to a boundary on this build, so 55 VUs is still the recorded boundary and is
+unconfirmed here; 100 fails, as it did before. The preview compile is still unmeasured, and it is the one
+path this ladder cannot judge: two pdflatex slots against a 256Mi pod, app-owned, so the p95 gate would
+cover it while its busy 503 is backpressure rather than a failure.
