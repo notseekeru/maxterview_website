@@ -2,26 +2,26 @@
 
 # MILESTONE
 
-- resume ai reviewer for resume page so it can pass what the both ai resume and ai interview audit + thinks + suggest for every level
 - add some evals for ai quality
 - redis caching
-- jev for classifier of grading, potentially cutting request limits, cost, latency or speed. maybe on nvidianim
-- ask questions pi extensions limits questions need to fix
+- we need classifier model like jev or better for classifier of grading, potentially cutting request limits, cost, latency or speed. maybe on nvidianim so do research
+- paradee tts 8mb model replacement for cloudflare workers ai // nematron 3.5 transcribe and find tts for nvidianim
+- the fucking backend cd is so slow is it becuz the image is bigger now
+- graph template
 
 # FEATURES
 
 - feat: port the ~/diagram_website failure mttr/mttd injection with an actual realistic metrics reinvented.
-- feat: higher tier models for pro
-- feat: add metrics in readme for hr stuff via from grafana is that possible
-- feat: ai resume editor latex to display and edit kind alike overleaf?
+- feat: add metrics in readme for hr stuff
+- feat: auto complex on resume building
 
 # FIX
 
-- grill the plan and architecture and code maintainability/readability. it matters to me when i skim code
+- repo: grill the plan and architecture and code maintainability/readability. it matters to me when i skim code
 
 # REFACTOR
 
-- refactor: the phases dials maybe a bit weird, can we have a structured interview phased dialed with actual evidence and research how real interviews are usually conducted. always ask question.
+- ref: isntead of rewrites you put strength and weaknesses of the overall resume not specific point
 
 # INFRA
 
@@ -39,6 +39,7 @@
   Complete from 3 requests to 1 and deletes a hop that only exists because weak models drift.
 - **Resume retrieval instead of re-sending 8k chars** every turn - pull only the sections the
   question touches. ~10x input reduction on resume-attached runs.
+  ok
 
 # BILLING (keys do not fix these)
 
