@@ -1263,10 +1263,36 @@ def _lockout_detail(tier: str, byok: bool, limit: int) -> str:
     return f"Daily chat-turn limit reached ({limit} turns/day on your own provider). Try again after midnight UTC." + (f" Pro raises it to {pro}." if tier == "free" else "")
 
 
+CHAT_TURN_SQL = f"""
+        WITH spend AS (
+            {billing.SPEND_TURN_SQL}
+        ), repaired AS (
+            DELETE FROM messages
+            WHERE interview_id = $5::uuid
+              AND $6::bool
+              AND id = (SELECT id FROM messages WHERE interview_id = $5::uuid ORDER BY created_at DESC, id DESC LIMIT 1)
+              AND EXISTS (SELECT 1 FROM spend)
+        ), stored AS (
+            INSERT INTO messages (interview_id, role, content)
+            SELECT $5::uuid, 'user', $4 FROM spend
+            RETURNING id::text
+        )
+        SELECT id FROM stored
+        """
+
+
 async def _spend_chat_turn(user: CurrentUser, config: llm.LLMConfig, tier: str) -> None:
     limit = billing.chat_turn_limit(tier, byok=config.byok)
     if not await billing.spend_chat_turn(user.sub, limit):
         raise HTTPException(status_code=status.HTTP_402_PAYMENT_REQUIRED, detail=_lockout_detail(tier, config.byok, limit))
+
+
+async def _spend_and_store_turn(user: CurrentUser, config: llm.LLMConfig, tier: str, interview_id: str, content: str, repair: bool) -> str:
+    limit = billing.chat_turn_limit(tier, byok=config.byok)
+    row = await fetchrow(CHAT_TURN_SQL, user.sub, billing.utc_day(), limit, content, interview_id, repair)
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_402_PAYMENT_REQUIRED, detail=_lockout_detail(tier, config.byok, limit))
+    return row["id"]
 
 
 async def _reply_frames(
@@ -1333,23 +1359,13 @@ async def chat_stream(
     tier: TierDep,
 ) -> StreamingResponse:
     interview, prior_rows, asked, dials = await _chat_session(interview_id, user)
-    await _spend_chat_turn(user, config, tier)
 
     # A trailing user turn means an earlier attempt died before its reply landed, so this send REPLACES it,
     # past the guards only. The stale row leaves the history too, or the model sees the answer twice.
-    if prior_rows and prior_rows[-1]["role"] == "user":
-        await fetchrow(
-            "DELETE FROM messages WHERE interview_id = $1 AND id = (SELECT id FROM messages WHERE interview_id = $1 ORDER BY created_at DESC, id DESC LIMIT 1)",
-            interview_id,
-        )
+    repair = bool(prior_rows and prior_rows[-1]["role"] == "user")
+    user_msg_id = await _spend_and_store_turn(user, config, tier, interview_id, body.content, repair)
+    if repair:
         prior_rows = prior_rows[:-1]
-
-    user_msg = await fetchrow(
-        "INSERT INTO messages (interview_id, role, content) VALUES ($1, 'user', $2) RETURNING id::text",
-        interview_id,
-        body.content,
-    )
-    user_msg_id = user_msg["id"] if user_msg else None
 
     async def _discard_turn() -> None:
         if not user_msg_id:

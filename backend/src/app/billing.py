@@ -68,7 +68,7 @@ async def usage_state(user: ClerkUser) -> dict:
                    AND (current_period_end IS NULL OR current_period_end > now())) AS premium_until
         """,
         user.sub,
-        _utc_day(),
+        utc_day(),
         list(ENTITLED_STATUSES),
     )
     assert row is not None
@@ -98,22 +98,20 @@ def resume_limit(tier: str) -> int:
     return int(_quota(tier, "resumes"))
 
 
-def _utc_day() -> date:
-    return datetime.now(UTC).date()
-
-
-async def spend_chat_turn(owner_id: str, limit: int) -> bool:
-    row = await fetchrow(
-        """
+SPEND_TURN_SQL = """
         INSERT INTO turn_usage (owner_id, day, turns)
         SELECT $1, $2, 1
         WHERE $3 > 0
         ON CONFLICT (owner_id, day) DO UPDATE SET turns = turn_usage.turns + 1
         WHERE turn_usage.turns < $3
         RETURNING turns
-        """,
-        owner_id,
-        _utc_day(),
-        limit,
-    )
+        """
+
+
+def utc_day() -> date:
+    return datetime.now(UTC).date()
+
+
+async def spend_chat_turn(owner_id: str, limit: int) -> bool:
+    row = await fetchrow(SPEND_TURN_SQL, owner_id, utc_day(), limit)
     return row is not None

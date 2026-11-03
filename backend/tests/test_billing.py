@@ -61,7 +61,7 @@ async def test_resolve_tier_free_when_no_subscription(monkeypatch):
 def test_utc_day_is_date_object():
     from datetime import date
 
-    assert isinstance(billing._utc_day(), date)
+    assert isinstance(billing.utc_day(), date)
 
 
 async def test_resolve_tier_jwt_premium_wins(monkeypatch):

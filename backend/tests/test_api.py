@@ -1130,38 +1130,49 @@ def test_byok_chat_turn_skips_the_tier_quota_but_is_still_metered(client, monkey
     # BYOK pays the provider, not us: the turn must pass with the TIER's credits exhausted. It IS
     # metered, and the BYOK ceiling still gates it - a self-asserted flag that waived both the cap and
     # the counter is a free ride (BYOK.md). The tier is read only to pick WHICH BYOK ceiling applies.
+    import asyncio
+
+    import asyncpg
     from cryptography.fernet import Fernet
 
     from app import billing, byok, llm
 
     monkeypatch.setenv("BYOK_ENCRYPTION_KEY", Fernet.generate_key().decode())
     byok._fernet.cache_clear()
-    seen = {"tiers": 0, "spends": 0}
+    seen = {"tiers": 0}
 
     async def _count_tier(*_args, **_kwargs):
         seen["tiers"] += 1
         return "free"
 
-    async def _count_spend(_owner, _limit):
-        seen["spends"] += 1
-        return True
-
     async def _fake_stream(_history, config):
         assert config.byok is True  # the owner's target, not the system one
         yield "Sure - "
 
+    async def _seed_free_limit():
+        conn = await asyncpg.connect(DB_URL)
+        try:
+            await conn.execute(
+                "INSERT INTO turn_usage (owner_id, day, turns) VALUES ('dev-user', $1, $2) ON CONFLICT (owner_id, day) DO UPDATE SET turns = $2",
+                billing.utc_day(),
+                billing.FREE_CHAT_TURNS,
+            )
+        finally:
+            await conn.close()
+
     monkeypatch.setattr(billing, "resolve_tier", _count_tier)
-    monkeypatch.setattr(billing, "spend_chat_turn", _count_spend)
     monkeypatch.setattr(llm, "stream_chat", _fake_stream)
     try:
         client.put("/api/settings/llm", json={"base_url": "https://api.example.com/v1", "model": "m", "api_key": "sk-unit-test-key-abcd"})
+        asyncio.run(_seed_free_limit())
         iid = client.post("/api/interviews", json={"role": "BYOK quota"}).json()["id"]
         client.post(f"/api/interviews/{iid}/start")
         r = client.post(f"/api/interviews/{iid}/chat/stream", json={"interview_id": iid, "content": "hi"})
         assert r.status_code == 200
         assert "Sure - " in r.text
-        assert (seen["tiers"], seen["spends"]) == (1, 1)  # tier read for the ceiling, turn metered
-        assert client.get("/api/usage").json()["byok"] is True
+        assert seen["tiers"] == 1  # one tier read for the ceiling
+        usage = client.get("/api/usage").json()
+        assert (usage["byok"], usage["chat_turns_used_today"]) == (True, billing.FREE_CHAT_TURNS + 1)
         client.delete(f"/api/interviews/{iid}")
     finally:
         client.delete("/api/settings/llm")
@@ -1250,29 +1261,32 @@ def test_byok_turns_stop_at_the_byok_ceiling(client, monkeypatch):
     monkeypatch.setitem(billing.LIMITS["dev"], "byok_turns", 3)
     byok._fernet.cache_clear()
 
-    async def _seed_at_ceiling():
+    async def _seed_at_ceiling(interview_id: str = ""):
         import asyncpg
 
         conn = await asyncpg.connect(DB_URL)
         try:
             await conn.execute(
                 "INSERT INTO turn_usage (owner_id, day, turns) VALUES ('dev-user', $1, 3) ON CONFLICT (owner_id, day) DO UPDATE SET turns = 3",
-                billing._utc_day(),
+                billing.utc_day(),
             )
+            if interview_id:
+                await conn.execute("INSERT INTO messages (interview_id, role, content) VALUES ($1::uuid, 'user', 'abandoned answer')", interview_id)
         finally:
             await conn.close()
 
     try:
         client.put("/api/settings/llm", json={"base_url": "https://api.example.com/v1", "model": "m", "api_key": "sk-unit-test-key-abcd"})
-        asyncio.run(_seed_at_ceiling())
-        usage = client.get("/api/usage").json()
-        assert (usage["byok"], usage["chat_turns_per_day_dev"], usage["chat_turns_used_today"], usage["chat_turns_remaining_today"]) == (True, 3, 3, 0)
         iid = client.post("/api/interviews", json={"role": "BYOK ceiling"}).json()["id"]
         client.post(f"/api/interviews/{iid}/start")
+        asyncio.run(_seed_at_ceiling(iid))
+        usage = client.get("/api/usage").json()
+        assert (usage["byok"], usage["chat_turns_per_day_dev"], usage["chat_turns_used_today"], usage["chat_turns_remaining_today"]) == (True, 3, 3, 0)
         r = client.post(f"/api/interviews/{iid}/chat/stream", json={"interview_id": iid, "content": "hi"})
         assert r.status_code == 402
         assert "your own provider" in r.json()["detail"]
         assert client.get("/api/usage").json()["chat_turns_used_today"] == 3
+        assert [m["content"] for m in client.get(f"/api/interviews/{iid}/messages").json()] == ["abandoned answer"]
         client.delete(f"/api/interviews/{iid}")
     finally:
         client.delete("/api/settings/llm")
@@ -1747,7 +1761,7 @@ def test_round_trip_budget(client, monkeypatch):
 
         c.post(f"/api/interviews/{iid}/start")
         turn, n = statements(lambda: c.post(f"/api/interviews/{iid}/chat/stream", json={"interview_id": iid, "content": "hi"}))
-        assert (turn.status_code, n) == (200, 5)
+        assert (turn.status_code, n) == (200, 4)
 
         client.post(f"/api/interviews/{iid}/finish")
         _, n = statements(lambda: c.post(f"/api/interviews/{iid}/feedback/generate"))
