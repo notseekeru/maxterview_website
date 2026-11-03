@@ -317,6 +317,8 @@ async def list_messages(
     interview_id: str,
     user: CurrentUser,
 ) -> list[dict]:
+    # Owned-but-empty returns its own row with NULL message columns, which is how it is told from
+    # not-yours in one statement; dropping the LEFT JOIN would silently turn [] into a 404.
     rows = await fetch(
         """
         SELECT m.id::text, m.interview_id::text, m.role, m.content, m.move_class, m.comment, m.created_at
@@ -348,6 +350,8 @@ async def get_feedback(
     interview_id: str,
     user: CurrentUser,
 ) -> dict:
+    # The LEFT JOIN carries both 404s: no row is a foreign or missing interview, a row with no feedback
+    # columns is an owned interview that was never scored.
     row = await fetchrow(
         f"SELECT {FEEDBACK_COLS} FROM interviews i LEFT JOIN feedback f ON f.interview_id = i.id WHERE i.id = $1 AND i.owner_id = $2",
         interview_id,
@@ -378,6 +382,8 @@ async def regenerate_feedback(
     user: CurrentUser,
     config: LLMConfigDep,
 ) -> dict:
+    # One row answers all four guards: ownership, status, transcript, redos. The 404, then each 409,
+    # then the 402/409 redo gate keep the order the separate reads gave the caller.
     row = await fetchrow(
         """
         SELECT i.status, f.redos,

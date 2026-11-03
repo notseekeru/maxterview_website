@@ -1716,6 +1716,9 @@ def test_resume_preview_says_so_when_a_document_has_no_pages(client):
 
 
 def test_round_trip_budget(client, monkeypatch):
+    # Counts real statements through db._query. Each number is one HTTP call's cost, so a read that
+    # gets split back out (a second ownership SELECT, a second history SELECT, a second tier read)
+    # fails here instead of quietly costing a round trip.
     import asyncio
 
     import asyncpg
