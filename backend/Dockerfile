@@ -6,23 +6,17 @@ ENV UV_COMPILE_BYTECODE=1 \
 
 RUN useradd --create-home --shell /bin/bash appuser
 
-# The resume preview compiles LaTeX in this image (app/latex.py). A resume needs geometry, enumitem,
-# titlesec, hyperref, xcolor and microtype (enumitem/titlesec ship in latex-extra), a text font
-# (lmodern), and the icon glyphs the common templates put in contact lines: fontawesome5 and
-# fontawesome v4, which Debian only ships inside fonts-extra.
-# fonts-extra carries every font family on CTAN, which a resume never loads, so it is installed and
-# then cut back to those two icon families; ls-R and the font map are rebuilt from what is left, and a
-# template asking for anything cut fails with the package named. Removing the trees below is safe for
-# pdflatex: it reads type1 + tfm, never the opentype, sources or documentation copies.
+# The resume preview compiles LaTeX in this image (app/latex.py). The shipped preamble
+# (frontend/src/lib/toLatex.ts) loads only geometry, fontenc, lmodern, enumitem, titlesec and hyperref,
+# all of which latex-extra covers. texlive-fonts-extra is deliberately absent: it is 624MB of CTAN
+# families that a resume never loads, bought to serve fontawesome5, which the generator never emits. A
+# user-pasted template asking for those icons fails with the package named. Removing the doc and
+# source trees below is safe for pdflatex: it reads type1 + tfm, never the opentype copies.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends texlive-latex-base texlive-latex-recommended texlive-latex-extra texlive-fonts-recommended texlive-fonts-extra lmodern \
-    && dpkg -L texlive-fonts-extra | grep -Ev '/(fontawesome5|fontawesome)/' | while read -r file; do if [ -f "$file" ]; then rm -f "$file"; fi; done \
+    && apt-get install -y --no-install-recommends texlive-latex-base texlive-latex-recommended texlive-latex-extra texlive-fonts-recommended lmodern \
     && rm -rf /usr/share/texlive/texmf-dist/doc /usr/share/texlive/texmf-dist/source /usr/share/doc /usr/share/man \
     && find /usr/share/texlive/texmf-dist -type d -empty -delete \
     && mktexlsr \
-    && rm -f /etc/texmf/web2c/updmap.cfg \
-    && yes | updmap-sys --syncwithtrees \
-    && updmap-sys \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 

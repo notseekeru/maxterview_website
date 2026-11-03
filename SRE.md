@@ -12,22 +12,6 @@ The specification comes first, and the runs follow it in the order they happened
 
 At what load does the prod deployment stop behaving acceptably, and which resource runs out first?
 
-## What is measured
-
-| Indicator         | Source                                                                                                      | Carries               |
-| ----------------- | ----------------------------------------------------------------------------------------------------------- | --------------------- |
-| Request latency   | `http.server.request.duration`, and k6 on the client side                                                   | method, route, status |
-| Error rate        | the same histogram, plus k6 broken down by status code                                                      | status                |
-| Throughput        | k6 RPS, and the server histogram's own sample count                                                         | route                 |
-| Database pressure | `db.pool.size` against `db.pool.idle`, bounded by `DB_POOL_MAX`                                             | sampled at acquire    |
-| Saturation        | `container_*` from the kubelet, root cgroup for the node and pod cgroups for pods; `machine_*` for capacity |                       |
-| Architecture      | the machine, runtime, and tools used                                                                        | baseline              |
-
-Server numbers are read as `increase` over the window that starts at `measure_start` and lasts
-`measure_s`; an instant `rate` is a different number and is not used. The two pool gauges are emitted per
-acquire, so they sample the pool at the moment a request takes a connection: occupancy is mean query
-time times queries per second, not an average of those samples.
-
 ## SLO
 
 | Indicator   | Gate           |
@@ -92,11 +76,10 @@ gates                  SLO
 
 ### Load generator (the machine that runs k6)
 
-| Component  | Laptop                                      |
-| ---------- | ------------------------------------------- |
-| CPU        | Intel i7-10610U (4 cores / 8 threads, 15 W) |
-| RAM        | 16 GB                                       |
-| Monitoring | Same                                        |
+| Component | Laptop                                      |
+| --------- | ------------------------------------------- |
+| CPU       | Intel i7-10610U (4 cores / 8 threads, 15 W) |
+| RAM       | 16 GB                                       |
 
 ### The box (the machine under test)
 
@@ -517,17 +500,6 @@ The full sweep is paused: Neon's compute is at about 90% of its limit. The 55 VU
 that, because it was one three minute window; the edge path and any full sweep wait for the budget.
 I will keep expanding this dataset and run the same experiment against different architectures.
 
-## Since this record
-
-After the last sweep, four small changes landed:
-
-- The daily chat-turn credit is now spent in one atomic upsert. It removes one round trip per chat turn and closes the double-spend race.
-- The dashboard counters and the dimension averages now come from one statement. `/stats/dimensions` is gone; `/stats/dashboard` carries both.
-- The resume page starts its usage read beside the resume read.
-- The chat page starts the transcript read beside the start request.
-
-The request table above still describes the sweep that ran, including `/stats/dimensions`. None of these four changes has been through the sweep yet, so every number above still describes the earlier build.
-
 ## Batching
 
 To help me simplify what I used for optimizing request and queries. I made me my own understanding of four layers of batching techniques. And They sit at different points between the client and the database helping me find the bottleneck may be and give me a comparsion what I could be missing.
@@ -560,10 +532,6 @@ I also did some extra stuff like parallel request. Parallel requests are a separ
 I changed the measurement window to 2 minutes and the confirmation to one 5-minute run because the sweep was taking too much of my time, and I am fine losing some of this data for the experiment. The shorter windows also spend less Neon compute, which is the other reason for the change: the full sweep is paused near the free-tier limit. That is a real trade: fewer samples make p95 and p99 noisier, one run is weaker proof than the old 3/3, and a failed single-run confirm aborts the sweep instead of searching below.
 
 ## The request batch build at 100 VUs
-
-I closed both window edges of the harness before this run, so these rows carry neither the warm scenario's
-trailing iteration inside the window's first seconds nor the requests issued after the window closed. The
-rows they are compared against carry both.
 
 | At 100 VUs        | Pre-batching, pool 40 | Batched build | Round-trip build |
 | ----------------- | --------------------- | ------------- | ---------------- |
@@ -604,9 +572,18 @@ unconfirmed here; 100 fails, as it did before. The preview compile is still unme
 path this ladder cannot judge: two pdflatex slots against a 256Mi pod, app-owned, so the p95 gate would
 cover it while its busy 503 is backpressure rather than a failure.
 
-## More batching optimization
+### The batched build
 
-Statements per call, counted with Clerk on, a BYOK credential stored and a free tier. `test_round_trip_budget` asserts them.
+After the last sweep, four small changes landed:
+
+| Change      | What changed                             | Counts          | Layer                               |
+| ----------- | ---------------------------------------- | --------------- | ----------------------------------- |
+| turn credit | one atomic upsert                        | 2 -> 1          | Atomic write                        |
+| dashboard   | one statement carries both reads         | 2 requests -> 1 | Request Batching, Aggregate Queries |
+| resume page | usage read beside the resume read        | no change       | Parallel requests                   |
+| chat page   | transcript read beside the start request | no change       | Parallel requests                   |
+
+### The round-trip build
 
 | Endpoint                                  | Method                                                                                                         | Counts   | Layer                         |
 | ----------------------------------------- | -------------------------------------------------------------------------------------------------------------- | -------- | ----------------------------- |
@@ -619,3 +596,25 @@ Statements per call, counted with Clerk on, a BYOK credential stored and a free 
 | `POST /resumes/{id}/review`               | duplicate tier read removed                                                                                    | 6 -> 5   | Aggregate Queries             |
 | `POST /resumes/{id}/review/rewrite`       | duplicate tier read removed, resume and review in one read                                                     | 7 -> 5   | Aggregate Queries             |
 | `GET /templates`, cold account            | seed returns the rows it inserted                                                                              | 3 -> 2   | Aggregate Queries             |
+
+One level, not the ladder: 100 VUs for two minutes at pool 40 over the NodePort, on the build that folds the
+turn's two reads into the interview read and its spend and insert into one statement. The 10 VU smoke
+passed at 674ms p95 first.
+
+It still fails: 1.76s at p95, 3.04s at p99, 4.17s at max, 68.5 rps, no errors and no failed checks.
+Against the batched build that is a better tail and more throughput, 3.78s to 3.04s at p99 and 62.8 to
+68.5 rps, and a worse middle: p50 586ms against 494ms, wait 180ms against 123ms at p50, and the mean
+query 212ms against 150ms.
+
+The queries say what happened. Statements per request fell from 2.43 to 1.89 and the window's queries
+from 20,290 to 15,030, while the query seconds it spent stayed near 3,100 either way. Neon delivered the
+same amount of work and the saved statements bought requests rather than speed. Removing statements
+cannot make a query slower either, so the 212ms mean belongs to the database that hour, and that is why
+p50 and the wait read worse.
+
+Two things hold this to one window per build. The query mean is the control that says the environment
+moved rather than the code. And the boundary is still untested here: 100 fails as before, and neither 55
+nor anything between 55 and 100 has been run on this build.
+
+The cleanup between windows left one row behind when the account stood at 816 interviews, so the window
+was reopened for a second pass that cleared it before closing again.
