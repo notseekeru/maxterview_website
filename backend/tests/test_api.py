@@ -964,22 +964,23 @@ def test_finish_requires_at_least_one_message(client):
     client.delete(f"/api/interviews/{iid}")
 
 
-def test_regenerate_feedback_rejects_empty_transcript(client, monkeypatch):
+def test_regenerate_feedback_rejects_empty_transcript(client):
     # Legacy rows (completed before the /finish guard) must answer 409, not a 503 the retry
-    # button can never clear. The empty-but-completed state is unreachable via the API now,
-    # so stub the predicate instead of deleting rows behind the app's pool.
-    from app import main as main_mod
+    # button can never clear. The empty-but-completed state is unreachable via the API now.
+    import asyncio
 
-    iv = client.post("/api/interviews", json={"role": "Empty Regen"}).json()
-    iid = iv["id"]
-    client.post(f"/api/interviews/{iid}/start")
-    client.post(f"/api/interviews/{iid}/chat/stream", json={"interview_id": iid, "content": "hi"})
-    assert client.post(f"/api/interviews/{iid}/finish").status_code == 200
+    import asyncpg
 
-    async def _empty(_interview_id):
-        return False
+    iid = client.post("/api/interviews", json={"role": "Empty Regen"}).json()["id"]
 
-    monkeypatch.setattr(main_mod, "_has_transcript", _empty)
+    async def complete_without_turns():
+        conn = await asyncpg.connect(DB_URL)
+        try:
+            await conn.execute("UPDATE interviews SET status = 'completed' WHERE id = $1::uuid", iid)
+        finally:
+            await conn.close()
+
+    asyncio.run(complete_without_turns())
     r = client.post(f"/api/interviews/{iid}/feedback/generate")
     assert r.status_code == 409
     assert "no answers" in r.json()["detail"]
@@ -1698,3 +1699,88 @@ def test_resume_preview_says_so_when_a_document_has_no_pages(client):
     got = client.post("/api/resumes/preview", json={"text": "\\documentclass{article}\n\\begin{document}\n\\end{document}"})
     assert got.status_code == 422
     assert "no pages" in got.json()["detail"].lower()
+
+
+def test_round_trip_budget(client, monkeypatch):
+    import asyncio
+
+    import asyncpg
+
+    from app import byok, db, llm
+    from app.main import get_current_user
+    from app.models import ClerkUser
+
+    monkeypatch.setattr(byok, "_fernet", lambda: None)
+    monkeypatch.setattr(billing, "CLERK_ENABLED", True)
+    monkeypatch.setattr(llm, "PRO_CONFIG", llm.SYSTEM_CONFIG)
+    monkeypatch.setattr(app, "dependency_overrides", {**app.dependency_overrides, get_current_user: lambda: ClerkUser(sub="dev-user")})
+
+    seen: list[str] = []
+    real = db._query
+
+    async def counted(method, query, args):
+        seen.append(query)
+        return await real(method, query, args)
+
+    monkeypatch.setattr(db, "_query", counted)
+
+    def statements(fn):
+        seen.clear()
+        got = fn()
+        return got, len(seen)
+
+    c = client
+    iid = c.post("/api/interviews", json={"role": "Round trips"}).json()["id"]
+    try:
+        _, n = statements(lambda: c.get(f"/api/interviews/{iid}/messages"))
+        assert n == 1
+        empty, n = statements(lambda: c.get(f"/api/interviews/{iid}/messages"))
+        assert (empty.status_code, empty.json(), n) == (200, [], 1)
+        assert c.get(f"/api/interviews/{iid}").status_code == 200
+        foreign = c.get("/api/interviews/00000000-0000-0000-0000-000000000000/messages")
+        assert foreign.status_code == 404 and foreign.json()["detail"] == "Interview not found"
+
+        absent, n = statements(lambda: c.get(f"/api/interviews/{iid}/feedback"))
+        assert (absent.status_code, absent.json()["detail"], n) == (404, "Feedback not found", 1)
+        foreign = c.get("/api/interviews/00000000-0000-0000-0000-000000000000/feedback")
+        assert foreign.status_code == 404 and foreign.json()["detail"] == "Interview not found"
+
+        c.post(f"/api/interviews/{iid}/start")
+        turn, n = statements(lambda: c.post(f"/api/interviews/{iid}/chat/stream", json={"interview_id": iid, "content": "hi"}))
+        assert (turn.status_code, n) == (200, 5)
+
+        client.post(f"/api/interviews/{iid}/finish")
+        _, n = statements(lambda: c.post(f"/api/interviews/{iid}/feedback/generate"))
+        assert n == 11
+
+        monkeypatch.setattr(llm, "SYSTEM_CONFIG", llm.LLMConfig(base_url="http://127.0.0.1:9/v1", model="round-trip-unit"))
+        monkeypatch.setattr(llm, "PRO_CONFIG", llm.SYSTEM_CONFIG)
+
+        async def _fake_review(text, config):
+            return dict(llm.REVIEW_EXAMPLE)
+
+        async def _fake_rewrite(text, source, config):
+            return "a different line"
+
+        monkeypatch.setattr(llm, "review_resume", _fake_review)
+        monkeypatch.setattr(llm, "rewrite_line", _fake_rewrite)
+
+        rid = c.post("/api/resumes", json={"name": "r.txt", "text": "line one\nline two"}).json()["id"]
+        assert c.post(f"/api/resumes/{rid}/review").status_code == 201
+        _, n = statements(lambda: c.post(f"/api/resumes/{rid}/review/rewrite", json={"source": "line one"}))
+        assert n == 4
+        c.delete(f"/api/resumes/{rid}")
+
+        async def wipe_templates():
+            conn = await asyncpg.connect(DB_URL)
+            try:
+                await conn.execute("DELETE FROM interview_templates WHERE owner_id = 'dev-user'")
+                await conn.execute("DELETE FROM template_seeds WHERE owner_id = 'dev-user'")
+            finally:
+                await conn.close()
+
+        asyncio.run(wipe_templates())
+        seeded, n = statements(lambda: c.get("/api/templates"))
+        assert (n, [t["name"] for t in seeded.json()]) == (2, ["Killer", "Griller", "Chiller"])
+    finally:
+        c.delete(f"/api/interviews/{iid}")

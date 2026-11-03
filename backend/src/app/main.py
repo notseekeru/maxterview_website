@@ -85,10 +85,17 @@ async def _llm_config(user: CurrentUser) -> llm.LLMConfig:
 LLMConfigDep = Annotated[llm.LLMConfig, Depends(_llm_config)]
 
 
-async def _chat_config(user: CurrentUser, config: LLMConfigDep) -> llm.LLMConfig:
+async def _user_tier(user: CurrentUser) -> str:
+    return await billing.resolve_tier(user)
+
+
+TierDep = Annotated[str, Depends(_user_tier)]
+
+
+async def _chat_config(config: LLMConfigDep, tier: TierDep) -> llm.LLMConfig:
     if config.byok or llm.PRO_CONFIG is None:
         return config
-    return llm.PRO_CONFIG if await billing.resolve_tier(user) == "premium" else config
+    return llm.PRO_CONFIG if tier == "premium" else config
 
 
 ChatLLMDep = Annotated[llm.LLMConfig, Depends(_chat_config)]
@@ -310,17 +317,28 @@ async def list_messages(
     interview_id: str,
     user: CurrentUser,
 ) -> list[dict]:
-    await _require_interview_owned(interview_id, user.sub)
     rows = await fetch(
-        "SELECT id::text, interview_id::text, role, content, move_class, comment, created_at FROM messages WHERE interview_id = $1 ORDER BY created_at, id",
+        """
+        SELECT m.id::text, m.interview_id::text, m.role, m.content, m.move_class, m.comment, m.created_at
+        FROM interviews i
+        LEFT JOIN messages m ON m.interview_id = i.id
+        WHERE i.id = $1 AND i.owner_id = $2
+        ORDER BY m.created_at, m.id
+        """,
         interview_id,
+        user.sub,
     )
-    return [dict(r) for r in rows]
+    if not rows:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Interview not found")
+    return [dict(r) for r in rows if r["id"] is not None]
+
+
+FEEDBACK_COLS = "f.id::text, f.interview_id::text, f.scores, f.verdict, f.tips, f.decision, f.certainty, f.accuracy, f.redos, i.failed_turn, i.failed_class, f.created_at"
 
 
 async def _feedback_row(interview_id: str) -> asyncpg.Record | None:
     return await fetchrow(
-        "SELECT f.id::text, f.interview_id::text, f.scores, f.verdict, f.tips, f.decision, f.certainty, f.accuracy, f.redos, i.failed_turn, i.failed_class, f.created_at FROM feedback f JOIN interviews i ON i.id = f.interview_id WHERE f.interview_id = $1",
+        f"SELECT {FEEDBACK_COLS} FROM feedback f JOIN interviews i ON i.id = f.interview_id WHERE f.interview_id = $1",
         interview_id,
     )
 
@@ -330,9 +348,14 @@ async def get_feedback(
     interview_id: str,
     user: CurrentUser,
 ) -> dict:
-    await _require_interview_owned(interview_id, user.sub)
-    row = await _feedback_row(interview_id)
+    row = await fetchrow(
+        f"SELECT {FEEDBACK_COLS} FROM interviews i LEFT JOIN feedback f ON f.interview_id = i.id WHERE i.id = $1 AND i.owner_id = $2",
+        interview_id,
+        user.sub,
+    )
     if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Interview not found")
+    if row["id"] is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Feedback not found")
     return dict(row)
 
@@ -355,22 +378,28 @@ async def regenerate_feedback(
     user: CurrentUser,
     config: LLMConfigDep,
 ) -> dict:
-    await _require_interview_owned(interview_id, user.sub)
     row = await fetchrow(
-        "SELECT status FROM interviews WHERE id = $1 AND owner_id = $2",
+        """
+        SELECT i.status, f.redos,
+               EXISTS (SELECT 1 FROM messages m WHERE m.interview_id = i.id AND m.role = 'user') AS has_transcript
+        FROM interviews i
+        LEFT JOIN feedback f ON f.interview_id = i.id
+        WHERE i.id = $1 AND i.owner_id = $2
+        """,
         interview_id,
         user.sub,
     )
-    if row is None or row["status"] != "completed":
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Interview not found")
+    if row["status"] != "completed":
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Interview is not completed")
-    if not await _has_transcript(interview_id):
+    if not row["has_transcript"]:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Nothing to score yet: this interview has no answers.")
     # Redo allowance, per run. A run that never got a review reads as zero spent, so the repair path
     # stays open to an owner who has nothing to lose.
-    row = await fetchrow("SELECT redos FROM feedback WHERE interview_id = $1", interview_id)
     tier = await billing.resolve_tier(user)
     limit = billing.redo_limit(tier)
-    if (row["redos"] if row else 0) >= limit:
+    if (row["redos"] or 0) >= limit:
         spent = f"This run has used all {limit} of its review redos."
         upsell = tier == "free"
         raise HTTPException(
@@ -411,10 +440,13 @@ DEFAULT_TEMPLATES_ROWS = [t.model_dump(mode="json") for t in DEFAULT_TEMPLATES]
 SEED_DEFAULTS_SQL = f"""
         WITH seed AS (
             INSERT INTO template_seeds (owner_id) VALUES ($1) ON CONFLICT DO NOTHING RETURNING owner_id
+        ), added AS (
+            INSERT INTO interview_templates (owner_id, name, role, level, topic, resume_id, {", ".join(DIAL_FIELDS)}, created_at)
+            SELECT $1, d.name, d.role, d.level, d.topic, d.resume_id, {", ".join(f"d.{f}" for f in DIAL_FIELDS)}, now() - (d.ordinality * interval '1 microsecond')
+            FROM seed, ROWS FROM (jsonb_to_recordset($2::jsonb) AS (name text, role text, level text, topic text, resume_id uuid, company_size text, cynicism text, brutally_honest boolean, human_mode boolean, hardcore boolean, depth text)) WITH ORDINALITY AS d
+            RETURNING {TEMPLATE_COLS}
         )
-        INSERT INTO interview_templates (owner_id, name, role, level, topic, resume_id, {", ".join(DIAL_FIELDS)}, created_at)
-        SELECT $1, d.name, d.role, d.level, d.topic, d.resume_id, {", ".join(f"d.{f}" for f in DIAL_FIELDS)}, now() - (d.ordinality * interval '1 microsecond')
-        FROM seed, ROWS FROM (jsonb_to_recordset($2::jsonb) AS (name text, role text, level text, topic text, resume_id uuid, company_size text, cynicism text, brutally_honest boolean, human_mode boolean, hardcore boolean, depth text)) WITH ORDINALITY AS d
+        SELECT * FROM added ORDER BY created_at DESC
         """
 
 
@@ -423,12 +455,11 @@ TEMPLATE_LIST_SQL = f"SELECT {TEMPLATE_COLS} FROM interview_templates WHERE owne
 
 @api.get("/templates", response_model=list[InterviewTemplate])
 async def list_templates(user: CurrentUser) -> list[dict]:
-    # AI HERE: a brand-new owner costs three round trips (read, seed, re-read). Seeding at owner
-    # creation needs a user row and Clerk owns identity, so the first-request hook is the upgrade.
+    # AI HERE: a brand-new owner seeds on the first read. Seeding at owner creation needs a user row
+    # and Clerk owns identity, so the first-request hook is the upgrade.
     rows = await fetch(TEMPLATE_LIST_SQL, user.sub)
     if not rows:
-        await fetchrow(SEED_DEFAULTS_SQL, user.sub, DEFAULT_TEMPLATES_ROWS)
-        rows = await fetch(TEMPLATE_LIST_SQL, user.sub)
+        rows = await fetch(SEED_DEFAULTS_SQL, user.sub, DEFAULT_TEMPLATES_ROWS) or await fetch(TEMPLATE_LIST_SQL, user.sub)
     return [dict(r) for r in rows]
 
 
@@ -643,6 +674,7 @@ async def create_resume_review(
     resume_id: str,
     user: CurrentUser,
     config: ChatLLMDep,
+    tier: TierDep,
 ) -> dict:
     row = await fetchrow("SELECT text FROM resumes WHERE id = $1 AND owner_id = $2", resume_id, user.sub)
     if row is None:
@@ -651,7 +683,7 @@ async def create_resume_review(
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="No scoring engine is configured on this deployment, so a review cannot run.")
     # One chat turn, charged before the call like every other turn: a provider timeout is the price of
     # asking, and a free retry loop is not what the daily cap is for.
-    await _spend_chat_turn(user, config)
+    await _spend_chat_turn(user, config, tier)
     got = await llm.review_resume(row["text"], config)
     if got is None:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="The reviewer could not read this resume right now. Try again in a moment.")
@@ -670,8 +702,18 @@ async def retry_resume_rewrite(
     body: ReviewRewriteRequest,
     user: CurrentUser,
     config: ChatLLMDep,
+    tier: TierDep,
 ) -> dict:
-    row = await fetchrow("SELECT text FROM resumes WHERE id = $1 AND owner_id = $2", resume_id, user.sub)
+    row = await fetchrow(
+        """
+        SELECT r.text, rr.review
+        FROM resumes r
+        LEFT JOIN resume_reviews rr ON rr.resume_id = r.id AND rr.source_hash = encode(sha256(convert_to(r.text, 'UTF8')), 'hex')
+        WHERE r.id = $1 AND r.owner_id = $2
+        """,
+        resume_id,
+        user.sub,
+    )
     if row is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Resume not found")
     # The client returns a line the reviewer quoted from this page. One it cannot find is either stale or
@@ -680,20 +722,16 @@ async def retry_resume_rewrite(
     flat = " ".join(row["text"].split())
     if not source or (source not in row["text"] and " ".join(source.split()) not in flat):
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="That line is not on this resume any more. Re-review it and try again.")
-    current = await fetchrow(
-        "SELECT rr.review, rr.created_at FROM resume_reviews rr JOIN resumes r ON r.id = rr.resume_id WHERE rr.resume_id = $1 AND r.owner_id = $2 AND rr.source_hash = encode(sha256(convert_to(r.text, 'UTF8')), 'hex')",
-        resume_id,
-        user.sub,
-    )
+    current = row["review"]
     if current is None:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Review this resume first: there is no edit to retry.")
     if config.stub:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="No scoring engine is configured on this deployment, so an edit cannot be retried.")
-    await _spend_chat_turn(user, config)
+    await _spend_chat_turn(user, config, tier)
     got = await llm.rewrite_line(row["text"], source, config)
     if got is None:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="The reviewer could not write a different line right now. Try again in a moment.")
-    stored = dict(current["review"])
+    stored = dict(current)
     rewrites = [item for item in stored.get("rewrites", []) if item.get("source") != source]
     stored["rewrites"] = ([{"source": source, "rewrite": got}] + rewrites)[: review.MAX_REWRITES]
     saved = await fetchrow(
@@ -1173,7 +1211,13 @@ async def billing_webhook_simulate(event: dict) -> PlainTextResponse:
 
 async def _chat_session(interview_id: str, user: CurrentUser) -> tuple[dict, list, int, Dials]:
     interview = await fetchrow(
-        f"SELECT {INTERVIEW_COLS}, (SELECT r.text FROM resumes r WHERE r.id = interviews.resume_id) AS resume_text FROM interviews WHERE id = $1 AND owner_id = $2",
+        f"""
+        SELECT {INTERVIEW_COLS},
+               (SELECT r.text FROM resumes r WHERE r.id = interviews.resume_id) AS resume_text,
+               (SELECT coalesce(jsonb_agg(jsonb_build_object('role', m.role, 'content', m.content) ORDER BY m.created_at), '[]')
+                  FROM messages m WHERE m.interview_id = interviews.id) AS transcript
+        FROM interviews WHERE id = $1 AND owner_id = $2
+        """,
         interview_id,
         user.sub,
     )
@@ -1186,10 +1230,7 @@ async def _chat_session(interview_id: str, user: CurrentUser) -> tuple[dict, lis
     if interview["failed_turn"]:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="This hardcore run is over: one vague or wrong answer ended it. Press Finish for the feedback.")
 
-    prior_rows = await fetch(
-        "SELECT role, content FROM messages WHERE interview_id = $1 ORDER BY created_at",
-        interview_id,
-    )
+    prior_rows = interview["transcript"]
     # Interviewer turns already asked, which selects the arc phase. Derived from the transcript, not stored.
     asked = sum(1 for r in prior_rows if r["role"] == "assistant")
     dials = Dials(**{k: interview[k] for k in DIAL_FIELDS})
@@ -1210,8 +1251,7 @@ def _lockout_detail(tier: str, byok: bool, limit: int) -> str:
     return f"Daily chat-turn limit reached ({limit} turns/day on your own provider). Try again after midnight UTC." + (f" Pro raises it to {pro}." if tier == "free" else "")
 
 
-async def _spend_chat_turn(user: CurrentUser, config: llm.LLMConfig) -> None:
-    tier = await billing.resolve_tier(user)
+async def _spend_chat_turn(user: CurrentUser, config: llm.LLMConfig, tier: str) -> None:
     limit = billing.chat_turn_limit(tier, byok=config.byok)
     if not await billing.spend_chat_turn(user.sub, limit):
         raise HTTPException(status_code=status.HTTP_402_PAYMENT_REQUIRED, detail=_lockout_detail(tier, config.byok, limit))
@@ -1255,11 +1295,11 @@ async def _reply_frames(
 
 
 @api.post("/interviews/{interview_id}/chat/kickoff")
-async def chat_kickoff(interview_id: str, user: CurrentUser, config: LLMConfigDep, chat: ChatLLMDep) -> StreamingResponse:
+async def chat_kickoff(interview_id: str, user: CurrentUser, config: LLMConfigDep, chat: ChatLLMDep, tier: TierDep) -> StreamingResponse:
     interview, _transcript, asked, dials = await _chat_session(interview_id, user)
     if asked:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="This interview has already opened.")
-    await _spend_chat_turn(user, config)
+    await _spend_chat_turn(user, config, tier)
     history = [
         ChatMessage(role="system", content=llm.system_prompt(interview["role"], interview["level"], interview["topic"], asked=asked, dials=dials, resume=interview["resume_text"] or "")),
     ]
@@ -1278,9 +1318,10 @@ async def chat_stream(
     user: CurrentUser,
     config: LLMConfigDep,
     chat: ChatLLMDep,
+    tier: TierDep,
 ) -> StreamingResponse:
     interview, prior_rows, asked, dials = await _chat_session(interview_id, user)
-    await _spend_chat_turn(user, config)
+    await _spend_chat_turn(user, config, tier)
 
     # A trailing user turn means an earlier attempt died before its reply landed, so this send REPLACES it,
     # past the guards only. The stale row leaves the history too, or the model sees the answer twice.
@@ -1374,11 +1415,6 @@ async def _require_interview_owned(interview_id: str, owner_id: str) -> None:
     row = await fetchrow("SELECT 1 FROM interviews WHERE id = $1 AND owner_id = $2", interview_id, owner_id)
     if row is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Interview not found")
-
-
-async def _has_transcript(interview_id: str) -> bool:
-    row = await fetchrow("SELECT 1 FROM messages WHERE interview_id = $1 AND role = 'user' LIMIT 1", interview_id)
-    return row is not None
 
 
 async def _upsert_feedback(interview_id: str, scores: dict, verdict: str, tips: list, decision: str | None = None, certainty: int | None = None, accuracy: int | None = None) -> None:
