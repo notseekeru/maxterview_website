@@ -583,7 +583,7 @@ cover it while its busy 503 is backpressure rather than a failure.
 
 ## More batching optimization
 
-Statements per call, counted with Clerk on, a BYOK credential stored and a free tier. `test_round_trip_budget` asserts them, and the suite runs green against a throwaway Postgres with the migrations applied.
+Statements per call, counted with Clerk on, a BYOK credential stored and a free tier. `test_round_trip_budget` asserts them.
 
 | Endpoint                                  | Method                                                                                                         | Counts   | Layer                         |
 | ----------------------------------------- | -------------------------------------------------------------------------------------------------------------- | -------- | ----------------------------- |
