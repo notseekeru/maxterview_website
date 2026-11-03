@@ -79,8 +79,8 @@ jobs:
           push: false
           tags: ${{ env.IMAGE_TAG }}
           no-cache-filters: prod
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=${{ matrix.service.name }}-amd64
+          cache-to: type=gha,mode=max,scope=${{ matrix.service.name }}-amd64
 
       - name: Scan image with Trivy
         run: |
@@ -130,8 +130,13 @@ jobs:
           platforms: linux/amd64,linux/arm64
           tags: ${{ env.PUSH_TAGS }}
           no-cache-filters: prod
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          # A dedicated export scope: the amd64 build above writes its own, so neither one clobbers
+          # the other's per-platform records. Shared, the arm64 leg lost every time and paid the full
+          # emulated texlive install on each push.
+          cache-from: |
+            type=gha,scope=${{ matrix.service.name }}-amd64
+            type=gha,scope=${{ matrix.service.name }}-multiarch
+          cache-to: type=gha,mode=max,scope=${{ matrix.service.name }}-multiarch
 
       - name: Cleanup
         if: always()
