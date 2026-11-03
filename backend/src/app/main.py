@@ -825,16 +825,28 @@ SELECT count(*) AS days FROM ranked WHERE gap - rn IN (-1, 0)
 # No `archived_at` filter: the dashboard counts archived runs, so dropping them here would disagree
 # with the numbers one route over.
 ANALYTICS_SQL = f"""
-WITH runs AS (
+WITH counts AS MATERIALIZED (
+    SELECT m.interview_id, m.role, m.move_class, count(*) AS n
+    FROM messages m
+    JOIN interviews i ON i.id = m.interview_id
+    WHERE i.owner_id = $1
+    GROUP BY m.interview_id, m.role, m.move_class
+), turn_totals AS MATERIALIZED (
+    SELECT interview_id, sum(n) AS turns FROM counts WHERE role = 'user' GROUP BY interview_id
+), move_totals AS MATERIALIZED (
+    SELECT interview_id, jsonb_object_agg(move_class, n) AS moves
+    FROM (SELECT interview_id, move_class, sum(n) AS n FROM counts WHERE move_class IS NOT NULL GROUP BY interview_id, move_class) c
+    GROUP BY interview_id
+), runs AS (
     SELECT i.id::text, i.role, i.level, i.status, i.created_at,
            {", ".join(f"i.{c}" for c in DIAL_FIELDS)},
            f.accuracy, f.decision, f.certainty, f.scores, i.failed_class,
-           (SELECT count(*) FROM messages m WHERE m.interview_id = i.id AND m.role = 'user') AS turns,
-           (SELECT coalesce(jsonb_object_agg(mc.cls, mc.n), '{{}}'::jsonb)
-              FROM (SELECT m.move_class AS cls, count(*) AS n FROM messages m
-                     WHERE m.interview_id = i.id AND m.move_class IS NOT NULL GROUP BY m.move_class) mc) AS moves
+           coalesce(tt.turns, 0) AS turns,
+           coalesce(mt.moves, '{{}}'::jsonb) AS moves
     FROM interviews i
     LEFT JOIN feedback f ON f.interview_id = i.id
+    LEFT JOIN turn_totals tt ON tt.interview_id = i.id
+    LEFT JOIN move_totals mt ON mt.interview_id = i.id
     WHERE i.owner_id = $1
 ), activity AS (
     SELECT to_char(date_trunc('week', created_at), 'YYYY-MM-DD') AS week,
