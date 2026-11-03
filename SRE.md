@@ -292,16 +292,16 @@ the harness records no target. `max` is the measure window's max latency: k6's s
 the harness recorded the max while the gate evaluated a real p99 inside k6. The harness exports p(99)
 now, so every sweep after the baseline carries both.
 
-| Pod          | Phase   | VUs | Window | p50   | p95    | max   | rps  | Verdict |
-| ------------ | ------- | --- | ------ | ----- | ------ | ----- | ---- | ------- |
-| laptop, stub | only    | 10  | 10s    | 2.4ms | 11.6ms | 288ms | 54.0 | pass    |
-| prod         | only    | 10  | 10s    | 155ms | 705ms  | 933ms | 25.6 | pass    |
-| prod         | ladder  | 100 | 3m     | 1.17s | 3.44s  | 8.54s | 38.3 | fail    |
-| prod         | ladder  | 10  | 3m     | 155ms | 654ms  | 2.80s | 16.7 | pass    |
-| prod         | ladder  | 20  | 3m     | 205ms | 1.25s  | 17.6s | 21.6 | fail    |
-| prod         | confirm | 10  | 5m     | 149ms | 587ms  | 3.00s | 16.9 | pass    |
-| prod         | confirm | 10  | 5m     | 149ms | 569ms  | 1.38s | 16.7 | pass    |
-| prod         | confirm | 10  | 5m     | 147ms | 496ms  | 2.01s | 17.4 | pass    |
+| Pod          | Phase   | VUs | Window | p50   | p95    | p99 | max   | rps  | errors | verdict | queries/req | wait p50 | wait p95 | query mean | query p95 | CPU (of 4) | memory (of 256Mi) |
+| ------------ | ------- | --- | ------ | ----- | ------ | --- | ----- | ---- | ------ | ------- | ----------- | -------- | -------- | ---------- | --------- | ---------- | ----------------- |
+| laptop, stub | only    | 10  | 10s    | 2.4ms | 11.6ms | n/r | 288ms | 54.0 | 0      | pass    | n/r         | n/r      | n/r      | n/r        | n/r       | n/r        | n/r               |
+| prod         | only    | 10  | 10s    | 155ms | 705ms  | n/r | 933ms | 25.6 | 0      | pass    | n/r         | n/r      | n/r      | n/r        | n/r       | n/r        | n/r               |
+| prod         | ladder  | 100 | 3m     | 1.17s | 3.44s  | n/r | 8.54s | 38.3 | 0      | fail    | n/r         | 940ms    | 2.40s    | n/r        | n/r       | 0.27       | 52%               |
+| prod         | ladder  | 10  | 3m     | 155ms | 654ms  | n/r | 2.80s | 16.7 | 0      | pass    | n/r         | n/r      | n/r      | n/r        | n/r       | n/r        | n/r               |
+| prod         | ladder  | 20  | 3m     | 205ms | 1.25s  | n/r | 17.6s | 21.6 | 0      | fail    | n/r         | 35ms     | n/r      | n/r        | n/r       | 0.21       | 39%               |
+| prod         | confirm | 10  | 5m     | 149ms | 587ms  | n/r | 3.00s | 16.9 | 0      | pass    | n/r         | n/r      | n/r      | n/r        | n/r       | n/r        | n/r               |
+| prod         | confirm | 10  | 5m     | 149ms | 569ms  | n/r | 1.38s | 16.7 | 0      | pass    | n/r         | n/r      | n/r      | n/r        | n/r       | n/r        | n/r               |
+| prod         | confirm | 10  | 5m     | 147ms | 496ms  | n/r | 2.01s | 17.4 | 0      | pass    | n/r         | n/r      | n/r      | n/r        | n/r       | n/r        | n/r               |
 
 Ten to twenty VUs raises throughput 29% and doubles p95, so that is the knee.
 
@@ -324,11 +324,9 @@ and 134Mi of 256Mi. Nothing was out of CPU or memory, so there must be another p
 I skipped the manual smoke that time and went straight to the ladder, which turned a sixteen second
 check into a five minute failed level.
 
-And from here on out we smoke 10 VUs first, so we catch what's wrong before the 100 VU ladder starts.
+And with that, from here on out we smoke 10 VUs first, so we catch what's wrong before the 100 VU ladder starts.
 
-At 100 VUs the pool was the queue: p50 1.17s, and 0.94s of that was wait for a connection that was not
-doing anything yet. That is where I got worried, because 10 was a default I had set and not a number I
-had found.
+At 100 VUs the pool was my watch: p50 1.17s, and 0.94s of that was wait for a connection that was not doing anything yet. That is where I got worried.
 
 So I dropped to 10 VUs, expecting to find something wrong with the k6 harness. It passed, so the harness was clean and the application was the problem. The 100 VU run
 had already finished 348 iterations with every check passing, which I did not read that way at the time.
@@ -362,17 +360,17 @@ NodePort. The smoke passed at a 239ms p95, the ladder failed at its first level,
 boundary between 32 and 55. The `probe` row is the 32 VU re-run from the next section, not a window of
 this sweep.
 
-| Phase   | VUs | Window | Verdict | p50   | p95   | p99   | max   | rps  | errors |
-| ------- | --- | ------ | ------- | ----- | ----- | ----- | ----- | ---- | ------ |
-| smoke   | 10  | 10s    | pass    | 145ms | 239ms | 750ms | 769ms | 29.5 | 0      |
-| ladder  | 100 | 3m     | fail    | 719ms | 1.90s | 3.26s | 27.0s | 54.9 | 0.08%  |
-| search  | 55  | 3m     | fail    | 353ms | 1.10s | 2.48s | 28.6s | 50.0 | 0.36%  |
-| search  | 32  | 3m     | pass    | 163ms | 499ms | 879ms | 2.23s | 50.2 | 0      |
-| confirm | 32  | 5m     | fail    | 173ms | 600ms | 1.14s | 8.99s | 45.4 | 0.08%  |
-| confirm | 10  | 5m     | pass    | 146ms | 289ms | 427ms | 577ms | 18.5 | 0      |
-| confirm | 10  | 5m     | pass    | 145ms | 287ms | 416ms | 864ms | 18.5 | 0      |
-| confirm | 10  | 5m     | pass    | 161ms | 800ms | 2.86s | 19.6s | 12.8 | 0      |
-| probe   | 32  | 3m     | pass    | 166ms | 558ms | 888ms | 1.75s | 50.1 | 0      |
+| Phase   | VUs | Window | p50   | p95   | p99   | max   | rps  | errors | verdict | queries/req | wait p50 | wait p95 | query mean | query p95 | CPU (of 4) | memory (of 256Mi) |
+| ------- | --- | ------ | ----- | ----- | ----- | ----- | ---- | ------ | ------- | ----------- | -------- | -------- | ---------- | --------- | ---------- | ----------------- |
+| smoke   | 10  | 10s    | 145ms | 239ms | 750ms | 769ms | 29.5 | 0      | pass    | n/r         | n/r      | n/r      | n/r        | n/r       | n/r        | n/r               |
+| ladder  | 100 | 3m     | 719ms | 1.90s | 3.26s | 27.0s | 54.9 | 0.08%  | fail    | n/r         | 505ms    | 1.31s    | 116ms      | n/r       | 0.38       | 44%               |
+| search  | 55  | 3m     | 353ms | 1.10s | 2.48s | 28.6s | 50.0 | 0.36%  | fail    | n/r         | 170ms    | 491ms    | 112ms      | n/r       | 0.41       | 48%               |
+| search  | 32  | 3m     | 163ms | 499ms | 879ms | 2.23s | 50.2 | 0      | pass    | 2.3         | 6ms      | 45ms     | 97ms       | n/r       | 0.39       | 48%               |
+| confirm | 32  | 5m     | 173ms | 600ms | 1.14s | 8.99s | 45.4 | 0.08%  | fail    | n/r         | n/r      | n/r      | n/r        | n/r       | n/r        | n/r               |
+| confirm | 10  | 5m     | 146ms | 289ms | 427ms | 577ms | 18.5 | 0      | pass    | n/r         | n/r      | n/r      | n/r        | n/r       | n/r        | n/r               |
+| confirm | 10  | 5m     | 145ms | 287ms | 416ms | 864ms | 18.5 | 0      | pass    | n/r         | n/r      | n/r      | n/r        | n/r       | n/r        | n/r               |
+| confirm | 10  | 5m     | 161ms | 800ms | 2.86s | 19.6s | 12.8 | 0      | pass    | n/r         | n/r      | n/r      | n/r        | n/r       | n/r        | n/r               |
+| probe   | 32  | 3m     | 166ms | 558ms | 888ms | 1.75s | 50.1 | 0      | pass    | n/r         | n/r      | n/r      | n/r        | n/r       | n/r        | n/r               |
 
 Against the baseline, 100 VUs now carries 54.9 rps instead of 38.3, with p50 719ms instead of 1.17s and
 p95 1.90s instead of 3.44s. The highest level that passes moved from 10 to 32, and the first level that
@@ -385,11 +383,24 @@ The sweep above ran with the pool at 20, and at 20 the pool was the wall. Each r
 `increase` over the 3 minute measure window: mean query time times queries per second is the number of
 queries in flight, and the wait is the other half of the request.
 
-| Window (pool 20) | Mean query | Queries/s | In flight | Pool wait p50 | Pool wait p95 | CPU  | Memory |
-| ---------------- | ---------- | --------- | --------- | ------------- | ------------- | ---- | ------ |
-| 32 VUs           | 97ms       | 114       | 11.1      | 6ms           | 45ms          | 0.39 | 48%    |
-| 55 VUs           | 112ms      | 121       | 13.6      | 170ms         | 491ms         | 0.41 | 48%    |
-| 100 VUs          | 116ms      | 116       | 13.5      | 505ms         | 1.31s         | 0.38 | 44%    |
+| Pool 20           | 32 VUs | 55 VUs | 100 VUs |
+| ----------------- | ------ | ------ | ------- |
+| p50               | 163ms  | 353ms  | 719ms   |
+| p95               | 499ms  | 1.10s  | 1.90s   |
+| p99               | 879ms  | 2.48s  | 3.26s   |
+| max               | 2.23s  | 28.6s  | 27.0s   |
+| rps               | 50.2   | 50.0   | 54.9    |
+| errors            | 0      | 0.36%  | 0.08%   |
+| verdict           | pass   | fail   | fail    |
+| queries/req       | 2.3    | n/r    | n/r     |
+| wait p50          | 6ms    | 170ms  | 505ms   |
+| wait p95          | 45ms   | 491ms  | 1.31s   |
+| query mean        | 97ms   | 112ms  | 116ms   |
+| query p95         | n/r    | 276ms  | 360ms   |
+| CPU (of 4)        | 0.39   | 0.41   | 0.38    |
+| memory (of 256Mi) | 48%    | 48%    | 44%     |
+| queries/s         | 114    | 121    | 116     |
+| in flight         | 11.1   | 13.6   | 13.5    |
 
 At 32 VUs nothing waits on the pool, and the latency is the round trips: 2.3 queries per request at about
 100ms each. `/stats/analytics` is still the slowest app-owned route at 1.41s p95, then `/messages` at
@@ -412,14 +423,22 @@ Same build, same NodePort path, same workload as the optimized sweep; only the p
 and the verdict are k6's; the rest are Grafana over the measure window. The 40 VU rows predate
 `measure_start`, so their Grafana columns were aligned by hand.
 
-| Pool | VUs | Verdict       | p95    | rps  | Wait p50 | Wait p95 | Query mean | Query p95 | CPU  | Memory |
-| ---- | --- | ------------- | ------ | ---- | -------- | -------- | ---------- | --------- | ---- | ------ |
-| 20   | 55  | fail          | 1.096s | 50.0 | 170ms    | 491ms    | 112ms      | 276ms     | 0.40 | 50%    |
-| 20   | 100 | fail          | 1.90s  | 54.9 | 505ms    | 1.31s    | 116ms      | 360ms     | 0.39 | 46%    |
-| 40   | 55  | pass          | 832ms  | 70.3 | 5ms      | 10ms     | 150ms      | 451ms     | 0.54 | 52%    |
-| 40   | 100 | fail          | 1.64s  | 66.7 | 209ms    | 838ms    | 163ms      | 433ms     | 0.52 | 56%    |
-| 80   | 55  | fail (checks) | 820ms  | 71.1 | 5ms      | 10ms     | 124ms      | 336ms     | 0.59 | 64%    |
-| 80   | 100 | fail          | 1.87s  | 75.0 | 6ms      | 162ms    | 248ms      | 797ms     | 0.64 | 74%    |
+| Pool / VUs        | 20 / 55 | 20 / 100 | 40 / 55 | 40 / 100 | 80 / 55       | 80 / 100 |
+| ----------------- | ------- | -------- | ------- | -------- | ------------- | -------- |
+| p50               | 353ms   | 719ms    | 218ms   | 498ms    | 216ms         | 482ms    |
+| p95               | 1.10s   | 1.90s    | 832ms   | 1.64s    | 820ms         | 1.87s    |
+| p99               | 2.48s   | 3.26s    | 1.62s   | 3.43s    | 1.71s         | 4.30s    |
+| max               | 28.6s   | 27.0s    | 3.62s   | 59.0s    | 3.87s         | 8.15s    |
+| rps               | 50.0    | 54.9     | 70.3    | 66.7     | 71.1          | 75.0     |
+| errors            | 0.36%   | 0.08%    | 0       | 0.16%    | 0.008%        | 0        |
+| verdict           | fail    | fail     | pass    | fail     | fail (checks) | fail     |
+| queries/req       | n/r     | n/r      | n/r     | n/r      | n/r           | n/r      |
+| wait p50          | 170ms   | 505ms    | 5ms     | 209ms    | 5ms           | 6ms      |
+| wait p95          | 491ms   | 1.31s    | 10ms    | 838ms    | 10ms          | 162ms    |
+| query mean        | 112ms   | 116ms    | 150ms   | 163ms    | 124ms         | 248ms    |
+| query p95         | 276ms   | 360ms    | 451ms   | 433ms    | 336ms         | 797ms    |
+| CPU (of 4)        | 0.40    | 0.39     | 0.54    | 0.52     | 0.59          | 0.64     |
+| memory (of 256Mi) | 50%     | 46%      | 52%     | 56%      | 64%           | 74%      |
 
 Raising the pool was the largest single move after the six changes: 40 turned 55 VUs from a failure into
 a pass and cut the wait at 100 VUs from 505ms to 209ms. At 80 the wait all but disappears at 100 VUs,
@@ -546,18 +565,22 @@ I closed both window edges of the harness before this run, so these rows carry n
 trailing iteration inside the window's first seconds nor the requests issued after the window closed. The
 rows they are compared against carry both.
 
-| At 100 VUs          | Pre-batching, pool 40 | Batched build |
-| ------------------- | --------------------- | ------------- |
-| p50                 | not recorded          | 494ms         |
-| p95                 | 1.64s                 | 1.87s         |
-| p99                 | 3.43s                 | 3.78s         |
-| rps                 | 66.7                  | 62.8          |
-| pool wait p50 / p95 | 209ms / 838ms         | 123ms / 570ms |
-| query mean / p95    | 163ms / 433ms         | 150ms / 462ms |
-| CPU                 | 0.52 of 4             | 0.47 of 4     |
-| memory              | 56% of 256Mi          | 62%           |
-| error rate          | 0.16%                 | 0             |
-| verdict             | fail (p95, checks)    | fail (p95)    |
+| At 100 VUs        | Pre-batching, pool 40 | Batched build | Round-trip build |
+| ----------------- | --------------------- | ------------- | ---------------- |
+| p50               | 498ms                 | 494ms         | 586ms            |
+| p95               | 1.64s                 | 1.87s         | 1.76s            |
+| p99               | 3.43s                 | 3.78s         | 3.04s            |
+| max               | 59.0s                 | 6.45s         | 4.17s            |
+| rps               | 66.7                  | 62.8          | 68.5             |
+| errors            | 0.16%                 | 0             | 0                |
+| verdict           | fail (p95, checks)    | fail (p95)    | fail (p95)       |
+| queries/req       | n/r                   | 2.43          | 1.89             |
+| wait p50          | 209ms                 | 123ms         | 180ms            |
+| wait p95          | 838ms                 | 570ms         | 742ms            |
+| query mean        | 163ms                 | 150ms         | 212ms            |
+| query p95         | 433ms                 | 462ms         | 649ms            |
+| CPU (of 4)        | 0.52                  | 0.47          | 0.59             |
+| memory (of 256Mi) | 56%                   | 62%           | 65%              |
 
 The question was whether a build that spends a turn in one upsert, answers the dashboard in one request
 and one statement, and starts two reads beside the work they sit with carries more virtual users than the
