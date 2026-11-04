@@ -1,16 +1,14 @@
 # SRE
 
-A minimal SRE path for collecting metrics and benchmarking the application under load, by generating randomized structured requests with k6.
-
-Benchmarking here means measuring the app against a stated bar, not guessing from a dashboard.
+A minimal SRE learning/iterative artifact for collecting metrics and benchmarking the application under load, by generating randomized structured requests with k6.
 
 Inspired by Arjay McCandless's $12 VPS load testing videos, known for detailed, informative takes on system design.
 
-The specification comes first, and the runs follow it in the order they happened.
-
 ## The question
 
-At what load does the prod deployment stop behaving acceptably, and which resource runs out first?
+So first here were my question at the time when this idea went through my head.
+
+First, How do I even benchmark an application. Second, What is the methodology of this kind of experiment. And third, How much traffic can my pi can handle under simulater user workload.
 
 ## SLO
 
@@ -23,9 +21,9 @@ At what load does the prod deployment stop behaving acceptably, and which resour
 | error rate  | <1%            |
 | correctness | check pass     |
 
-I set the pass bar for this architecture but you could use whatever you want. Since latency can depends on the language and framework the app uses, and that matters when you compare runs. You could notcompare a backend using Rust to a backend using something like NodeJS.
+I set the pass bar for this architecture but you could use whatever you want. Since latency can depend on the language and framework the app uses, and that matters when you compare runs. You could not compare a backend using Rust to a backend using something like NodeJS.
 
-Im not really an SRE or I don't even have professional experience even so keep that in mind for our session and I cannot confirm what I'm doing is even right even for my SLO and my methodology.
+Im not really an SRE or I don't even have professional experience even so keep that in mind for our session and I cannot confirm what I'm doing is even right even for my specs and my methodology and I present this as documentation as my learning process with verified metrics and numbers.
 
 ## Architecture
 
@@ -38,9 +36,9 @@ Capacity path, as run
   pod -> Alloy (in-cluster) -> Grafana Cloud
 ```
 
-## Pipeline flow
+## k6 flow
 
-One sweep, perf window open to boundary. Each measure box writes one CSV row per run, tagged with its phase.
+One test sweep. Each measurements writes box on one CSV row per sweep so we can fully record our numbers. Now in a bit, I'm gonna be explaining in more detail what these mean and how they interact this becomes really important specially if you wanna develop a mental model to actually understand systems.
 
 ```
 gitops overlay opens the perf window    NodePort 30090 on the backend Service
@@ -90,6 +88,17 @@ gates                  SLO
 | CPU        | Four Cortex-A76 cores              |
 | Deployment | k3s, single replica, no autoscaler |
 
+### Perf window (The overlays)
+
+| Change                                    | Value        |
+| ----------------------------------------- | ------------ |
+| `LLM_BASE_URL`                            | unset (stub) |
+| `RATE_LIMIT`                              | `off`        |
+| `CLERK_ENABLED`                           | `false`      |
+| `APP_ENV`                                 | `test`       |
+| `nginx.ingress.kubernetes.io/limit-rps`   | `1000000`    |
+| `nginx.ingress.kubernetes.io/limit-burst` | `1000000`    |
+
 ### Deploy
 
 | Setting          | Value                                         |
@@ -100,19 +109,11 @@ gates                  SLO
 | telemetry        | OTLP to the in-cluster Alloy receiver         |
 | database         | Neon direct host, not `-pooler`, TLS required |
 
-The overlay itself lives in the gitops repo, so those values are read from there and not from this file.
+I use k3s(a smaller k8s) because I deploy my websites on my cluster. because I prefer it on my deployment pipeline since for me has a cleaner git commit push model pipeline with rollbacks rather than doing something like a webhook on docker so personally it's cleaner, but you could use whatever like docker compose or using the machine host to run which has less overhead since you arent paying the tax of much complex software to run on.
 
-### The app's own limits
+Now I change values on the cluster directly using a Kustomize overlay over the base yml file so it's pretty easy to switch on and off kinda like a light switch. The overlay itself lives in the gitops repo, so those values are read from there and git reconcile with ArgoCD when I push an image using my CI/CD pipeline that I already set up.
 
-These bound what one client can do, so they set the roof on the loop.
-
-| Limit                    | Value                                                         |
-| ------------------------ | ------------------------------------------------------------- |
-| DB pool                  | `DB_POOL_MAX`, `min_size=0`                                   |
-| app rate limit           | 120/minute per client IP by default, `off` in the perf window |
-| templates                | 20, a module constant                                         |
-| resume parse concurrency | 2                                                             |
-| feedback attempts        | 3 attempts, 800ms apart                                       |
+This type of deployment is not what you should do especially if you have users on your prod machine. Instead what I would do is to spin up another replica with namespace/node/cluster of it or maybe just host your application your testing on another machine. Some of you guys are already raising your eyebrows: “Uhh, why are you testing it on prod?” Dude, I know that’s not best practice. I’m only doing this because my so-called “prod” website doesn’t really have any users to begin with, and I can afford to have my little experiment run on the prod pod directly.
 
 ## Tools
 
@@ -139,97 +140,69 @@ These bound what one client can do, so they set the roof on the loop.
 | Harness               | `~/k6-load-testing`: `main.js` the workload, `sweep.py` the ladder and the cleanup |
 | Database              | Neon, prod's default branch, direct host                                           |
 
-## Perf window
+At first I considered running this test on a PVC Postgres pod in my K3s cluster. It is not directly equivalent to production: the round-trip latency from my backend to Neon's servers disappears, though that is not significant at my scale. I was worried the Neon free tier would block me because I ran out of compute. I did the numbers, and the free tier is generous enough for this test without hitting storage or compute caps. The sweep runs against prod's default branch, so it spends prod's own budget and the test rows stay in a throwaway database on that branch, not in prod’s application data. The cleanup between levels keeps that bounded, though it’s best-effort. It uses scale-to-zero so we don't pay for compute when the application is not used. That has tradeoffs like cold starts, but at this scale I decided to leave it alone, since we warm the Neon database anyway. It's also good to mention neon branching which I decided to leave, A branch IS a different machine. Cold start, different compute size, copy-on-write storage. If the goal is to measure how prod behaves, running against prod's actual compute is arguably MORE representative than running against a fresh branch(but that might be reach honestly). The cost/complexity of a Secret swap and a second compute is real overhead for a test that runs occasionally. Every VU is one identity either way. More Complex Wiring. Prod has no users so nothing to isolate(albeit its a fragile reason that makes this a lazy reason)
 
-| Change                                    | Value        |
-| ----------------------------------------- | ------------ |
-| `LLM_BASE_URL`                            | unset (stub) |
-| `RATE_LIMIT`                              | `off`        |
-| `CLERK_ENABLED`                           | `false`      |
-| `APP_ENV`                                 | `test`       |
-| `nginx.ingress.kubernetes.io/limit-rps`   | `1000000`    |
-| `nginx.ingress.kubernetes.io/limit-burst` | `1000000`    |
-
-It is simple: change the values, commit the perf overlay, see the sync land in Argo CD, confirm the pod was replaced with kubectl or the GUI, and read its env to watch the perf values go live before any load. Overlays override Infisical values like `LLM_BASE_URL`.
+For routing k6 to my app, I used Tailscale to connect them. For anyone who doesnt know, Tailscale is a way to securely have a tunnel or a VPN you frequently see this among homelabbers because it's a mesh VPN. now this Tailscale tunnel exists because of CGNAT because I couldn't forward traffic using an IP address so I use Tailscale to essentially bridge that gap safely, and I was thinking Cloudflare on my first option of this architecture but upon research, Cloudflare's bot protection on Free would prolly block me. That's because when I hit my domain endpoint with alot of traffic in a sudden spike which of Cloudflare will detect it's probably someone DDOSing me. The only lever is an IP Access rule, and any IP Access rule disables BFM zone-wide, not just for the runner. So I simplified the architecture and used Tailscale plus a k3s NodePort so the service is reachable on a node port over the tailnet to connect the load machine and the application machine. Cloudflare could measure production-like latency, but the plan was about SRE principles rather than what real users feel so that's a probably a separate discussion for now.
 
 ## What each VU does
 
-| Operation                                        | Type         | When          | Count     |
-| ------------------------------------------------ | ------------ | ------------- | --------- |
-| Interview row read + attached resume             | Read         | Every turn    | 1         |
-| Transcript read                                  | Read         | Every turn    | 1         |
-| User message insert                              | Write        | Every turn    | 1         |
-| Turn credit read + upsert                        | Read + write | Every turn    | 1         |
-| Assistant reply insert                           | Write        | Every turn    | 1         |
-| Trailing-user-turn repair: delete the stale turn | Write        | Sometimes     | 0 or 1    |
-| Interview insert                                 | Write        | Run start     | 1 per run |
-| Interview status update                          | Write        | Start, finish | 2 per run |
-| Feedback transcript + dials read                 | Read         | Run end       | 2 per run |
-| Feedback upsert                                  | Write        | Run end       | 1 per run |
+| Request                                                                        |
+| ------------------------------------------------------------------------------ |
+| `POST /interviews`                                                             |
+| `POST /interviews/{id}/start`                                                  |
+| `POST /interviews/{id}/chat/kickoff`                                           |
+| `POST /interviews/{id}/chat/stream`                                            |
+| `POST /interviews/{id}/finish`                                                 |
+| `GET /interviews/{id}/feedback`                                                |
+| `GET /interviews/{id}/messages`                                                |
+| `GET /interviews`, `/stats/dimensions`, `/stats/analytics`, `/stats/dashboard` |
+| `GET /usage`, `/templates`, `/resumes`, `/settings/llm`, `/voice`              |
+| `GET /interviews/{id}/offer`                                                   |
+| `POST` and `DELETE /interviews/{id}/archive`                                   |
+| `POST /resumes`, `POST /templates`, each deleted in the same run               |
+| `POST /client-errors`                                                          |
 
-| Request                                                                        | Run stage     |
-| ------------------------------------------------------------------------------ | ------------- |
-| `POST /interviews`                                                             | Run start     |
-| `POST /interviews/{id}/start`                                                  | Run start     |
-| `POST /interviews/{id}/chat/kickoff`                                           | Opener        |
-| `POST /interviews/{id}/chat/stream`                                            | Every turn    |
-| `POST /interviews/{id}/finish`                                                 | Run end       |
-| `GET /interviews/{id}/feedback`                                                | Run end       |
-| `GET /interviews/{id}/messages`                                                | Run end       |
-| `GET /interviews`, `/stats/dimensions`, `/stats/analytics`, `/stats/dashboard` | After the run |
-| `GET /usage`, `/templates`, `/resumes`, `/settings/llm`, `/voice`              | After the run |
-| `GET /interviews/{id}/offer`                                                   | After the run |
-| `POST` and `DELETE /interviews/{id}/archive`                                   | After the run |
-| `POST /resumes`, `POST /templates`, each deleted in the same run               | After the run |
-| `POST /client-errors`                                                          | After the run |
+I want to walk through one virtual user, because otherwise I keep saying "it makes twenty-eight requests" and "the pool is the wall", and neither is obvious from the outside.
 
-The mix, measured over the 55 VU window of the pool-80 run: 13,635 requests and 31,572 queries in three
-minutes, 2.3 queries per request and about 27 requests per iteration.
+A virtual user is one person doing one whole interview, plus everything else a signed-in person can reach. The bytes arrive over Tailscale at the NodePort on 30090. No Nginx, no Cloudflare, no tunnel: the request lands on the pod's socket directly. The app is one Uvicorn process, so every other virtual user's request is interleaved in the same event loop while this one waits.
 
-| Sent           | Count  | Share |
-| -------------- | ------ | ----- |
-| GET request    | 6,230  | 46%   |
-| POST request   | 5,884  | 43%   |
-| DELETE request | 1,521  | 11%   |
-| SELECT         | 17,210 | 55%   |
-| INSERT         | 9,269  | 29%   |
-| UPDATE         | 2,527  | 8%    |
-| DELETE query   | 1,008  | 3%    |
-| WITH           | 1,558  | 5%    |
+It starts with a create. POST /api/interviews with a role, a topic, a level and the dials. Nothing is authenticated in the perf window, so there is no token to verify and no Clerk round trip. The identity is a fixed subject that every virtual user shares. The handler inserts one row and hands back the interview, its id, and the arc it will follow, nineteen questions for a standard run.
 
-`WITH` is the first keyword of both the interview insert and the stats aggregates, so it is not cleanly
-one side: SELECT is the read side, INSERT, UPDATE and DELETE the write side.
+Then start. One update, to in_progress, because every chat route refuses a run that is not in progress. Then the opener: chat/kickoff, which comes back as a stream. On the server that call reads the
+interview, the resume attached to it and the whole transcript in one statement, then asks for a reply and stores it. In the perf window that reply is the stub: it echoes the answer back word by word, with no network and nothing billed. The client reads the frames, checks that the last one is done, and keeps the text.
 
-Every virtual user is the same identity and they all share one account. One identity is the first cut
-because it is one candidate moving through the app, and the cleanup has one owner to delete. A real
-deployment is many people at once, so the next architecture will give different VUs different identities, measured separately as well.
-That also changes two things: each owner's history stays small instead of growing with the whole perf window, and the cleanup has to delete a set of owners. It puts authentication back in the measured path too, since one `DEV_USER_SUB` is what makes the shared account possible.
+Now the turns. Two to eight of them, drawn at random, with one to three seconds of think time between each so the shape looks like a person typing rather than a loop. Each turn is the same chat/stream with a few hundred characters of answer. On the server that is three statements: read the interview and transcript again in one, spend the credit and store the message in one, store the reply once the stub has echoed it back. Four in production, where the tier lookup is not skipped. The transcript is re-read every turn and grows every turn, which is why the same route costs more at turn six than at turn one.
+
+Then finish. That one request does the most work in the run: it flips the status and runs the whole feedback pipeline inside the request, which the harness counts at eleven statements. The grading is the stub too, so what that request costs is the statements and not the model. It is not a background job, and the virtual user waits for it.
+
+After that the run is read back, feedback then transcript, and then the surface, the part people forget: the interview list, the stats, usage, templates, resumes, settings, the offer, an archive toggle and back, a resume created and deleted, a template created and deleted, and one browser error beacon. None of it is the interview, and all of it is in the loop.
+
+Twenty-eight requests, one interview, about twenty seconds. At a hundred virtual users that is sixty-something requests a second and about a hundred and twenty-five queries a second, all handed out through different optimization recorded. Every optimisation in this record is one of those steps getting cheaper.
+
+| HTTP                 | Count | Share |
+| -------------------- | ----- | ----- |
+| read (GET)           | 6,230 | 46%   |
+| write (POST, DELETE) | 7,405 | 54%   |
+
+| SQL                            | Count  | Share |
+| ------------------------------ | ------ | ----- |
+| read (SELECT)                  | 17,210 | 55%   |
+| write (INSERT, UPDATE, DELETE) | 12,804 | 41%   |
+| either (WITH)                  | 1,558  | 5%    |
+
+Every virtual user is the same identity and they all share one account. One identity is the first cut because it is one candidate moving through the app, and the cleanup has one owner to delete. It is very different from a real deployment which uses accounts as users and many people with different at once, so the next architecture will give different VUs different identities, measured separately as well.
 
 The number of turns per VU is randomized but follows the run's own plan, with a think time to simulate a real user so we just don't have like a predictable robot and instead want as close to prod.
 
-Exclusions, for different reasons.
-
-NvidiaNIM (LLM output) and Cloudflare Workers AI (voice) are out. These vendors use credit and would only limit the workload, which is why NvidiaNIM is stubbed and Cloudflare Workers AI is off. They are outside generation: vendors that could fail the experiment on free-tier and rate limits.
-
-For edge tunneling, the tunnel exists because of CGNAT, and Cloudflare's bot protection on Free cannot be skipped: the only lever is an IP Access rule, and any IP Access rule disables BFM zone-wide, not just for the runner. So I simplified the architecture and used Tailscale to connect the load machine and the application machine. Cloudflare could measure production-like latency, but the plan was about SRE principles rather than what real users feel.
-
-And Some Endpoints excluded because it has a LLM generation endpoint that would swing latency.
-
-## Neon
-
-At first I considered running this test on a PVC Postgres pod in my K3s cluster. It is not directly equivalent to production: the round-trip latency from my backend to Neon's servers disappears, though that is not significant at my scale. I was worried the Neon free tier would block the request volume. I did the numbers, and the free tier is generous enough for this test without hitting storage or compute caps.
-
-The sweep runs against prod's default branch, so it spends prod's own budget and its rows land in prod's data. The cleanup between levels is what keeps that bounded instead of accumulating.
-
-It uses scale-to-zero so we don't pay for compute when the application is not used. That has tradeoffs like cold starts, but at this scale I decided to leave it alone, since we warm the Neon database anyway.
+I already setup where endpoints are not carrying model generation and fit for stub design. This includes NvidiaNIM (LLM output) and Cloudflare Workers AI (voice). These vendors use credit and would only limit the workload, which is why NvidiaNIM is stubbed and Cloudflare Workers AI is off. They are outside generation: vendors that could fail the experiment on free-tier, hit rate limits, and also swing latency on our experiment if a model takes too long to generate an ouput.
 
 ## What the reads cost
 
 I already know there are already visible gaps in my application, example so some GET request that has no limit on rows keeps growing re-scans the full history.
 
-Well obviously Pagination with something like LIMIT and OFFSET but for sake for data I was really curious on what those optimization looked like and so I left it out first so we could get a baseline data. I was also thinking about Redis but I decided to leave to out as our last optimization because first and foremost I don't need coupling to any other optimization strategy since a some are a minimal change to the query itself, and some needs a change the architecture itself to run, so it comes last anything else is added or measured.
+Well obviously Pagination with something like LIMIT and OFFSET(and also keyset) but for sake for data I was really curious on what those optimization looked like and so I left it out first so we could get a baseline data. I was also thinking about Redis since my endpoint will have hit cache on the reads but I decided to leave to out as our last optimization because first and foremost I don't need coupling to any other optimization strategy since a some are a minimal change to the query or request itself, and some needs a change on the architecture or add a dependency to work, so Redis comes last anything else is added or measured.
 
-now Redis stays out, solely kit is a different tier, a second compute and a cache to invalidate, and I don't a solution to everything is caching, like no we could optimize first.
+now Redis stays out, not because I'm avoiding it but because solely kit is a different tier, a second compute and a cache to invalidate, and I'm really trying to avoid that instinct when something is slow is the solution is to add a cache. No no no, don't a solution the cache to everything, like bro we could optimize first on the code.
 
 ## Between levels
 
@@ -267,53 +240,32 @@ Confirm the highest passing level by re-running it 3 times, each measured for 5 
 
 ## The first run
 
-The table below is the application before any optimisation, with the pool at 10 and the NodePort path,
-read from `results/sweep-*.csv`. Latency, rps and errors come from the harness; CPU, memory, pool wait,
-the per-route and the per-query numbers are Grafana readings over the same windows. The laptop row is
-docker compose against the stub; the rest are the prod pod, which is read from those latencies because
-the harness records no target. `max` is the measure window's max latency: k6's summary does not export p(99) for these runs, so
-the harness recorded the max while the gate evaluated a real p99 inside k6. The harness exports p(99)
-now, so every sweep after the baseline carries both.
+The table below is the application before any optimisation, with the pool at 10 and the NodePort path, read from `results/sweep-*.csv`. Latency, rps and errors come from the harness; CPU, memory, pool wait, the per-route and the per-query numbers are Grafana readings over the same windows. The laptop row is docker compose against the stub; the rest are the prod pod, which is read from those latencies because the harness records no target. `max` is the measure window's max latency: k6's summary does not export p(99) for these runs, so the harness recorded the max while the gate evaluated a real p99 inside k6. The harness exports p(99) now, so every sweep after the baseline carries both.
 
-| Pod          | Phase   | VUs | Window | p50   | p95    | p99 | max   | rps  | errors | verdict | queries/req | wait p50 | wait p95 | query mean | query p95 | CPU (of 4) | memory (of 256Mi) |
-| ------------ | ------- | --- | ------ | ----- | ------ | --- | ----- | ---- | ------ | ------- | ----------- | -------- | -------- | ---------- | --------- | ---------- | ----------------- |
-| laptop, stub | only    | 10  | 10s    | 2.4ms | 11.6ms | n/r | 288ms | 54.0 | 0      | pass    | n/r         | n/r      | n/r      | n/r        | n/r       | n/r        | n/r               |
-| prod         | only    | 10  | 10s    | 155ms | 705ms  | n/r | 933ms | 25.6 | 0      | pass    | n/r         | n/r      | n/r      | n/r        | n/r       | n/r        | n/r               |
-| prod         | ladder  | 100 | 3m     | 1.17s | 3.44s  | n/r | 8.54s | 38.3 | 0      | fail    | n/r         | 940ms    | 2.40s    | n/r        | n/r       | 0.27       | 52%               |
-| prod         | ladder  | 10  | 3m     | 155ms | 654ms  | n/r | 2.80s | 16.7 | 0      | pass    | n/r         | n/r      | n/r      | n/r        | n/r       | n/r        | n/r               |
-| prod         | ladder  | 20  | 3m     | 205ms | 1.25s  | n/r | 17.6s | 21.6 | 0      | fail    | n/r         | 35ms     | n/r      | n/r        | n/r       | 0.21       | 39%               |
-| prod         | confirm | 10  | 5m     | 149ms | 587ms  | n/r | 3.00s | 16.9 | 0      | pass    | n/r         | n/r      | n/r      | n/r        | n/r       | n/r        | n/r               |
-| prod         | confirm | 10  | 5m     | 149ms | 569ms  | n/r | 1.38s | 16.7 | 0      | pass    | n/r         | n/r      | n/r      | n/r        | n/r       | n/r        | n/r               |
-| prod         | confirm | 10  | 5m     | 147ms | 496ms  | n/r | 2.01s | 17.4 | 0      | pass    | n/r         | n/r      | n/r      | n/r        | n/r       | n/r        | n/r               |
+| Pod    | Phase   | VUs | Window | p50   | p95    | p99 | max   | rps  | errors | verdict | queries/req | wait p50 | wait p95 | query mean | query p95 | CPU (of 4) | memory (256Mi) |
+| ------ | ------- | --- | ------ | ----- | ------ | --- | ----- | ---- | ------ | ------- | ----------- | -------- | -------- | ---------- | --------- | ---------- | -------------- |
+| laptop | only    | 10  | 10s    | 2.4ms | 11.6ms | n/r | 288ms | 54.0 | 0      | pass    | n/r         | n/r      | n/r      | n/r        | n/r       | n/r        | n/r            |
+| laptop | only    | 100 | 3m     | n/r   | n/r    | n/r | n/r   | n/r  | n/r    | pass    | n/r         | n/r      | n/r      | n/r        | n/r       | n/r        | n/r            |
+| prod   | only    | 10  | 10s    | 155ms | 705ms  | n/r | 933ms | 25.6 | 0      | pass    | n/r         | n/r      | n/r      | n/r        | n/r       | n/r        | n/r            |
+| prod   | ladder  | 100 | 3m     | 1.17s | 3.44s  | n/r | 8.54s | 38.3 | 0      | fail    | n/r         | 940ms    | 2.40s    | n/r        | n/r       | 0.27       | 52%            |
+| prod   | ladder  | 10  | 3m     | 155ms | 654ms  | n/r | 2.80s | 16.7 | 0      | pass    | n/r         | n/r      | n/r      | n/r        | n/r       | n/r        | n/r            |
+| prod   | ladder  | 20  | 3m     | 205ms | 1.25s  | n/r | 17.6s | 21.6 | 0      | fail    | n/r         | 35ms     | n/r      | n/r        | n/r       | 0.21       | 39%            |
+| prod   | confirm | 10  | 5m     | 149ms | 587ms  | n/r | 3.00s | 16.9 | 0      | pass    | n/r         | n/r      | n/r      | n/r        | n/r       | n/r        | n/r            |
+| prod   | confirm | 10  | 5m     | 149ms | 569ms  | n/r | 1.38s | 16.7 | 0      | pass    | n/r         | n/r      | n/r      | n/r        | n/r       | n/r        | n/r            |
+| prod   | confirm | 10  | 5m     | 147ms | 496ms  | n/r | 2.01s | 17.4 | 0      | pass    | n/r         | n/r      | n/r      | n/r        | n/r       | n/r        | n/r            |
 
-Ten to twenty VUs raises throughput 29% and doubles p95, so that is the knee.
+Now you might see alot of n/r, it's because my first k6 harness didn't record it, but overtime I have fixed this and filled these up like the missing p99. That's the beauty of the this journey and learning new things and which I have a baseline to compare to on what I am doing.
 
-Nothing is saturated at 20 VUs: 0.21 of 4 cores, 100Mi of 256Mi, pool wait p50 35ms. The gate fails on
-the slow end: `/stats/analytics` 4.8s p95, `/templates` 3.8s, `/usage` 2.9s, about one request in nine. No
-query passed 425ms at p95 or 2.12s at p99, so the slow end is sequential round trips stacking, not one slow
-statement.
+So anyways as you can see in the table, I actually ran the same workload on the laptop first, docker compose with the stub model, and it passed at 100 VUs. So I went into the prod run expecting the number to be somewhere in the hundreds, and it failed on the first level instead: p95 3.44s and a max of 8.54s at 100 VUs, and an error rate of zero.
 
-At 100 VUs the shape changes: p50 1.17s, of which 0.94s is pool wait, and pool wait p95 is 2.4s against
-3.44s end to end. CPU stays at 0.27 cores.
+The part that surprised me is that the machine was pretty much idle while it failed, 0.27 of 4 cores and 134Mi of 256Mi. Nothing was out of CPU or memory, so there must be another problem I have to find.
 
-## What I did not expect
-
-I actually ran the same workload on the laptop first, docker compose with the stub model, and it passed
-at 100 VUs. So I went into the prod run expecting the number to be somewhere in the hundreds, and it
-failed on the first level instead: p95 3.44s and a max of 8.54s at 100 VUs, and an error rate of zero.
-The part that surprised me is that the machine was pretty much idle while it failed, 0.27 of 4 cores
-and 134Mi of 256Mi. Nothing was out of CPU or memory, so there must be another problem I have to find.
-
-I skipped the manual smoke that time and went straight to the ladder, which turned a sixteen second
-check into a five minute failed level.
-
-And with that, from here on out we smoke 10 VUs first, so we catch what's wrong before the 100 VU ladder starts.
+I skipped the manual smoke that time and went straight to the ladder, which turned a sixteen second check into a five minute failed level. And with that, from here on out we smoke 10 VUs first, so we catch what's wrong before the 100 VU ladder starts.
 
 At 100 VUs the pool was my watch: p50 1.17s, and 0.94s of that was wait for a connection that was not doing anything yet. That is where I got worried.
 
 So I dropped to 10 VUs, expecting to find something wrong with the k6 harness. It passed, so the harness was clean and the application was the problem. The 100 VU run
-had already finished 348 iterations with every check passing, which I did not read that way at the time.
-The next level up failed at 20 VUs with a max of 17.6s.
+had already finished 348 iterations with every check passing, which I did not read that way at the time. The next level up failed at 20 VUs with a max of 17.6s.
 
 The run also showed two things that are not latency numbers. The endpoint read every run the owner had,
 with no limit, and the account grew inside every window: 159 rows at 10 VUs, 241 at 20, 415 at 100.
@@ -334,9 +286,7 @@ Six changes, all of them on round trips, read size or the pool rather than on th
 | `/usage`           | two checkouts in the window, three to four in prod | one                                              |
 | `GET /interviews`  | every run the owner had                            | 50 per page, archived filtered in the query      |
 | Home counters      | derived in the browser from that full endpoint     | one statement over the full history              |
-| pool               | 10                                                 | `DB_POOL_MAX`, 20 then 40                        |
-
-## The optimized sweep
+| pool               | 10                                                 | 20                                               |
 
 Same workload, same target, the image with the six changes and the analytics fix, pool 20, over the
 NodePort. The smoke passed at a 239ms p95, the ladder failed at its first level, and the search put the
@@ -386,25 +336,15 @@ queries in flight, and the wait is the other half of the request.
 | in flight         | 11.1   | 13.6   | 13.5    |
 
 At 32 VUs nothing waits on the pool, and the latency is the round trips: 2.3 queries per request at about
-100ms each. `/stats/analytics` is still the slowest app-owned route at 1.41s p95, then `/messages` at
-0.7s. The rest of the slow end is model routes, which the gate excludes but the pool still serves.
+100ms each. `/stats/analytics` is still the slowest app-owned route at 1.41s p95.
 
-At 55 VUs every route multiplies: analytics 1.41s to 7.75s, messages 0.7s to 5.08s, finish 3.46s to
-14.2s. That is the pool of 20 running out, not the app work changing. At 100 VUs the wait is most of the
-request: 505ms of a 719ms p50, and 1.31s of a 1.90s p95. The mean query stays flat, 97 to 116ms across
-the three windows, so the database's service time is not what changes; the wait is, from 6ms to 505ms at
-p50. The pool gauge reads 20 held and 0 idle, but it is emitted on each acquire, so it samples the pool at
-the moment a request asks for a connection. The time average is 13.5 queries in flight, and the queue
-still forms because a request's two or three queries arrive in a burst.
+At 55 VUs every route multiplies: analytics 1.41s to 7.75s, messages 0.7s to 5.08s. That is the pool of 20 running out, not the app work changing. At 100 VUs the wait is most of the request: 505ms of a 719ms p50, and 1.31s of a 1.90s p95. The mean query stays flat, 97 to 116ms across
 
-CPU stays near a tenth of the four cores and memory near half of 256Mi in all three windows, so neither
-is the ceiling.
+CPU stays near a tenth of the four cores and memory near half of 256Mi in all three windows, so neither is the ceiling.
 
 ## The pool probes
 
-Same build, same NodePort path, same workload as the optimized sweep; only the pool changed. `p95`, `rps`
-and the verdict are k6's; the rest are Grafana over the measure window. The 40 VU rows predate
-`measure_start`, so their Grafana columns were aligned by hand.
+So I was wondering why I had 1.31s just for waiting a pool queue at p95 at 100 VUs, and I figured why not increase the pool size to maybe lessen the waiting of the pool and here are the results.
 
 | Pool / VUs        | 20 / 55 | 20 / 100 | 40 / 55 | 40 / 100 | 80 / 55       | 80 / 100 |
 | ----------------- | ------- | -------- | ------- | -------- | ------------- | -------- |
@@ -433,47 +373,9 @@ That is why 80 is flat at p50 and slower at p95: no one waits for a connection, 
 against a busier Neon. A request that pays two or three queries at the p95 lands near two seconds with no
 queue at all.
 
-So 40 ships. The extra 40 connections bought 12% more rps (66.7 to 75.0), a worse swing, and about 50MB less
-headroom on a single replica with no autoscaler. The pod's memory is what caps the pool, and Neon's
-compute is what inflates as the pool grows.
+And so I shipped 40 as my pool size.
 
-The options left are Neon's compute size, the query count on the chat turn, and the analytics history
-scan that survives the one-statement rewrite. The pool is not one of them at 100 VUs any more.
-
-Pool capacity is connections over mean query time: at 100 VUs, 20 gives 172 queries a second, 40 gives
-245, 80 gives 323. The pool keeps adding capacity, but each doubling also raises the query mean there,
-116 to 163 to 248ms, so the gain shrinks to 43% and then 32%, and the swing and the memory pay for it.
-
-At 55 VUs the extra connections have nothing to remove: 80 gives p95 820ms against 832ms at 40, rps 71.1
-against 70.3, and memory 64% against 52%. The wait is already 5ms at 40, so the pool is not the
-constraint there. That run's checks gate failed on one broken opener in 759 iterations, the same
-transport flake as the 32 VU confirmation, not on latency.
-
-A warm `SELECT 1` from inside the pod is 37ms at the median, and a first-row read is the same. The mean
-query is 97ms at 32 VUs and 248ms at 100 with 80 connections, so the inflation is the database's own
-service time under concurrency, not the round trip. Co-location could save the 37ms floor; it
-cannot save the inflation.
-
-55 VUs is the SLO boundary, not the product ceiling. The app keeps serving past it: at 100 VUs the error
-rate stays under 1% and p99 is inside its gate, while p95 and the checks gate fail, the checks gate on 14
-of 795 iterations that lost an answer stream.
-
-| Level            | p95   | p99   | rps  | error | Gate        |
-| ---------------- | ----- | ----- | ---- | ----- | ----------- |
-| 55 VUs, pool 40  | 832ms | 1.62s | 70.3 | 0     | pass        |
-| 100 VUs, pool 40 | 1.64s | 3.43s | 66.7 | 0.16% | p95, checks |
-
-A VU is a whole interview compressed into about 21 seconds, so the capacity number is 70 requests a
-second, not 55 real people.
-
-## Dropped streams
-
-Some windows lose a few chat streams: 56 in 7,794 iterations, 0.72%, but clustered, 29 in one 55 VU
-window and 0 in another at the same level, so it does not follow VUs or pool. The failed requests left no
-app log line when they were checked, so the drop is most likely on the sweep path (laptop, Tailscale,
-NodePort), which production does not use. The checks gate is binary, so one drop can fail a level: it is
-why 10 is the only confirmed level while 32 and 55 are single windows, and why 55 VUs at pool 80 reads
-`fail (checks)` at an 820ms p95.
+So currently 55 VUs is the SLO boundary, not the actual ceiling of the application or machine. The app keeps serving past it because machines don't care about your gates it will always still serve request.
 
 ## Result
 
@@ -488,18 +390,6 @@ The boundary after each change, in the order the runs happened:
 
 Only 10 VUs passed the plan's three 5 minute confirmation. Everything above it is one window.
 
-## Next
-
-Count `status == 0` per route in the CSV, then either keep the binary gate and accept the noise or gate correctness at a rate; an edge-path smoke separates the rig from the app.
-
-The same sweep over the cloudflared path into the ingress, no NodePort(since NodePort bypass cloudflared and ingress)
-so the edge is in the number too. It will not be comparable to these numbers, because Cloudflare and the tunnel are in that path;
-it answers what the edge costs, not where the app breaks.
-
-The full sweep is paused: Neon's compute is at about 90% of its limit. The 55 VU pool-80 probe ran after
-that, because it was one three minute window; the edge path and any full sweep wait for the budget.
-I will keep expanding this dataset and run the same experiment against different architectures.
-
 ## Batching
 
 To help me simplify what I used for optimizing request and queries. I made me my own understanding of four layers of batching techniques. And They sit at different points between the client and the database helping me find the bottleneck may be and give me a comparsion what I could be missing.
@@ -510,7 +400,7 @@ Aggregate Queries means one statement where several reads used to run. Think of 
 
 Bulk Write means one statement where several writes used to run. Think of one statement that spends the turn credit and stores the message, instead of one statement each. Used for the chat turn.
 
-Group Commits means several database writes grouped into one round trip or transaction. Think of one transaction for several writes instead of one commit per write. I didn't use this fourth layer here. It's often handled manually in SQLite, whereas Postgres handles transaction logging automatically via the WAL, with group commits optimized at the database engine level.
+Group Commits means several database writes grouped into one round trip or transaction. Think of one transaction for several writes instead of one commit per write. I didn't use this fourth layer here. I often see it handled manually in SQLite, whereas Postgres handles transaction logging automatically via the WAL, with group commits optimized at the database engine level.
 
 | Layer             | What gets fewer    | Where it sits      | Generic software example                              |
 | ----------------- | ------------------ | ------------------ | ----------------------------------------------------- |
@@ -550,31 +440,17 @@ I changed the measurement window to 2 minutes and the confirmation to one 5-minu
 | CPU (of 4)        | 0.52                  | 0.47          | 0.59             |
 | memory (of 256Mi) | 56%                   | 62%           | 65%              |
 
-The question was whether a build that spends a turn in one upsert, answers the dashboard in one request
-and one statement, and starts two reads beside the work they sit with carries more virtual users than the
-55 the earlier build confirmed.
+Now I know you're already probably confused talking about "Wait, didn't you already applied optimization before? Why are you optimizing again, your methodology is confusing" Well... It reads that way because it is four rounds and mostly because I don't even freaking know what I'm freaking doing with the ordering on how should I even optimize, but each one has its own build and its own measurement and it's record. And for me, That is the point. If I had folded all of it into one change I would have one before and one after, and no way to say which of a dozen things moved the boundary. So each round is one hypothesis. First the checkouts: fewer round trips per request, and one unbounded read paginated. Then the pool, one level at a time, which is how 40 shipped. Then the four small changes on the turn path. Then the folding, where reads and writes go into single statements and the analytics scan reads messages once instead of twice per run. The other reason is that the wall moves. The first run failed on pool wait, so I fixed the checkouts. With the wait cheap, the queries themselves were the cost, so I fixed the number of them. Now the queries are the cost again and the next lever is Neon's compute size, not my code. You cannot see the second bottleneck until the first one is gone.
 
-At 100 VUs it does not. The queue halved and the request did not get faster. Waiting went from 209ms to
-123ms at p50 and from 838ms to 570ms at p95, and what used to wait now takes longer on its own: the mean
-query is flat at 150ms and its p95 is up to 462ms. End to end, 1.87s at p95 against 1.64s, 62.8 rps
-against 66.7. That is the latency the earlier build reached only with the pool at 80. So the pool wait was
-the visible symptom rather than the whole cost, and the time that remains is the SQL plus the round trips
-that are still there.
+I wanted to know whether a build that spends a turn in one upsert, answers the dashboard in one request and one statement, and starts two reads beside the work they sit with would carry more users than the 55 the earlier build confirmed.
 
-The number cannot say the batching did it. Between the recorded rows and this build sit the phased arc,
-which does more work per turn, the dashboard rebuilt to answer both stats reads behind one request, and
-the resume review surface: four changes against one comparison. What did change without ambiguity is
-correctness, 12,452 checks with no failure and no errors, where the earlier row failed the checks gate as
-well as p95.
+At 100 VUs it did not, and I have to be careful with what that means. 100 was already failing before this build, so this window says nothing about whether the boundary moved. What it does show is the shape. Waiting for a connection halved, from 209ms to 123ms at p50 and from 838ms to 570ms at p95, and the requests that stopped waiting take longer on their own, with a mean query of 150ms and a p95 of 462ms. End to end it is 1.87s at p95 against 1.64s, on 62.8 rps against 66.7. That is the latency the earlier build reached only with the pool at 80. So the wait was the visible half and not the whole cost, and what is left is the SQL plus the round trips still inside the request.
 
-The ladder did not run to a boundary on this build, so 55 VUs is still the recorded boundary and is
-unconfirmed here; 100 fails, as it did before. The preview compile is still unmeasured, and it is the one
-path this ladder cannot judge: two pdflatex slots against a 256Mi pod, app-owned, so the p95 gate would
-cover it while its busy 503 is backpressure rather than a failure.
+I also cannot say the batching did it. The phased arc does more work per turn, the dashboard rebuild answers both stats reads behind one request, and the resume review surface is new, so more than one change sits between those two rows. The checks are the one thing I can point at without arguing: 12,452 with no failure and no errors, where the earlier row failed the checks gate as well as p95.
+
+So 55 is still the recorded boundary, and it is unconfirmed on this build. I have not run 55, or anything between 55 and 100, on it, and that is the window I need before I can say the batching moved anything. The preview compile is still the one path this ladder cannot judge: two pdflatex slots against a 256Mi pod, app-owned, so the p95 gate would cover it while its busy 503 is backpressure and not a failure.
 
 ### The batched build
-
-After the last sweep, four small changes landed:
 
 | Change      | What changed                             | Counts          | Layer                               |
 | ----------- | ---------------------------------------- | --------------- | ----------------------------------- |
@@ -592,29 +468,27 @@ After the last sweep, four small changes landed:
 | `GET /interviews/{id}/messages`           | ownership check folded into the read                                                                           | 2 -> 1   | Aggregate Queries             |
 | `GET /interviews/{id}/feedback`           | ownership check folded into the read                                                                           | 2 -> 1   | Aggregate Queries             |
 | `POST /interviews/{id}/feedback/generate` | four guard reads into one SELECT                                                                               | 14 -> 11 | Aggregate Queries             |
-| `GET /stats/analytics`                    | two message lookups per interview into one grouped scan (27.8 to 24.7 ms at 700 runs)                          | 1 -> 1   | Aggregate Queries             |
 | `POST /resumes/{id}/review`               | duplicate tier read removed                                                                                    | 6 -> 5   | Aggregate Queries             |
 | `POST /resumes/{id}/review/rewrite`       | duplicate tier read removed, resume and review in one read                                                     | 7 -> 5   | Aggregate Queries             |
 | `GET /templates`, cold account            | seed returns the rows it inserted                                                                              | 3 -> 2   | Aggregate Queries             |
 
-One level, not the ladder: 100 VUs for two minutes at pool 40 over the NodePort, on the build that folds the
-turn's two reads into the interview read and its spend and insert into one statement. The 10 VU smoke
-passed at 674ms p95 first.
+I ran one level, not the ladder: 100 VUs for two minutes at pool 40 over the NodePort, on the build that
+folds the turn's two reads into the interview read and its spend and insert into one statement. The 10 VU
+smoke passed at 674ms p95 first.
 
-It still fails: 1.76s at p95, 3.04s at p99, 4.17s at max, 68.5 rps, no errors and no failed checks.
+It still fails. 1.76s at p95, 3.04s at p99, a max of 4.17s, 68.5 rps, and no errors or failed checks.
 Against the batched build that is a better tail and more throughput, 3.78s to 3.04s at p99 and 62.8 to
-68.5 rps, and a worse middle: p50 586ms against 494ms, wait 180ms against 123ms at p50, and the mean
-query 212ms against 150ms.
+68.5 rps, and a worse middle: p50 586ms against 494ms, and the wait 180ms against 123ms.
 
-The queries say what happened. Statements per request fell from 2.43 to 1.89 and the window's queries
-from 20,290 to 15,030, while the query seconds it spent stayed near 3,100 either way. Neon delivered the
-same amount of work and the saved statements bought requests rather than speed. Removing statements
-cannot make a query slower either, so the 212ms mean belongs to the database that hour, and that is why
-p50 and the wait read worse.
+The queries say what happened. Statements per request fell from 2.43 to 1.89 and the window's queries from
+20,290 to 15,030, while the query seconds stayed near 3,100 either way. So Neon did the same amount of work
+and the statements I saved bought requests, not speed. Removing statements cannot make a query slower, so
+I think the 212ms mean belongs to the database that hour, and that is why p50 and the wait read worse.
 
-Two things hold this to one window per build. The query mean is the control that says the environment
-moved rather than the code. And the boundary is still untested here: 100 fails as before, and neither 55
-nor anything between 55 and 100 has been run on this build.
+That is one window per build, so I cannot separate the code from the hour. The boundary is still untested
+here: 100 fails as before, and I have not run 55 or anything in between on this build.
 
-The cleanup between windows left one row behind when the account stood at 816 interviews, so the window
-was reopened for a second pass that cleared it before closing again.
+The cleanup left one row behind when the account stood at 816 interviews, so I reopened the window for a
+second pass that cleared it.
+
+--- more to come and rewrite on ai driven prose
