@@ -138,7 +138,8 @@ It opens with the 10 VU smoke, mandatory: a failed smoke aborts before the first
 the harness or the app and not load. Then it climbs 100, 200, 400, 800. A failed level is the boundary,
 and the search runs between the last pass and it, down to the smoke's 10 VUs when the 100 VU level
 fails. Between levels it waits 15 seconds, cleans up for up to 30, then waits 15 again. The winner gets
-one 5 minute confirmation run; a failure aborts the sweep because the boundary is unproven. Every window
+two 5 minute confirmation windows, both must pass; a failure aborts the sweep because the boundary is
+unproven, and `--confirm-runs 1` prints UNCONFIRMED for the same reason. Every window
 writes a row to `results/sweep-<utc>.csv` and a k6 summary to
 `results/level-<n>-<phase>-<run_id>.json`, one file per run, the same `run_id` the row carries.
 
@@ -181,7 +182,8 @@ python3 sweep.py --cleanup-only
 ### 6. Read the result
 
 `results/sweep-<utc>.csv` carries one row per level: `run_id`, `label`, `measure_start`, phase and
-window length, p50, p95, p99, max, error rate, rps, iterations, requests, seconds and the account's rows
+window length, `confirm_run` on a confirmation window, p50, p95, p99, max, error rate, rps, iterations,
+requests, seconds and the account's rows
 before and after each perf-val-change. `run_id` names the summary, `label` names the config, and
 `measure_start` is the window.
 
@@ -193,7 +195,7 @@ the "which resource runs out first" half of the question.
 ## Time
 
 About 4.5 minutes per level at the defaults (30 second ramp, 60 second warm, 2 minute measure, plus the
-gap), and about 7.5 for the single 5 minute confirmation. The total depends on how many search steps
+gap), and about 15 for the two confirmation windows. The total depends on how many search steps
 the bracket needs. A one-level probe is one level plus two syncs, about ten minutes.
 
 ## Abort and rollback
@@ -208,7 +210,7 @@ the bracket needs. A one-level probe is one level plus two syncs, about ten minu
 | The pool override is still in the perf overlay | Remove it after the probe; the next perf window would silently run that pool                       |
 | The 10 VU smoke fails                          | The sweep aborts. Fix the harness or the app; a failed smoke is not capacity                  |
 | A level fails                                  | Expected. That is the boundary; the search runs from the last pass down to 10 VUs             |
-| The single confirmation run fails              | The sweep aborts; the boundary is unproven. Re-run the sweep.                                 |
+| A confirmation window fails                    | The sweep aborts; the boundary is unproven. Re-run the sweep.                                 |
 | Anything unexpected                            | Close the perf-val-change first, then debug. Leaving it open leaves prod unauthenticated      |
 
 ## The relay in every number

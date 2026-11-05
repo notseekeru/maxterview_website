@@ -38,36 +38,19 @@ Capacity path, as run
 
 ## k6 flow
 
+The block below is the first harness. More over the change in harness later on, but for now.
+
 One test sweep. Each measurements writes box on one CSV row per sweep so we can fully record our numbers. Now in a bit, I'm gonna be explaining in more detail what these mean and how they interact this becomes really important specially if you wanna develop a mental model to actually understand systems.
 
 ```
-gitops overlay opens the perf window    NodePort 30090 on the backend Service
-        |
-cleanup        delete every row the sweep identity owns            -> deleted_before
-        |
-measure 10s at 10 VUs  the harness check, before the first level          -> phase=smoke
-        |
-        +-- fail: abort the sweep, the harness or the app is broken
-        |
-ramp 30s, warm 60s     neither enters a gate
-        |
-measure 3 min          the only window that counts                 -> phase=ladder
-        |
-gates                  SLO
-        |
-        +-- pass, levels left: double the VUs, repeat
-        +-- pass at 800 VUs: stop and raise --max-vus, no confirmation
-        +-- fail: binary search the gap down to the 10 VU smoke    -> phase=search
-                              |
-                    confirm the highest passing level 3 times,
-                    measure 5 min each, all three must pass        -> phase=confirm
-                              |
-                    any run fails: search below it and confirm
-                    again, at most three confirmation rounds
-                              |
-                    boundary, from the CSV and Grafana
-                              |
-                    close the perf window, then --cleanup-only
+flowchart TD
+    A["overlay: open perf window; NodePort 30090"] --> B["cleanup: delete sweep rows -> deleted_before"] --> C["smoke: 10s @ 10 VUs -> phase=smoke"]
+    C -- fail --> D["abort sweep"]
+    C -- pass --> E["ramp 30s, warm 60s (no gate)"] --> F["ladder: 3 min -> phase=ladder"] --> G["gates: SLO"]
+    G -- pass --> H["double VUs; repeat"] -- loop --> F
+    G -- fail --> I["search to 10VU smoke -> phase=search"] --> J["confirm highest pass 3x5min; all pass -> phase=confirm"]
+    J -- "all pass" --> K["boundary: CSV+Grafana"] --> M["close perf window; then --cleanup-only"]
+    J -- "any fail" --> L["search below; confirm again; max 3 rounds; loop to confirm"] -- "loop to confirm" --> J
 ```
 
 ## Configuration
@@ -413,13 +396,14 @@ I also did some extra stuff like parallel request. Parallel requests are a separ
 
 ## Change in harness
 
-| Setting             | The run in this record            | Current harness                                  |
-| ------------------- | --------------------------------- | ------------------------------------------------ |
-| Ladder measurement  | 3 min                             | 2 min                                            |
-| Confirmation        | 3 runs of 5 min, repeated 3 times | single-run confirm: one 5 min sustained wordload |
-| Failed confirmation | Search below, up to 3 times       | Abort; boundary unproven                         |
+| Setting             | The run in this record            | Current harness                   |
+| ------------------- | --------------------------------- | --------------------------------- |
+| Ladder measurement  | 3 min                             | 2 min                             |
+| Confirmation        | 3 runs of 5 min, repeated 3 times | two 5 min windows, both must pass |
+| Failed confirmation | Search below, up to 3 times       | Abort; boundary unproven          |
+| Search resolution   | 25 VU floor                       | 5 VU floor                        |
 
-I changed the measurement window to 2 minutes and the confirmation to one 5-minute run because the sweep was taking too much of my time, and I am fine losing some of this data for the experiment. The shorter windows also spend less Neon compute, which is the other reason for the change: the full sweep is paused near the free-tier limit. That is a real trade: fewer samples make p95 and p99 noisier, one run is weaker proof than the old 3/3. But with my usecase and constraints I opted for that tradeoff for my scale.
+I changed the measurement window to 2 minutes and the confirmation to two 5-minute runs because the sweep was taking too much of my time, and I am fine losing some of this data for the experiment. The shorter windows also spend less Neon compute, which is the other reason for the change: the full sweep is paused near the free-tier limit. That is a real trade: fewer samples make p95 and p99 noisier, two runs are weaker proof than the old 3/3. But with my usecase and constraints I opted for that tradeoff for my scale.
 
 ## The request batch build at 100 VUs
 
