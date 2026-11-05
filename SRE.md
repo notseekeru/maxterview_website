@@ -413,13 +413,13 @@ I also did some extra stuff like parallel request. Parallel requests are a separ
 
 ## Change in harness
 
-| Setting             | The run in this record            | Current harness                   |
-| ------------------- | --------------------------------- | --------------------------------- |
-| Ladder measurement  | 3 min                             | 2 min                             |
-| Confirmation        | 3 runs of 5 min, repeated 3 times | single-run confirm: one 5 min run |
-| Failed confirmation | Search below, up to 3 times       | Abort; boundary unproven          |
+| Setting             | The run in this record            | Current harness                                  |
+| ------------------- | --------------------------------- | ------------------------------------------------ |
+| Ladder measurement  | 3 min                             | 2 min                                            |
+| Confirmation        | 3 runs of 5 min, repeated 3 times | single-run confirm: one 5 min sustained wordload |
+| Failed confirmation | Search below, up to 3 times       | Abort; boundary unproven                         |
 
-I changed the measurement window to 2 minutes and the confirmation to one 5-minute run because the sweep was taking too much of my time, and I am fine losing some of this data for the experiment. The shorter windows also spend less Neon compute, which is the other reason for the change: the full sweep is paused near the free-tier limit. That is a real trade: fewer samples make p95 and p99 noisier, one run is weaker proof than the old 3/3, and a failed single-run confirm aborts the sweep instead of searching below.
+I changed the measurement window to 2 minutes and the confirmation to one 5-minute run because the sweep was taking too much of my time, and I am fine losing some of this data for the experiment. The shorter windows also spend less Neon compute, which is the other reason for the change: the full sweep is paused near the free-tier limit. That is a real trade: fewer samples make p95 and p99 noisier, one run is weaker proof than the old 3/3. But with my usecase and constraints I opted for that tradeoff for my scale.
 
 ## The request batch build at 100 VUs
 
@@ -439,16 +439,6 @@ I changed the measurement window to 2 minutes and the confirmation to one 5-minu
 | query p95         | 433ms                 | 462ms         | 649ms            |
 | CPU (of 4)        | 0.52                  | 0.47          | 0.59             |
 | memory (of 256Mi) | 56%                   | 62%           | 65%              |
-
-Now I know you're already probably confused talking about "Wait, didn't you already applied optimization before? Why are you optimizing again, your methodology is confusing" Well... It reads that way because it is four rounds and mostly because I don't even freaking know what I'm freaking doing with the ordering on how should I even optimize, but each one has its own build and its own measurement and it's record. And for me, That is the point. If I had folded all of it into one change I would have one before and one after, and no way to say which of a dozen things moved the boundary. So each round is one hypothesis. First the checkouts: fewer round trips per request, and one unbounded read paginated. Then the pool, one level at a time, which is how 40 shipped. Then the four small changes on the turn path. Then the folding, where reads and writes go into single statements and the analytics scan reads messages once instead of twice per run. The other reason is that the wall moves. The first run failed on pool wait, so I fixed the checkouts. With the wait cheap, the queries themselves were the cost, so I fixed the number of them. Now the queries are the cost again and the next lever is Neon's compute size, not my code. You cannot see the second bottleneck until the first one is gone.
-
-I wanted to know whether a build that spends a turn in one upsert, answers the dashboard in one request and one statement, and starts two reads beside the work they sit with would carry more users than the 55 the earlier build confirmed.
-
-At 100 VUs it did not, and I have to be careful with what that means. 100 was already failing before this build, so this window says nothing about whether the boundary moved. What it does show is the shape. Waiting for a connection halved, from 209ms to 123ms at p50 and from 838ms to 570ms at p95, and the requests that stopped waiting take longer on their own, with a mean query of 150ms and a p95 of 462ms. End to end it is 1.87s at p95 against 1.64s, on 62.8 rps against 66.7. That is the latency the earlier build reached only with the pool at 80. So the wait was the visible half and not the whole cost, and what is left is the SQL plus the round trips still inside the request.
-
-I also cannot say the batching did it. The phased arc does more work per turn, the dashboard rebuild answers both stats reads behind one request, and the resume review surface is new, so more than one change sits between those two rows. The checks are the one thing I can point at without arguing: 12,452 with no failure and no errors, where the earlier row failed the checks gate as well as p95.
-
-So 55 is still the recorded boundary, and it is unconfirmed on this build. I have not run 55, or anything between 55 and 100, on it, and that is the window I need before I can say the batching moved anything. The preview compile is still the one path this ladder cannot judge: two pdflatex slots against a 256Mi pod, app-owned, so the p95 gate would cover it while its busy 503 is backpressure and not a failure.
 
 ### The batched build
 
@@ -472,23 +462,4 @@ So 55 is still the recorded boundary, and it is unconfirmed on this build. I hav
 | `POST /resumes/{id}/review/rewrite`       | duplicate tier read removed, resume and review in one read                                                     | 7 -> 5   | Aggregate Queries             |
 | `GET /templates`, cold account            | seed returns the rows it inserted                                                                              | 3 -> 2   | Aggregate Queries             |
 
-I ran one level, not the ladder: 100 VUs for two minutes at pool 40 over the NodePort, on the build that
-folds the turn's two reads into the interview read and its spend and insert into one statement. The 10 VU
-smoke passed at 674ms p95 first.
-
-It still fails. 1.76s at p95, 3.04s at p99, a max of 4.17s, 68.5 rps, and no errors or failed checks.
-Against the batched build that is a better tail and more throughput, 3.78s to 3.04s at p99 and 62.8 to
-68.5 rps, and a worse middle: p50 586ms against 494ms, and the wait 180ms against 123ms.
-
-The queries say what happened. Statements per request fell from 2.43 to 1.89 and the window's queries from
-20,290 to 15,030, while the query seconds stayed near 3,100 either way. So Neon did the same amount of work
-and the statements I saved bought requests, not speed. Removing statements cannot make a query slower, so
-I think the 212ms mean belongs to the database that hour, and that is why p50 and the wait read worse.
-
-That is one window per build, so I cannot separate the code from the hour. The boundary is still untested
-here: 100 fails as before, and I have not run 55 or anything in between on this build.
-
-The cleanup left one row behind when the account stood at 816 interviews, so I reopened the window for a
-second pass that cleared it.
-
---- more to come and rewrite on ai driven prose
+This batched build focused on some of the heavy queries and a pararrel request where I could apply it. As you can see not much of a difference in movement since this was not really the bottleneck and more focused on reducing queries per request, as you can see the latency had marginal shift but our queries per request reduced because of these optimization. I am quite suprise with these results, I though it would move drastically but since the endpoints that I optimized doesn't really focus on the harness on the endpoints that it hits frequently.
