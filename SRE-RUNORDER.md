@@ -1,7 +1,5 @@
 # SRE run order
 
-Words are defined in `SRE.md` under Vocabulary.
-
 ## The target
 
 | Thing            | Value                                                                                                                |
@@ -29,7 +27,7 @@ probe's target, not the sweep's.
 
 ## Open gaps
 
-`SRE.md` owns what the numbers do not explain in `Next`. One of those gaps has a run command attached.
+`SRE.md` owns what the numbers do not explain in `## Decisions`. One of those gaps has a run command attached.
 The search stops once the gap is under its tolerance, so no level between 10 and 20 VUs was tried;
 `--only 15` and `--only 17` fill that band.
 
@@ -188,7 +186,7 @@ before and after each perf-val-change. `run_id` names the summary, `label` names
 `measure_start` is the window.
 
 In Grafana, `maxterview-logs` from `measure_start` for `measure_s`: read server numbers as `increase`
-over that window (`SRE.md`, What is measured). `db_pool_wait` against `db_query` says whether Neon's
+over that window (`SRE.md`, What is the bottleneck now). `db_pool_wait` against `db_query` says whether Neon's
 queue or the SQL ran out first, and container memory against its limit says whether the pod did. That is
 the "which resource runs out first" half of the question.
 
