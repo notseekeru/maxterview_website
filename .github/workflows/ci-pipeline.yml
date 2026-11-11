@@ -3,33 +3,32 @@ name: CI
 on:
   pull_request:
     branches: [main]
-    paths:
-      - "frontend/**"
-      - "backend/**"
-      - ".github/workflows/**"
   push:
     branches: [main]
     paths:
       - "frontend/**"
       - "backend/**"
       - ".github/workflows/**"
-      - "!frontend/**/.env.example"
-      - "!backend/**/.env.example"
+      - ".gitleaksignore"
+      - "compose.yml"
+      - "compose.dev.yml"
+      - "compose.prod.yml"
   workflow_dispatch:
-
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  workflow_call:
 
 permissions:
   contents: read
 
 jobs:
-  backend:
+  checks:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [frontend, backend]
     defaults:
       run:
-        working-directory: backend
+        working-directory: ${{ matrix.service }}
     services:
       postgres:
         image: postgres:18-alpine
@@ -51,58 +50,91 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: Install uv
-        uses: astral-sh/setup-uv@v10.3.0
-
-      - name: Install dependencies
-        run: uv sync --frozen
-
-      - name: Lint
-        run: uv run ruff check src tests
-
-      - name: Format check
-        run: uv run ruff format --check src tests
-
-      - name: Test
-        run: uv run pytest -q
-
-      - name: Scan with Trivy (filesystem)
-        run: |
-          docker run --rm \
-            -v ${{ github.workspace }}/backend:/workspace \
-            -v ${{ github.workspace }}/backend/.trivyignore.yaml:/.trivyignore.yaml \
-            aquasec/trivy:0.74.0 filesystem \
-            --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 \
-            --ignorefile /.trivyignore.yaml \
-            /workspace
-
-  frontend:
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: frontend
-    steps:
-      - uses: actions/checkout@v7
-
       - name: Use Node.js
+        if: matrix.service == 'frontend'
         uses: actions/setup-node@v7
         with:
           node-version: 24
           cache: "npm"
           cache-dependency-path: frontend/package-lock.json
 
-      - name: Install dependencies
+      - name: Install npm dependencies
+        if: matrix.service == 'frontend'
         run: npm ci
 
-      - name: Lint
-        run: npx biome check .
+      - name: Lint (frontend)
+        if: matrix.service == 'frontend'
+        run: npm run lint
 
-      - name: Typecheck
+      - name: Format gate
+        if: matrix.service == 'frontend'
+        run: git diff --exit-code
+
+      - name: Typecheck (frontend)
+        if: matrix.service == 'frontend'
         run: npm run typecheck
 
-      - name: Build
+      - name: Build (frontend)
+        if: matrix.service == 'frontend'
         run: npm run build
 
-      - name: Audit (informational)
-        run: npm audit --audit-level=moderate || true
+      - name: Audit (frontend)
+        if: matrix.service == 'frontend'
+        run: npm audit --audit-level=high
 
+      - name: Install uv
+        if: matrix.service == 'backend'
+        uses: astral-sh/setup-uv@v10.3.0
+
+      - name: Install python dependencies
+        if: matrix.service == 'backend'
+        run: uv sync --frozen
+
+      - name: Lint (backend)
+        if: matrix.service == 'backend'
+        run: uv run ruff check src tests
+
+      - name: Format check (backend)
+        if: matrix.service == 'backend'
+        run: uv run ruff format --check src tests
+
+      - name: Test (backend)
+        if: matrix.service == 'backend'
+        run: uv run pytest -q
+
+      - name: Scan the python dependencies
+        if: matrix.service == 'backend'
+        run: |
+          docker run --rm \
+            -v "${{ github.workspace }}/backend:/workspace" \
+            -v "${{ github.workspace }}/backend/.trivyignore.yaml:/.trivyignore.yaml" \
+            aquasec/trivy:0.76.2 filesystem \
+            --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 \
+            --ignorefile /.trivyignore.yaml \
+            /workspace
+
+  config:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Scan the container definitions
+        run: |
+          docker run --rm \
+            -v "$PWD:/src" \
+            aquasec/trivy:0.76.2 config \
+            --severity HIGH,CRITICAL --exit-code 1 \
+            --skip-dirs node_modules --skip-dirs .git --skip-dirs .venv \
+            /src
+
+  gitleaks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Scan the history
+        run: |
+          curl -sSfL https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz | tar -xz -C /usr/local/bin gitleaks
+          gitleaks git . --redact --no-banner

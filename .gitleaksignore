@@ -1,0 +1,5 @@
+# The Clerk publishable key is public by design (it ships in the bundle) and the test fixture key is
+# not a credential. Neither file is read by production; SSM holds the real secrets.
+71cf43958730da4f9071082cfc241b1610a5e29c:frontend/.env.staging:generic-api-key:16
+b41a9cd3dbbe98e3d986819da5322c6bcef63806:frontend/.env.production:generic-api-key:16
+a4ed05a58f0a2b7efebf0cb9261bcead7cb5d5ad:backend/tests/test_byok.py:generic-api-key:49

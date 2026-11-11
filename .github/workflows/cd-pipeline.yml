@@ -1,22 +1,33 @@
 name: CD
 
 on:
-  workflow_run:
-    workflows: ["CI"]
-    types: [completed]
+  push:
+    branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: read
-  packages: write
+
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: false
 
 env:
   REGISTRY: ghcr.io
 
 jobs:
-  build-and-push:
-    if: ${{ github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main' }}
+  gate:
+    uses: ./.github/workflows/ci-pipeline.yml
+    permissions:
+      contents: read
+
+  deploy-images:
+    needs: gate
     runs-on: ubuntu-latest
     timeout-minutes: 180
+    permissions:
+      contents: read
+      packages: write
     strategy:
       fail-fast: false
       matrix:
@@ -68,7 +79,6 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # Build for smoke test (single-arch, load into daemon)
       - name: Build local image
         uses: docker/build-push-action@v7
         with:
@@ -87,7 +97,7 @@ jobs:
           docker run --rm \
             -v /var/run/docker.sock:/var/run/docker.sock \
             -v ${{ matrix.service.context }}/.trivyignore.yaml:/.trivyignore.yaml \
-            aquasec/trivy:0.74.0 image \
+            aquasec/trivy:0.76.2 image \
             --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 \
             --skip-dirs "${{ matrix.service.skip_dirs }}" \
             --ignorefile /.trivyignore.yaml \
@@ -117,9 +127,6 @@ jobs:
           docker logs smoke-${{ matrix.service.name }}-${{ github.run_id }} || true
           exit 1
 
-      - name: Smoke test
-        run: curl -fsS http://127.0.0.1:${{ matrix.service.port }}${{ matrix.service.health_endpoint }} >/dev/null
-
       - name: Push multi-arch image
         uses: docker/build-push-action@v7
         with:
@@ -130,9 +137,6 @@ jobs:
           platforms: linux/amd64,linux/arm64
           tags: ${{ env.PUSH_TAGS }}
           no-cache-filters: prod
-          # A dedicated export scope: the amd64 build above writes its own, so neither one clobbers
-          # the other's per-platform records. Shared, the arm64 leg lost every time and paid the full
-          # emulated texlive install on each push.
           cache-from: |
             type=gha,scope=${{ matrix.service.name }}-amd64
             type=gha,scope=${{ matrix.service.name }}-multiarch
@@ -143,9 +147,11 @@ jobs:
         run: |
           docker rm -f smoke-${{ matrix.service.name }}-${{ github.run_id }} || true
 
-  update-gitops-repo:
+  promote-gitops:
+    needs: deploy-images
     runs-on: ubuntu-latest
-    needs: build-and-push
+    permissions:
+      contents: read
     steps:
       - name: Install SSH Key
         uses: shimataro/ssh-key-action@v2
