@@ -31,7 +31,7 @@ jobs:
         working-directory: ${{ matrix.service }}
     services:
       postgres:
-        image: postgres:18-alpine
+        image: postgres:18-alpine@sha256:123b17998ccaf47e53b502e8c6a1e79afd8f579c6f3eec83c563da026f957395
         env:
           POSTGRES_USER: maxterview
           POSTGRES_PASSWORD: maxterview
@@ -48,11 +48,11 @@ jobs:
       APP_ENV: test
       CLERK_ENABLED: "false"
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Use Node.js
         if: matrix.service == 'frontend'
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: 24
           cache: "npm"
@@ -84,7 +84,7 @@ jobs:
 
       - name: Install uv
         if: matrix.service == 'backend'
-        uses: astral-sh/setup-uv@v10.3.0
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
 
       - name: Install python dependencies
         if: matrix.service == 'backend'
@@ -116,7 +116,7 @@ jobs:
   config:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Scan the container definitions
         run: |
@@ -130,7 +130,7 @@ jobs:
   gitleaks:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
 
