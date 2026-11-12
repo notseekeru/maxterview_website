@@ -16,7 +16,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse, StreamingResponse
 from pydantic import ValidationError
 
-from app import API_PREFIX, billing, byok, dials, latex, levels, llm, offer, payments, rating, resumes, review, telemetry, voice
+from app import API_PREFIX, billing, byok, dials, latex, levels, llm, offer, paymongo, rating, resumes, review, telemetry, voice
 from app.auth import CLERK_ENABLED, get_current_user
 from app.db import close_pool, fetch, fetchrow, init_pool
 from app.dials import DIAL_FIELDS
@@ -299,7 +299,7 @@ async def finish_interview(
 ) -> dict:
     # trip. The row must be a CANDIDATE one, since the generated opener is an assistant row.
     row = await fetchrow(
-        "UPDATE interviews SET status = 'completed', updated_at = now() WHERE id = $1 AND owner_id = $2 AND status = 'in_progress' AND EXISTS (SELECT 1 FROM messages m WHERE m.interview_id = interviews.id AND m.role = 'user') RETURNING " + INTERVIEW_COLS,
+        "UPDATE interviews SET status = 'completed', updated_at = now() WHERE id = $1 AND owner_id = $2 AND status = 'in_progress' AND EXISTS (SELECT 1 FROM chat_turns m WHERE m.interview_id = interviews.id AND m.role = 'user') RETURNING " + INTERVIEW_COLS,
         interview_id,
         user.sub,
     )
@@ -312,8 +312,8 @@ async def finish_interview(
     return interview
 
 
-@api.get("/interviews/{interview_id}/messages", response_model=list[Message])
-async def list_messages(
+@api.get("/interviews/{interview_id}/chat", response_model=list[Message])
+async def get_chat(
     interview_id: str,
     user: CurrentUser,
 ) -> list[dict]:
@@ -323,7 +323,7 @@ async def list_messages(
         """
         SELECT m.id::text, m.interview_id::text, m.role, m.content, m.move_class, m.comment, m.created_at
         FROM interviews i
-        LEFT JOIN messages m ON m.interview_id = i.id
+        LEFT JOIN chat_turns m ON m.interview_id = i.id
         WHERE i.id = $1 AND i.owner_id = $2
         ORDER BY m.created_at, m.id
         """,
@@ -387,7 +387,7 @@ async def regenerate_feedback(
     row = await fetchrow(
         """
         SELECT i.status, f.redos,
-               EXISTS (SELECT 1 FROM messages m WHERE m.interview_id = i.id AND m.role = 'user') AS has_transcript
+               EXISTS (SELECT 1 FROM chat_turns m WHERE m.interview_id = i.id AND m.role = 'user') AS has_transcript
         FROM interviews i
         LEFT JOIN feedback f ON f.interview_id = i.id
         WHERE i.id = $1 AND i.owner_id = $2
@@ -833,7 +833,7 @@ SELECT count(*) AS days FROM ranked WHERE gap - rn IN (-1, 0)
 ANALYTICS_SQL = f"""
 WITH counts AS MATERIALIZED (
     SELECT m.interview_id, m.role, m.move_class, count(*) AS n
-    FROM messages m
+    FROM chat_turns m
     JOIN interviews i ON i.id = m.interview_id
     WHERE i.owner_id = $1
     GROUP BY m.interview_id, m.role, m.move_class
@@ -1154,7 +1154,7 @@ async def get_interview_offer(interview_id: str, user: CurrentUser) -> dict:
     return offer_row(row)
 
 
-@api.get("/usage")
+@api.get("/billing/usage")
 async def get_usage(user: CurrentUser) -> dict:
     state = await billing.usage_state(user)
     tier = billing.tier_from(user, entitled=state["premium_until"] is not None)
@@ -1168,7 +1168,7 @@ async def get_usage(user: CurrentUser) -> dict:
         "chat_turns_remaining_today": max(0, chat - used),
         "byok": byok_enabled,
         "resume_limit": billing.resume_limit(tier),
-        "billing_mode": payments.BILLING_MODE,
+        "billing_mode": paymongo.BILLING_MODE,
         "premium_until": state["premium_until"] if tier == "premium" else None,
     }
 
@@ -1199,21 +1199,21 @@ async def test_llm_provider(user: CurrentUser) -> dict:
 
 @api.post("/billing/checkout")
 async def billing_checkout(user: CurrentUser) -> dict:
-    return await payments.start_upgrade(user)
+    return await paymongo.start_checkout(user)
 
 
 @api.post("/billing/cancel", response_model=dict)
 async def billing_cancel(user: CurrentUser) -> dict:
-    await payments.cancel_upgrade(user)
+    await paymongo.cancel_renewal(user)
     return {"ok": True}
 
 
 @api.post("/billing/webhook")
 async def billing_webhook(request: Request) -> PlainTextResponse:
     raw = await request.body()
-    if not payments.verify_signature(raw, request.headers.get("paymongo-signature", "")):
+    if not paymongo.verify_signature(raw, request.headers.get("paymongo-signature", "")):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid signature")
-    await payments.handle_webhook_event(json.loads(raw))
+    await paymongo.handle_webhook_event(json.loads(raw))
     return PlainTextResponse("ok")
 
 
@@ -1223,7 +1223,7 @@ async def billing_webhook(request: Request) -> PlainTextResponse:
 async def billing_webhook_simulate(event: dict) -> PlainTextResponse:
     if APP_ENV not in ("development", "test"):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
-    await payments.handle_webhook_event(event)
+    await paymongo.handle_webhook_event(event)
     return PlainTextResponse("ok")
 
 
@@ -1233,7 +1233,7 @@ async def _chat_session(interview_id: str, user: CurrentUser) -> tuple[dict, lis
         SELECT {INTERVIEW_COLS},
                (SELECT r.text FROM resumes r WHERE r.id = interviews.resume_id) AS resume_text,
                (SELECT coalesce(jsonb_agg(jsonb_build_object('role', m.role, 'content', m.content) ORDER BY m.created_at), '[]')
-                  FROM messages m WHERE m.interview_id = interviews.id) AS transcript
+                  FROM chat_turns m WHERE m.interview_id = interviews.id) AS transcript
         FROM interviews WHERE id = $1 AND owner_id = $2
         """,
         interview_id,
@@ -1273,13 +1273,13 @@ CHAT_TURN_SQL = f"""
         WITH spend AS (
             {billing.SPEND_TURN_SQL}
         ), repaired AS (
-            DELETE FROM messages
+            DELETE FROM chat_turns
             WHERE interview_id = $5::uuid
               AND $6::bool
-              AND id = (SELECT id FROM messages WHERE interview_id = $5::uuid ORDER BY created_at DESC, id DESC LIMIT 1)
+              AND id = (SELECT id FROM chat_turns WHERE interview_id = $5::uuid ORDER BY created_at DESC, id DESC LIMIT 1)
               AND EXISTS (SELECT 1 FROM spend)
         ), stored AS (
-            INSERT INTO messages (interview_id, role, content)
+            INSERT INTO chat_turns (interview_id, role, content)
             SELECT $5::uuid, 'user', $4 FROM spend
             RETURNING id::text
         )
@@ -1319,7 +1319,7 @@ async def _reply_frames(
         if not reply:
             raise RuntimeError("the model returned no reply")  # an empty bubble would read as answered
         await fetchrow(
-            "INSERT INTO messages (interview_id, role, content) VALUES ($1, 'assistant', $2) RETURNING id",
+            "INSERT INTO chat_turns (interview_id, role, content) VALUES ($1, 'assistant', $2) RETURNING id",
             interview_id,
             reply,
         )
@@ -1338,8 +1338,8 @@ async def _reply_frames(
     yield "event: done\ndata: {}\n\n"
 
 
-@api.post("/interviews/{interview_id}/chat/kickoff")
-async def chat_kickoff(interview_id: str, user: CurrentUser, config: LLMConfigDep, chat: ChatLLMDep, tier: TierDep) -> StreamingResponse:
+@api.post("/interviews/{interview_id}/chat/opening")
+async def chat_opening(interview_id: str, user: CurrentUser, config: LLMConfigDep, chat: ChatLLMDep, tier: TierDep) -> StreamingResponse:
     interview, _transcript, asked, dials = await _chat_session(interview_id, user)
     if asked:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="This interview has already opened.")
@@ -1355,8 +1355,8 @@ async def chat_kickoff(interview_id: str, user: CurrentUser, config: LLMConfigDe
     return StreamingResponse(_stream_events(), media_type="text/event-stream")
 
 
-@api.post("/interviews/{interview_id}/chat/stream")
-async def chat_stream(
+@api.post("/interviews/{interview_id}/chat/send")
+async def send_turn(
     interview_id: str,
     body: ChatTurn,
     user: CurrentUser,
@@ -1379,7 +1379,7 @@ async def chat_stream(
         try:
             await asyncio.shield(
                 fetchrow(
-                    "DELETE FROM messages WHERE id = $1 AND interview_id = $2 AND (SELECT status FROM interviews WHERE id = $2) = 'in_progress'",
+                    "DELETE FROM chat_turns WHERE id = $1 AND interview_id = $2 AND (SELECT status FROM interviews WHERE id = $2) = 'in_progress'",
                     user_msg_id,
                     interview_id,
                 )
@@ -1401,7 +1401,7 @@ async def chat_stream(
             question = next((m["content"] for m in reversed(prior_rows) if m["role"] == "assistant"), "")
             move = await llm.judge_answer(question, body.content, config, turn)
             if move:
-                await fetchrow("UPDATE messages SET move_class = $2, comment = $3 WHERE id = $1", user_msg_id, move.cls, move.comment)
+                await fetchrow("UPDATE chat_turns SET move_class = $2, comment = $3 WHERE id = $1", user_msg_id, move.cls, move.comment)
             if move and move.cls in rating.FAIL_CLASSES:
                 await fetchrow("UPDATE interviews SET failed_turn = $2, failed_class = $3, updated_at = now() WHERE id = $1", interview_id, turn, move.cls)
                 shout = await llm.fail_shout(question, body.content, move.cls, config)
@@ -1409,7 +1409,7 @@ async def chat_stream(
                 # callout. Best-effort: a DB hiccup must cost the stored line, not the shout.
                 try:
                     await fetchrow(
-                        "INSERT INTO messages (interview_id, role, content) VALUES ($1, 'assistant', $2) RETURNING id",
+                        "INSERT INTO chat_turns (interview_id, role, content) VALUES ($1, 'assistant', $2) RETURNING id",
                         interview_id,
                         shout,
                     )
@@ -1425,7 +1425,7 @@ async def chat_stream(
         if llm.is_closing_turn(asked, dials):
             closing = await llm.closing_line(history, chat)
             await fetchrow(
-                "INSERT INTO messages (interview_id, role, content) VALUES ($1, 'assistant', $2) RETURNING id",
+                "INSERT INTO chat_turns (interview_id, role, content) VALUES ($1, 'assistant', $2) RETURNING id",
                 interview_id,
                 closing,
             )
@@ -1517,7 +1517,7 @@ async def _persist_moves(interview_id: str, candidate_ids: list[str], moves: dic
         return []
     turn_numbers = range(1, len(candidate_ids) + 1)
     await fetch(
-        "UPDATE messages SET move_class = u.move_class, comment = u.comment FROM unnest($2::text[], $3::text[], $4::text[]) AS u(id, move_class, comment) WHERE messages.id = u.id::uuid AND messages.interview_id = $1 RETURNING messages.id",
+        "UPDATE chat_turns SET move_class = u.move_class, comment = u.comment FROM unnest($2::text[], $3::text[], $4::text[]) AS u(id, move_class, comment) WHERE chat_turns.id = u.id::uuid AND chat_turns.interview_id = $1 RETURNING chat_turns.id",
         interview_id,
         candidate_ids,
         [graded[t].cls if t in graded else None for t in turn_numbers],
@@ -1566,16 +1566,16 @@ async def _generate_and_persist_feedback(interview_id: str, config: llm.LLMConfi
 async def _run_feedback_pipeline(interview_id: str, config: llm.LLMConfig) -> dict | None:
     # The `, id` tiebreak keeps the order stable: llm numbers candidate turns off this exact list.
     history_rows = await fetch(
-        "SELECT id::text, role, content, move_class, comment FROM messages WHERE interview_id = $1 ORDER BY created_at, id",
+        "SELECT id::text, role, content, move_class, comment FROM chat_turns WHERE interview_id = $1 ORDER BY created_at, id",
         interview_id,
     )
     history = [ChatMessage(role=r["role"], content=r["content"]) for r in history_rows]
     # Dials come from the interview, not the caller: regenerate_feedback has no body to trust. The
-    # attached resume comes with them (same scalar-subquery reason as chat_stream).
+    # attached resume comes with them (same scalar-subquery reason as send_turn).
     row = await fetchrow(f"SELECT {', '.join(DIAL_FIELDS)}, level, failed_turn, failed_class, (SELECT r.text FROM resumes r WHERE r.id = interviews.resume_id) AS resume_text FROM interviews WHERE id = $1", interview_id)
     dials = Dials(**{k: row[k] for k in DIAL_FIELDS}) if row else None
     failure = (row["failed_turn"], row["failed_class"]) if row and row["failed_turn"] else None
-    # A hardcore run was already judged turn by turn as it was answered (chat_stream), so its
+    # A hardcore run was already judged turn by turn as it was answered (send_turn), so its
     # annotation pass would only re-litigate verdicts the candidate was told about.
     hardcore = bool(dials and dials.hardcore)
     summary = await llm.generate_feedback(history, dials, config, failure=failure, annotate=not hardcore, resume=(row["resume_text"] or "") if row else "", level=(row["level"] or "any") if row else "any")

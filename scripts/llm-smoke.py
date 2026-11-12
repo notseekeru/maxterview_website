@@ -56,16 +56,16 @@ def _call(base: str, token: str, method: str, path: str, body: Any = None, timeo
 
 def stream_turn(base: str, token: str, iid: str, timeout: float, content: str = TURN) -> tuple[str, float]:
     body = json.dumps({"interview_id": iid, "content": content}).encode()
-    req = urllib.request.Request(f"{base}/api/interviews/{iid}/chat/stream", data=body, method="POST", headers={"Content-Type": "application/json"})
+    req = urllib.request.Request(f"{base}/api/interviews/{iid}/chat/send", data=body, method="POST", headers={"Content-Type": "application/json"})
     if token:
         req.add_header("Authorization", f"Bearer {token}")
     started = time.monotonic()
     try:
         r = urllib.request.urlopen(req, timeout=timeout)
     except urllib.error.HTTPError as e:
-        die(f"POST /chat/stream -> HTTP {e.code}: {e.read()[:400].decode('utf-8', 'replace')}")
+        die(f"POST /chat/send -> HTTP {e.code}: {e.read()[:400].decode('utf-8', 'replace')}")
     except Exception as e:
-        die(f"POST /chat/stream unreachable: {type(e).__name__}: {e}")
+        die(f"POST /chat/send unreachable: {type(e).__name__}: {e}")
     sse = b""
     try:
         while time.monotonic() - started < timeout:
@@ -110,7 +110,7 @@ def run_inside(args: argparse.Namespace) -> None:
         sse, elapsed = stream_turn(base, token, iid, args.stream_timeout, content=ANSWER)
         log(f"answer turn ok ({elapsed:.1f}s, {len(sse)} bytes)")
 
-        status, msgs = _call(base, token, "GET", f"/api/interviews/{iid}/messages")
+        status, msgs = _call(base, token, "GET", f"/api/interviews/{iid}/chat")
         roles = [m["role"] for m in msgs or []]
         check(status == 200 and roles.count("user") >= 2 and roles.count("assistant") >= 2, "two turns persisted", roles or status)
         log(f"transcript persisted: {', '.join(roles)}")

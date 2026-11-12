@@ -50,9 +50,9 @@ Infisical's dev env at`/consumers/maxterview`, inside a marked block at the end 
   which lets you drive the whole auth-gated UI against the backend's `DEV_USER`. This is the fastest
   way to reproduce most UI/behaviour issues WITHOUT any Clerk/PayMongo credentials.
 - **Backend surfaces** (all under the app's `/api` prefix): `/api/health`, `/api/interviews`, `/api/interviews/{id}` (+`/start`,`/finish`,`/archive`,
-  `/messages`, `/feedback`, `/feedback/generate`), `/api/usage`, `/api/settings/llm` (+`/test`),
+  `/chat`, `/feedback`, `/feedback/generate`), `/api/billing/usage`, `/api/settings/llm` (+`/test`),
   `/api/billing/checkout`, `/api/billing/cancel`, `/api/billing/webhook`, `/api/billing/webhook/simulate`,
-  `/api/interviews/{id}/chat/stream` (SSE).
+  `/api/interviews/{id}/chat/send` (SSE).
 - **Auth**: JWT verified against Clerk JWKS when `CLERK_ENABLED=true`; `__session` cookie primary,
   `Authorization: Bearer` accepted. When `CLERK_ENABLED=false` (dev/test only) a fixed `DEV_USER`.
 - **Billing model (MONETIZATION.md)**: free/premium tiers from daily GLOBAL per-owner chat-turn caps;
@@ -110,12 +110,12 @@ docker compose -p maxterview-dev -f compose.yml -f compose.dev.yml up -d --force
 
 `-V` renews the anonymous volumes; without it the stale `node_modules` returns.
 
-One-shot context gather (read-only): confirm which services are up + hit `/api/health` + `/api/usage`:
+One-shot context gather (read-only): confirm which services are up + hit `/api/health` + `/api/billing/usage`:
 
 ```bash
 docker compose -p maxterview-dev -f compose.yml -f compose.dev.yml ps
 curl -s http://localhost:8000/api/health; echo
-curl -s http://localhost:8000/api/usage; echo     # tier for the current (DEV_USER) caller if no __session
+curl -s http://localhost:8000/api/billing/usage; echo     # tier for the current (DEV_USER) caller if no __session
 ```
 
 ## Feature enablement — what to initialize first on a fresh device
@@ -186,7 +186,7 @@ it refuses `*_live_*`, and anything destructive requires `--admin-destroy`. Repr
 # webhook to flip that user's entitlement row to premium (no listener/CLI exists for PayMongo;
 # --simulate needs no secret, the default signed mode proves the HMAC path):
 ./.pi/skills/paymongo-operator/scripts/webhook-driver.sh --simulate --event=subscription.activated --customer=cus_x --subscription=subs_x
-# read the subscriptions rows + /api/usage to prove who's premium (read-only debug-state):
+# read the subscriptions rows + /api/billing/usage to prove who's premium (read-only debug-state):
 ./.pi/skills/paymongo-operator/scripts/debug-state.sh
 ```
 
@@ -197,7 +197,7 @@ devShell; needs pi running inside `nix develop`). It is `codemode` exposure, so 
 `mcp__playwright__browser_*` tools from a codemode script. There is no host runner: a verdict is a
 snapshot, a waited-for text, or a `browser_evaluate` result you judge yourself.
 
-Check posture before driving: `curl -s -o /dev/null -w "%{http_code}" localhost:8000/api/usage`
+Check posture before driving: `curl -s -o /dev/null -w "%{http_code}" localhost:8000/api/billing/usage`
 → 200 means DEV_USER (backend `CLERK_ENABLED=false`, hermetic); 401 means real-Clerk (not hermetic).
 
 - **Real-Clerk headless sign-in:** use the `paymongo-operator` skill → `@clerk/testing/playwright`

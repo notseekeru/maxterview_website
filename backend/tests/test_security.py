@@ -48,7 +48,7 @@ def test_chat_turn_length_is_bounded():
     cap = next(m.max_length for m in metadata if hasattr(m, "max_length"))
     with TestClient(app, raise_server_exceptions=False) as c:
         for bad in ("", "x" * (cap + 1)):
-            r = c.post("/api/interviews/x/chat/stream", json={"interview_id": "x", "content": bad})
+            r = c.post("/api/interviews/x/chat/send", json={"interview_id": "x", "content": bad})
             assert r.status_code == 422, len(bad) if isinstance(bad, str) else bad
 
 
@@ -64,10 +64,10 @@ def test_cors_middleware_answers_preflight_only_for_listed_origins(monkeypatch):
         reloaded = importlib.reload(main_module)
         assert reloaded.CORS_ALLOW_ORIGINS == ["https://app.example", "https://other.example"]
         with TestClient(reloaded.app) as c:
-            allowed = c.options("/api/usage", headers={"Origin": "https://app.example", "Access-Control-Request-Method": "GET"})
+            allowed = c.options("/api/billing/usage", headers={"Origin": "https://app.example", "Access-Control-Request-Method": "GET"})
             assert allowed.headers["access-control-allow-origin"] == "https://app.example"
             assert allowed.headers["access-control-allow-credentials"] == "true"
-            denied = c.options("/api/usage", headers={"Origin": "https://evil.example", "Access-Control-Request-Method": "GET"})
+            denied = c.options("/api/billing/usage", headers={"Origin": "https://evil.example", "Access-Control-Request-Method": "GET"})
             assert "access-control-allow-origin" not in denied.headers
     finally:
         monkeypatch.delenv("CORS_ALLOW_ORIGINS")

@@ -145,4 +145,4 @@ fi
 echo "  -> HTTP $code $(head -c 200 /tmp/webhook-driver.out)"
 rm -f /tmp/webhook-driver.out
 [ "$code" = 200 ] || exit 5
-echo "  then: $_ENGINE_DIR/debug-state.sh   (or GET /api/usage as that user)"
+echo "  then: $_ENGINE_DIR/debug-state.sh   (or GET /api/billing/usage as that user)"

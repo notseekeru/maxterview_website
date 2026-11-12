@@ -7,7 +7,7 @@
 # a QR Ph payment outright, so a refund only ever arrives as `payment.refunded`. Disputes are seen in
 # the PayMongo dashboard, and the app has no admin surface to act on one.
 #
-# The write is the same one `payments._revoke` makes: `plan='free'` plus a status that is NOT in
+# The write is the same one `paymongo._revoke` makes: `plan='free'` plus a status that is NOT in
 # `billing.ENTITLED_STATUSES`, so the next read downgrades: no job, no cache to bust. A later
 # purchase overwrites the row, so this is not a ban.
 #
@@ -70,4 +70,4 @@ echo "== row before =="
 _q "SELECT owner_id, plan, status, current_period_end FROM subscriptions WHERE $COL = :'val';"
 echo "== revoking =="
 _q "UPDATE subscriptions SET plan = 'free', status = :'st', updated_at = now() WHERE $COL = :'val' AND plan = 'premium' RETURNING owner_id, plan, status, current_period_end;"
-echo "== done: re-run debug-state.sh (or GET /api/usage as that user); the period is gone, not held =="
+echo "== done: re-run debug-state.sh (or GET /api/billing/usage as that user); the period is gone, not held =="

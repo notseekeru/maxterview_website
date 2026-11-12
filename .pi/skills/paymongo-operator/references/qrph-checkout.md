@@ -2,7 +2,7 @@
 
 The shipping rail is `BILLING_MODE=period` on **QR Ph**: one-time Payment Intent → a QR drawn in the
 SPA → `payment.paid` → 30 days of premium. Nothing redirects. `POST /api/billing/checkout` answers
-`{"qr": {image_url, expires_at}}`, `QrCheckout.tsx` renders it and polls `GET /api/usage` until the
+`{"qr": {image_url, expires_at}}`, `QrCheckout.tsx` renders it and polls `GET /api/billing/usage` until the
 webhook flips the tier. A redirect method answers `{"url": …}` and would need nothing new here, but
 none is enabled on this account (Maya and cards need KYB) — see SKILL.md §1.
 
@@ -42,7 +42,7 @@ Drive the browser with the `playwright` MCP server declared in `.pi/mcp.json`
 
 ### 3. Let the webhook round-trip
 
-There is no return URL on this rail, so the modal is the guard: it polls `GET /api/usage` every 4s,
+There is no return URL on this rail, so the modal is the guard: it polls `GET /api/billing/usage` every 4s,
 keeps polling for 2 min past expiry, and reloads the page when the tier flips. PayMongo has **no CLI
 and no events API**, so when the app is only on localhost deliver the equivalent instead:
 
@@ -59,7 +59,7 @@ of selling a second one.
 
 ### 4. Assert entitlement
 
-- `GET {BACKEND}/api/usage` → `"tier": "premium"`, `"billing_mode": "period"`, `premium_until` ~30
+- `GET {BACKEND}/api/billing/usage` → `"tier": "premium"`, `"billing_mode": "period"`, `premium_until` ~30
   days out.
 - Or `debug-state.sh` for the row: `plan='premium'`, `status='active'`.
 - Teardown: `POST /api/billing/cancel` records no-renewal; the paid period keeps serving until
@@ -68,7 +68,7 @@ of selling a second one.
 ## Keyless shortcut (no PayMongo account at all)
 
 Skip this reference: seed the row and drive the webhook directly (SKILL.md §4). That proves
-`webhook → subscriptions → resolve_tier → /api/usage` with no keys, and is what CI-shaped checks
+`webhook → subscriptions → resolve_tier → /api/billing/usage` with no keys, and is what CI-shaped checks
 should assert on.
 
 ## Guardrails recap

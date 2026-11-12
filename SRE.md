@@ -133,13 +133,13 @@ For routing k6 to my app, I used Tailscale to connect them. For anyone who doesn
 | ------------------------------------------------------------------------------ |
 | `POST /interviews`                                                             |
 | `POST /interviews/{id}/start`                                                  |
-| `POST /interviews/{id}/chat/kickoff`                                           |
-| `POST /interviews/{id}/chat/stream`                                            |
+| `POST /interviews/{id}/chat/opening`                                           |
+| `POST /interviews/{id}/chat/send`                                            |
 | `POST /interviews/{id}/finish`                                                 |
 | `GET /interviews/{id}/feedback`                                                |
-| `GET /interviews/{id}/messages`                                                |
-| `GET /interviews`, `/stats/dimensions`, `/stats/analytics`, `/stats/dashboard` |
-| `GET /usage`, `/templates`, `/resumes`, `/settings/llm`, `/voice`              |
+| `GET /interviews/{id}/chat`                                                |
+| `GET /interviews`, `/stats/analytics`, `/stats/dashboard` |
+| `GET /billing/usage`, `/templates`, `/resumes`, `/settings/llm`, `/voice`              |
 | `GET /interviews/{id}/offer`                                                   |
 | `POST` and `DELETE /interviews/{id}/archive`                                   |
 | `POST /resumes`, `POST /templates`, each deleted in the same run               |
@@ -151,10 +151,10 @@ A virtual user is one person doing one whole interview, plus everything else a s
 
 It starts with a create. POST /api/interviews with a role, a topic, a level and the dials. Nothing is authenticated in the perf window, so there is no token to verify and no Clerk round trip. The identity is a fixed subject that every virtual user shares. The handler inserts one row and hands back the interview, its id, and the arc it will follow, nineteen questions for a standard run.
 
-Then start. One update, to in_progress, because every chat route refuses a run that is not in progress. Then the opener: chat/kickoff, which comes back as a stream. On the server that call reads the
+Then start. One update, to in_progress, because every chat route refuses a run that is not in progress. Then the opener: chat/opening, which comes back as a stream. On the server that call reads the
 interview, the resume attached to it and the whole transcript in one statement, then asks for a reply and stores it. In the perf window that reply is the stub: it echoes the answer back word by word, with no network and nothing billed. The client reads the frames, checks that the last one is done, and keeps the text.
 
-Now the turns. Two to eight of them, drawn at random, with one to three seconds of think time between each so the shape looks like a person typing rather than a loop. Each turn is the same chat/stream with a few hundred characters of answer. On the server that is three statements: read the interview and transcript again in one, spend the credit and store the message in one, store the reply once the stub has echoed it back. Four in production, where the tier lookup is not skipped. The transcript is re-read every turn and grows every turn, which is why the same route costs more at turn six than at turn one.
+Now the turns. Two to eight of them, drawn at random, with one to three seconds of think time between each so the shape looks like a person typing rather than a loop. Each turn is the same chat/send with a few hundred characters of answer. On the server that is three statements: read the interview and transcript again in one, spend the credit and store the message in one, store the reply once the stub has echoed it back. Four in production, where the tier lookup is not skipped. The transcript is re-read every turn and grows every turn, which is why the same route costs more at turn six than at turn one.
 
 Then finish. That one request does the most work in the run: it flips the status and runs the whole feedback pipeline inside the request, which the harness counts at eleven statements. The grading is the stub too, so what that request costs is the statements and not the model. It is not a background job, and the virtual user waits for it.
 
@@ -266,7 +266,7 @@ Six changes, all of them on round trips, read size or the pool rather than on th
 | ------------------ | -------------------------------------------------- | ------------------------------------------------ |
 | `/stats/analytics` | five checkouts                                     | one statement                                    |
 | `/templates`       | a seed write, then the read                        | the read, seeded only when the endpoint is empty |
-| `/usage`           | two checkouts in the window, three to four in prod | one                                              |
+| `/billing/usage`           | two checkouts in the window, three to four in prod | one                                              |
 | `GET /interviews`  | every run the owner had                            | 50 per page, archived filtered in the query      |
 | Home counters      | derived in the browser from that full endpoint     | one statement over the full history              |
 | pool               | 10                                                 | 20                                               |
@@ -321,7 +321,7 @@ queries in flight, and the wait is the other half of the request.
 At 32 VUs nothing waits on the pool, and the latency is the round trips: 2.3 queries per request at about
 100ms each. `/stats/analytics` is still the slowest app-owned route at 1.41s p95.
 
-At 55 VUs every route multiplies: analytics 1.41s to 7.75s, messages 0.7s to 5.08s. That is the pool of 20 running out, not the app work changing. At 100 VUs the wait is most of the request: 505ms of a 719ms p50, and 1.31s of a 1.90s p95. The mean query stays flat, 97 to 116ms across
+At 55 VUs every route multiplies: analytics 1.41s to 7.75s, chat 0.7s to 5.08s. That is the pool of 20 running out, not the app work changing. At 100 VUs the wait is most of the request: 505ms of a 719ms p50, and 1.31s of a 1.90s p95. The mean query stays flat, 97 to 116ms across
 
 CPU stays near a tenth of the four cores and memory near half of 256Mi in all three windows, so neither is the ceiling.
 
@@ -438,9 +438,9 @@ I changed the measurement window to 2 minutes and the confirmation to two 5-minu
 
 | Endpoint                                  | Method                                                                                                         | Counts   | Layer                         |
 | ----------------------------------------- | -------------------------------------------------------------------------------------------------------------- | -------- | ----------------------------- |
-| `POST /interviews/{id}/chat/stream`       | duplicate tier read removed, transcript folded into the interview read, spend and user insert in one statement | 8 -> 5   | Aggregate Queries, Bulk Write |
-| `POST /interviews/{id}/chat/kickoff`      | duplicate tier read removed, transcript folded into the interview read                                         | 7 -> 5   | Aggregate Queries             |
-| `GET /interviews/{id}/messages`           | ownership check folded into the read                                                                           | 2 -> 1   | Aggregate Queries             |
+| `POST /interviews/{id}/chat/send`       | duplicate tier read removed, transcript folded into the interview read, spend and user insert in one statement | 8 -> 5   | Aggregate Queries, Bulk Write |
+| `POST /interviews/{id}/chat/opening`      | duplicate tier read removed, transcript folded into the interview read                                         | 7 -> 5   | Aggregate Queries             |
+| `GET /interviews/{id}/chat`           | ownership check folded into the read                                                                           | 2 -> 1   | Aggregate Queries             |
 | `GET /interviews/{id}/feedback`           | ownership check folded into the read                                                                           | 2 -> 1   | Aggregate Queries             |
 | `POST /interviews/{id}/feedback/generate` | four guard reads into one SELECT                                                                               | 14 -> 11 | Aggregate Queries             |
 | `POST /resumes/{id}/review`               | duplicate tier read removed                                                                                    | 6 -> 5   | Aggregate Queries             |

@@ -9,7 +9,7 @@
   HomePage --> Home_DS["DashboardStats"]
   HomePage --> Home_CF["CreateInterviewForm"]
 
-  Home_UB --> Home_E1["GET /usage<br/>1 stmt"]
+  Home_UB --> Home_E1["GET /billing/usage<br/>1 stmt"]
   Home_DS --> Home_E2["GET /interviews<br/>50 rows to print 5, 1 stmt"]
   Home_DS --> Home_E3["GET /stats/dashboard<br/>1 stmt"]
   Home_CF --> Home_E4["GET /templates<br/>1 stmt"]
@@ -26,7 +26,7 @@
   InterviewsPage --> Interviews_IL["InterviewList<br/>loadMore, archive, delete"]
   InterviewsPage --> Interviews_CF["CreateInterviewForm"]
 
-  Interviews_UB --> Interviews_E1["GET /usage<br/>1 stmt"]
+  Interviews_UB --> Interviews_E1["GET /billing/usage<br/>1 stmt"]
   Interviews_IL --> Interviews_E2["GET /interviews?archived<br/>50 per page, 1 stmt"]
   Interviews_IL --> Interviews_E3["POST or DELETE /archive<br/>1 stmt each"]
   Interviews_IL --> Interviews_E4["DELETE /interviews/&#123;id&#125;<br/>2 stmt"]
@@ -44,11 +44,11 @@
   AnalyticsPageRoot["Analytics"] --> Analytics_UB["UsageBadge"]
   AnalyticsPageRoot --> Analytics_AP["AnalyticsPage"]
 
-  Analytics_UB --> Analytics_E1["GET /usage<br/>1 stmt"]
+  Analytics_UB --> Analytics_E1["GET /billing/usage<br/>1 stmt"]
   Analytics_AP --> Analytics_E2["GET /stats/analytics<br/>1 stmt"]
 
   Analytics_E1 --> Analytics_T1[("turn_usage")]
-  Analytics_E2 ==> Analytics_T2[("messages<br/>every message ever written")]
+  Analytics_E2 ==> Analytics_T2[("chat_turns<br/>every message ever written")]
   Analytics_E2 --> Analytics_T3[("interviews")]
   Analytics_E2 --> Analytics_T4[("feedback")]
   Analytics_E2 --> Analytics_T5[("offers")]
@@ -66,23 +66,23 @@
   ChatPage --> Chat_RUN["during the run"]
   ChatPage --> Chat_FI["on finish"]
 
-  Chat_UB --> Chat_E0["GET /usage<br/>1 stmt"]
+  Chat_UB --> Chat_E0["GET /billing/usage<br/>1 stmt"]
   Chat_OP --> Chat_E1["GET /interviews/&#123;id&#125;<br/>1 stmt"]
-  Chat_OP --> Chat_E2["GET /messages<br/>1 stmt"]
+  Chat_OP --> Chat_E2["GET /chat<br/>1 stmt"]
   Chat_OP --> Chat_E3["GET /feedback<br/>1 stmt"]
   Chat_OP --> Chat_E4["GET /offer<br/>1 stmt"]
   Chat_OP --> Chat_E5["GET /voice<br/>0 stmt"]
 
   Chat_RUN --> Chat_E6["POST /start<br/>1 stmt"]
-  Chat_RUN --> Chat_E7["POST /chat/kickoff<br/>5 stmt"]
-  Chat_RUN --> Chat_E8["POST /chat/stream<br/>5 stmt per turn"]
+  Chat_RUN --> Chat_E7["POST /chat/opening<br/>5 stmt"]
+  Chat_RUN --> Chat_E8["POST /chat/send<br/>5 stmt per turn"]
 
   Chat_FI --> Chat_E9["POST /finish<br/>11 stmt"]
   Chat_FI --> Chat_E10["POST /feedback/generate<br/>redo only"]
 
   Chat_E0 --> Chat_T1[("turn_usage")]
   Chat_E1 --> Chat_T2[("interviews")]
-  Chat_E2 --> Chat_T3[("messages")]
+  Chat_E2 --> Chat_T3[("chat_turns")]
   Chat_E3 --> Chat_T4[("feedback")]
   Chat_E4 --> Chat_T5[("offers")]
   Chat_E6 --> Chat_T2
@@ -103,7 +103,7 @@
   ResumePageRoot["ResumePage"] --> Resume_UB["UsageBadge"]
   ResumePageRoot --> Resume_RV["ResumeReviewView"]
 
-  Resume_UB --> Resume_E1["GET /usage<br/>1 stmt"]
+  Resume_UB --> Resume_E1["GET /billing/usage<br/>1 stmt"]
   ResumePageRoot --> Resume_E2["GET /resumes<br/>1 stmt"]
   ResumePageRoot --> Resume_E3["POST /resumes/extract<br/>parse only"]
   ResumePageRoot --> Resume_E4["POST /resumes<br/>1 stmt"]
@@ -132,8 +132,8 @@
   BillingPageRoot --> Billing_UP["UpgradePendingNotice"]
 
   Billing_QC --> Billing_E1["POST /billing/checkout"]
-  Billing_QC --> Billing_E2["GET /usage<br/>every 4s while the modal is open"]
-  Billing_UP --> Billing_E3["GET /usage<br/>every 5s, up to 12 times"]
+  Billing_QC --> Billing_E2["GET /billing/usage<br/>every 4s while the modal is open"]
+  Billing_UP --> Billing_E3["GET /billing/usage<br/>every 5s, up to 12 times"]
   BillingPageRoot --> Billing_E4["POST /billing/cancel"]
 
   Billing_E1 --> Billing_PM["PayMongo"]
@@ -151,7 +151,7 @@
   Settings_L --> Settings_E2["PUT /settings/llm"]
   Settings_L --> Settings_E3["DELETE /settings/llm"]
   Settings_L --> Settings_E4["POST /settings/llm/test"]
-  Settings_UB --> Settings_E5["GET /usage<br/>1 stmt"]
+  Settings_UB --> Settings_E5["GET /billing/usage<br/>1 stmt"]
 
   Settings_E1 --> Settings_T1[("llm_credentials")]
   Settings_E2 --> Settings_T1

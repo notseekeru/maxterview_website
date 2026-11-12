@@ -34,13 +34,13 @@ Browser (React SPA) ── /api ──► nginx/Vite proxy ──► FastAPI ─
 - **Backend** (`backend/`): FastAPI in `app/main.py`, raw SQL via asyncpg (`app/db.py`),
   manual Clerk JWT/JWKS verification (`app/auth.py`), OpenAI-compatible LLM client (`app/llm.py`).
   Migrations via **yoyo** (`backend/migrations/*.sql`).
-- **Frontend** (`frontend/`): React 19 + Vite 8 + TypeScript 7. Consumes the SSE `chat/stream`
+- **Frontend** (`frontend/`): React 19 + Vite 8 + TypeScript 7. Consumes the SSE `chat/send`
   endpoint with native fetch streaming.
 
 ### The interview loop
 
 ```
-create → start → chat/stream (SSE) → … → complete → feedback
+create → start → chat/send (SSE) → … → complete → feedback
 ```
 
 Every query is scoped to the owner (`ClerkUser.sub`, or dev `DEV_USER`). All paths carry the `/api`

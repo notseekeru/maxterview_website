@@ -50,8 +50,8 @@ Decisions: PLAN D10 (owner-scoping is a hard rule).
 ## 2. Enforcement (`billing.py` + `main.py`)
 
 - **No per-interview or daily-interview cap**: `POST /interviews` is a plain INSERT.
-- **Daily global chat-turn cap, one credit per MODEL turn**: `POST /interviews/{id}/chat/kickoff`
-  (the generated opener), `POST /interviews/{id}/chat/stream` (each reply, plus the generated sign-off
+- **Daily global chat-turn cap, one credit per MODEL turn**: `POST /interviews/{id}/chat/opening`
+  (the generated opener), `POST /interviews/{id}/chat/send` (each reply, plus the generated sign-off
   that ends the arc). Both check `turns_used(today) < limit` against `turn_usage` before the call,
   then upsert +1. Over → **`402`**, which may happen mid-interview once the owner burns today's
   credits across ALL their interviews. The review is deliberately NOT metered: `POST /interviews/{id}/finish`
@@ -63,19 +63,19 @@ Decisions: PLAN D10 (owner-scoping is a hard rule).
   data** — reads stay fully available. Hard rule.
 - **No cache-aside** for the counters (DB-backed, per-user, low-frequency). `tier` is cached in the
   JWT; JWKS in `auth.py`.
-- **`GET /usage`** returns `tier`, the EFFECTIVE cap (`chat_turns_per_day_<tier>`, or that tier's
+- **`GET /billing/usage`** returns `tier`, the EFFECTIVE cap (`chat_turns_per_day_<tier>`, or that tier's
   BYOK ceiling when the caller brings a key), `chat_turns_used_today` / `chat_turns_remaining_today`,
   `byok`, plus `billing_mode` and `premium_until` (period mode has no renewal for the UI to infer an
   expiry from, so the server states it). The frontend header shows the tier via `UsageBadge`.
 
 ## 3. Provider — PayMongo (period top-up shipped; subscriptions dormant)
 
-Implementation is **raw httpx against PayMongo** (`app/payments.py`, chosen over Xendit — see §4).
+Implementation is **raw httpx against PayMongo** (`app/paymongo.py`, chosen over Xendit — see §4).
 Both modes write the **same** `subscriptions` row and are read by the same `billing.resolve_tier`, so
 the mode is a payment rail, not an entitlement model. Paths below are relative to the app's `/api`
 prefix (`curl localhost:8000/api/billing/checkout`).
 
-- **`POST /billing/checkout`** — **mode-blind**: `payments.start_upgrade` dispatches on `BILLING_MODE`.
+- **`POST /billing/checkout`** — **mode-blind**: `paymongo.start_checkout` dispatches on `BILLING_MODE`.
   The customer's email comes from `auth.user_email`: the JWT claim if the instance puts one there,
   otherwise Clerk's Backend API (`CLERK_SECRET_KEY`). Clerk's default session token carries **no**
   `email` claim, so without the lookup every checkout is a **409** before any provider call.
@@ -90,10 +90,10 @@ prefix (`curl localhost:8000/api/billing/checkout`).
     are charged by PayMongo from the vaulted method.
   - **A second purchase is never a second charge.** A live paid period is refused outright, and a
     pending payment that is STILL payable is served again instead of refused: period mode asks the
-    provider about the stored intent (`payments._resume_or_block`), because closing the popup or
+    provider about the stored intent (`paymongo._resume_or_block`), because closing the popup or
     reloading must not strand the buyer for the code's whole life. A dead code frees the row, an
     intent already `succeeded` is credited, and one being processed is refused for that moment.
-    Subscription mode keeps PayMongo's 24h first-payment window (`payments._resubscribe_block`).
+    Subscription mode keeps PayMongo's 24h first-payment window (`paymongo._resubscribe_block`).
 - **`POST /billing/cancel`** — PayMongo has **no billing portal**, so cancelling is ours: in
   subscription mode `DELETE` the subscription; in period mode there is nothing scheduled to stop.
   Either way the row goes `cancelled` and the paid period keeps serving (§5).
@@ -163,7 +163,7 @@ in **live** mode (not just test). Read literally, the detail says the capability
 payment methods are configured for subscriptions, so it is downstream of the rejected e-wallets below.
 A one-time Payment Intent
 needs no account capability, so `BILLING_MODE=period` turns money into the **same** entitlement
-(`current_period_end`) with zero changes to `billing.py`, the quota model, `/usage`, the schema or the
+(`current_period_end`) with zero changes to `billing.py`, the quota model, `/billing/usage`, the schema or the
 DB. Accepted: no auto-renew (the billing page states the expiry; `PAYMONGO_PLAN_ID` is no longer
 needed to launch). Revisit if support ever enables Subscriptions: `BILLING_MODE=subscription`,
 nothing else. (Support email: support@paymongo.com; Fully Verified needs DTI + BIR 2303 for a PH sole
@@ -183,7 +183,7 @@ was wrong for live mode.
 before Subscriptions does — i.e. a registered entity. So `PERIOD_METHODS = ("qrph",)`: create the
 one-time intent, attach it, and answer the browser `{"qr": {image_url, expires_at}}`, which
 `QrCheckout.tsx` renders with a countdown to the provider's own deadline (30 min). QR Ph has no
-return URL, so the modal polls `/usage` instead. Two knock-ons worth keeping: the pending row is now
+return URL, so the modal polls `/billing/usage` instead. Two knock-ons worth keeping: the pending row is now
 released by the **provider's own intent status** rather than the 24h subscription window (an
 abandoned code cannot lock the retry out for a day, and an intent already `succeeded` is credited
 rather than sold again), and an expired code just means the next checkout creates a fresh intent.
@@ -200,7 +200,7 @@ and Subscriptions.
 
 **Global/USD later.** PayMongo is PHP-only and PH-rail-only, so USD pricing needs a merchant-of-record
 (Paddle / Lemon Squeezy / Polar: they remit VAT and pay out to an unregistered PH individual — the only
-option before DTI/BIR exists). The seam is `payments.py` plus the `subscriptions.provider*` columns:
+option before DTI/BIR exists). The seam is `paymongo.py` plus the `subscriptions.provider*` columns:
 a second module, not a rewrite.
 
 ## 5. Cancellation & billing terms
@@ -241,6 +241,6 @@ a second module, not a rewrite.
 Header tier label (`UsageBadge`), lockout/upsell notice (`UpgradeNotice` on 402), and a
 billing/plan page (`/settings/billing`) with Free vs Pro cards, current-plan summary, an
 Upgrade CTA, and in-app **Cancel**. QR Ph has no return URL: `QrCheckout` draws the code beside a
-countdown and polls `/usage` until the webhook flips the tier. A redirect rail would land on
+countdown and polls `/billing/usage` until the webhook flips the tier. A redirect rail would land on
 `/dashboard?upgrade=pending`, where `UpgradePendingNotice` runs the same poll, because a return URL
 alone is not proof of payment.

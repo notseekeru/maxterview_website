@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { getUsage, turnsToday, type Usage } from "@/lib/api";
 import { clerkEnabled } from "@/lib/config";
 
-// Quota-status badge (GET /usage).
+// Quota-status badge (GET /billing/usage).
 export function UsageBadge() {
     const [usage, setUsage] = useState<Usage | null>(null);
     const [error, setError] = useState(false);

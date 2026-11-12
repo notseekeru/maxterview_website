@@ -417,7 +417,7 @@ def _messages_sql(spec: dict, turns: int, classes: list[str], iv_id: str) -> str
     llm = app_modules()[0]
     closing = llm.FAIL_MESSAGE.format(cls=classes[-1].upper()) if spec.get("fail_at") is not None else llm.CLOSING_MESSAGE
     rows.append(f"({q_(iv_id)}, 'assistant', {q_(closing)}, NULL, NULL, {q_((t + timedelta(minutes=turns * 3)).isoformat())})")
-    return "INSERT INTO messages (interview_id, role, content, move_class, comment, created_at) VALUES\n  " + ",\n  ".join(rows) + ";\n"
+    return "INSERT INTO chat_turns (interview_id, role, content, move_class, comment, created_at) VALUES\n  " + ",\n  ".join(rows) + ";\n"
 
 
 def question(spec: dict, n: int) -> str:

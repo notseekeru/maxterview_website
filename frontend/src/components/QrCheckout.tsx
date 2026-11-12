@@ -54,7 +54,7 @@ export function useQrCheckout() {
                 return;
             }
             // A full reload, not a state patch: the shell's badge, the billing page and this hook all
-            // read `/usage` once on mount, and a remount is how they agree without an event bus.
+            // read `/billing/usage` once on mount, and a remount is how they agree without an event bus.
             void getUsage()
                 .then((usage) => usage.tier === "premium" && window.location.reload())
                 .catch(() => {});

@@ -260,7 +260,7 @@
           "datasourceUid": "{{DS_PROM}}",
           "model": {
             "editorMode": "code",
-            "expr": "sum(increase(http_server_request_duration_seconds_bucket{service_name=\"{{APP}}\", le=\"+Inf\", http_route!~\".*(chat/stream|chat/kickoff|feedback/generate|voice/stt|voice/tts)\"}[1h])) - sum(increase(http_server_request_duration_seconds_bucket{service_name=\"{{APP}}\", le=\"5\", http_route!~\".*(chat/stream|chat/kickoff|feedback/generate|voice/stt|voice/tts)\"}[1h]))",
+            "expr": "sum(increase(http_server_request_duration_seconds_bucket{service_name=\"{{APP}}\", le=\"+Inf\", http_route!~\".*(chat/send|chat/opening|feedback/generate|voice/stt|voice/tts)\"}[1h])) - sum(increase(http_server_request_duration_seconds_bucket{service_name=\"{{APP}}\", le=\"5\", http_route!~\".*(chat/send|chat/opening|feedback/generate|voice/stt|voice/tts)\"}[1h]))",
             "instant": false,
             "legendFormat": "requests over 5s",
             "range": true,
@@ -319,7 +319,7 @@
       "for": "5m",
       "keep_firing_for": "0s",
       "annotations": {
-        "description": "An app-owned request took more than 5 seconds, in the last hour, above 0.5 (one request). The four routes excluded here have their duration set by something else: chat/stream and chat/kickoff by how long the model writes, feedback/generate by four model calls in a row, and the voice routes by the transcription and speech providers. Those are measured and never alerted on, because the number is the provider's and no threshold on it is yours to act on. What is left is the request path this repo owns: its own code and the database behind it. p95 across just those routes is 1.77s, nearly all of it the wait for a Neon connection, so 5 seconds is a fault and not a cold start.",
+        "description": "An app-owned request took more than 5 seconds, in the last hour, above 0.5 (one request). The four routes excluded here have their duration set by something else: chat/send and chat/opening by how long the model writes, feedback/generate by four model calls in a row, and the voice routes by the transcription and speech providers. Those are measured and never alerted on, because the number is the provider's and no threshold on it is yours to act on. What is left is the request path this repo owns: its own code and the database behind it. p95 across just those routes is 1.77s, nearly all of it the wait for a Neon connection, so 5 seconds is a fault and not a cold start.",
         "summary": "{{PROJECT}}: app routes slow"
       },
       "labels": {

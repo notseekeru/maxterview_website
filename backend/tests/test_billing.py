@@ -6,7 +6,7 @@ from datetime import UTC, date, datetime, timedelta
 import pytest
 from fastapi import HTTPException
 
-from app import billing, payments
+from app import billing, paymongo
 from app.billing import _quota, resolve_tier
 from app.models import ClerkUser
 
@@ -124,13 +124,13 @@ def _capture(monkeypatch, *, owner: str | None = "paying-user"):
             return {"owner_id": owner} if owner else None
         return {"id": "row"}
 
-    monkeypatch.setattr(payments, "fetchrow", fake_fetchrow)
+    monkeypatch.setattr(paymongo, "fetchrow", fake_fetchrow)
     return calls
 
 
 async def test_subscription_activated_upserts_premium_row(monkeypatch):
     calls = _capture(monkeypatch)
-    await payments.handle_webhook_event(_subscription_event("subscription.activated"))
+    await paymongo.handle_webhook_event(_subscription_event("subscription.activated"))
 
     upsert = next(a for q, a in calls if "INSERT INTO subscriptions" in q)
     owner_id, provider, customer_id, subs_id, plan_id, plan, status_str, period_end = upsert
@@ -142,13 +142,13 @@ async def test_subscription_activated_upserts_premium_row(monkeypatch):
 
 async def test_subscription_event_legacy_envelope_still_upserts(monkeypatch):
     calls = _capture(monkeypatch)
-    await payments.handle_webhook_event(_subscription_event("subscription.updated", legacy=True))
+    await paymongo.handle_webhook_event(_subscription_event("subscription.updated", legacy=True))
     assert any("INSERT INTO subscriptions" in q for q, _ in calls)
 
 
 async def test_subscription_past_due_keeps_plan_but_loses_entitlement(monkeypatch):
     calls = _capture(monkeypatch)
-    await payments.handle_webhook_event(_subscription_event("subscription.past_due", status="past_due"))
+    await paymongo.handle_webhook_event(_subscription_event("subscription.past_due", status="past_due"))
     upsert = next(a for q, a in calls if "INSERT INTO subscriptions" in q)
     assert upsert[5] == "premium"  # recoverable on a later invoice.paid
     assert upsert[6] == "past_due"  # ...but resolve_tier only honors billing.ENTITLED_STATUSES
@@ -157,14 +157,14 @@ async def test_subscription_past_due_keeps_plan_but_loses_entitlement(monkeypatc
 
 async def test_subscription_cancelled_drops_to_free(monkeypatch):
     calls = _capture(monkeypatch)
-    await payments.handle_webhook_event(_subscription_event("subscription.updated", status="cancelled"))
+    await paymongo.handle_webhook_event(_subscription_event("subscription.updated", status="cancelled"))
     upsert = next(a for q, a in calls if "INSERT INTO subscriptions" in q)
     assert upsert[5] == "free"
 
 
 async def test_subscription_event_with_unknown_subscription_is_ignored(monkeypatch):
     calls = _capture(monkeypatch, owner=None)
-    await payments.handle_webhook_event(_subscription_event("subscription.activated"))
+    await paymongo.handle_webhook_event(_subscription_event("subscription.activated"))
     assert not any("INSERT INTO subscriptions" in q for q, _ in calls)
     assert not any("provider_customer_id" in q for q, _ in calls)
 
@@ -183,25 +183,25 @@ NOW = datetime(2026, 9, 12, 12, tzinfo=UTC)
 
 
 def test_resubscribe_allowed_when_nothing_is_stored():
-    assert payments._resubscribe_block(None, NOW) == ""
+    assert paymongo._resubscribe_block(None, NOW) == ""
 
 
 def test_resubscribe_blocked_inside_a_paid_period():
     for status in ("active", "past_due", "unpaid", "cancelled"):
-        assert payments._resubscribe_block(_row(status=status), NOW) != "", status
+        assert paymongo._resubscribe_block(_row(status=status), NOW) != "", status
 
 
 def test_resubscribe_allowed_once_the_period_lapsed():
     lapsed = _row(status="cancelled", current_period_end=datetime(2026, 9, 1, tzinfo=UTC))
-    assert payments._resubscribe_block(lapsed, NOW) == ""
-    assert payments._resubscribe_block(_row(plan="free", status="cancelled", current_period_end=None), NOW) == ""
+    assert paymongo._resubscribe_block(lapsed, NOW) == ""
+    assert paymongo._resubscribe_block(_row(plan="free", status="cancelled", current_period_end=None), NOW) == ""
 
 
 def test_resubscribe_blocked_while_the_first_payment_is_pending():
     pending = _row(plan="premium", status="incomplete", current_period_end=None, updated_at=NOW)
-    assert payments._resubscribe_block(pending, NOW) != ""
+    assert paymongo._resubscribe_block(pending, NOW) != ""
     stale = _row(plan="premium", status="incomplete", current_period_end=None, updated_at=datetime(2026, 9, 11, 6, tzinfo=UTC))
-    assert payments._resubscribe_block(stale, NOW) == ""
+    assert paymongo._resubscribe_block(stale, NOW) == ""
 
 
 async def test_pending_qr_resumes_instead_of_refusing(monkeypatch):
@@ -217,10 +217,10 @@ async def test_pending_qr_resumes_instead_of_refusing(monkeypatch):
         attributes = {"status": "awaiting_next_action", "next_action": {"type": "consume_qr", "code": qr["qr"]}}
         return {"data": {"attributes": attributes}}
 
-    monkeypatch.setattr(payments, "fetchrow", fake_fetchrow)
-    monkeypatch.setattr(payments, "_api", _api)
+    monkeypatch.setattr(paymongo, "fetchrow", fake_fetchrow)
+    monkeypatch.setattr(paymongo, "_api", _api)
     user = ClerkUser(sub="u", email="a@b.co", name="A B")
-    assert await payments.start_period_purchase(user) == qr
+    assert await paymongo.start_period_purchase(user) == qr
     assert calls == ["GET /v1/payment_intents/pi_x"]
 
 
@@ -231,25 +231,25 @@ async def test_pending_qr_is_judged_by_its_own_deadline(monkeypatch):
         async def _api(_method, _path, **_kw):
             return {"data": {"attributes": {"status": status, "next_action": {"code": {"expires_at": expires_at, **(code or {})}}}}}
 
-        monkeypatch.setattr(payments, "_api", _api)
+        monkeypatch.setattr(paymongo, "_api", _api)
 
     await _intent("awaiting_next_action", (datetime.now(UTC) + timedelta(minutes=12)).isoformat())
-    assert "min left" in (await payments._resume_or_block(row))[1]  # no artifact -> nothing to re-show
+    assert "min left" in (await paymongo._resume_or_block(row))[1]  # no artifact -> nothing to re-show
 
     await _intent("awaiting_next_action", (datetime.now(UTC) - timedelta(minutes=1)).isoformat())
-    assert (await payments._resume_or_block(row)) == ({}, "")  # unscannable -> the retry is not held
+    assert (await paymongo._resume_or_block(row)) == ({}, "")  # unscannable -> the retry is not held
 
     await _intent("processing", (datetime.now(UTC) + timedelta(minutes=10)).isoformat())
-    assert "processed" in (await payments._resume_or_block(row))[1]  # mid-payment: no second scan
+    assert "processed" in (await paymongo._resume_or_block(row))[1]  # mid-payment: no second scan
 
     # PayMongo leaves an abandoned intent `awaiting_next_action` forever (measured on an 11-day-old
     # one), so a status-only gate would lock the owner out permanently: the fallback ceiling is what
     # frees a row whose intent reports no deadline of its own.
     await _intent("awaiting_next_action", None)
     fresh = _row(owner_id="u", status="incomplete", provider_subscription_id="pi_x", updated_at=datetime.now(UTC))
-    assert "min left" in (await payments._resume_or_block(fresh))[1]
+    assert "min left" in (await paymongo._resume_or_block(fresh))[1]
     stale = _row(owner_id="u", status="incomplete", provider_subscription_id="pi_x", updated_at=datetime.now(UTC) - timedelta(hours=2))
-    assert (await payments._resume_or_block(stale)) == ({}, "")
+    assert (await paymongo._resume_or_block(stale)) == ({}, "")
 
     credited: list[tuple] = []
 
@@ -257,15 +257,15 @@ async def test_pending_qr_is_judged_by_its_own_deadline(monkeypatch):
         credited.append(args)
         return {"id": "row"}
 
-    monkeypatch.setattr(payments, "fetchrow", fake_fetchrow)
+    monkeypatch.setattr(paymongo, "fetchrow", fake_fetchrow)
     await _intent("succeeded")  # paid, webhook never arrived: credit it, do not sell a second period
-    assert "already received" in (await payments._resume_or_block(row))[1]
+    assert "already received" in (await paymongo._resume_or_block(row))[1]
     assert credited
 
 
 async def test_invoice_paid_recovers_subscription_via_subscription_id(monkeypatch):
     calls = _capture(monkeypatch)
-    await payments.handle_webhook_event(_invoice_event("subscription.invoice.paid"))
+    await paymongo.handle_webhook_event(_invoice_event("subscription.invoice.paid"))
     lookup, args = calls[0]
     assert "provider_subscription_id" in lookup and args[0] == "subs_123"
     update = calls[-1]
@@ -283,20 +283,20 @@ async def test_ensure_customer_reuses_only_this_providers_id(monkeypatch):
         seen["path"] = path
         return {"data": {"id": "cus_new"}}
 
-    monkeypatch.setattr(payments, "_api", _api)
+    monkeypatch.setattr(paymongo, "_api", _api)
 
     async def _stale(_q, _sub):
         return {"provider": "stripe", "provider_customer_id": "cus_from_stripe"}
 
-    monkeypatch.setattr(payments, "fetchrow", _stale)
-    assert await payments._ensure_customer(user, "a@b.co") == "cus_new"
+    monkeypatch.setattr(paymongo, "fetchrow", _stale)
+    assert await paymongo._ensure_customer(user, "a@b.co") == "cus_new"
     assert seen["path"] == "/v1/customers"
 
     async def _mine(_q, _sub):
         return {"provider": "paymongo", "provider_customer_id": "cus_pm"}
 
-    monkeypatch.setattr(payments, "fetchrow", _mine)
-    assert await payments._ensure_customer(user, "a@b.co") == "cus_pm"
+    monkeypatch.setattr(paymongo, "fetchrow", _mine)
+    assert await paymongo._ensure_customer(user, "a@b.co") == "cus_pm"
 
 
 async def test_customer_conflict_reuses_the_one_paymongo_already_holds(monkeypatch):
@@ -311,10 +311,10 @@ async def test_customer_conflict_reuses_the_one_paymongo_already_holds(monkeypat
             raise HTTPException(status_code=502, detail="Payment provider error")
         return {"data": [{"id": "cus_old", "attributes": {"email": "payer@example.com"}}]}
 
-    monkeypatch.setattr(payments, "fetchrow", fake_fetchrow)
-    monkeypatch.setattr(payments, "_api", _api)
+    monkeypatch.setattr(paymongo, "fetchrow", fake_fetchrow)
+    monkeypatch.setattr(paymongo, "_api", _api)
     user = ClerkUser(sub="u1", email="payer@example.com", name="A B")
-    assert await payments._ensure_customer(user, "payer@example.com") == "cus_old"
+    assert await paymongo._ensure_customer(user, "payer@example.com") == "cus_old"
     assert calls[1] == ("GET", "/v1/customers", {"email": "payer@example.com", "limit": 100})
 
     async def _empty(method, _p, **_k):
@@ -322,27 +322,27 @@ async def test_customer_conflict_reuses_the_one_paymongo_already_holds(monkeypat
             raise HTTPException(status_code=502, detail="Payment provider error")
         return {"data": []}
 
-    monkeypatch.setattr(payments, "_api", _empty)
+    monkeypatch.setattr(paymongo, "_api", _empty)
     with pytest.raises(HTTPException):
-        await payments._ensure_customer(user, "payer@example.com")
+        await paymongo._ensure_customer(user, "payer@example.com")
 
 
 async def test_invoice_payment_failed_marks_past_due(monkeypatch):
     calls = _capture(monkeypatch)
-    await payments.handle_webhook_event(_invoice_event("subscription.invoice.payment_failed", status="open"))
+    await paymongo.handle_webhook_event(_invoice_event("subscription.invoice.payment_failed", status="open"))
     assert "status = 'past_due'" in calls[-1][0]
 
 
 async def test_invoice_draft_churn_writes_nothing(monkeypatch):
     calls = _capture(monkeypatch)
     for etype in ("subscription.invoice.created", "subscription.invoice.finalized", "subscription.invoice.updated"):
-        await payments.handle_webhook_event(_invoice_event(etype, status="draft"))
+        await paymongo.handle_webhook_event(_invoice_event(etype, status="draft"))
     assert [q for q, _ in calls if "UPDATE subscriptions" in q] == []
 
 
 async def test_unknown_event_type_is_ignored(monkeypatch):
     calls = _capture(monkeypatch)
-    await payments.handle_webhook_event({"data": {"type": "payout.deposited", "livemode": False, "data": {"id": "po_1", "type": "payout", "attributes": {}}}})
+    await paymongo.handle_webhook_event({"data": {"type": "payout.deposited", "livemode": False, "data": {"id": "po_1", "type": "payout", "attributes": {}}}})
     assert calls == []
 
 
@@ -361,7 +361,7 @@ def _payment_event(*, etype: str = "payment.paid", intent_id: str = "pi_1") -> d
 async def test_payment_paid_credits_the_pending_row(monkeypatch):
     calls = _capture(monkeypatch)
     before = datetime.now(UTC)
-    await payments.handle_webhook_event(_payment_event())
+    await paymongo.handle_webhook_event(_payment_event())
 
     update, args = next((q, a) for q, a in calls if "UPDATE subscriptions" in q)
     owner, intent_id, period_end = args
@@ -369,12 +369,12 @@ async def test_payment_paid_credits_the_pending_row(monkeypatch):
     assert "plan = 'premium'" in update and "status = 'active'" in update
     assert "provider_subscription_id = $2 AND status = 'incomplete'" in update
     days = (period_end - before).total_seconds() / 86400
-    assert payments.PREMIUM_PERIOD_DAYS <= days < payments.PREMIUM_PERIOD_DAYS + 0.01
+    assert paymongo.PREMIUM_PERIOD_DAYS <= days < paymongo.PREMIUM_PERIOD_DAYS + 0.01
 
 
 async def test_payment_intent_succeeded_credits_too(monkeypatch):
     calls = _capture(monkeypatch)
-    await payments.handle_webhook_event(_payment_event(etype="payment_intent.succeeded", intent_id="pi_2"))
+    await paymongo.handle_webhook_event(_payment_event(etype="payment_intent.succeeded", intent_id="pi_2"))
     _, args = next((q, a) for q, a in calls if "UPDATE subscriptions" in q)
     assert args[1] == "pi_2"
 
@@ -390,18 +390,18 @@ async def test_a_second_delivery_matches_nothing_and_grants_no_extra_time(monkey
             return None  # already credited
         return {"id": "row"}
 
-    monkeypatch.setattr(payments, "fetchrow", fake_fetchrow)
-    await payments.handle_webhook_event(_payment_event())
-    await payments.handle_webhook_event(_payment_event(etype="payment_intent.succeeded"))
+    monkeypatch.setattr(paymongo, "fetchrow", fake_fetchrow)
+    await paymongo.handle_webhook_event(_payment_event())
+    await paymongo.handle_webhook_event(_payment_event(etype="payment_intent.succeeded"))
     assert [a[1] for a in attempted] == ["pi_1", "pi_1"]  # both tried, neither wrote
 
 
 async def test_payment_events_that_cannot_credit_write_nothing(monkeypatch):
     calls = _capture(monkeypatch, owner=None)
-    await payments.handle_webhook_event(_payment_event(etype="payment.failed"))
-    await payments.handle_webhook_event(_payment_event(intent_id="pi_from_another_key"))
+    await paymongo.handle_webhook_event(_payment_event(etype="payment.failed"))
+    await paymongo.handle_webhook_event(_payment_event(intent_id="pi_from_another_key"))
     no_reference = {"data": {"type": "payment.paid", "livemode": False, "data": {"id": "pay_9", "type": "payment", "attributes": {"status": "paid"}}}}
-    await payments.handle_webhook_event(no_reference)
+    await paymongo.handle_webhook_event(no_reference)
     assert not any("UPDATE subscriptions" in q for q, _ in calls)
 
 
@@ -417,7 +417,7 @@ def _refund_resource_event(etype: str = "payment.refunded", **attrs) -> dict:
 
 async def test_payment_refunded_revokes_the_paid_period(monkeypatch):
     calls = _capture(monkeypatch)
-    await payments.handle_webhook_event(_refunded_payment_event())
+    await paymongo.handle_webhook_event(_refunded_payment_event())
 
     update, args = next((q, a) for q, a in calls if "UPDATE subscriptions" in q)
     assert args == ("paying-user", "refunded")
@@ -435,11 +435,11 @@ async def test_thin_refund_event_resolves_through_the_provider(monkeypatch):
             return {"data": {"attributes": {"status": "succeeded", "payment_id": "pay_1"}}}
         return {"data": {"attributes": {"payment_intent_id": "pi_1"}}}
 
-    monkeypatch.setattr(payments, "_api", _api)
-    await payments.handle_webhook_event(_refund_resource_event())
+    monkeypatch.setattr(paymongo, "_api", _api)
+    await paymongo.handle_webhook_event(_refund_resource_event())
     assert seen == ["/v1/refunds/ref_1", "/v1/payments/pay_1"]
     assert any("UPDATE subscriptions" in q for q, _ in calls)
-    await payments.handle_webhook_event(_refund_resource_event("refund.succeeded", status="succeeded", payment_id="pay_1"))
+    await paymongo.handle_webhook_event(_refund_resource_event("refund.succeeded", status="succeeded", payment_id="pay_1"))
     assert seen[-1] == "/v1/payments/pay_1"
 
 
@@ -449,10 +449,10 @@ async def test_unsettled_refund_writes_nothing(monkeypatch):
     async def _api(_method, _path, **_kw):
         return {"data": {"attributes": {"status": "pending"}}}
 
-    monkeypatch.setattr(payments, "_api", _api)
-    await payments.handle_webhook_event(_refund_resource_event("payment.refund.updated", status="pending"))
-    await payments.handle_webhook_event(_refund_resource_event("payment.refund.updated"))  # read back: pending
-    await payments.handle_webhook_event({"data": {"type": "payment.refund.updated", "livemode": False, "data": {"id": "pay_1", "type": "payment", "attributes": {"status": "paid", "payment_intent_id": "pi_1"}}}})
+    monkeypatch.setattr(paymongo, "_api", _api)
+    await paymongo.handle_webhook_event(_refund_resource_event("payment.refund.updated", status="pending"))
+    await paymongo.handle_webhook_event(_refund_resource_event("payment.refund.updated"))  # read back: pending
+    await paymongo.handle_webhook_event({"data": {"type": "payment.refund.updated", "livemode": False, "data": {"id": "pay_1", "type": "payment", "attributes": {"status": "paid", "payment_intent_id": "pi_1"}}}})
     assert not any("UPDATE subscriptions" in q for q, _ in calls)
 
 
@@ -462,9 +462,9 @@ async def test_unattributable_refund_writes_nothing(monkeypatch):
     async def _api(_method, _path, **_kw):
         return {"data": {"attributes": {"status": "succeeded"}}}
 
-    monkeypatch.setattr(payments, "_api", _api)
-    await payments.handle_webhook_event(_refund_resource_event(status="succeeded"))
-    await payments.handle_webhook_event(_refund_resource_event(status="succeeded", payment_id="pay_unknown"))
+    monkeypatch.setattr(paymongo, "_api", _api)
+    await paymongo.handle_webhook_event(_refund_resource_event(status="succeeded"))
+    await paymongo.handle_webhook_event(_refund_resource_event(status="succeeded", payment_id="pay_unknown"))
     assert not any("UPDATE subscriptions" in q for q, _ in calls)
 
     async def _provider_down(*_a, **_kw):
@@ -472,8 +472,8 @@ async def test_unattributable_refund_writes_nothing(monkeypatch):
 
     # A provider outage during the read-back must still ACK the delivery: a 500 here is a retry storm
     # into a handler that fails the same way, and the write it skips is the operator's `revoke.sh`.
-    monkeypatch.setattr(payments, "_api", _provider_down)
-    await payments.handle_webhook_event(_refund_resource_event("payment.refund.updated", payment_id="pay_1"))
+    monkeypatch.setattr(paymongo, "_api", _provider_down)
+    await paymongo.handle_webhook_event(_refund_resource_event("payment.refund.updated", payment_id="pay_1"))
     assert not any("UPDATE subscriptions" in q for q, _ in calls)
 
 
@@ -487,31 +487,31 @@ def _sign(body: bytes, *, stamp: int | None = None, key: str = "te", secret: str
 
 
 def test_signature_accepts_test_and_live_slots(monkeypatch):
-    monkeypatch.setattr(payments, "WEBHOOK_SECRET", SECRET)
+    monkeypatch.setattr(paymongo, "WEBHOOK_SECRET", SECRET)
     body = b'{"data":{"type":"subscription.activated"}}'
-    assert payments.verify_signature(body, _sign(body, key="te"))
-    assert payments.verify_signature(body, _sign(body, key="li"))
+    assert paymongo.verify_signature(body, _sign(body, key="te"))
+    assert paymongo.verify_signature(body, _sign(body, key="li"))
 
 
 def test_signature_rejects_tampering_stale_replay_and_wrong_secret(monkeypatch):
-    monkeypatch.setattr(payments, "WEBHOOK_SECRET", SECRET)
+    monkeypatch.setattr(paymongo, "WEBHOOK_SECRET", SECRET)
     body = b'{"data":{"type":"subscription.activated"}}'
-    assert not payments.verify_signature(body + b" ", _sign(body))  # body changed after signing
-    assert not payments.verify_signature(body, _sign(body, secret="whsec_other"))  # wrong key
-    stale = int(time.time()) - (payments.SIGNATURE_TOLERANCE_S + 60)
-    assert not payments.verify_signature(body, _sign(body, stamp=stale))  # replay
-    assert not payments.verify_signature(body, "")  # header absent
-    assert not payments.verify_signature(body, "t=123,te=")  # no signature slot
+    assert not paymongo.verify_signature(body + b" ", _sign(body))  # body changed after signing
+    assert not paymongo.verify_signature(body, _sign(body, secret="whsec_other"))  # wrong key
+    stale = int(time.time()) - (paymongo.SIGNATURE_TOLERANCE_S + 60)
+    assert not paymongo.verify_signature(body, _sign(body, stamp=stale))  # replay
+    assert not paymongo.verify_signature(body, "")  # header absent
+    assert not paymongo.verify_signature(body, "t=123,te=")  # no signature slot
 
 
 def test_signature_fails_closed_without_server_secret(monkeypatch):
-    monkeypatch.setattr(payments, "WEBHOOK_SECRET", "")
+    monkeypatch.setattr(paymongo, "WEBHOOK_SECRET", "")
     body = b"{}"
-    assert not payments.verify_signature(body, _sign(body))
+    assert not paymongo.verify_signature(body, _sign(body))
 
 
 def test_period_end_tolerates_provider_date_shapes():
-    p = payments
+    p = paymongo
     assert p._period_end("2026-10-14") == datetime(2026, 10, 14, tzinfo=UTC)
     assert p._period_end(date(2026, 10, 14)) == datetime(2026, 10, 14, tzinfo=UTC)
     assert p._period_end(1788678469).year == datetime.fromtimestamp(1788678469, tz=UTC).year
@@ -519,8 +519,8 @@ def test_period_end_tolerates_provider_date_shapes():
 
 
 def _configure(monkeypatch):
-    monkeypatch.setattr(payments, "SECRET_KEY", "sk_test_x")
-    monkeypatch.setattr(payments, "PLAN_ID", "plan_x")
+    monkeypatch.setattr(paymongo, "SECRET_KEY", "sk_test_x")
+    monkeypatch.setattr(paymongo, "PLAN_ID", "plan_x")
 
 
 async def test_try_variants_returns_the_first_accepted_variant():
@@ -530,7 +530,7 @@ async def test_try_variants_returns_the_first_accepted_variant():
         calls.append(variant)
         return {"ok": variant}
 
-    assert await payments._try_variants(["a", "b"], attempt) == {"ok": "a"}
+    assert await paymongo._try_variants(["a", "b"], attempt) == {"ok": "a"}
     assert calls == ["a"]  # no speculative second call
 
 
@@ -540,13 +540,13 @@ async def test_try_variants_falls_back_then_reraises_the_last_failure():
             raise HTTPException(status_code=502, detail="no")
         return {"ok": variant}
 
-    assert await payments._try_variants(["a", "b"], second_works) == {"ok": "b"}
+    assert await paymongo._try_variants(["a", "b"], second_works) == {"ok": "b"}
 
     async def never(_variant):
         raise HTTPException(status_code=502, detail="no")
 
     with pytest.raises(HTTPException):
-        await payments._try_variants(["a", "b"], never)
+        await paymongo._try_variants(["a", "b"], never)
 
 
 async def test_first_invoice_intent_falls_back_to_the_unversioned_path(monkeypatch):
@@ -558,8 +558,8 @@ async def test_first_invoice_intent_falls_back_to_the_unversioned_path(monkeypat
             raise HTTPException(status_code=502, detail="404")
         return {"data": [{"attributes": {"payment_intent": {"id": "pi_1"}}}]}
 
-    monkeypatch.setattr(payments, "_api", _api)
-    assert await payments._first_invoice_intent("subs_1") == "pi_1"
+    monkeypatch.setattr(paymongo, "_api", _api)
+    assert await paymongo._first_invoice_intent("subs_1") == "pi_1"
     assert seen == ["/v1/subscriptions/invoices", "/subscriptions/invoices"]
 
 
@@ -567,38 +567,38 @@ async def test_first_invoice_intent_without_an_intent_is_a_502(monkeypatch):
     async def _api(*_a, **_k):
         return {"data": []}
 
-    monkeypatch.setattr(payments, "_api", _api)
+    monkeypatch.setattr(paymongo, "_api", _api)
     with pytest.raises(HTTPException) as exc:
-        await payments._first_invoice_intent("subs_1")
+        await paymongo._first_invoice_intent("subs_1")
     assert exc.value.status_code == 502
 
 
 async def test_start_subscription_needs_an_email_and_a_free_slot(monkeypatch):
     _configure(monkeypatch)
     with pytest.raises(HTTPException) as no_email:
-        await payments.start_subscription(ClerkUser(sub="u", email=None, name="A"))
+        await paymongo.start_subscription(ClerkUser(sub="u", email=None, name="A"))
     assert no_email.value.status_code == 409
 
     async def _covered(_q, _sub):
         return _row(current_period_end=datetime(2027, 1, 1, tzinfo=UTC))
 
-    monkeypatch.setattr(payments, "fetchrow", _covered)
+    monkeypatch.setattr(paymongo, "fetchrow", _covered)
     with pytest.raises(HTTPException) as covered:
-        await payments.start_subscription(ClerkUser(sub="u", email="a@b.co", name="A B"))
+        await paymongo.start_subscription(ClerkUser(sub="u", email="a@b.co", name="A B"))
     assert covered.value.status_code == 409
 
 
 async def test_start_subscription_refuses_without_config(monkeypatch):
-    monkeypatch.setattr(payments, "SECRET_KEY", "")
-    monkeypatch.setattr(payments, "PLAN_ID", "")
+    monkeypatch.setattr(paymongo, "SECRET_KEY", "")
+    monkeypatch.setattr(paymongo, "PLAN_ID", "")
     with pytest.raises(HTTPException) as exc:
-        await payments.start_subscription(ClerkUser(sub="u", email="a@b.co"))
+        await paymongo.start_subscription(ClerkUser(sub="u", email="a@b.co"))
     assert exc.value.status_code == 503
 
 
 def _period_configure(monkeypatch):
-    monkeypatch.setattr(payments, "SECRET_KEY", "sk_test_x")
-    monkeypatch.setattr(payments, "BILLING_MODE", "period")
+    monkeypatch.setattr(paymongo, "SECRET_KEY", "sk_test_x")
+    monkeypatch.setattr(paymongo, "BILLING_MODE", "period")
 
 
 def _buyer() -> ClerkUser:
@@ -606,19 +606,19 @@ def _buyer() -> ClerkUser:
 
 
 async def test_period_mode_needs_a_secret_key_but_no_plan_id(monkeypatch):
-    monkeypatch.setattr(payments, "SECRET_KEY", "sk_test_x")
-    monkeypatch.setattr(payments, "PLAN_ID", "")
-    payments._require_period_config()  # no raise: the price lives in PREMIUM_PRICE_CENTAVOS
+    monkeypatch.setattr(paymongo, "SECRET_KEY", "sk_test_x")
+    monkeypatch.setattr(paymongo, "PLAN_ID", "")
+    paymongo._require_period_config()  # no raise: the price lives in PREMIUM_PRICE_CENTAVOS
     with pytest.raises(HTTPException):
-        payments._require_config()
+        paymongo._require_config()
 
-    monkeypatch.setattr(payments, "SECRET_KEY", "")
+    monkeypatch.setattr(paymongo, "SECRET_KEY", "")
     with pytest.raises(HTTPException) as exc:
-        await payments.start_period_purchase(_buyer())
+        await paymongo.start_period_purchase(_buyer())
     assert exc.value.status_code == 503
 
 
-async def test_start_upgrade_dispatches_on_mode(monkeypatch):
+async def test_start_checkout_dispatches_on_mode(monkeypatch):
     seen: list[str] = []
 
     async def _sub(_user):
@@ -629,12 +629,12 @@ async def test_start_upgrade_dispatches_on_mode(monkeypatch):
         seen.append("period")
         return "url"
 
-    monkeypatch.setattr(payments, "start_subscription", _sub)
-    monkeypatch.setattr(payments, "start_period_purchase", _period)
-    monkeypatch.setattr(payments, "BILLING_MODE", "period")
-    await payments.start_upgrade(_buyer())
-    monkeypatch.setattr(payments, "BILLING_MODE", "subscription")
-    await payments.start_upgrade(_buyer())
+    monkeypatch.setattr(paymongo, "start_subscription", _sub)
+    monkeypatch.setattr(paymongo, "start_period_purchase", _period)
+    monkeypatch.setattr(paymongo, "BILLING_MODE", "period")
+    await paymongo.start_checkout(_buyer())
+    monkeypatch.setattr(paymongo, "BILLING_MODE", "subscription")
+    await paymongo.start_checkout(_buyer())
     assert seen == ["period", "subscription"]
 
 
@@ -654,8 +654,8 @@ async def test_start_period_purchase_records_the_intent_once_a_link_exists(monke
             return {"data": {"id": "cus_1"}}
         if path == "/v1/payment_intents":
             attrs = kwargs["json"]["data"]["attributes"]
-            assert (attrs["amount"], attrs["currency"], attrs["capture_type"]) == (payments.PREMIUM_PRICE_CENTAVOS, "PHP", "automatic")
-            assert attrs["payment_method_allowed"] == list(payments.PERIOD_METHODS)
+            assert (attrs["amount"], attrs["currency"], attrs["capture_type"]) == (paymongo.PREMIUM_PRICE_CENTAVOS, "PHP", "automatic")
+            assert attrs["payment_method_allowed"] == list(paymongo.PERIOD_METHODS)
             assert attrs["metadata"] == {"owner_id": "u"}
             assert "plan" not in attrs  # a one-time payment is not a subscription
             return {"data": {"id": "pi_new"}}
@@ -667,9 +667,9 @@ async def test_start_period_purchase_records_the_intent_once_a_link_exists(monke
             return {"data": {"attributes": {"next_action": {"redirect": {"url": "https://paymaya.test/x"}}}}}
         raise AssertionError(path)
 
-    monkeypatch.setattr(payments, "fetchrow", fake_fetchrow)
-    monkeypatch.setattr(payments, "_api", _api)
-    assert await payments.start_period_purchase(_buyer()) == {"url": "https://paymaya.test/x"}
+    monkeypatch.setattr(paymongo, "fetchrow", fake_fetchrow)
+    monkeypatch.setattr(paymongo, "_api", _api)
+    assert await paymongo.start_period_purchase(_buyer()) == {"url": "https://paymaya.test/x"}
 
     insert = next(i for i, e in enumerate(order) if e[0] == "db" and "INSERT INTO subscriptions" in e[1])
     attach = next(i for i, e in enumerate(order) if e[0] == "api" and str(e[2]).endswith("/attach"))
@@ -704,10 +704,10 @@ async def test_checkout_uses_the_clerk_lookup_when_the_token_has_no_email(monkey
             return {"data": {"attributes": {"next_action": {"redirect": {"url": "https://paymaya.test/x"}}}}}
         raise AssertionError(path)
 
-    monkeypatch.setattr(payments.auth, "user_email", fake_user_email)
-    monkeypatch.setattr(payments, "fetchrow", fake_fetchrow)
-    monkeypatch.setattr(payments, "_api", _api)
-    assert await payments.start_period_purchase(ClerkUser(sub="u", email=None, name="A")) == {"url": "https://paymaya.test/x"}
+    monkeypatch.setattr(paymongo.auth, "user_email", fake_user_email)
+    monkeypatch.setattr(paymongo, "fetchrow", fake_fetchrow)
+    monkeypatch.setattr(paymongo, "_api", _api)
+    assert await paymongo.start_period_purchase(ClerkUser(sub="u", email=None, name="A")) == {"url": "https://paymaya.test/x"}
     assert looked_up == ["u"]
 
 
@@ -732,24 +732,24 @@ async def test_start_period_purchase_hands_back_the_qr_the_rail_uses(monkeypatch
             return {"data": {"attributes": {"next_action": {"type": "consume_qr", "code": code}}}}
         raise AssertionError(path)
 
-    monkeypatch.setattr(payments, "fetchrow", fake_fetchrow)
-    monkeypatch.setattr(payments, "_api", _api)
-    payable = await payments.start_period_purchase(_buyer())
+    monkeypatch.setattr(paymongo, "fetchrow", fake_fetchrow)
+    monkeypatch.setattr(paymongo, "_api", _api)
+    payable = await paymongo.start_period_purchase(_buyer())
     assert payable["qr"]["image_url"].startswith("data:image/png;base64,")
 
 
 async def test_start_period_purchase_needs_an_email_and_a_free_slot(monkeypatch):
     _period_configure(monkeypatch)
     with pytest.raises(HTTPException) as no_email:
-        await payments.start_period_purchase(ClerkUser(sub="u", email=None, name="A"))
+        await paymongo.start_period_purchase(ClerkUser(sub="u", email=None, name="A"))
     assert no_email.value.status_code == 409
 
     async def _covered(_q, _sub):
         return _row(current_period_end=datetime(2027, 1, 1, tzinfo=UTC))
 
-    monkeypatch.setattr(payments, "fetchrow", _covered)
+    monkeypatch.setattr(paymongo, "fetchrow", _covered)
     with pytest.raises(HTTPException) as covered:
-        await payments.start_period_purchase(_buyer())
+        await paymongo.start_period_purchase(_buyer())
     assert covered.value.status_code == 409
 
 
@@ -765,10 +765,10 @@ async def test_cancel_period_keeps_the_paid_time_and_calls_no_provider(monkeypat
     async def _api(*_a, **_k):
         raise AssertionError("period mode has nothing scheduled provider-side to cancel")
 
-    monkeypatch.setattr(payments, "fetchrow", fake_fetchrow)
-    monkeypatch.setattr(payments, "_api", _api)
-    monkeypatch.setattr(payments, "BILLING_MODE", "period")
-    await payments.cancel_upgrade(_buyer())
+    monkeypatch.setattr(paymongo, "fetchrow", fake_fetchrow)
+    monkeypatch.setattr(paymongo, "_api", _api)
+    monkeypatch.setattr(paymongo, "BILLING_MODE", "period")
+    await paymongo.cancel_renewal(_buyer())
     update = next(q for q, _ in calls if "UPDATE subscriptions" in q)
     assert "status = 'cancelled'" in update and "plan = 'premium'" in update
     assert "cancelled" in billing.ENTITLED_STATUSES  # ...so the paid time still serves
@@ -778,8 +778,8 @@ async def test_cancel_period_without_a_live_period_is_404(monkeypatch):
     async def fake_fetchrow(_q, *_a, **_k):
         return {"current_period_end": None}
 
-    monkeypatch.setattr(payments, "fetchrow", fake_fetchrow)
-    monkeypatch.setattr(payments, "BILLING_MODE", "period")
+    monkeypatch.setattr(paymongo, "fetchrow", fake_fetchrow)
+    monkeypatch.setattr(paymongo, "BILLING_MODE", "period")
     with pytest.raises(HTTPException) as exc:
-        await payments.cancel_upgrade(_buyer())
+        await paymongo.cancel_renewal(_buyer())
     assert exc.value.status_code == 404

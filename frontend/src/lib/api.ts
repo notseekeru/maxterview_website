@@ -438,7 +438,7 @@ export type Grade = "S" | "A" | "B" | "C" | "D" | "F";
 
 export type Decision = "reject" | "lean_reject" | "lean_hire" | "hire";
 
-// Mirror GET /usage: the daily GLOBAL chat-turn credit across ALL the owner's
+// Mirror GET /billing/usage: the daily GLOBAL chat-turn credit across ALL the owner's
 // interviews, plus the resume ceiling. Review redos ride on the review itself (Feedback.redos).
 
 export type Tier = "free" | "premium" | "dev";
@@ -498,8 +498,8 @@ export async function unarchiveInterview(id: string): Promise<Interview> {
     return data;
 }
 
-export async function getMessages(id: string): Promise<Message[]> {
-    const { data } = await api.get<Message[]>(`/interviews/${id}/messages`);
+export async function getChat(id: string): Promise<Message[]> {
+    const { data } = await api.get<Message[]>(`/interviews/${id}/chat`);
     return data;
 }
 
@@ -523,12 +523,12 @@ export async function regenerateFeedback(id: string): Promise<Feedback> {
 }
 
 export async function getUsage(): Promise<Usage> {
-    const { data } = await api.get<Usage>("/usage");
+    const { data } = await api.get<Usage>("/billing/usage");
     return data;
 }
 
 // /billing/checkout answers with a QR to render or a provider URL to follow; with no provider portal,
-// stopping a renewal is our own endpoint. Which mode is live is the server's call (`GET /usage`).
+// stopping a renewal is our own endpoint. Which mode is live is the server's call (`GET /billing/usage`).
 export type Checkout = { url?: string; qr?: { image_url: string; expires_at: string } };
 
 export async function startUpgrade(): Promise<Checkout> {
@@ -616,12 +616,12 @@ interface VoiceTranscript {
 
 export type StreamEvent = { kind: "message"; content: string } | { kind: "done"; closing?: boolean; failed?: { turn: number; class: MoveClass } } | { kind: "error"; message: string };
 
-export async function kickoffInterview(interviewId: string, onEvent: (e: StreamEvent) => void, { signal }: { signal?: AbortSignal } = {}): Promise<void> {
-    return streamFrames(`/interviews/${interviewId}/chat/kickoff`, undefined, onEvent, signal);
+export async function openChat(interviewId: string, onEvent: (e: StreamEvent) => void, { signal }: { signal?: AbortSignal } = {}): Promise<void> {
+    return streamFrames(`/interviews/${interviewId}/chat/opening`, undefined, onEvent, signal);
 }
 
-export async function streamChat(interviewId: string, content: string, onEvent: (e: StreamEvent) => void, { signal }: { signal?: AbortSignal } = {}): Promise<void> {
-    return streamFrames(`/interviews/${interviewId}/chat/stream`, { interview_id: interviewId, content }, onEvent, signal);
+export async function sendTurn(interviewId: string, content: string, onEvent: (e: StreamEvent) => void, { signal }: { signal?: AbortSignal } = {}): Promise<void> {
+    return streamFrames(`/interviews/${interviewId}/chat/send`, { interview_id: interviewId, content }, onEvent, signal);
 }
 
 async function streamFrames(path: string, body: Record<string, unknown> | undefined, onEvent: (e: StreamEvent) => void, signal?: AbortSignal): Promise<void> {

@@ -36,7 +36,7 @@ class Dials(BaseModel):
     cynicism: Cynicism = "neutral"
     brutally_honest: bool = False
     human_mode: bool = True
-    # Every answer judged as given; a FAIL_CLASSES rating ends the run on the spot. See main.chat_stream.
+    # Every answer judged as given; a FAIL_CLASSES rating ends the run on the spot. See main.send_turn.
     hardcore: bool = False
     depth: Depth = "standard"
 

@@ -202,13 +202,13 @@ async def start_period_purchase(user: ClerkUser) -> dict:
     return payable
 
 
-async def start_upgrade(user: ClerkUser) -> dict:
+async def start_checkout(user: ClerkUser) -> dict:
     if BILLING_MODE == "subscription":
         return {"url": await start_subscription(user)}
     return await start_period_purchase(user)
 
 
-async def cancel_upgrade(user: ClerkUser) -> None:
+async def cancel_renewal(user: ClerkUser) -> None:
     if BILLING_MODE == "subscription":
         await cancel_subscription(user)
         return

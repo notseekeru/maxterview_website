@@ -8,7 +8,7 @@ an optional self-view with no processing. `PLAN.md` M19 owns the camera window; 
 decisions and the build order.
 
 **The rule:** voice is I/O around what already exists. The applicant's speech becomes text, the text
-goes through `POST /interviews/{id}/chat/stream` exactly as typed text does today, and the
+goes through `POST /interviews/{id}/chat/send` exactly as typed text does today, and the
 interviewer's reply is read aloud. The transcript stays the graded artifact (`PLAN.md` D16).
 
 That rule kills the tempting shortcut. A vendor realtime session would own the conversation and

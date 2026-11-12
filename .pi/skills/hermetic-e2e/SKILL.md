@@ -53,11 +53,11 @@ const res = await tools.mcp__playwright__browser_evaluate({
 
 ## Preconditions
 
-- Dev stack up: `make up`. Both `/api/usage` and `/` must answer 200.
+- Dev stack up: `make up`. Both `/api/billing/usage` and `/` must answer 200.
 - Auth posture FIRST, and ask the endpoint rather than reading `.env`:
-  - **Hermetic DEV_USER:** `CLERK_ENABLED=false`, so `/api/usage` is 200 anonymously. The only posture
+  - **Hermetic DEV_USER:** `CLERK_ENABLED=false`, so `/api/billing/usage` is 200 anonymously. The only posture
     this skill drives on its own.
-  - **Real Clerk:** `CLERK_ENABLED=true`, so `/api/usage` 401s. Hand the sign-in to `paymongo-operator`.
+  - **Real Clerk:** `CLERK_ENABLED=true`, so `/api/billing/usage` 401s. Hand the sign-in to `paymongo-operator`.
 - `playwright-mcp` must resolve on PATH, which means pi running inside the flake shell
   (`nix develop`/direnv). When it does not, the server fails at session start and `pi mcp list` says so.
 - `args` must be an array of strings. A wrong shape is a config error, not a runtime failure.

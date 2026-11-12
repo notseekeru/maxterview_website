@@ -16,11 +16,11 @@ echo "== backend health =="
 curl -fsS "$BACKEND_URL/api/health" || { echo "backend unreachable at $BACKEND_URL"; exit 1; }
 
 echo ""
-echo "== GET /api/usage (current caller tier/quota) =="
+echo "== GET /api/billing/usage (current caller tier/quota) =="
 # Usage is identity-scoped; with no __session cookie the app returns DEV_USER (dev fallback). For a
 # real user, send the dev fallback only; a real run would carry its __session. We show DEV view if
 # CLERK disabled in backend. Just surface whatever it gives.
-curl -fsS "$BACKEND_URL/api/usage" || true; echo ""
+curl -fsS "$BACKEND_URL/api/billing/usage" || true; echo ""
 
 echo ""
 echo "== subscriptions table (owner_id mapped; never prints secrets) =="
@@ -46,6 +46,6 @@ fi
 echo ""
 echo "== blurb =="
 echo "To verify a premium flip: deliver a subscription event (webhook-driver.sh) or complete a real"
-echo "first payment, then GET /api/usage should read tier: premium. Remember: 'cancelled' stays"
+echo "first payment, then GET /api/billing/usage should read tier: premium. Remember: 'cancelled' stays"
 echo "entitled until current_period_end; 'past_due' is not entitled at all."
 echo "Nothing here touched or printed secrets."

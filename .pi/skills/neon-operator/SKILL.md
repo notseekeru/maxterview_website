@@ -42,7 +42,7 @@ prod backend writes. There is no cluster access from this workspace; this is the
 -- last N interviews
 SELECT id, owner_id, role, status, level, created_at FROM interviews ORDER BY created_at DESC LIMIT 5;
 -- transcript for one interview
-SELECT role, content FROM messages WHERE interview_id='<uuid>' ORDER BY created_at;
+SELECT role, content FROM chat_turns WHERE interview_id='<uuid>' ORDER BY created_at;
 -- feedback for one interview
 SELECT scores, verdict, tips, decision, certainty, accuracy FROM feedback WHERE interview_id='<uuid>';
 ```

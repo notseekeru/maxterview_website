@@ -43,7 +43,7 @@
 
 # BILLING (keys do not fix these)
 
-- fix: no early renewal. `payments._resubscribe_block` answers 409 while a paid period is live, so
+- fix: no early renewal. `paymongo._resubscribe_block` answers 409 while a paid period is live, so
   nobody can extend before lapse; with no auto-renew, every 30 days is a fresh opt-in.
 - feat: expiry reminder before the period ends. The stack has no email surface at all (no SMTP or
   Resend dep), so every lapse is silent.

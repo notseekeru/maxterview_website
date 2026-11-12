@@ -4,7 +4,7 @@ import { Modal } from "@/components/ui/modal";
 import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
 import { MAX_TAKE_S, useRecorder, useSpeaker, useVoiceCapability } from "@/hooks/useInterviewVoice";
-import { apiDetail, type Feedback, finishInterview, getFeedback, getInterview, getMessages, getOffer, httpStatus, kickoffInterview, MAX_TURN_CHARS, type Message, type Offer, regenerateFeedback, type StreamEvent, startInterview, streamChat } from "@/lib/api";
+import { apiDetail, type Feedback, finishInterview, getChat, getFeedback, getInterview, getOffer, httpStatus, MAX_TURN_CHARS, type Message, type Offer, openChat, regenerateFeedback, type StreamEvent, sendTurn, startInterview } from "@/lib/api";
 import { segmentsFromPlan } from "@/lib/interviewOptions";
 import { cn } from "@/lib/utils";
 import { readVoicePref, writeVoicePref } from "@/lib/voice";
@@ -83,7 +83,7 @@ export function InterviewChat({ interviewId, onExit }: Props) {
 
     const loadMessages = useCallback(async () => {
         try {
-            const rows = await getMessages(interviewId);
+            const rows = await getChat(interviewId);
             setMessages(rows);
             return rows;
         } catch {
@@ -115,7 +115,7 @@ export function InterviewChat({ interviewId, onExit }: Props) {
     useEffect(() => {
         let cancelled = false;
         (async () => {
-            const rows = getMessages(interviewId);
+            const rows = getChat(interviewId);
             const [started] = await Promise.allSettled([startInterview(interviewId), rows]);
             if (cancelled) return;
             if (started.status === "fulfilled") {
@@ -249,7 +249,7 @@ export function InterviewChat({ interviewId, onExit }: Props) {
                     setStatus("ready");
                 }
             };
-            await (answer === null ? kickoffInterview(interviewId, onEvent, { signal: ac.signal }) : streamChat(interviewId, answer, onEvent, { signal: ac.signal }));
+            await (answer === null ? openChat(interviewId, onEvent, { signal: ac.signal }) : sendTurn(interviewId, answer, onEvent, { signal: ac.signal }));
             if (!settled) {
                 setAssistBuf("");
                 const rows = await loadMessages();

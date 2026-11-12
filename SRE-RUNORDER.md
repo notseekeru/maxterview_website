@@ -116,7 +116,7 @@ and the backend is the app itself, which is what the sweep is measuring.
 ### 3. Prove it from the ladder's side
 
 ```sh
-curl -s -o /tmp/u.json -w '%{http_code}\n' http://100.64.1.1:30090/api/usage
+curl -s -o /tmp/u.json -w '%{http_code}\n' http://100.64.1.1:30090/api/billing/usage
 cat /tmp/u.json        # want 200 and "tier":"dev". A 401 means the perf-val-change is still closed
 
 python3 sweep.py --cleanup-only
@@ -170,7 +170,7 @@ check the budget before it, not after.
 
 Clean up first, while the NodePort still answers: the app authenticates with the perf window's
 `DEV_USER_SUB`, so once the overlay is back to prod the cleanup cannot reach it and its rows stay. Then
-swap the overlay back to prod, commit, push, wait for the sync, and confirm `/api/usage` answers 401 on
+swap the overlay back to prod, commit, push, wait for the sync, and confirm `/api/billing/usage` answers 401 on
 the public URL. The perf-val-change turns authentication and the rate limit off, so it must not outlive
 the run, and the NodePort is pruned with it.
 

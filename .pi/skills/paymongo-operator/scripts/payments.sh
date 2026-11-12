@@ -33,7 +33,7 @@ DESC="Maxterview Premium (30 days)"
 URL=""
 PAYMENT_ID=""
 # `payment.paid` is what period mode emits; the two refund types are what REVOKES premium
-# (`payments._on_refund`). Every name here passed an event-validation attempt against the test account:
+# (`paymongo._on_refund`). Every name here passed an event-validation attempt against the test account:
 # the refund pair was accepted while the probe URL was rejected (a separate field), and registration
 # REJECTS `payment_intent.succeeded` ("invalid event type", 2026-09-17) along with the docs' newer
 # `refund.succeeded` and every `dispute.*` name (2026-09-27, while `GET /v1/disputes` answers

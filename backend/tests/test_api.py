@@ -72,7 +72,7 @@ def test_interview_dials_round_trip_and_default(client):
     # bodies must be captured before being indexed.
     started = c.post(f"/api/interviews/{iid}/start").json()
     assert {k: started[k] for k in expected} == expected
-    c.post(f"/api/interviews/{iid}/chat/stream", json={"interview_id": iid, "content": "hello"})
+    c.post(f"/api/interviews/{iid}/chat/send", json={"interview_id": iid, "content": "hello"})
     completed = c.post(f"/api/interviews/{iid}/finish").json()
     assert {k: completed[k] for k in expected} == expected
     c.delete(f"/api/interviews/{iid}")
@@ -87,21 +87,21 @@ def test_chat_refuses_turns_after_the_plan_is_spent(client):
     iv = c.post("/api/interviews", json={"role": "Plan Exhausted", "depth": "screen"}).json()
     iid = iv["id"]
     c.post(f"/api/interviews/{iid}/start")
-    before = c.get("/api/usage").json()["chat_turns_used_today"]
-    assert c.post(f"/api/interviews/{iid}/chat/kickoff").status_code == 200
+    before = c.get("/api/billing/usage").json()["chat_turns_used_today"]
+    assert c.post(f"/api/interviews/{iid}/chat/opening").status_code == 200
     for i in range(turns - 1):
-        assert c.post(f"/api/interviews/{iid}/chat/stream", json={"interview_id": iid, "content": f"answer {i}"}).status_code == 200
-    assert c.get("/api/usage").json()["chat_turns_used_today"] == before + turns
+        assert c.post(f"/api/interviews/{iid}/chat/send", json={"interview_id": iid, "content": f"answer {i}"}).status_code == 200
+    assert c.get("/api/billing/usage").json()["chat_turns_used_today"] == before + turns
 
-    transcript_before = c.get(f"/api/interviews/{iid}/messages").json()
+    transcript_before = c.get(f"/api/interviews/{iid}/chat").json()
     assert llm.CLOSING_MESSAGE in transcript_before[-1]["content"]
-    r = c.post(f"/api/interviews/{iid}/chat/stream", json={"interview_id": iid, "content": "one more thing"})
+    r = c.post(f"/api/interviews/{iid}/chat/send", json={"interview_id": iid, "content": "one more thing"})
     assert r.status_code == 409
     assert "Press Finish" in r.json()["detail"]
     # Refused BEFORE the model call, the chat credit, and the write: an over-plan turn must not
     # cost a quota credit or leave an unanswered user turn in the transcript.
-    assert c.get("/api/usage").json()["chat_turns_used_today"] == before + turns
-    assert c.get(f"/api/interviews/{iid}/messages").json() == transcript_before
+    assert c.get("/api/billing/usage").json()["chat_turns_used_today"] == before + turns
+    assert c.get(f"/api/interviews/{iid}/chat").json() == transcript_before
     c.delete(f"/api/interviews/{iid}")
 
 
@@ -110,15 +110,15 @@ def test_kickoff_generates_the_opener_once_and_spends_a_turn(client):
     iid = c.post("/api/interviews", json={"role": "Opener"}).json()["id"]
     c.post(f"/api/interviews/{iid}/start")
 
-    before = c.get("/api/usage").json()["chat_turns_used_today"]
-    r = c.post(f"/api/interviews/{iid}/chat/kickoff", json={})
+    before = c.get("/api/billing/usage").json()["chat_turns_used_today"]
+    r = c.post(f"/api/interviews/{iid}/chat/opening", json={})
     assert r.status_code == 200
     assert "event: done" in r.text
-    assert [m["role"] for m in c.get(f"/api/interviews/{iid}/messages").json()] == ["assistant"]
-    assert c.get("/api/usage").json()["chat_turns_used_today"] == before + 1
+    assert [m["role"] for m in c.get(f"/api/interviews/{iid}/chat").json()] == ["assistant"]
+    assert c.get("/api/billing/usage").json()["chat_turns_used_today"] == before + 1
 
-    assert c.post(f"/api/interviews/{iid}/chat/kickoff", json={}).status_code == 409
-    assert c.get("/api/usage").json()["chat_turns_used_today"] == before + 1
+    assert c.post(f"/api/interviews/{iid}/chat/opening", json={}).status_code == 409
+    assert c.get("/api/billing/usage").json()["chat_turns_used_today"] == before + 1
     c.delete(f"/api/interviews/{iid}")
 
 
@@ -135,14 +135,14 @@ def test_chat_rolls_back_the_turn_when_the_model_fails(client, monkeypatch):
     c = client
     iid = c.post("/api/interviews", json={"role": "Rollback On Model Failure"}).json()["id"]
     c.post(f"/api/interviews/{iid}/start")
-    body = c.post(f"/api/interviews/{iid}/chat/stream", json={"interview_id": iid, "content": "my answer"}).text
+    body = c.post(f"/api/interviews/{iid}/chat/send", json={"interview_id": iid, "content": "my answer"}).text
     assert "event: error" in body
     assert "event: done" not in body
-    assert c.get(f"/api/interviews/{iid}/messages").json() == []
+    assert c.get(f"/api/interviews/{iid}/chat").json() == []
 
     monkeypatch.undo()
-    assert c.post(f"/api/interviews/{iid}/chat/stream", json={"interview_id": iid, "content": "my answer"}).status_code == 200
-    roles = [m["role"] for m in c.get(f"/api/interviews/{iid}/messages").json()]
+    assert c.post(f"/api/interviews/{iid}/chat/send", json={"interview_id": iid, "content": "my answer"}).status_code == 200
+    roles = [m["role"] for m in c.get(f"/api/interviews/{iid}/chat").json()]
     assert roles == ["user", "assistant"]
     c.delete(f"/api/interviews/{iid}")
 
@@ -164,14 +164,14 @@ def test_chat_keeps_the_turn_when_finish_lands_mid_stream(client, monkeypatch):
         yield  # pragma: no cover - makes this an async generator
 
     monkeypatch.setattr(llm, "stream_chat", _boom_after_finish)
-    assert "event: error" in c.post(f"/api/interviews/{iid}/chat/stream", json={"interview_id": iid, "content": "my answer"}).text
-    assert [m["content"] for m in c.get(f"/api/interviews/{iid}/messages").json()] == ["my answer"]
+    assert "event: error" in c.post(f"/api/interviews/{iid}/chat/send", json={"interview_id": iid, "content": "my answer"}).text
+    assert [m["content"] for m in c.get(f"/api/interviews/{iid}/chat").json()] == ["my answer"]
     # The reason for keeping it: the completed run is still scorable.
     assert c.post(f"/api/interviews/{iid}/feedback/generate").status_code == 200
     c.delete(f"/api/interviews/{iid}")
 
 
-def test_chat_stream_names_the_provider_it_could_not_reach(client, monkeypatch):
+def test_send_turn_names_the_provider_it_could_not_reach(client, monkeypatch):
     # The frame the browser prints verbatim: "ConnectError" is not an instruction, the endpoint is.
     import httpx
 
@@ -185,7 +185,7 @@ def test_chat_stream_names_the_provider_it_could_not_reach(client, monkeypatch):
     c = client
     iid = c.post("/api/interviews", json={"role": "Unreachable Provider"}).json()["id"]
     c.post(f"/api/interviews/{iid}/start")
-    body = c.post(f"/api/interviews/{iid}/chat/stream", json={"interview_id": iid, "content": "hi"}).text
+    body = c.post(f"/api/interviews/{iid}/chat/send", json={"interview_id": iid, "content": "hi"}).text
     assert "Could not reach the deployment's provider" in body and "ConnectError" in body
     c.delete(f"/api/interviews/{iid}")
 
@@ -204,15 +204,15 @@ def test_chat_repairs_a_dangling_user_turn(client):
     async def insert_dangling():
         conn = await asyncpg.connect(DB_URL)
         try:
-            await conn.execute("INSERT INTO messages (interview_id, role, content) VALUES ($1::uuid, 'user', 'abandoned answer')", iid)
+            await conn.execute("INSERT INTO chat_turns (interview_id, role, content) VALUES ($1::uuid, 'user', 'abandoned answer')", iid)
         finally:
             await conn.close()
 
     asyncio.run(insert_dangling())
-    assert [m["content"] for m in c.get(f"/api/interviews/{iid}/messages").json()] == ["abandoned answer"]
+    assert [m["content"] for m in c.get(f"/api/interviews/{iid}/chat").json()] == ["abandoned answer"]
 
-    assert c.post(f"/api/interviews/{iid}/chat/stream", json={"interview_id": iid, "content": "the retry"}).status_code == 200
-    users = [m["content"] for m in c.get(f"/api/interviews/{iid}/messages").json() if m["role"] == "user"]
+    assert c.post(f"/api/interviews/{iid}/chat/send", json={"interview_id": iid, "content": "the retry"}).status_code == 200
+    users = [m["content"] for m in c.get(f"/api/interviews/{iid}/chat").json() if m["role"] == "user"]
     assert users == ["the retry"]
     c.delete(f"/api/interviews/{iid}")
 
@@ -246,17 +246,17 @@ def test_interview_lifecycle_owner_scoped(client):
     assert r.status_code == 200
     assert r.json()["role"] == "Software Engineer"
 
-    r = c.post(f"/api/interviews/{iid}/chat/stream", json={"interview_id": iid, "content": "hi"})
+    r = c.post(f"/api/interviews/{iid}/chat/send", json={"interview_id": iid, "content": "hi"})
     assert r.status_code == 409
 
     r = c.post(f"/api/interviews/{iid}/start")
     assert r.status_code == 200
     assert r.json()["status"] == "in_progress"
-    assert c.post(f"/api/interviews/{iid}/chat/kickoff").status_code == 200
-    r = c.post(f"/api/interviews/{iid}/chat/stream", json={"interview_id": iid, "content": "I have 5 years of experience."})
+    assert c.post(f"/api/interviews/{iid}/chat/opening").status_code == 200
+    r = c.post(f"/api/interviews/{iid}/chat/send", json={"interview_id": iid, "content": "I have 5 years of experience."})
     assert r.status_code == 200
     assert "text/event-stream" in r.headers["content-type"]
-    r = c.get(f"/api/interviews/{iid}/messages")
+    r = c.get(f"/api/interviews/{iid}/chat")
     assert r.status_code == 200
     roles = [m["role"] for m in r.json()]
     assert "user" in roles and "assistant" in roles
@@ -269,7 +269,7 @@ def test_interview_lifecycle_owner_scoped(client):
     assert r.json()["verdict"]
     assert (r.json()["decision"], r.json()["certainty"]) == ("lean_hire", 40)
     assert (r.json()["accuracy"], r.json()["grade"]) == (85, "A")
-    r = c.get(f"/api/interviews/{iid}/messages")
+    r = c.get(f"/api/interviews/{iid}/chat")
     msgs = r.json()
     assert [m["move_class"] for m in msgs if m["role"] == "user"] == ["good"]  # one candidate turn
     assert all(m["move_class"] is None for m in msgs if m["role"] != "user")
@@ -299,7 +299,7 @@ def test_interview_lifecycle_owner_scoped(client):
     r = c.post(f"/api/interviews/{iid}/feedback", json={"verdict": "Hmm", "decision": "hire", "certainty": 101})
     assert r.status_code == 422
 
-    r = c.post(f"/api/interviews/{iid}/chat/stream", json={"interview_id": iid, "content": "late"})
+    r = c.post(f"/api/interviews/{iid}/chat/send", json={"interview_id": iid, "content": "late"})
     assert r.status_code == 409
 
     r = c.get(f"/api/interviews/{iid}")
@@ -520,7 +520,7 @@ def test_resume_tier_caps_free_is_402_paid_is_409(client, monkeypatch):
     assert c.post("/api/resumes", json=_resume_payload("Free one")).status_code == 201
     over = c.post("/api/resumes", json=_resume_payload("Free two"))
     assert over.status_code == 402 and "upgrade" in over.json()["detail"].lower()
-    assert c.get("/api/usage").json()["resume_limit"] == 1
+    assert c.get("/api/billing/usage").json()["resume_limit"] == 1
     assert c.delete(f"/api/resumes/{c.get('/api/resumes').json()[0]['id']}").status_code == 204
     assert c.post("/api/resumes", json=_resume_payload("Free two")).status_code == 201
 
@@ -635,11 +635,11 @@ def test_resume_review_survives_an_edit_and_is_marked_stale(client, monkeypatch)
         return dict(llm.REVIEW_EXAMPLE)
 
     monkeypatch.setattr(llm, "review_resume", _fake_review)
-    turns = c.get("/api/usage").json()["chat_turns_used_today"]
+    turns = c.get("/api/billing/usage").json()["chat_turns_used_today"]
     made = c.post(f"/api/resumes/{rid}/review")
     assert made.status_code == 201
     # The review is not free: it spends exactly one of the same daily chat turns an interview does.
-    assert c.get("/api/usage").json()["chat_turns_used_today"] == turns + 1
+    assert c.get("/api/billing/usage").json()["chat_turns_used_today"] == turns + 1
     assert "40-node K3s cluster" in seen["text"]
     body = made.json()
     # reads_at is derived from the ladder, never a field the model fills in.
@@ -672,7 +672,7 @@ def test_resume_reaches_both_prompts_from_the_database(client, monkeypatch):
     rid = c.post("/api/resumes", json=_resume_payload("Fodder", "Alex ran a 40-node K3s cluster and cut p99 from 40s to 900ms.")).json()["id"]
     iid = c.post("/api/interviews", json={"role": "Platform Engineer", "resume_id": rid}).json()["id"]
     c.post(f"/api/interviews/{iid}/start")
-    c.post(f"/api/interviews/{iid}/chat/kickoff")
+    c.post(f"/api/interviews/{iid}/chat/opening")
 
     sent = {}
 
@@ -681,11 +681,11 @@ def test_resume_reaches_both_prompts_from_the_database(client, monkeypatch):
         yield "Tell me about the cluster."
 
     monkeypatch.setattr(llm, "stream_chat", _capture_stream)
-    assert "Tell me about the cluster." in c.post(f"/api/interviews/{iid}/chat/stream", json={"interview_id": iid, "content": "hi"}).text
+    assert "Tell me about the cluster." in c.post(f"/api/interviews/{iid}/chat/send", json={"interview_id": iid, "content": "hi"}).text
     assert "40-node K3s cluster" in sent["interviewer"]
     assert sent["interviewer"].startswith(llm.SYSTEM_PROMPT_V1)
     # One more answer lands in a graded phase, so the review has material to grade.
-    assert c.post(f"/api/interviews/{iid}/chat/stream", json={"interview_id": iid, "content": "I run the platform team."}).status_code == 200
+    assert c.post(f"/api/interviews/{iid}/chat/send", json={"interview_id": iid, "content": "I run the platform team."}).status_code == 200
 
     real_grader_prompt = llm.grader_prompt
     monkeypatch.setattr(llm, "grader_prompt", lambda dials=None, resume="", level="any": sent.setdefault("grader", real_grader_prompt(dials, resume, level)))
@@ -880,10 +880,10 @@ def test_move_review_annotates_every_candidate_turn(client):
     iid = c.post("/api/interviews", json={"role": "Move Review Multi"}).json()["id"]
     c.post(f"/api/interviews/{iid}/start")
     for answer in ("I shipped a cache layer in front of the read path.", "It dropped p99 by 40%."):
-        assert c.post(f"/api/interviews/{iid}/chat/stream", json={"interview_id": iid, "content": answer}).status_code == 200
+        assert c.post(f"/api/interviews/{iid}/chat/send", json={"interview_id": iid, "content": answer}).status_code == 200
     assert c.post(f"/api/interviews/{iid}/finish").status_code == 200
 
-    msgs = c.get(f"/api/interviews/{iid}/messages").json()
+    msgs = c.get(f"/api/interviews/{iid}/chat").json()
     assert [m["move_class"] for m in msgs if m["role"] == "user"] == ["good", "inaccuracy"]
     notes = [m["comment"] for m in msgs if m["role"] == "user"]
     assert all(notes) and notes[0] != notes[1]  # one note per turn, and not the same note twice
@@ -904,7 +904,7 @@ def test_interviews_unlimited_at_creation(client):
     r2 = client.post("/api/interviews", json={"role": "Quota Probe 2"})
     assert r2.status_code == 201
     iid2 = r2.json()["id"]
-    u = client.get("/api/usage")
+    u = client.get("/api/billing/usage")
     assert u.status_code == 200
     body = u.json()
     assert "daily_interviews" not in body
@@ -923,10 +923,10 @@ def test_usage_tracks_global_daily_counter(client):
     iid = iv["id"]
     c.post(f"/api/interviews/{iid}/start")
 
-    before = c.get("/api/usage").json()["chat_turns_used_today"]
-    r = c.post(f"/api/interviews/{iid}/chat/stream", json={"interview_id": iid, "content": "ping"})
+    before = c.get("/api/billing/usage").json()["chat_turns_used_today"]
+    r = c.post(f"/api/interviews/{iid}/chat/send", json={"interview_id": iid, "content": "ping"})
     assert r.status_code == 200
-    after = c.get("/api/usage").json()["chat_turns_used_today"]
+    after = c.get("/api/billing/usage").json()["chat_turns_used_today"]
     assert after == before + 1
     c.delete(f"/api/interviews/{iid}")
 
@@ -956,10 +956,10 @@ def test_finish_requires_at_least_one_message(client):
 
     # The opener is a stored assistant turn, and it is not an answer: a run that only asked for the
     # resume must still refuse to finish, or the guard above would be satisfied by the interviewer.
-    assert client.post(f"/api/interviews/{iid}/chat/kickoff").status_code == 200
+    assert client.post(f"/api/interviews/{iid}/chat/opening").status_code == 200
     assert client.post(f"/api/interviews/{iid}/finish").status_code == 409
 
-    client.post(f"/api/interviews/{iid}/chat/stream", json={"interview_id": iid, "content": "hi"})
+    client.post(f"/api/interviews/{iid}/chat/send", json={"interview_id": iid, "content": "hi"})
     assert client.post(f"/api/interviews/{iid}/finish").status_code == 200
     client.delete(f"/api/interviews/{iid}")
 
@@ -995,7 +995,7 @@ def test_regenerate_feedback_writes_when_model_recovers(client, monkeypatch):
     iv = client.post("/api/interviews", json={"role": "Regen Recovers"}).json()
     iid = iv["id"]
     client.post(f"/api/interviews/{iid}/start")
-    client.post(f"/api/interviews/{iid}/chat/stream", json={"interview_id": iid, "content": "hello?"})
+    client.post(f"/api/interviews/{iid}/chat/send", json={"interview_id": iid, "content": "hello?"})
 
     monkeypatch.setattr(main_mod, "_backoff_sleep", _noop_sleep)
     monkeypatch.setattr(llm, "generate_feedback", _always_none)
@@ -1029,7 +1029,7 @@ def test_review_redo_cap_is_per_run_and_charged_only_on_success(client, monkeypa
     iv = client.post("/api/interviews", json={"role": "Redo Cap"}).json()
     iid = iv["id"]
     client.post(f"/api/interviews/{iid}/start")
-    client.post(f"/api/interviews/{iid}/chat/stream", json={"interview_id": iid, "content": "hello?"})
+    client.post(f"/api/interviews/{iid}/chat/send", json={"interview_id": iid, "content": "hello?"})
 
     # The FIRST review is included in the run: /finish auto-generates it and spends no redo, even when
     # the model comes back empty and the row is never written.
@@ -1085,7 +1085,7 @@ def test_complete_auto_retries_then_leaves_unscored_when_always_none(client, mon
     iv = client.post("/api/interviews", json={"role": "AutoRetry Exhaust"}).json()
     iid = iv["id"]
     client.post(f"/api/interviews/{iid}/start")
-    client.post(f"/api/interviews/{iid}/chat/stream", json={"interview_id": iid, "content": "hello?"})
+    client.post(f"/api/interviews/{iid}/chat/send", json={"interview_id": iid, "content": "hello?"})
 
     r = client.post(f"/api/interviews/{iid}/finish")
     assert r.status_code == 200
@@ -1114,7 +1114,7 @@ def test_complete_auto_retry_stops_on_first_success(client, monkeypatch):
     iv = client.post("/api/interviews", json={"role": "AutoRetry Recover"}).json()
     iid = iv["id"]
     client.post(f"/api/interviews/{iid}/start")
-    client.post(f"/api/interviews/{iid}/chat/stream", json={"interview_id": iid, "content": "hello?"})
+    client.post(f"/api/interviews/{iid}/chat/send", json={"interview_id": iid, "content": "hello?"})
 
     r = client.post(f"/api/interviews/{iid}/finish")
     assert r.status_code == 200
@@ -1167,11 +1167,11 @@ def test_byok_chat_turn_skips_the_tier_quota_but_is_still_metered(client, monkey
         asyncio.run(_seed_free_limit())
         iid = client.post("/api/interviews", json={"role": "BYOK quota"}).json()["id"]
         client.post(f"/api/interviews/{iid}/start")
-        r = client.post(f"/api/interviews/{iid}/chat/stream", json={"interview_id": iid, "content": "hi"})
+        r = client.post(f"/api/interviews/{iid}/chat/send", json={"interview_id": iid, "content": "hi"})
         assert r.status_code == 200
         assert "Sure - " in r.text
         assert seen["tiers"] == 1  # one tier read for the ceiling
-        usage = client.get("/api/usage").json()
+        usage = client.get("/api/billing/usage").json()
         assert (usage["byok"], usage["chat_turns_used_today"]) == (True, billing.FREE_CHAT_TURNS + 1)
         client.delete(f"/api/interviews/{iid}")
     finally:
@@ -1216,9 +1216,9 @@ def test_pro_chat_turn_runs_the_pro_model_but_not_the_grader(client, monkeypatch
     iid_byok = None
     try:
         client.post(f"/api/interviews/{iid}/start")
-        assert "Go on." in client.post(f"/api/interviews/{iid}/chat/kickoff").text
+        assert "Go on." in client.post(f"/api/interviews/{iid}/chat/opening").text
         assert seen["chat"] == "pro-unit-test"
-        client.post(f"/api/interviews/{iid}/chat/stream", json={"interview_id": iid, "content": "hi"})
+        client.post(f"/api/interviews/{iid}/chat/send", json={"interview_id": iid, "content": "hi"})
         client.post(f"/api/interviews/{iid}/finish")
         assert seen["grader"] == llm.SYSTEM_CONFIG.model
 
@@ -1228,14 +1228,14 @@ def test_pro_chat_turn_runs_the_pro_model_but_not_the_grader(client, monkeypatch
         monkeypatch.setattr(billing, "resolve_tier", _free)
         iid_free = client.post("/api/interviews", json={"role": "Free model"}).json()["id"]
         client.post(f"/api/interviews/{iid_free}/start")
-        client.post(f"/api/interviews/{iid_free}/chat/kickoff")
+        client.post(f"/api/interviews/{iid_free}/chat/opening")
         assert seen["chat"] == llm.SYSTEM_CONFIG.model
         client.delete(f"/api/interviews/{iid_free}")
 
         client.put("/api/settings/llm", json={"base_url": "https://api.example.com/v1", "model": "byok-unit-test", "api_key": "sk-unit-test-key-abcd"})
         iid_byok = client.post("/api/interviews", json={"role": "Pro BYOK model"}).json()["id"]
         client.post(f"/api/interviews/{iid_byok}/start")
-        client.post(f"/api/interviews/{iid_byok}/chat/kickoff")
+        client.post(f"/api/interviews/{iid_byok}/chat/opening")
         assert seen["chat"] == "byok-unit-test"
 
     finally:
@@ -1247,7 +1247,7 @@ def test_pro_chat_turn_runs_the_pro_model_but_not_the_grader(client, monkeypatch
 
 
 def test_byok_turns_stop_at_the_byok_ceiling(client, monkeypatch):
-    # The ceiling is the half of the waiver that is NOT negotiable, and it is the same number /usage
+    # The ceiling is the half of the waiver that is NOT negotiable, and it is the same number /billing/usage
     # reports, so the counter in the UI and the 402 can never disagree. This client is the dev
     # identity, so the ceiling under test is premium's BYOK one.
     import asyncio
@@ -1271,7 +1271,7 @@ def test_byok_turns_stop_at_the_byok_ceiling(client, monkeypatch):
                 billing.utc_day(),
             )
             if interview_id:
-                await conn.execute("INSERT INTO messages (interview_id, role, content) VALUES ($1::uuid, 'user', 'abandoned answer')", interview_id)
+                await conn.execute("INSERT INTO chat_turns (interview_id, role, content) VALUES ($1::uuid, 'user', 'abandoned answer')", interview_id)
         finally:
             await conn.close()
 
@@ -1280,13 +1280,13 @@ def test_byok_turns_stop_at_the_byok_ceiling(client, monkeypatch):
         iid = client.post("/api/interviews", json={"role": "BYOK ceiling"}).json()["id"]
         client.post(f"/api/interviews/{iid}/start")
         asyncio.run(_seed_at_ceiling(iid))
-        usage = client.get("/api/usage").json()
+        usage = client.get("/api/billing/usage").json()
         assert (usage["byok"], usage["chat_turns_per_day_dev"], usage["chat_turns_used_today"], usage["chat_turns_remaining_today"]) == (True, 3, 3, 0)
-        r = client.post(f"/api/interviews/{iid}/chat/stream", json={"interview_id": iid, "content": "hi"})
+        r = client.post(f"/api/interviews/{iid}/chat/send", json={"interview_id": iid, "content": "hi"})
         assert r.status_code == 402
         assert "your own provider" in r.json()["detail"]
-        assert client.get("/api/usage").json()["chat_turns_used_today"] == 3
-        assert [m["content"] for m in client.get(f"/api/interviews/{iid}/messages").json()] == ["abandoned answer"]
+        assert client.get("/api/billing/usage").json()["chat_turns_used_today"] == 3
+        assert [m["content"] for m in client.get(f"/api/interviews/{iid}/chat").json()] == ["abandoned answer"]
         client.delete(f"/api/interviews/{iid}")
     finally:
         client.delete("/api/settings/llm")
@@ -1393,13 +1393,13 @@ def test_hardcore_ends_the_run_on_the_first_failing_answer(client, monkeypatch, 
     iid = iv["id"]
     c.post(f"/api/interviews/{iid}/start")
 
-    body = c.post(f"/api/interviews/{iid}/chat/stream", json={"interview_id": iid, "content": "uh, I think we just retried it"}).text
+    body = c.post(f"/api/interviews/{iid}/chat/send", json={"interview_id": iid, "content": "uh, I think we just retried it"}).text
     assert llm.FAIL_MESSAGE.format(cls=cls.upper()) in body  # shouted, in caps, in the transcript
     assert f'"failed": {{"turn": 1, "class": "{cls}"}}' in body  # ... and the client is told why it ended
-    assert c.post(f"/api/interviews/{iid}/chat/stream", json={"interview_id": iid, "content": "one more"}).status_code == 409
+    assert c.post(f"/api/interviews/{iid}/chat/send", json={"interview_id": iid, "content": "one more"}).status_code == 409
     # The failing answer keeps its class, which is what the review points at, and the note it was
     # judged with: written by that same live call rather than a second pass after the fact.
-    msgs = c.get(f"/api/interviews/{iid}/messages").json()
+    msgs = c.get(f"/api/interviews/{iid}/chat").json()
     assert [(m["move_class"], m["comment"]) for m in msgs if m["role"] == "user"] == [(cls, note)]
     assert msgs[-1]["role"] == "assistant" and msgs[-1]["content"] == llm.FAIL_MESSAGE.format(cls=cls.upper())
 
@@ -1434,10 +1434,10 @@ def test_hardcore_shout_reaches_the_client_even_if_the_store_fails(client, monke
     iid = c.post("/api/interviews", json={"role": "Hardcore Store", "hardcore": True}).json()["id"]
     c.post(f"/api/interviews/{iid}/start")
 
-    body = c.post(f"/api/interviews/{iid}/chat/stream", json={"interview_id": iid, "content": "uh, we retried it"}).text
+    body = c.post(f"/api/interviews/{iid}/chat/send", json={"interview_id": iid, "content": "uh, we retried it"}).text
     assert llm.FAIL_MESSAGE.format(cls="MISTAKE") in body  # still delivered
     assert '"class": "mistake"' in body  # ... and the client is still told why the run ended
-    assert [m["role"] for m in c.get(f"/api/interviews/{iid}/messages").json()] == ["user"]
+    assert [m["role"] for m in c.get(f"/api/interviews/{iid}/chat").json()] == ["user"]
     c.delete(f"/api/interviews/{iid}")
 
 
@@ -1452,8 +1452,8 @@ def test_hardcore_survives_a_judge_that_comes_back_empty(client, monkeypatch):
     c = client
     iid = c.post("/api/interviews", json={"role": "Hardcore Outage", "hardcore": True}).json()["id"]
     c.post(f"/api/interviews/{iid}/start")
-    assert c.post(f"/api/interviews/{iid}/chat/stream", json={"interview_id": iid, "content": "something the judge could not read"}).status_code == 200
-    assert c.post(f"/api/interviews/{iid}/chat/stream", json={"interview_id": iid, "content": "the next turn still runs"}).status_code == 200
+    assert c.post(f"/api/interviews/{iid}/chat/send", json={"interview_id": iid, "content": "something the judge could not read"}).status_code == 200
+    assert c.post(f"/api/interviews/{iid}/chat/send", json={"interview_id": iid, "content": "the next turn still runs"}).status_code == 200
     row = next(i for i in c.get("/api/interviews").json() if i["id"] == iid)
     assert (row["failed_turn"], row["failed_class"]) == (None, None)
     c.delete(f"/api/interviews/{iid}")
@@ -1485,7 +1485,7 @@ def test_analytics_aggregates_the_whole_history(client):
                 )
                 for cls in classes:
                     await conn.execute(
-                        "INSERT INTO messages (interview_id, role, content, move_class) VALUES ($1::uuid, 'user', 'a', $2)",
+                        "INSERT INTO chat_turns (interview_id, role, content, move_class) VALUES ($1::uuid, 'user', 'a', $2)",
                         iid,
                         cls,
                     )
@@ -1579,7 +1579,7 @@ def test_analytics_is_owner_scoped(client):
         conn = await asyncpg.connect(DB_URL)
         try:
             iid = await conn.fetchval("INSERT INTO interviews (owner_id, role, status) VALUES ('someone-else', 'Not yours', 'completed') RETURNING id::text")
-            await conn.execute("INSERT INTO messages (interview_id, role, content, move_class) VALUES ($1::uuid, 'user', 'a', 'brilliant')", iid)
+            await conn.execute("INSERT INTO chat_turns (interview_id, role, content, move_class) VALUES ($1::uuid, 'user', 'a', 'brilliant')", iid)
             await conn.execute("INSERT INTO feedback (interview_id, verdict, scores, accuracy) VALUES ($1::uuid, 'v', '{\"clarity\": 10}'::jsonb, 100)", iid)
             return iid
         finally:
@@ -1661,12 +1661,12 @@ def test_resume_review_retry_rewrites_one_line_and_stores_it(client, monkeypatch
         return "Owned the payroll export pipeline, 1.2M records nightly."
 
     monkeypatch.setattr(llm, "rewrite_line", _fake_rewrite)
-    turns = c.get("/api/usage").json()["chat_turns_used_today"]
+    turns = c.get("/api/billing/usage").json()["chat_turns_used_today"]
     got = c.post(f"/api/resumes/{rid}/review/rewrite", json={"source": line})
     assert got.status_code == 200
     assert seen["source"] == line
     assert got.json()["rewrites"][0]["rewrite"].startswith("Owned the payroll export")
-    assert c.get("/api/usage").json()["chat_turns_used_today"] == turns + 1
+    assert c.get("/api/billing/usage").json()["chat_turns_used_today"] == turns + 1
     # Stored, so a reload keeps the line the candidate asked for.
     assert c.get(f"/api/resumes/{rid}/review").json()["rewrites"][0]["rewrite"].startswith("Owned the payroll export")
     c.delete(f"/api/resumes/{rid}")
@@ -1749,12 +1749,12 @@ def test_round_trip_budget(client, monkeypatch):
     c = client
     iid = c.post("/api/interviews", json={"role": "Round trips"}).json()["id"]
     try:
-        _, n = statements(lambda: c.get(f"/api/interviews/{iid}/messages"))
+        _, n = statements(lambda: c.get(f"/api/interviews/{iid}/chat"))
         assert n == 1
-        empty, n = statements(lambda: c.get(f"/api/interviews/{iid}/messages"))
+        empty, n = statements(lambda: c.get(f"/api/interviews/{iid}/chat"))
         assert (empty.status_code, empty.json(), n) == (200, [], 1)
         assert c.get(f"/api/interviews/{iid}").status_code == 200
-        foreign = c.get("/api/interviews/00000000-0000-0000-0000-000000000000/messages")
+        foreign = c.get("/api/interviews/00000000-0000-0000-0000-000000000000/chat")
         assert foreign.status_code == 404 and foreign.json()["detail"] == "Interview not found"
 
         absent, n = statements(lambda: c.get(f"/api/interviews/{iid}/feedback"))
@@ -1763,7 +1763,7 @@ def test_round_trip_budget(client, monkeypatch):
         assert foreign.status_code == 404 and foreign.json()["detail"] == "Interview not found"
 
         c.post(f"/api/interviews/{iid}/start")
-        turn, n = statements(lambda: c.post(f"/api/interviews/{iid}/chat/stream", json={"interview_id": iid, "content": "hi"}))
+        turn, n = statements(lambda: c.post(f"/api/interviews/{iid}/chat/send", json={"interview_id": iid, "content": "hi"}))
         assert (turn.status_code, n) == (200, 4)
 
         client.post(f"/api/interviews/{iid}/finish")
