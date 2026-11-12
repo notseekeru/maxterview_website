@@ -402,6 +402,7 @@ I also did some extra stuff like parallel request. Parallel requests are a separ
 | Confirmation        | 3 runs of 5 min, repeated 3 times | two 5 min windows, both must pass |
 | Failed confirmation | Search below, up to 3 times       | Abort; boundary unproven          |
 | Search resolution   | 25 VU floor                       | 5 VU floor                        |
+| Floor window        | none                              | 2 min of `/health` at 70 rps before the smoke |
 
 I changed the measurement window to 2 minutes and the confirmation to two 5-minute runs because the sweep was taking too much of my time, and I am fine losing some of this data for the experiment. The shorter windows also spend less Neon compute, which is the other reason for the change: the full sweep is paused near the free-tier limit. That is a real trade: fewer samples make p95 and p99 noisier, two runs are weaker proof than the old 3/3. But with my usecase and constraints I opted for that tradeoff for my scale.
 

@@ -39,7 +39,7 @@ The search stops once the gap is under its tolerance, so no level between 10 and
 cd ~/k6-load-testing
 direnv allow .
 k6 version                  # k6 v2.2.0, from the flake
-python3 sweep.py --help     # --start, --max-vus, --only, --smoke, --label, --cleanup-only
+python3 sweep.py --help     # --start, --max-vus, --only, --floor, --smoke, --label, --confirm-runs, --cleanup-only
 
 cat > .env <<'EOF'
 API_URL=http://100.64.1.1:30090/api
@@ -134,14 +134,16 @@ target before you commit to the ladder. Both must exit 0.
 python3 sweep.py
 ```
 
-It opens with the 10 VU smoke, mandatory: a failed smoke aborts before the first level, since that is
-the harness or the app and not load. Then it climbs 100, 200, 400, 800. A failed level is the boundary,
-and the search runs between the last pass and it, down to the smoke's 10 VUs when the 100 VU level
-fails. Between levels it waits 15 seconds, cleans up for up to 30, then waits 15 again. The winner gets
-two 5 minute confirmation windows, both must pass; a failure aborts the sweep because the boundary is
-unproven, and `--confirm-runs 1` prints UNCONFIRMED for the same reason. Every window
-writes a row to `results/sweep-<utc>.csv` and a k6 summary to
-`results/level-<n>-<phase>-<run_id>.json`, one file per run, the same `run_id` the row carries.
+It opens with a floor window on `/api/health`, no database, `phase=floor`, verdict `n/a`: the path's
+own cost, to subtract from the app rows. Then the 10 VU smoke, mandatory: a failed smoke aborts before
+the first level, since that is the harness or the app and not load. Then it
+climbs 100, 200, 400, 800. A failed level is the boundary, and the search runs between the last pass
+and it, down to the smoke's 10 VUs when the 100 VU level fails. Between levels it waits 15 seconds,
+cleans up for up to 30, then waits 15 again. The winner gets two 5 minute confirmation windows, both
+must pass; a failure aborts the sweep because the boundary is unproven, and `--confirm-runs 1` prints
+UNCONFIRMED for the same reason. Every window writes a row to `results/sweep-<utc>.csv` and a k6
+summary to `results/level-<n>-<phase>-<run_id>.json`, one file per run, the same `run_id` the row
+carries.
 
 ### 4b. A one-level probe
 
@@ -183,8 +185,8 @@ python3 sweep.py --cleanup-only
 
 `results/sweep-<utc>.csv` carries one row per level: `run_id`, `label`, `measure_start`, phase and
 window length, `confirm_run` on a confirmation window, p50, p95, p99, max, error rate, rps, iterations,
-requests, seconds and the account's rows
-before and after each perf-val-change. `run_id` names the summary, `label` names the config, and
+requests, seconds and the account's rows before and after each perf-val-change. The `phase=floor` row
+carries no database columns, by design. `run_id` names the summary, `label` names the config, and
 `measure_start` is the window.
 
 In Grafana, `maxterview-logs` from `measure_start` for `measure_s`: read server numbers as `increase`
@@ -195,8 +197,10 @@ the "which resource runs out first" half of the question.
 ## Time
 
 About 4.5 minutes per level at the defaults (30 second ramp, 60 second warm, 2 minute measure, plus the
-gap), and about 15 for the two confirmation windows. The total depends on how many search steps
-the bracket needs. A one-level probe is one level plus two syncs, about ten minutes.
+gap), plus a 2 minute floor window before the smoke, and about 15 for the two confirmation windows. The
+5 VU search spends a few more levels than the 25 VU one did, so budget an hour rather than 45 minutes.
+A one-level probe is one level plus two syncs, about ten minutes, and `--floor` alone is one 2 minute
+window, about five with the syncs.
 
 ## Abort and rollback
 
