@@ -1,5 +1,6 @@
 import base64
 import os
+import re
 import time
 
 import httpx
@@ -22,6 +23,7 @@ CLERK_AUDIENCE = os.getenv("CLERK_AUDIENCE", "")
 CLERK_SECRET_KEY = os.getenv("CLERK_SECRET_KEY", "")
 # Backend API has its OWN host, not CLERK_DOMAIN.
 CLERK_API_BASE = os.getenv("CLERK_API_BASE", "https://api.clerk.com")
+APP_ENV = os.getenv("APP_ENV", "development")
 
 # Clerk's clock is not ours: sub-second skew 401s a brand-new session without this leeway.
 JWT_LEEWAY_S = 10
@@ -155,7 +157,12 @@ def _attributed(request: Request, user: ClerkUser) -> ClerkUser:
 
 async def get_current_user(request: Request) -> ClerkUser:
     if not CLERK_ENABLED:
-        return _attributed(request, DEV_USER)
+        sub = request.headers.get("x-dev-sub") if APP_ENV in ("development", "test") else None
+        if sub is None:
+            return _attributed(request, DEV_USER)
+        if not re.fullmatch(r"[A-Za-z0-9._:-]{1,128}", sub):
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid X-Dev-Sub")
+        return _attributed(request, ClerkUser(sub=sub, email=DEV_USER.email, name=DEV_USER.name))
     token = _extract_token(request)
     if token is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing credentials")

@@ -229,6 +229,34 @@ def test_interview_dials_reject_values_outside_the_vocabulary(client):
         assert r.status_code == 422, bad
 
 
+def test_dev_sub_header_owns_the_interview_it_creates(client):
+    c = client
+    r = c.post("/api/interviews", json={"role": "k6 sweep"}, headers={"X-Dev-Sub": "k6-sweep-r1-7"})
+    assert r.status_code == 201
+    iid = r.json()["id"]
+    assert r.json()["owner_id"] == "k6-sweep-r1-7"
+    row = next(i for i in c.get("/api/interviews", headers={"X-Dev-Sub": "k6-sweep-r1-7"}).json() if i["id"] == iid)
+    assert row["owner_id"] == "k6-sweep-r1-7"
+    assert all(i["id"] != iid for i in c.get("/api/interviews").json())
+    assert c.delete(f"/api/interviews/{iid}", headers={"X-Dev-Sub": "k6-sweep-r1-7"}).status_code == 204
+
+
+def test_dev_sub_header_is_ignored_outside_development(client, monkeypatch):
+    from app import auth
+
+    monkeypatch.setattr(auth, "APP_ENV", "production")
+    r = client.post("/api/interviews", json={"role": "prod header"}, headers={"X-Dev-Sub": "k6-sweep-r1-7"})
+    assert r.status_code == 201
+    assert r.json()["owner_id"] == "dev-user"
+    client.delete(f"/api/interviews/{r.json()['id']}")
+
+
+def test_dev_sub_header_rejects_a_malformed_value(client):
+    r = client.post("/api/interviews", json={"role": "bad sub"}, headers={"X-Dev-Sub": "bad sub/slash"})
+    assert r.status_code == 400
+    assert r.json()["detail"] == "Invalid X-Dev-Sub"
+
+
 def test_interview_lifecycle_owner_scoped(client):
     c = client
     r = c.post("/api/interviews", json={"role": "Software Engineer", "topic": "system design"})
