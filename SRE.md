@@ -464,9 +464,27 @@ what a normal account looks like, and `--identity single` stays as the labelled 
 a production case too. The tables above are the whale baseline; a per-VU run opens its own, since the frame in the next
 section holds only while the harness is unchanged.
 
-Two predictions for the first per-VU window: analytics, dashboard and `GET /interviews` fall with the account's history,
-and the write share rises, because `surface()`'s resume and template creates stop landing on one account's caps and
-start returning 201.
+| Per-VU identity   | 55 VUs | 100 VUs |
+| ----------------- | ------ | ------- |
+| verdict           | pass   | pass    |
+| p50               | 161ms  | 260ms   |
+| p95               | 205ms  | 439ms   |
+| p99               | 257ms  | 570ms   |
+| max               | 707ms  | 1.02s   |
+| rps               | 104.9  | 134.5   |
+| errors            | 0      | 0       |
+| queries/req       | 1.78   | 1.83    |
+| wait p50          | 5ms    | 56ms    |
+| wait p95          | 10ms   | 217ms   |
+| query mean        | 82ms   | 106ms   |
+| query p95         | 236ms  | 239ms   |
+| CPU (of 4)        | 0.58   | 0.74    |
+| memory (of 256Mi) | 40%    | 43%     |
+| rows per account  | 15.7   | 11.7    |
+
+Both predictions held: the scan-heavy routes stop being the wall, and 100 VUs passes, the first 100 VU pass in
+this record, against a whale baseline of 1.49s p95 at 74 rps. The boundary is above 100 and unmeasured. The whale
+rows above still stand on their own, because one heavy owner is a real account.
 
 ## Baseline for the TypeScript migration
 
