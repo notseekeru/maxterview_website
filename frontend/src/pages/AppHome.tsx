@@ -42,7 +42,7 @@ function Greeting() {
 
 function GreetingName({ part }: { part: string }) {
     const { user } = useUser();
-    const name = user?.firstName ?? user?.fullName;
+    const name = user?.firstName ?? user?.fullName ?? user?.username ?? user?.primaryEmailAddress?.emailAddress.split("@")[0];
     return <>{`${part}${name ? `, ${name}` : ""}.`}</>;
 }
 

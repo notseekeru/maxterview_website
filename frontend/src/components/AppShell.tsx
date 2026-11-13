@@ -31,7 +31,7 @@ export function AppShell() {
                 <NavBody collapsed={collapsed} onNavigate={() => undefined} />
                 <aside className={cn("mt-auto border-t border-border p-3", collapsed && "px-2")}>
                     <div className={cn("flex items-center", collapsed ? "justify-center" : "justify-start")}>
-                        <SessionFooter />
+                        <SessionFooter showName={!collapsed} />
                     </div>
                 </aside>
             </aside>
@@ -90,15 +90,23 @@ function RailItem({ item, collapsed, onNavigate }: { item: NavItem; collapsed: b
     );
 }
 
-function SessionFooter() {
-    return clerkEnabled ? <ClerkSession /> : <DevSession />;
+function SessionFooter({ showName }: { showName: boolean }) {
+    return clerkEnabled ? <ClerkSession showName={showName} /> : <DevSession />;
 }
 
-function ClerkSession() {
+function ClerkSession({ showName }: { showName: boolean }) {
     const { user } = useUser();
     const clerk = useClerk();
+    const name = user?.firstName ?? user?.fullName ?? user?.username ?? user?.primaryEmailAddress?.emailAddress.split("@")[0] ?? "";
     return (
-        <ProfileMenu trigger={<Avatar url={user?.imageUrl} name={user?.fullName ?? user?.username ?? ""} />}>
+        <ProfileMenu
+            trigger={
+                <>
+                    <Avatar url={user?.imageUrl} name={name} />
+                    {showName && name && <span className="min-w-0 truncate text-sm font-medium">{name}</span>}
+                </>
+            }
+        >
             <button type="button" onClick={() => clerk.openUserProfile()} className={MENU_ITEM}>
                 Manage account
             </button>
@@ -151,7 +159,7 @@ function ProfileMenu({ trigger, children }: { trigger: ReactNode; children?: Rea
 
     return (
         <details ref={ref} onToggle={(e) => setOpen(e.currentTarget.open)} className="relative">
-            <summary aria-label="Account menu" className="flex cursor-pointer list-none items-center justify-center rounded-full p-0.5 text-muted-foreground hover:bg-accent [&::-webkit-details-marker]:hidden">
+            <summary aria-label="Account menu" className="flex min-w-0 cursor-pointer list-none items-center gap-2 rounded-md p-1 text-muted-foreground hover:bg-accent [&::-webkit-details-marker]:hidden">
                 {trigger}
             </summary>
             {open && (
@@ -207,7 +215,7 @@ function MobileTopBar() {
                         <NavBody collapsed={false} onNavigate={close} />
                         <div className="mt-auto border-t border-border p-3">
                             <div className="mb-2 flex items-center">
-                                <SessionFooter />
+                                <SessionFooter showName />
                             </div>
                             <Button
                                 variant="ghost"
