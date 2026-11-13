@@ -1,6 +1,6 @@
-import { UserButton } from "@clerk/react";
-import { useCallback, useEffect, useState } from "react";
-import { NavLink, Outlet, useNavigate } from "react-router-dom";
+import { useClerk, useUser } from "@clerk/react";
+import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
+import { Link, NavLink, Outlet, useNavigate } from "react-router-dom";
 import { Icon } from "@/components/AppIcons";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { LABEL } from "@/components/PagePrimitives";
@@ -30,8 +30,7 @@ export function AppShell() {
                 </div>
                 <NavBody collapsed={collapsed} onNavigate={() => undefined} />
                 <aside className={cn("mt-auto border-t border-border p-3", collapsed && "px-2")}>
-                    <div className={cn("flex items-center", collapsed ? "justify-center" : "justify-between gap-2")}>
-                        {!collapsed && <UsageBadge />}
+                    <div className={cn("flex items-center", collapsed ? "justify-center" : "justify-start")}>
                         <SessionFooter />
                     </div>
                 </aside>
@@ -92,15 +91,92 @@ function RailItem({ item, collapsed, onNavigate }: { item: NavItem; collapsed: b
 }
 
 function SessionFooter() {
-    return clerkEnabled ? <UserButton /> : <DevTag />;
+    return clerkEnabled ? <ClerkSession /> : <DevSession />;
 }
 
-function DevTag() {
+function ClerkSession() {
+    const { user } = useUser();
+    const clerk = useClerk();
     return (
-        <div role="status" className="text-xs text-muted-foreground">
-            <span className="rounded border border-dashed border-border px-2 py-0.5">DEV</span>
-        </div>
+        <ProfileMenu trigger={<Avatar url={user?.imageUrl} name={user?.fullName ?? user?.username ?? ""} />}>
+            <button type="button" onClick={() => clerk.openUserProfile()} className={MENU_ITEM}>
+                Manage account
+            </button>
+            <button type="button" onClick={() => void clerk.signOut({ redirectUrl: "/" })} className={MENU_ITEM}>
+                Sign out
+            </button>
+        </ProfileMenu>
     );
+}
+
+function DevSession() {
+    return (
+        <ProfileMenu
+            trigger={
+                <span role="status" className="rounded border border-dashed border-border px-2 py-0.5 text-xs text-muted-foreground">
+                    DEV
+                </span>
+            }
+        />
+    );
+}
+
+const MENU_ITEM = "block w-full rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent";
+
+// AI HERE: the panel is mounted only while open, so the usage read happens on the tap and not on every
+// page. The dismiss logic is RowMenu's, repeated because that menu owns a ⋮ trigger and list items only.
+// Upgrade path: give RowMenu a trigger and a children slot once a third caller wants this.
+function ProfileMenu({ trigger, children }: { trigger: ReactNode; children?: ReactNode }) {
+    const ref = useRef<HTMLDetailsElement>(null);
+    const [open, setOpen] = useState(false);
+    const close = () => {
+        if (ref.current) ref.current.open = false;
+    };
+
+    useEffect(() => {
+        const onDocDown = (e: MouseEvent) => {
+            const el = ref.current;
+            if (el?.open && !el.contains(e.target as Node)) el.open = false;
+        };
+        const onKey = (e: KeyboardEvent) => {
+            if (e.key === "Escape" && ref.current) ref.current.open = false;
+        };
+        document.addEventListener("mousedown", onDocDown);
+        document.addEventListener("keydown", onKey);
+        return () => {
+            document.removeEventListener("mousedown", onDocDown);
+            document.removeEventListener("keydown", onKey);
+        };
+    }, []);
+
+    return (
+        <details ref={ref} onToggle={(e) => setOpen(e.currentTarget.open)} className="relative">
+            <summary aria-label="Account menu" className="flex cursor-pointer list-none items-center justify-center rounded-full p-0.5 text-muted-foreground hover:bg-accent [&::-webkit-details-marker]:hidden">
+                {trigger}
+            </summary>
+            {open && (
+                <div className="absolute bottom-full left-0 z-40 mb-1 w-60 rounded-md border bg-popover p-3 shadow-md">
+                    <UsageBadge />
+                    <div className="my-3 h-px bg-border" />
+                    <Link to="/settings/billing" onClick={close} className={MENU_ITEM}>
+                        Billing
+                    </Link>
+                    {children}
+                </div>
+            )}
+        </details>
+    );
+}
+
+function Avatar({ url, name }: { url?: string; name: string }) {
+    if (url) return <img src={url} alt="" className="h-7 w-7 rounded-full object-cover" />;
+    const initials = name
+        .split(" ")
+        .filter(Boolean)
+        .slice(0, 2)
+        .map((part) => part[0]?.toUpperCase())
+        .join("");
+    return <span className="flex h-7 w-7 items-center justify-center rounded-full bg-muted text-xs font-medium">{initials || "?"}</span>;
 }
 
 function MobileTopBar() {
@@ -130,6 +206,9 @@ function MobileTopBar() {
                         </div>
                         <NavBody collapsed={false} onNavigate={close} />
                         <div className="mt-auto border-t border-border p-3">
+                            <div className="mb-2 flex items-center">
+                                <SessionFooter />
+                            </div>
                             <Button
                                 variant="ghost"
                                 size="sm"

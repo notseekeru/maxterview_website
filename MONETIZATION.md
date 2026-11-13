@@ -66,7 +66,7 @@ Decisions: PLAN D10 (owner-scoping is a hard rule).
 - **`GET /billing/usage`** returns `tier`, the EFFECTIVE cap (`chat_turns_per_day_<tier>`, or that tier's
   BYOK ceiling when the caller brings a key), `chat_turns_used_today` / `chat_turns_remaining_today`,
   `byok`, plus `billing_mode` and `premium_until` (period mode has no renewal for the UI to infer an
-  expiry from, so the server states it). The frontend header shows the tier via `UsageBadge`.
+  expiry from, so the server states it). The account menu shows the tier and the day's turns via `UsageBadge`, read when it is opened.
 
 ## 3. Provider — PayMongo (period top-up shipped; subscriptions dormant)
 
@@ -238,7 +238,7 @@ a second module, not a rewrite.
 
 ## 6. Frontend
 
-Header tier label (`UsageBadge`), lockout/upsell notice (`UpgradeNotice` on 402), and a
+Account-menu tier and turn count (`UsageBadge`), lockout/upsell notice (`UpgradeNotice` on 402), and a
 billing/plan page (`/settings/billing`) with Free vs Pro cards, current-plan summary, an
 Upgrade CTA, and in-app **Cancel**. QR Ph has no return URL: `QrCheckout` draws the code beside a
 countdown and polls `/billing/usage` until the webhook flips the tier. A redirect rail would land on

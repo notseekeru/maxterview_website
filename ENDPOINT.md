@@ -5,7 +5,7 @@
 ```mermaid
 ``flowchart LR
   %% Home
-  HomePage["Home"] --> Home_UB["UsageBadge"]
+  HomePage["Home"] --> Home_UB["UsageBadge<br/>account menu, on tap"]
   HomePage --> Home_DS["DashboardStats"]
   HomePage --> Home_CF["CreateInterviewForm"]
 
@@ -22,7 +22,7 @@
   Home_E5 --> Home_T4[("resumes")]
 
   %% Interviews
-  InterviewsPage["Interviews"] --> Interviews_UB["UsageBadge"]
+  InterviewsPage["Interviews"] --> Interviews_UB["UsageBadge<br/>account menu, on tap"]
   InterviewsPage --> Interviews_IL["InterviewList<br/>loadMore, archive, delete"]
   InterviewsPage --> Interviews_CF["CreateInterviewForm"]
 
@@ -41,7 +41,7 @@
   Interviews_E6 --> Interviews_T4[("resumes")]
 
   %% Analytics
-  AnalyticsPageRoot["Analytics"] --> Analytics_UB["UsageBadge"]
+  AnalyticsPageRoot["Analytics"] --> Analytics_UB["UsageBadge<br/>account menu, on tap"]
   AnalyticsPageRoot --> Analytics_AP["AnalyticsPage"]
 
   Analytics_UB --> Analytics_E1["GET /billing/usage<br/>1 stmt"]
@@ -61,7 +61,7 @@
   Analytics_E2 --> Analytics_S2
 
   %% InterviewChat
-  ChatPage["InterviewChat"] --> Chat_UB["UsageBadge"]
+  ChatPage["InterviewChat"] --> Chat_UB["UsageBadge<br/>account menu, on tap"]
   ChatPage --> Chat_OP["on open"]
   ChatPage --> Chat_RUN["during the run"]
   ChatPage --> Chat_FI["on finish"]
@@ -100,7 +100,7 @@
   Chat_E10 --> Chat_T4
 
   %% ResumePage
-  ResumePageRoot["ResumePage"] --> Resume_UB["UsageBadge"]
+  ResumePageRoot["ResumePage"] --> Resume_UB["UsageBadge<br/>account menu, on tap"]
   ResumePageRoot --> Resume_RV["ResumeReviewView"]
 
   Resume_UB --> Resume_E1["GET /billing/usage<br/>1 stmt"]
@@ -145,7 +145,7 @@
 
   %% Settings
   SystemSettingsPage["System settings"] --> Settings_L["LLMProviderCard"]
-  AccountSettingsPage["Account settings"] --> Settings_UB["UsageBadge"]
+  AccountSettingsPage["Account settings"] --> Settings_UB["UsageBadge<br/>account menu, on tap"]
 
   Settings_L --> Settings_E1["GET /settings/llm<br/>0 or 1 stmt"]
   Settings_L --> Settings_E2["PUT /settings/llm"]
