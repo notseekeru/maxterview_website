@@ -23,7 +23,7 @@ the Pi directly, which is how a boundary near the gates gets attributed to the a
 cd ~/k6-load-testing
 direnv allow .
 k6 version                  # k6 v2.2.0, from the flake
-python3 sweep.py --help     # --start, --max-vus, --only, --floor, --smoke, --label, --confirm-runs, --cleanup-only
+python3 sweep.py --help     # --start, --max-vus, --only, --floor, --smoke, --label, --confirm-runs, --cleanup-only, --identity
 
 cat > .env <<'EOF'
 API_URL=http://100.64.1.1:30090/api
