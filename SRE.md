@@ -354,13 +354,13 @@ and the p95 from 433ms to 797ms. The request p95 ends up worse, 1.87s against 1.
 
 That is why 80 is flat at p50 and slower at p95: no one waits for a connection, but every query runs
 against a busier Neon. A request that pays two or three queries at the p95 lands near two seconds with no
-queue at all.
+queue at all. And so I shipped 40 as my pool size.
 
-And so I shipped 40 as my pool size.
+So currently 55 VUs is the SLO boundary for now but not the actual ceiling of the application or machine. This The app keeps serving past it because machines don't care about your gates it will always still serve request.
 
-So currently 55 VUs is the SLO boundary, not the actual ceiling of the application or machine. The app keeps serving past it because machines don't care about your gates it will always still serve request.
+But it doesn't mean that the pool connection is not gonna be in the future, it just this in this workload that the current bottleneck is not the pool. This becomes important since maybe in future where you lessened latency and your boundary moves, then the pool can again be the wall that you might be hitting.
 
-## Result
+### Result
 
 The boundary after each change, in the order the runs happened:
 
@@ -370,8 +370,6 @@ The boundary after each change, in the order the runs happened:
 | 2026-10-23 | optimized changes (pool 20) | 32           | 50        | 55         |
 | 2026-10-23 | pool 40                     | 55           | 70        | 100        |
 | 2026-10-23 | pool 80                     | 55 (latency) | 71        | 100        |
-
-Only 10 VUs passed the plan's three 5 minute confirmation. Everything above it is one window.
 
 ## Batching
 
@@ -451,18 +449,7 @@ This batched build focused on some of the heavy queries and a pararrel request w
 
 ## Per-VU identity
 
-Every VU is the same account, `k6-sweep-testing`, so the two 100 VU windows above left one owner holding 715 and 877
-interviews, and two of the rows belong to that owner's size rather than to the load:
-
-- `/stats/analytics` scans the owner's whole history (`ANALYTICS_SQL`), 4.15s at p95 in the baseline window. An owner
-  with ten runs does not pay that.
-- `INSERT INTO turn_usage ... ON CONFLICT (owner_id, day)` puts every chat turn in the window on one row lock. A real
-  owner has no second writer.
-
-So identity becomes a harness switch. `--identity vu` gives each VU its own `k6-sweep-<run_id>-<vu>` account, which is
-what a normal account looks like, and `--identity single` stays as the labelled whale probe, because one heavy owner is
-a production case too. The tables above are the whale baseline; a per-VU run opens its own, since the frame in the next
-section holds only while the harness is unchanged.
+Every VU is the same account, `k6-sweep-testing`, so the two 100 VU windows above left one owner holding 715 and 877 interviews, and two of the rows belong to that owner's size rather than to the load:
 
 | Per-VU identity   | 55 VUs | 100 VUs |
 | ----------------- | ------ | ------- |
@@ -482,42 +469,36 @@ section holds only while the harness is unchanged.
 | memory (of 256Mi) | 40%    | 43%     |
 | rows per account  | 15.7   | 11.7    |
 
-Both predictions held: the scan-heavy routes stop being the wall, and 100 VUs passes, the first 100 VU pass in
-this record, against a whale baseline of 1.49s p95 at 74 rps. The boundary is above 100 and unmeasured. The whale
-rows above still stand on their own, because one heavy owner is a real account.
+Both predictions held: the scan-heavy routes stop being the wall, and 100 VUs passes, the first 100 VU pass in this
+record, against a whale baseline of 1.49s p95 at 74 rps. The ladder after it puts the wall near 175: 100, 150 and 175
+passed their windows, 187 failed, and 175 then held one 5 minute confirmation at 825ms and lost the second at 1,095ms,
+so the boundary is unconfirmed between 100 and 187. The whale rows above still stand on their own, because one heavy
+owner is a real account.
 
 ## Baseline for the TypeScript migration
 
-The baseline is what the Python build does on this harness, and it is what the rewrite gets measured against:
-Hono on Node 24, against FastAPI on 3.14-slim, one uvicorn worker, a single replica on the Pi.
+The table is the ladder that followed the identity change, on this harness with one account per VU, and the 100 VU row
+is what the rewrite gets measured against: Hono on Node 24, against FastAPI on 3.14-slim, one uvicorn worker, a single
+replica on the Pi. A second 100 VU window the same day measured 439ms p95, so read any single row as one sample.
 
-| At 100 VUs        | Baseline, 11-13      |
-| ----------------- | -------------------- |
-| p50               | 488ms                |
-| p95               | 1.49s                |
-| p99               | 2.43s                |
-| max               | 4.15s                |
-| rps               | 74.0                 |
-| errors            | 0                    |
-| verdict           | fail (p95)           |
-| queries/req       | 2.01                 |
-| wait p50          | 109ms                |
-| wait p95          | 615ms                |
-| query mean        | 166ms                |
-| query p95         | 472ms                |
-| CPU (of 4)        | 0.68                 |
-| memory (of 256Mi) | 90%                  |
+| Phase   | VUs | Window | p50   | p95   | p99   | max   | rps   | errors | verdict | wait p50 | wait p95 | query mean | query p95 | CPU (of 4) | memory (of 256Mi) | in flight | queries/s |
+| ------- | --- | ------ | ----- | ----- | ----- | ----- | ----- | ------ | ------- | -------- | -------- | ---------- | --------- | ---------- | ----------------- | --------- | --------- |
+| floor   | 0   | 2m     | 3.5ms | 6.2ms | 44ms  | 131ms | 70    | 0      | n/a     | n/r      | n/r      | n/r        | n/r       | n/r        | n/r               | n/r       | n/r       |
+| smoke   | 10  | 10s    | 124ms | 149ms | 149ms | 149ms | 6.8   | 0      | pass    | n/r      | n/r      | n/r        | n/r       | n/r        | n/r               | n/r       | n/r       |
+| ladder  | 100 | 2m     | 237ms | 395ms | 608ms | 1.46s | 142.1 | 0      | pass    | 45ms     | 155ms    | 100ms      | 236ms     | 0.76       | 43%               | 26.6      | 266       |
+| ladder  | 200 | 2m     | 598ms | 1.08s | 1.42s | 2.38s | 146.9 | 0      | fail    | 377ms    | 913ms    | 94ms       | 235ms     | 0.83       | 49%               | 26.1      | 278       |
+| search  | 150 | 2m     | 410ms | 716ms | 914ms | 1.55s | 146.8 | 0      | pass    | 203ms    | 493ms    | 98ms       | 238ms     | 0.80       | 47%               | 26.4      | 270       |
+| search  | 175 | 2m     | 510ms | 896ms | 1.15s | 2.00s | 147.5 | 0      | pass    | 353ms    | 792ms    | 99ms       | 236ms     | 0.82       | 48%               | 26.4      | 267       |
+| search  | 187 | 2m     | 673ms | 1.12s | 1.39s | 2.62s | 127.0 | 0      | fail    | 425ms    | 963ms    | 117ms      | 242ms     | 0.71       | 48%               | 26.6      | 227       |
+| confirm | 175 | 5m     | 474ms | 825ms | 1.09s | 2.27s | 156.2 | 0      | pass    | 338ms    | 793ms    | 93ms       | 236ms     | 0.88       | 48%               | 26.2      | 283       |
+| confirm | 175 | 5m     | 561ms | 1.09s | 1.74s | 6.81s | 127.7 | 0      | fail    | 395ms    | 958ms    | 116ms      | 246ms     | 0.70       | 49%               | 26.4      | 228       |
 
-A new column is comparable only when the run holds the same frame:
+### Pool 60
 
-- `--only 100`, so a 30s ramp, 60s warm and a 120s measure, not the ladder
-- the perf-val-change: `RATE_LIMIT=off`, `CLERK_ENABLED=false`, `LLM_BASE_URL` empty, `DEV_USER_SUB=k6-sweep-testing`
-- the NodePort over Tailscale, because the public path carries Cloudflare and the tunnel in every number
-- pool 40 and the same Neon project, since the wait and query rows are read against both
-- the same harness and the same request set (`What each VU does`), because the mix is what the rows compare
-
-The record's wall is the pool against Neon's compute, not the interpreter. A rewrite can move the fixed cost of a
-request, which is the p50 row, and the CPU and memory rows. The boundary stays where the pool and the database put
-it unless the query count changes, and `Change in harness` is the lever for that.
-
-What comes next: the same ladder against the Hono build, one added column, no other edit.
+| Pool / VUs | Window | p95          | wait p95     | query p95    | in flight  | CPU (of 4) |
+| ---------- | ------ | ------------ | ------------ | ------------ | ---------- | ---------- |
+| 40 / 175   | 5m     | 825ms, 1.09s | 793ms, 958ms | 236ms, 246ms | 26.2, 26.4 | 0.88, 0.70 |
+| 60 / 175   | 5m     | 796ms, 743ms | 442ms, 434ms | 250ms, 253ms | 36.8, 36.4 | 0.91, 0.91 |
+| 40 / 200   | 2m     | 1.08s        | 913ms        | 235ms        | 26.1       | 0.83       |
+| 60 / 200   | 5m     | 914ms, 945ms | 646ms, 696ms | 286ms, 292ms | 37.4, 37.9 | 0.91, 0.91 |
+| 60 / 250   | 2m     | 1.52s        | 1.63s        | 376ms        | 38.9       | 0.88       |
