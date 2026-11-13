@@ -449,6 +449,25 @@ I changed the measurement window to 2 minutes and the confirmation to two 5-minu
 
 This batched build focused on some of the heavy queries and a pararrel request where I could apply it. As you can see not much of a difference in movement since this was not really the bottleneck and more focused on reducing queries per request, as you can see the latency had marginal shift but our queries per request reduced because of these optimization. I am quite suprise with these results, I though it would move drastically but since the endpoints that I optimized doesn't really focus on the harness on the endpoints that it hits frequently.
 
+## Per-VU identity
+
+Every VU is the same account, `k6-sweep-testing`, so the two 100 VU windows above left one owner holding 715 and 877
+interviews, and two of the rows belong to that owner's size rather than to the load:
+
+- `/stats/analytics` scans the owner's whole history (`ANALYTICS_SQL`), 4.15s at p95 in the baseline window. An owner
+  with ten runs does not pay that.
+- `INSERT INTO turn_usage ... ON CONFLICT (owner_id, day)` puts every chat turn in the window on one row lock. A real
+  owner has no second writer.
+
+So identity becomes a harness switch. `--identity vu` gives each VU its own `k6-sweep-<run_id>-<vu>` account, which is
+what a normal account looks like, and `--identity single` stays as the labelled whale probe, because one heavy owner is
+a production case too. The tables above are the whale baseline; a per-VU run opens its own, since the frame in the next
+section holds only while the harness is unchanged.
+
+Two predictions for the first per-VU window: analytics, dashboard and `GET /interviews` fall with the account's history,
+and the write share rises, because `surface()`'s resume and template creates stop landing on one account's caps and
+start returning 201.
+
 ## Baseline for the TypeScript migration
 
 The baseline is what the Python build does on this harness, and it is what the rewrite gets measured against:
