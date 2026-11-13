@@ -14,26 +14,10 @@ The public URL works with k6, but it carries about half a second of Cloudflare a
 and it answers 403 with Cloudflare code 1010 to any client whose user agent it dislikes. It is the
 probe's target, not the sweep's.
 
-## Where things stand
+The sweep runs from the laptop, so the 44ms relay is in every number it produces. The desktop reaches
+the Pi directly, which is how a boundary near the gates gets attributed to the app rather than the relay.
 
-| Thing                       | State                                                                                                                                              |
-| --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Harness `~/k6-load-testing` | Clean. Flake, direnv, workload, ladder, cleanup budget, the phase and window columns, and both row counts                                            |
-| Plan `SRE.md`               | The spec, the decisions, and the run record                                                                                                        |
-| Prod perf-val-change        | Closed. Two sweeps have run against prod; the boundary is in `## Result`                                                                           |
-| Generator                   | This laptop: about a quarter of one core at 240 RPS, 1.15 CPU-seconds per 1,000 requests. The desktop is the fallback and has no relay in the path |
-| Sweep identity              | `--sweep-sub` or `SWEEP_SUB`, and it must equal the target's `DEV_USER_SUB`                                                                        |
-| Local proof                 | The workload runs at 1, 2, 3, 5, 10, 25, 50 and 100 VUs against a stub target with no failing checks                                               |
-
-## Open gaps
-
-`SRE.md` owns what the numbers do not explain in `## Decisions`. One of those gaps has a run command attached.
-The search stops once the gap is under its tolerance, so no level between 10 and 20 VUs was tried;
-`--only 15` and `--only 17` fill that band.
-
-## Order
-
-### 0. Prerequisites on this laptop
+## 0. Prerequisites on this laptop
 
 ```sh
 cd ~/k6-load-testing
@@ -51,35 +35,15 @@ EOF
 docker ps --format '{{.Names}}'   # stop services first using their docker compose files
 ```
 
-### 0b. Rehearse the same run locally
+## 1. Pre-flight, no load
 
-The same workload and the same identity, against the local stack with the model stubbed. This is how
-the harness was verified, and it is where a harness fault shows up instead of during a perf-val-change.
-
-```sh
-cd ~/maxterview_website
-BACKEND_PORT=8099 docker compose -p maxterview-dev -f compose.yml -f compose.dev.yml run --rm -d \
-  --service-ports -e LLM_BASE_URL= -e RATE_LIMIT=off -e DEV_USER_SUB=k6-sweep-testing backend \
-  uv run uvicorn app.main:app --host 0.0.0.0 --port 8000
-
-cd ~/k6-load-testing
-python3 sweep.py --api-url http://localhost:8099/api --only 10 --smoke
-```
-
-`LLM_BASE_URL` empty and `RATE_LIMIT=off` are the two that matter: the local stack otherwise calls the
-live model and answers 429 after 120 requests. It writes rows under `k6-sweep-testing`, so nothing of
-yours is in the delete set, and the cleanup at the end of the run removes them.
-
-### 1. Pre-flight, no load
-
-Read the overlay before it is applied. It must carry `RATE_LIMIT=off`, `CLERK_ENABLED=false`,
-`APP_ENV=test`, `LLM_BASE_URL` unset, `OTEL_EXPORTER_OTLP_ENDPOINT` set, ingress limits at 1M, pod
-memory 256Mi, one replica, and `DEV_USER_SUB=k6-sweep-testing`, the same name the harness uses.
+Read `apps/maxterview/overlays/perf` before it is applied. The values it must carry are `SRE.md`
+`Perf window` and `Deploy`, and `DEV_USER_SUB=k6-sweep-testing` has to be the name the harness uses.
 
 The endpoint is the one with no alarm on it. Unset, the database and pool numbers never appear, and
 every metric rule reads NoData, which is OK, so the loss is silent.
 
-### 1b. Deploy the code under test
+## 1b. Deploy the code under test
 
 The perf window runs whatever image the prod overlay names, and the perf overlay inherits it (`resources:
 ../prod`). Push to main so CI passes and the CD workflow builds both images, rewrites the prod `newTag`
@@ -95,25 +59,18 @@ ssh -i ~/.ssh/piserver seeker@100.64.1.1 \
 The tag has to match the pushed commit: `git fetch`, then `git rev-parse origin/main`. If it does not,
 the build or the sync is still in flight.
 
-### 2. Open the perf-val-change
+## 2. Open the perf-val-change
 
 The whole change is one line. Swap `apps/maxterview/overlays/prod` for `overlays/perf` in
 `apps-of-apps/maxterview.yaml`, commit, push, wait for the sync, and confirm the pod was replaced.
-
-That overlay carries everything the run needs: `APP_ENV=test`, `CLERK_ENABLED=false`, `RATE_LIMIT=off`,
-`LLM_BASE_URL` empty, `DEV_USER_SUB=k6-sweep-testing`, the raised ingress limits, and, from commit
-`792ed2e`, a NodePort on the `maxterview-backend` Service at 30090. Argo prunes what leaves the
-manifests, so reverting the line in step 5 removes the NodePort with it and nothing stays open.
-
-The port is on the backend Service rather than the ingress for two reasons: kustomize's `namespace` in
-that overlay overwrites any resource's own namespace, so a Service in `ingress-nginx` cannot live there,
-and the backend is the app itself, which is what the sweep is measuring.
+Argo prunes what leaves the manifests, so reverting the line in step 5 removes the NodePort with it
+and nothing stays open.
 
 ```sh
 ~/maxterview_website/scripts/perf-window.sh on
 ```
 
-### 3. Prove it from the ladder's side
+## 3. Prove it from the ladder's side
 
 ```sh
 curl -s -o /tmp/u.json -w '%{http_code}\n' http://100.64.1.1:30090/api/billing/usage
@@ -128,24 +85,20 @@ before deleting, and stops at the 30 second budget. `--only 10 --smoke` is 10 VU
 the first real contact. The sweep runs the same smoke as its first window, so this only proves the
 target before you commit to the ladder. Both must exit 0.
 
-### 4. The sweep
+## 4. The sweep
 
 ```sh
 python3 sweep.py
 ```
 
-It opens with a floor window on `/api/health`, no database, `phase=floor`, verdict `n/a`: the path's
-own cost, to subtract from the app rows. Then the 10 VU smoke, mandatory: a failed smoke aborts before
-the first level, since that is the harness or the app and not load. Then it
-climbs 100, 200, 400, 800. A failed level is the boundary, and the search runs between the last pass
-and it, down to the smoke's 10 VUs when the 100 VU level fails. Between levels it waits 15 seconds,
-cleans up for up to 30, then waits 15 again. The winner gets two 5 minute confirmation windows, both
-must pass; a failure aborts the sweep because the boundary is unproven, and `--confirm-runs 1` prints
-UNCONFIRMED for the same reason. Every window writes a row to `results/sweep-<utc>.csv` and a k6
-summary to `results/level-<n>-<phase>-<run_id>.json`, one file per run, the same `run_id` the row
-carries.
+It opens with a floor window on `/api/health`, then the mandatory 10 VU smoke, then 100, 200, 400, 800.
+Each level is a 30 second ramp, a 60 second warm, and a 120 second measurement. A failed smoke aborts
+before the first level. A failed level is the boundary, and the search runs down from the last pass. The
+winner gets two 5 minute windows, both must pass; `--confirm-runs 1` prints UNCONFIRMED for the same
+reason. Every window writes a row to `results/sweep-<utc>.csv` and a k6 summary to
+`results/level-<n>-<phase>-<run_id>.json`, the same `run_id` the row carries.
 
-### 4b. A one-level probe
+## 4b. A one-level probe
 
 A probe runs one level at a different pool. The override goes in the perf overlay, never in prod:
 
@@ -166,13 +119,13 @@ Close as in step 5, then remove the override and push again. `--label` is the on
 pool, so a probe without it writes a row that lies. A probe still opens prod and spends Neon compute;
 check the budget before it, not after.
 
-### 5. Close the perf-val-change
+## 5. Close the perf-val-change
 
 Clean up first, while the NodePort still answers: the app authenticates with the perf window's
 `DEV_USER_SUB`, so once the overlay is back to prod the cleanup cannot reach it and its rows stay. Then
 swap the overlay back to prod, commit, push, wait for the sync, and confirm `/api/billing/usage` answers 401 on
 the public URL. The perf-val-change turns authentication and the rate limit off, so it must not outlive
-the run, and the NodePort is pruned with it.
+the run.
 
 ```sh
 cd ~/k6-load-testing
@@ -181,13 +134,10 @@ python3 sweep.py --cleanup-only
 ~/maxterview_website/scripts/perf-window.sh off
 ```
 
-### 6. Read the result
+## 6. Read the result
 
-`results/sweep-<utc>.csv` carries one row per level: `run_id`, `label`, `measure_start`, phase and
-window length, `confirm_run` on a confirmation window, p50, p95, p99, max, error rate, rps, iterations,
-requests, seconds and the account's rows before and after each perf-val-change. The `phase=floor` row
-carries no database columns, by design. `run_id` names the summary, `label` names the config, and
-`measure_start` is the window.
+`results/sweep-<utc>.csv`, one row per level, and one k6 summary per run named by its `run_id`. The
+`phase=floor` row carries no database columns, by design.
 
 In Grafana, `maxterview-logs` from `measure_start` for `measure_s`: read server numbers as `increase`
 over that window (`SRE.md`, What is the bottleneck now). `db_pool_wait` against `db_query` says whether Neon's
@@ -196,30 +146,16 @@ the "which resource runs out first" half of the question.
 
 ## Time
 
-About 4.5 minutes per level at the defaults (30 second ramp, 60 second warm, 2 minute measure, plus the
-gap), plus a 2 minute floor window before the smoke, and about 15 for the two confirmation windows. The
-5 VU search spends a few more levels than the 25 VU one did, so budget an hour rather than 45 minutes.
-A one-level probe is one level plus two syncs, about ten minutes, and `--floor` alone is one 2 minute
-window, about five with the syncs.
+About an hour for a sweep from 100 VUs, including the floor window and the two confirmation windows. A
+one-level probe is about ten minutes, and `--floor` alone is about five with the syncs.
 
 ## Abort and rollback
 
-| Situation                                      | Action                                                                                        |
-| ---------------------------------------------- | --------------------------------------------------------------------------------------------- |
-| Step 3 answers 401                             | The perf-val-change is still closed. Fix the overlay before going on                          |
-| 30090 refuses the connection                   | The overlay is not live: check that `apps-of-apps` says `overlays/perf` and the sync finished |
-| The perf-val-change will not open              | Stop and fix the overlay. `main.js` refuses to load without `tier=dev`                        |
-| `--cleanup-only` aborts on foreign owners      | Stop. The identity does not match the target's `DEV_USER_SUB`                                 |
-| Cleanup leaves rows behind after 30 seconds    | Stop. The next perf-val-change would read a bigger account than the last                      |
-| The pool override is still in the perf overlay | Remove it after the probe; the next perf window would silently run that pool                       |
-| The 10 VU smoke fails                          | The sweep aborts. Fix the harness or the app; a failed smoke is not capacity                  |
-| A level fails                                  | Expected. That is the boundary; the search runs from the last pass down to 10 VUs             |
-| A confirmation window fails                    | The sweep aborts; the boundary is unproven. Re-run the sweep.                                 |
-| Anything unexpected                            | Close the perf-val-change first, then debug. Leaving it open leaves prod unauthenticated      |
-
-## The relay in every number
-
-The 44ms relay is in every number the sweep produces. If the boundary comes back near the gates, the
-first question is whether the app or the relay produced it, and the answer is the desktop, which
-reaches the Pi without a relay. The CSV records the client side; the server side is in the same
-Grafana panels, over the same perf-val-change, and the two together separate them.
+| Situation                                      | Action                                                                                   |
+| ---------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| 30090 refuses the connection                   | The overlay is not live: check that `apps-of-apps` says `overlays/perf` and the sync ran |
+| The perf-val-change will not open              | Stop and fix the overlay. `main.js` refuses to load without `tier=dev`                   |
+| `--cleanup-only` aborts on foreign owners      | Stop. The identity does not match the target's `DEV_USER_SUB`                            |
+| Cleanup leaves rows behind after 30 seconds    | Stop. The next perf-val-change would read a bigger account than the last                 |
+| The pool override is still in the perf overlay | Remove it after the probe; the next perf window would silently run that pool             |
+| Anything unexpected                            | Close the perf-val-change first, then debug. Leaving it open leaves prod unauthenticated |

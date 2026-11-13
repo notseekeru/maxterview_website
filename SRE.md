@@ -36,7 +36,7 @@ Capacity path, as run
   pod -> Alloy (in-cluster) -> Grafana Cloud
 ```
 
-## k6 flow
+## First k6s harness breakdown
 
 The block below is the first harness. More over the change in harness later on, but for now.
 
@@ -129,21 +129,21 @@ For routing k6 to my app, I used Tailscale to connect them. For anyone who doesn
 
 ## What each VU does
 
-| Request                                                                        |
-| ------------------------------------------------------------------------------ |
-| `POST /interviews`                                                             |
-| `POST /interviews/{id}/start`                                                  |
-| `POST /interviews/{id}/chat/opening`                                           |
-| `POST /interviews/{id}/chat/send`                                            |
-| `POST /interviews/{id}/finish`                                                 |
-| `GET /interviews/{id}/feedback`                                                |
-| `GET /interviews/{id}/chat`                                                |
-| `GET /interviews`, `/stats/analytics`, `/stats/dashboard` |
-| `GET /billing/usage`, `/templates`, `/resumes`, `/settings/llm`, `/voice`              |
-| `GET /interviews/{id}/offer`                                                   |
-| `POST` and `DELETE /interviews/{id}/archive`                                   |
-| `POST /resumes`, `POST /templates`, each deleted in the same run               |
-| `POST /client-errors`                                                          |
+| Request                                                                   |
+| ------------------------------------------------------------------------- |
+| `POST /interviews`                                                        |
+| `POST /interviews/{id}/start`                                             |
+| `POST /interviews/{id}/chat/opening`                                      |
+| `POST /interviews/{id}/chat/send`                                         |
+| `POST /interviews/{id}/finish`                                            |
+| `GET /interviews/{id}/feedback`                                           |
+| `GET /interviews/{id}/chat`                                               |
+| `GET /interviews`, `/stats/analytics`, `/stats/dashboard`                 |
+| `GET /billing/usage`, `/templates`, `/resumes`, `/settings/llm`, `/voice` |
+| `GET /interviews/{id}/offer`                                              |
+| `POST` and `DELETE /interviews/{id}/archive`                              |
+| `POST /resumes`, `POST /templates`, each deleted in the same run          |
+| `POST /client-errors`                                                     |
 
 I want to walk through one virtual user, because otherwise I keep saying "it makes twenty-eight requests" and "the pool is the wall", and neither is obvious from the outside.
 
@@ -266,7 +266,7 @@ Six changes, all of them on round trips, read size or the pool rather than on th
 | ------------------ | -------------------------------------------------- | ------------------------------------------------ |
 | `/stats/analytics` | five checkouts                                     | one statement                                    |
 | `/templates`       | a seed write, then the read                        | the read, seeded only when the endpoint is empty |
-| `/billing/usage`           | two checkouts in the window, three to four in prod | one                                              |
+| `/billing/usage`   | two checkouts in the window, three to four in prod | one                                              |
 | `GET /interviews`  | every run the owner had                            | 50 per page, archived filtered in the query      |
 | Home counters      | derived in the browser from that full endpoint     | one statement over the full history              |
 | pool               | 10                                                 | 20                                               |
@@ -396,12 +396,12 @@ I also did some extra stuff like parallel request. Parallel requests are a separ
 
 ## Change in harness
 
-| Setting             | The run in this record            | Current harness                   |
-| ------------------- | --------------------------------- | --------------------------------- |
-| Ladder measurement  | 3 min                             | 2 min                             |
-| Confirmation        | 3 runs of 5 min, repeated 3 times | two 5 min windows, both must pass |
-| Failed confirmation | Search below, up to 3 times       | Abort; boundary unproven          |
-| Search resolution   | 25 VU floor                       | 5 VU floor                        |
+| Setting             | The run in this record            | Current harness                               |
+| ------------------- | --------------------------------- | --------------------------------------------- |
+| Ladder measurement  | 3 min                             | 2 min                                         |
+| Confirmation        | 3 runs of 5 min, repeated 3 times | two 5 min windows, both must pass             |
+| Failed confirmation | Search below, up to 3 times       | Abort; boundary unproven                      |
+| Search resolution   | 25 VU floor                       | 5 VU floor                                    |
 | Floor window        | none                              | 2 min of `/health` at 70 rps before the smoke |
 
 I changed the measurement window to 2 minutes and the confirmation to two 5-minute runs because the sweep was taking too much of my time, and I am fine losing some of this data for the experiment. The shorter windows also spend less Neon compute, which is the other reason for the change: the full sweep is paused near the free-tier limit. That is a real trade: fewer samples make p95 and p99 noisier, two runs are weaker proof than the old 3/3. But with my usecase and constraints I opted for that tradeoff for my scale.
@@ -438,9 +438,9 @@ I changed the measurement window to 2 minutes and the confirmation to two 5-minu
 
 | Endpoint                                  | Method                                                                                                         | Counts   | Layer                         |
 | ----------------------------------------- | -------------------------------------------------------------------------------------------------------------- | -------- | ----------------------------- |
-| `POST /interviews/{id}/chat/send`       | duplicate tier read removed, transcript folded into the interview read, spend and user insert in one statement | 8 -> 5   | Aggregate Queries, Bulk Write |
+| `POST /interviews/{id}/chat/send`         | duplicate tier read removed, transcript folded into the interview read, spend and user insert in one statement | 8 -> 5   | Aggregate Queries, Bulk Write |
 | `POST /interviews/{id}/chat/opening`      | duplicate tier read removed, transcript folded into the interview read                                         | 7 -> 5   | Aggregate Queries             |
-| `GET /interviews/{id}/chat`           | ownership check folded into the read                                                                           | 2 -> 1   | Aggregate Queries             |
+| `GET /interviews/{id}/chat`               | ownership check folded into the read                                                                           | 2 -> 1   | Aggregate Queries             |
 | `GET /interviews/{id}/feedback`           | ownership check folded into the read                                                                           | 2 -> 1   | Aggregate Queries             |
 | `POST /interviews/{id}/feedback/generate` | four guard reads into one SELECT                                                                               | 14 -> 11 | Aggregate Queries             |
 | `POST /resumes/{id}/review`               | duplicate tier read removed                                                                                    | 6 -> 5   | Aggregate Queries             |
