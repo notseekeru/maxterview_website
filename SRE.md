@@ -448,3 +448,39 @@ I changed the measurement window to 2 minutes and the confirmation to two 5-minu
 | `GET /templates`, cold account            | seed returns the rows it inserted                                                                              | 3 -> 2   | Aggregate Queries             |
 
 This batched build focused on some of the heavy queries and a pararrel request where I could apply it. As you can see not much of a difference in movement since this was not really the bottleneck and more focused on reducing queries per request, as you can see the latency had marginal shift but our queries per request reduced because of these optimization. I am quite suprise with these results, I though it would move drastically but since the endpoints that I optimized doesn't really focus on the harness on the endpoints that it hits frequently.
+
+## Baseline for the TypeScript migration
+
+The baseline is what the Python build does on this harness, and it is what the rewrite gets measured against:
+Hono on Node 24, against FastAPI on 3.14-slim, one uvicorn worker, a single replica on the Pi.
+
+| At 100 VUs        | Baseline, 11-13      |
+| ----------------- | -------------------- |
+| p50               | 488ms                |
+| p95               | 1.49s                |
+| p99               | 2.43s                |
+| max               | 4.15s                |
+| rps               | 74.0                 |
+| errors            | 0                    |
+| verdict           | fail (p95)           |
+| queries/req       | 2.01                 |
+| wait p50          | 109ms                |
+| wait p95          | 615ms                |
+| query mean        | 166ms                |
+| query p95         | 472ms                |
+| CPU (of 4)        | 0.68                 |
+| memory (of 256Mi) | 90%                  |
+
+A new column is comparable only when the run holds the same frame:
+
+- `--only 100`, so a 30s ramp, 60s warm and a 120s measure, not the ladder
+- the perf-val-change: `RATE_LIMIT=off`, `CLERK_ENABLED=false`, `LLM_BASE_URL` empty, `DEV_USER_SUB=k6-sweep-testing`
+- the NodePort over Tailscale, because the public path carries Cloudflare and the tunnel in every number
+- pool 40 and the same Neon project, since the wait and query rows are read against both
+- the same harness and the same request set (`What each VU does`), because the mix is what the rows compare
+
+The record's wall is the pool against Neon's compute, not the interpreter. A rewrite can move the fixed cost of a
+request, which is the p50 row, and the CPU and memory rows. The boundary stays where the pool and the database put
+it unless the query count changes, and `Change in harness` is the lever for that.
+
+What comes next: the same ladder against the Hono build, one added column, no other edit.
