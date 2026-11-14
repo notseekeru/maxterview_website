@@ -53,4 +53,4 @@ ENV APP_ENV=production
 
 EXPOSE 8000
 
-CMD [".venv/bin/uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD [".venv/bin/uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "3"]
