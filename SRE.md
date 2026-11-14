@@ -502,3 +502,34 @@ replica on the Pi. A second 100 VU window the same day measured 439ms p95, so re
 | 40 / 200   | 2m     | 1.08s        | 913ms        | 235ms        | 26.1       | 0.83       |
 | 60 / 200   | 5m     | 914ms, 945ms | 646ms, 696ms | 286ms, 292ms | 37.4, 37.9 | 0.91, 0.91 |
 | 60 / 250   | 2m     | 1.52s        | 1.63s        | 376ms        | 38.9       | 0.88       |
+
+### Workers 3 + 512Mi limit
+
+| Phase | VUs | Window | p50   | p95   | p99   | max   | rps   | errors | verdict | wait p50 | wait p95 | query mean | query p95 | CPU (of 4) | memory       | in flight | queries/s |
+| ----- | --- | ------ | ----- | ----- | ----- | ----- | ----- | ------ | ------- | -------- | -------- | ---------- | --------- | ---------- | ------------ | --------- | --------- |
+| only  | 100 | 5m     | 205ms | 420ms | 549ms | 881ms | 153.1 | 0      | pass    | 6ms      | 54ms     | 120ms      | 282ms     | 0.98       | 65% of 512Mi | 31.9      | 267       |
+| only  | 200 | 5m     | 374ms | 763ms | 995ms | 2.34s | 204.6 | 0      | pass    | 182ms    | 528ms    | 109ms      | 241ms     | 1.45       | 64% of 512Mi | 39.3      | 360       |
+| only  | 250 | 5m     | 478ms | 796ms | 1.05s | 1.92s | 220.6 | 0      | pass    | 317ms    | 690ms    | 100ms      | 236ms     | 1.61       | 67% of 512Mi | 39.7      | 397       |
+| only  | 250 | 5m     | 632ms | 1.09s | 1.38s | 2.87s | 173.6 | 0      | fail    | 397ms    | 906ms    | 124ms      | 281ms     | 1.18       | 66% of 512Mi | 39.9      | 322       |
+| only  | 300 | 5m     | 998ms | 1.73s | 2.08s | 3.88s | 144.4 | 0      | fail    | 702ms    | 1.80s    | 154ms      | 431ms     | 0.92       | 67% of 512Mi | 39.7      | 259       |
+
+### Neon 2 CU
+
+| Phase | VUs | Window | p50   | p95   | p99   | max   | rps   | errors | verdict | wait p50 | wait p95 | query mean | query p95 | CPU (of 4) | memory       | in flight | queries/s |
+| ----- | --- | ------ | ----- | ----- | ----- | ----- | ----- | ------ | ------- | -------- | -------- | ---------- | --------- | ---------- | ------------ | --------- | --------- |
+| only  | 300 | 5m     | 654ms | 1.30s | 1.94s | 3.84s | 194.3 | 0      | fail    | 462ms    | 1.03s    | 115ms      | 248ms     | 1.17       | 68% of 512Mi | 39.4      | 342       |
+| only  | 300 | 5m     | 650ms | 1.28s | 1.74s | 3.23s | 205.7 | 0      | fail    | 340ms    | 953ms    | 159ms      | 429ms     | 1.51       | 69% of 512Mi | 58.3      | 388       |
+
+### Estimating Neon from the local postgres
+
+The Pi's postgres is the test database from on.
+
+| VUs | Neon | local p95 | Neon p95 | factor | local rps | Neon rps |
+| --- | ---- | --------- | -------- | ------ | --------- | -------- |
+| 100 | 1 CU | 203ms     | 420ms    | 2.07x  | 192.2     | 153.1    |
+| 200 | 1 CU | 550ms     | 763ms    | 1.39x  | 201.3     | 204.6    |
+| 250 | 1 CU | 981ms     | 796ms    | 0.81x  | 202.8     | 220.6    |
+| 300 | 1 CU | 1.42s     | 1.73s    | 1.22x  | 204.0     | 144.4    |
+| 300 | 2 CU | 1.42s     | 1.30s    | 0.91x  | 204.0     | 194.3    |
+
+200 to 300 VUs: Neon ran 0.8x to 1.4x the local p95, from matched pairs at those levels
