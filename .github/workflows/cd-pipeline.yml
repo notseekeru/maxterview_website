@@ -33,13 +33,12 @@ jobs:
       matrix:
         service:
           - name: backend
-            context: ./backend
-            dockerfile: ./backend/Dockerfile
+            context: ./backend-ts
+            dockerfile: ./backend-ts/Dockerfile
             image_suffix: maxterview_backend
             port: 8000
             health_endpoint: /api/health
-            # Scan shipped python runtime (app/.venv holds transitive wheels).
-            # Keep only build-time noise filters.
+            # Node image: no venv to keep, so only build-time noise is filtered.
             skip_dirs: "root/.cache,usr/local"
           - name: frontend
             context: ./frontend
@@ -108,7 +107,7 @@ jobs:
           cat > /tmp/smoke-env-${{ matrix.service.name }}.env << EOF
           APP_ENV=development
           CLERK_ENABLED=false
-          DATABASE_URL=postgresql+asyncpg://x:x@localhost:5432/x
+          DATABASE_URL=postgresql://x:x@localhost:5432/x
           EOF
           docker run -d --name smoke-${{ matrix.service.name }}-${{ github.run_id }} \
             -p 127.0.0.1:${{ matrix.service.port }}:${{ matrix.service.port }} \
