@@ -2,19 +2,11 @@
 .env
 *.env.local
 !.env.example
-yoyo.ini
 .direnv
 
-# --- Python ---
+# --- Python: observability/grafana/bootstrap.py, run via `nix shell nixpkgs#python3` ---
 __pycache__/
 *.py[cod]
-*.egg-info/
-.venv/
-venv/
-.pytest_cache/
-.ruff_cache/
-.coverage
-htmlcov/
 
 # --- Node / frontend ---
 node_modules/

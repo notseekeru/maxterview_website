@@ -1,1 +1,0 @@
-ALTER TABLE feedback DROP COLUMN IF EXISTS decision, DROP COLUMN IF EXISTS certainty;
