@@ -3,11 +3,11 @@ services:
   backend:
     container_name: maxterview_backend_prod
     build:
-      context: ./backend
+      context: ./backend-ts
       target: prod
     env_file:
       - .env
-      - ./backend/.env
+      - ./backend-ts/.env
     environment:
       DATABASE_URL: ${DATABASE_URL:-postgresql://${POSTGRES_USER:-maxterview}:${POSTGRES_PASSWORD:-maxterview}@postgres:5432/${POSTGRES_DB:-maxterview}}
       APP_ENV: ${APP_ENV:-production}
@@ -20,9 +20,9 @@ services:
       test:
         [
           "CMD",
-          "python",
-          "-c",
-          "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:8000/api/health').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))",
         ]
       interval: 10s
       timeout: 5s
