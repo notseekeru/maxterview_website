@@ -33,8 +33,8 @@ jobs:
       matrix:
         service:
           - name: backend
-            context: ./backend-ts
-            dockerfile: ./backend-ts/Dockerfile
+            context: ./backend
+            dockerfile: ./backend/Dockerfile
             image_suffix: maxterview_backend
             port: 8000
             health_endpoint: /api/health

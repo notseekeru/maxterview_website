@@ -31,7 +31,7 @@ Browser (React SPA) ── /api ──► nginx/Vite proxy ──► Hono ──
                                                    └──► LLM (OpenAI-compatible)
 ```
 
-- **Backend** (`backend-ts/`): Hono on Node 24 in `src/app.ts`, raw SQL via postgres.js
+- **Backend** (`backend/`): Hono on Node 24 in `src/app.ts`, raw SQL via postgres.js
   (`src/db.ts`), manual Clerk JWT/JWKS verification (`src/auth.ts`), OpenAI-compatible LLM client
   (`src/llm.ts`). Migrations via `npm run migrate` (`src/migrate.ts`, yoyo-compatible bookkeeping).
 - **Frontend** (`frontend/`): React 19 + Vite 8 + TypeScript 7. Consumes the SSE `chat/send`
@@ -58,9 +58,9 @@ Requires Docker + Docker Compose v2. Copy the example env and (optionally) fill 
 
 ```bash
 cp .env.example .env                        # compose/infra only: APP_ENV, POSTGRES_*, ports
-cp backend-ts/.env.example backend-ts/.env  # backend runtime: CLERK, LLM, quotas, PAYMONGO
+cp backend/.env.example backend/.env  # backend runtime: CLERK, LLM, quotas, PAYMONGO
 cp frontend/.env.example frontend/.env      # VITE_* frontend vars
-make env-sync-dev           # pulls the credentials into .env + backend-ts/.env (needs `infisical login` once)
+make env-sync-dev           # pulls the credentials into .env + backend/.env (needs `infisical login` once)
 make up                     # builds + starts postgres, backend, frontend   (dev only — prod uses Neon)
 ```
 
@@ -69,11 +69,11 @@ make up                     # builds + starts postgres, backend, frontend   (dev
 
 ### What to initialize to use each feature
 
-Everything below reads git-ignored env in `backend-ts/.env` (backend) or `frontend/.env` (frontend); you
+Everything below reads git-ignored env in `backend/.env` (backend) or `frontend/.env` (frontend); you
 only need the vars for the features you actually use. Check which are set (names only) with
 `./.pi/skills/paymongo-operator/scripts/need-keys.sh`.
 
-| Want this feature                          | Set in `backend-ts/.env`                                            | plus                                                   | how to run/verify                                                                                                                      |
+| Want this feature                          | Set in `backend/.env`                                            | plus                                                   | how to run/verify                                                                                                                      |
 | ------------------------------------------ | ------------------------------------------------------------------- | ------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------- |
 | UI/API with no auth at all (fast dev)      | _(nothing)_                                                         | —                                                      | default works (`CLERK_ENABLED=false` → `DEV_USER`)                                                                                     |
 | Real Clerk sign-in + JWT auth              | `CLERK_ENABLED=true`, `CLERK_DOMAIN`, `CLERK_JWKS_URL`              | `frontend/.env` `VITE_CLERK_PUBLISHABLE_KEY=pk_test_…` | `make up`, visit `/sign-in`                                                                                                            |
@@ -83,7 +83,7 @@ only need the vars for the features you actually use. Check which are set (names
 | BYOK (own provider key)                    | `BYOK_ENCRYPTION_KEY`                                               | —                                                      | `BYOK.md`                                                                                                                              |
 | Observability (logs, metrics, traces)      | `OTEL_EXPORTER_OTLP_ENDPOINT` (empty = logs only, no SDK)           | prod: Loki + Tempo + Prometheus, wired in gitops       | `make logs` in dev; prod is `OBSERVABILITY.md`                                                                                         |
 | Voice: interviewer speaks, answers dictate | `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN` (Workers AI - Read) | —                                                      | `VOICE.md`. Empty → the chat surface disables both controls and says why instead of failing on click                                   |
-| Resume review + LaTeX preview              | _(nothing)_                                                         | —                                                      | pdflatex ships in `backend-ts/Dockerfile`; a `\documentclass` resume renders a live PDF with the audit's weak and strong lines marked, and Open hands it to the browser viewer for zoom and search. Anything else is plain text, one Convert to LaTeX click away. Tunable with `LATEX_*` |
+| Resume review + LaTeX preview              | _(nothing)_                                                         | —                                                      | pdflatex ships in `backend/Dockerfile`; a `\documentclass` resume renders a live PDF with the audit's weak and strong lines marked, and Open hands it to the browser viewer for zoom and search. Anything else is plain text, one Convert to LaTeX click away. Tunable with `LATEX_*` |
 
 Feature env values come from your Clerk app's **Development instance** (`.clerk.accounts.dev` /
 `pk_test_` / `sk_test_`) and PayMongo **test mode** — both safe on `localhost`. Live keys are locked
@@ -94,10 +94,10 @@ to `seekeru.tech` and are rejected elsewhere. `BILLING_MODE=subscription` additi
 
 ## Testing
 
-CI (`.github/workflows/ci-pipeline.yml`) runs backend-ts (biome + typecheck + build + vitest vs Postgres
+CI (`.github/workflows/ci-pipeline.yml`) runs backend (biome + typecheck + build + vitest vs Postgres
 service) and frontend (biome + typecheck + build + audit), plus a **Trivy config scan** of the container
 definitions and a **gitleaks** history scan.
-Both images rely on the CD image scan instead (`backend-ts/.trivyignore.yaml` dated-ignore policy,
+Both images rely on the CD image scan instead (`backend/.trivyignore.yaml` dated-ignore policy,
 `--ignore-unfixed`, HIGH/CRITICAL gate, no open exceptions). CD runs on successful CI on `main`: build
 both prod images → Trivy-image-scan → smoke-test → push to GHCR → bump the pinned tags in the `gitops`
 repo. **Renovate** opens weekly grouped PRs for frontend npm, Docker base images (digest-pinned) and
@@ -120,7 +120,7 @@ Operator notes:
   answers `200 ok`, an unsigned one `400`. First real ₱99 QR Ph payment: 2026-09-27 (MONETIZATION §4).
 - **Database:** Neon, **direct host** (not `-pooler`) with `?sslmode=require`. The direct host needs
   no code change — the backend is one long-running pod holding ~10 pooled connections; Neon's pooler
-  only matters when many short-lived instances share a DB, and `backend-ts/src/db.ts` auto-detects a
+  only matters when many short-lived instances share a DB, and `backend/src/db.ts` auto-detects a
   `-pooler` DSN (prepared statements off) anyway.
   **snapshot before each prod migration**.
 - **Migrations on deployed envs** run from the in-cluster Job, not a laptop; `make migrate` is the dev

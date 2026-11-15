@@ -3,11 +3,11 @@ services:
   backend:
     container_name: maxterview_backend_prod
     build:
-      context: ./backend-ts
+      context: ./backend
       target: prod
     env_file:
       - .env
-      - ./backend-ts/.env
+      - ./backend/.env
     environment:
       DATABASE_URL: ${DATABASE_URL:-postgresql://${POSTGRES_USER:-maxterview}:${POSTGRES_PASSWORD:-maxterview}@postgres:5432/${POSTGRES_DB:-maxterview}}
       APP_ENV: ${APP_ENV:-production}

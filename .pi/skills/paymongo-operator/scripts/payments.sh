@@ -160,14 +160,14 @@ case "$MODE" in
     else
       echo "== registering $URL =="
       # The successful response carries a signing secret. It is NOT printed (zero-touch): read it from
-      # Dashboard → Developers → Webhooks and put it in backend-ts/.env as PAYMONGO_WEBHOOK_SECRET.
+      # Dashboard → Developers → Webhooks and put it in backend/.env as PAYMONGO_WEBHOOK_SECRET.
       res=$(_post_report /v1/webhooks "$body")
     fi
     case "$res" in
       *'"errors"'*) echo "  refused: $(printf '%s' "$res" | _errors)"; exit 5 ;;
     esac
     printf '%s' "$res" | _hook_summary
-    [ -n "$hook_id" ] || echo "  secret: copy it from the Dashboard into backend-ts/.env as PAYMONGO_WEBHOOK_SECRET (not echoed here)"
+    [ -n "$hook_id" ] || echo "  secret: copy it from the Dashboard into backend/.env as PAYMONGO_WEBHOOK_SECRET (not echoed here)"
     ;;
   *) echo "usage: payments.sh --list-payments [--limit=N] | --create-period [--amount=9900] | --refund --payment-id=pay_x --admin-destroy | --list-webhooks | --register-webhook --url=https://…"; exit 2 ;;
 esac

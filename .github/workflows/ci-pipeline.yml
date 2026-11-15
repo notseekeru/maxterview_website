@@ -7,7 +7,7 @@ on:
     branches: [main]
     paths:
       - "frontend/**"
-      - "backend-ts/**"
+      - "backend/**"
       - ".github/workflows/**"
       - ".gitleaksignore"
       - "compose.yml"
@@ -82,11 +82,11 @@ jobs:
         if: matrix.service == 'frontend'
         run: npm audit --audit-level=high
 
-  backend-ts:
+  backend:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: backend-ts
+        working-directory: backend
     services:
       postgres:
         image: postgres:18-alpine@sha256:d3e1620b530c944afa6e887d22eb899824da68e19c52024bf98f5220c88a65b2
@@ -113,24 +113,24 @@ jobs:
         with:
           node-version: 24
           cache: "npm"
-          cache-dependency-path: backend-ts/package-lock.json
+          cache-dependency-path: backend/package-lock.json
 
       - name: Install npm dependencies
         run: npm ci
 
-      - name: Lint (backend-ts)
+      - name: Lint (backend)
         run: npm run lint
 
       - name: Format gate
         run: git diff --exit-code
 
-      - name: Typecheck (backend-ts)
+      - name: Typecheck (backend)
         run: npm run typecheck
 
-      - name: Build (backend-ts)
+      - name: Build (backend)
         run: npm run build
 
-      - name: Test (backend-ts)
+      - name: Test (backend)
         run: npx vitest run
 
   config:

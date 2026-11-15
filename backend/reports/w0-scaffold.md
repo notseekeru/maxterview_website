@@ -12,4 +12,4 @@ Shared-file edits needed to make the gates pass: tsconfig `include` was `["src",
 
 Gates, verbatim tails: `npm install` -> `added 186 packages` / `found 0 vulnerabilities` exit 0. `npm run typecheck` -> `tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json`, no output, exit 0. `npm run build` -> `tsc -p tsconfig.json`, no output, exit 0. Extra: `npm test` 8 passed; `node dist/main.js` with `DATABASE_URL=postgres://dummy` served `/api/health` 200, 404 envelope, 413 and 204. `npx biome check` cannot run on this nix host (dynamically linked binary).
 
-Not committed: `backend-ts/` is untracked, nothing staged.
+Not committed: `backend/` is untracked, nothing staged.
