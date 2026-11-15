@@ -61,7 +61,7 @@ Base: `https://api.paymongo.com`, header `Authorization: Basic base64("$PAYMONGO
 **Subscriptions** and **Card Vaulting**, and to reach Fully Verified (DTI + BIR 2303) for live keys.
 A 400 on `POST /v1/subscriptions` with a valid test key usually means the first.
 
-**Events the backend consumes** (`backend-ts/src/paymongo.ts`, `handleWebhookEvent`):
+**Events the backend consumes** (`backend/src/paymongo.ts`, `handleWebhookEvent`):
 **period mode (shipping)** — `payment.paid` / `payment_intent.succeeded` → `premium`/`active` with
 `current_period_end = now() + PREMIUM_PERIOD_DAYS`, as a compare-and-set on
 `provider_subscription_id = <intent id> AND status = 'incomplete'` (so a replay, the sibling event or a

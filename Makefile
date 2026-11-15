@@ -17,7 +17,7 @@ lint:
 	docker exec -t $(FRONTEND_DEV) sh -c "npx biome check . --write --unsafe"
 	docker exec -t $(BACKEND_DEV) sh -c "npm run lint"
 
-env-sync-dev: ## Pull the credential lines into .env and backend-ts/.env from Infisical dev, then sync-check both against their templates. The only target that needs the network.
+env-sync-dev: ## Pull the credential lines into .env and backend/.env from Infisical dev, then sync-check both against their templates. The only target that needs the network.
 	@scripts/env-sync-dev.sh
 # DEV
 check-ports:
@@ -48,8 +48,8 @@ rollback:
 	docker exec -t $(BACKEND_DEV) npx tsx scripts/migrate.ts rollback
 new-migration:
 	@test -n "$(name)" || (echo "usage: make new-migration name=<name>" && exit 1)
-	@n=$$(ls backend-ts/migrations/*.sql | sed -n 's#.*/\([0-9]\{4\}\)_.*#\1#p' | sort -n | tail -1); \
-		touch backend-ts/migrations/$$(printf '%04d' $$((10#$$n + 1)))_$(name).sql
+	@n=$$(ls backend/migrations/*.sql | sed -n 's#.*/\([0-9]\{4\}\)_.*#\1#p' | sort -n | tail -1); \
+		touch backend/migrations/$$(printf '%04d' $$((10#$$n + 1)))_$(name).sql
 
 # PROD
 prod-build:
@@ -66,7 +66,7 @@ prod-down:
 prod-scan: prod-build
 	@echo '**--- Trivy image scan: maxterview-prod-<service> ---**'
 	for svc in frontend backend; do \
-		ctx=$$svc; [ "$$svc" = backend ] && ctx=backend-ts; \
+		ctx=$$svc; [ "$$svc" = backend ] && ctx=backend; \
 		echo "== scanning maxterview-prod-$$svc =="; \
 		docker run --rm \
 			-v /var/run/docker.sock:/var/run/docker.sock \

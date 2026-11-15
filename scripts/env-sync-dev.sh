@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Pulls the credential block into .env and backend-ts/.env from Infisical's dev env, then verifies each
+# Pulls the credential block into .env and backend/.env from Infisical's dev env, then verifies each
 # file's key set against its template. Two owners for one key means one value wins with no signal, so
 # a stray line for a managed key is replaced too.
 # AI HERE: the two files are written one after the other, so a failure between them updates .env and
-# leaves backend-ts/.env alone. Re-running is safe. Upgrade path: stage both, then move them together.
+# leaves backend/.env alone. Re-running is safe. Upgrade path: stage both, then move them together.
 # AI HERE: the block is appended, so a managed key does not sit in its own section. Upgrade path:
 # rewrite the line where `cp *.env.example` puts it.
 set -euo pipefail
@@ -129,8 +129,8 @@ sync() {
 }
 
 fill .env "$ROOT_KEYS"
-fill backend-ts/.env "$BACKEND_KEYS"
+fill backend/.env "$BACKEND_KEYS"
 
 sync .env.example .env
-sync backend-ts/.env.example backend-ts/.env
+sync backend/.env.example backend/.env
 sync frontend/.env.example frontend/.env
