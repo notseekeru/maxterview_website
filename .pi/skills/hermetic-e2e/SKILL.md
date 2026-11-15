@@ -101,8 +101,8 @@ routes. Do not mix postures in one run.
 
 ```bash
 make up      # ensure backend + frontend dev containers
-make lint    # biome write (frontend) + ruff fix (backend)
-make exec    # full gate: frontend typecheck+build+biome; backend ruff+pytest
+make lint    # biome write (frontend) + biome fix (backend)
+make exec    # full gate: frontend typecheck+build+biome; backend biome+typecheck+build+vitest
 ```
 
 ## Guardrails

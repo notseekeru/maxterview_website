@@ -1,3 +1,0 @@
-DROP TABLE IF EXISTS feedback;
-DROP TABLE IF EXISTS messages;
-DROP TABLE IF EXISTS interviews;

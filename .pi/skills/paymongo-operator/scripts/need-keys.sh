@@ -61,7 +61,7 @@ done
 
 if [ -n "$missing" ]; then
     echo ""
-    echo "Paste these into backend/.env (git-ignored). Fill ONLY the <...> parts; values stay local:"
+    echo "Paste these into backend-ts/.env (git-ignored). Fill ONLY the <...> parts; values stay local:"
     cat <<'EOF'
 CLERK_SECRET_KEY=<sk_test_... from Clerk dashboard: https://dashboard.clerk.com/apps/.../keys>
 PAYMONGO_SECRET_KEY=<sk_test_... from https://dashboard.paymongo.com/developers>

@@ -27,7 +27,7 @@ prod backend writes. There is no cluster access from this workspace; this is the
 
 ## Schema source of truth
 
-`backend/migrations/*.sql`. Prod tables worth knowing by name: `interviews`, `messages`
+`backend-ts/migrations/*.sql`. Prod tables worth knowing by name: `interviews`, `messages`
 (transcript), `feedback` (scores, verdict, tips), `subscriptions`, `turn_usage`,
 `llm_credentials`, `offers`, `resumes`, `interview_templates`, `template_seeds`.
 

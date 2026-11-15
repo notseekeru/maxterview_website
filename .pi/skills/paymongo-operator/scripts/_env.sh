@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# _env.sh: sourced-by operator scripts; loads backend/.env and root .env into the shell so keys the
+# _env.sh: sourced-by operator scripts; loads backend-ts/.env and root .env into the shell so keys the
 # user pastes there are honored by scripts that run on the HOST (not just in the compose container,
 # where `env_file` already injects them).
 #
 # Git-ignored secrets are read as *names* here. This loader NEVER prints a value. It only exports
 # whatever is already in the file unchanged, and only when the var is not already set (process env
-# wins, matching compose semantics where backend/.env overrides root on collision).
+# wins, matching compose semantics where backend-ts/.env overrides root on collision).
 #
 # Usage at top of each script (after `set -euo pipefail`):
 #   SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
@@ -15,7 +15,7 @@
 # Determine the repo root (parent of .pi/skills/paymongo-operator/scripts/).
 _ENGINE_CORE_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../../../.." && pwd)"
 _ENGINE_ROOT_ENV="$_ENGINE_CORE_DIR/.env"
-_ENGINE_BACKEND_ENV="$_ENGINE_CORE_DIR/backend/.env"
+_ENGINE_BACKEND_ENV="$_ENGINE_CORE_DIR/backend-ts/.env"
 
 # Load a dotenv file into env, without printing values and only if var not already set.
 _engine_load_env() {
