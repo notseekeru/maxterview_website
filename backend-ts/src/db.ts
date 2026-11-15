@@ -50,9 +50,13 @@ export function getPool(): Sql {
     return pool;
 }
 
+// A bare object is a jsonb value to postgres.js: it serialises one, where a pre-stringified one arrives as a
+// JSON scalar and Postgres stores the string. Callers pass the value, not its text.
+type JsonValue = null | boolean | number | string | readonly JsonValue[] | { readonly [key: string]: JsonValue };
+
 // The Python passes "$1, $2" and its arguments; the tag does the same, and the server sees the same text.
-export function sql<T extends Row[] = Row[]>(template: TemplateStringsArray, ...parameters: readonly postgres.ParameterOrFragment<postgres.SerializableParameter>[]): PendingQuery<T> {
-    return getPool()<T>(template, ...parameters);
+export function sql<T extends Row[] = Row[]>(template: TemplateStringsArray, ...parameters: readonly (postgres.ParameterOrFragment<postgres.SerializableParameter> | JsonValue)[]): PendingQuery<T> {
+    return getPool()<T>(template, ...(parameters as postgres.ParameterOrFragment<postgres.SerializableParameter>[]));
 }
 
 export async function fetch<T extends Row[]>(query: PendingQuery<T>): Promise<T> {

@@ -38,7 +38,7 @@ export async function feedbackRow(interviewId: string): Promise<Record<string, u
 export async function upsertFeedback(interviewId: string, scores: Record<string, number>, verdict: string, tips: string[], decision: string | null = null, certainty: number | null = null, acc: number | null = null): Promise<void> {
     await fetchrow(sql`
         INSERT INTO feedback (interview_id, scores, verdict, tips, decision, certainty, accuracy)
-        VALUES (${interviewId}, ${JSON.stringify(scores)}, ${verdict}, ${JSON.stringify(tips)}, ${decision}, ${certainty}, ${acc})
+        VALUES (${interviewId}, ${scores}, ${verdict}, ${tips}, ${decision}, ${certainty}, ${acc})
         ON CONFLICT (interview_id) DO UPDATE SET scores = EXCLUDED.scores, verdict = EXCLUDED.verdict, tips = EXCLUDED.tips, decision = EXCLUDED.decision, certainty = EXCLUDED.certainty, accuracy = COALESCE(EXCLUDED.accuracy, feedback.accuracy), created_at = now()
     `);
 }
@@ -54,7 +54,7 @@ export async function syncOffer(interviewId: string): Promise<void> {
     if (priced === null) return;
     await fetchrow(sql`
         INSERT INTO offers (interview_id, title, band, base_salary, signing_bonus, equity, performance, benefits)
-        VALUES (${interviewId}, ${priced.title}, ${priced.band}, ${priced.base_salary}, ${priced.signing_bonus}, ${priced.equity}, ${priced.performance}, ${JSON.stringify(priced.benefits)})
+        VALUES (${interviewId}, ${priced.title}, ${priced.band}, ${priced.base_salary}, ${priced.signing_bonus}, ${priced.equity}, ${priced.performance}, ${priced.benefits})
         ON CONFLICT (interview_id) DO UPDATE SET title = EXCLUDED.title, band = EXCLUDED.band, base_salary = EXCLUDED.base_salary, signing_bonus = EXCLUDED.signing_bonus, equity = EXCLUDED.equity, performance = EXCLUDED.performance, benefits = EXCLUDED.benefits, created_at = now()
     `);
 }

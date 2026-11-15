@@ -154,7 +154,7 @@ resumes.post("/resumes/:resume_id/review", async (c) => {
     const got = await reviewResume(row.text as string, config);
     if (got === null) throw new HttpError(503, "The reviewer could not read this resume right now. Try again in a moment.");
     const saved = await fetchrow(sql`
-        INSERT INTO resume_reviews (resume_id, source_hash, review) VALUES (${resumeId}, ${sourceHash(row.text as string)}, ${JSON.stringify(got)})
+        INSERT INTO resume_reviews (resume_id, source_hash, review) VALUES (${resumeId}, ${sourceHash(row.text as string)}, ${got})
         ON CONFLICT (resume_id) DO UPDATE SET source_hash = EXCLUDED.source_hash, review = EXCLUDED.review, created_at = now()
         RETURNING review, created_at
         `);
@@ -189,7 +189,7 @@ resumes.post("/resumes/:resume_id/review/rewrite", async (c) => {
     const got = await rewriteLine(text, source, config);
     if (got === null) throw new HttpError(503, "The reviewer could not write a different line right now. Try again in a moment.");
     const stored = { ...current, rewrites: [{ source, rewrite: got }, ...(current.rewrites ?? []).filter((item) => item.source !== source)].slice(0, MAX_REWRITES) };
-    const saved = await fetchrow(sql`UPDATE resume_reviews SET review = ${JSON.stringify(stored)} WHERE resume_id = ${resumeId} RETURNING review, created_at`);
+    const saved = await fetchrow(sql`UPDATE resume_reviews SET review = ${stored} WHERE resume_id = ${resumeId} RETURNING review, created_at`);
     assert(saved !== undefined);
     return c.json(reviewResponse(saved.review, saved.created_at as string, false));
 });

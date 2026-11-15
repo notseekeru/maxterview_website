@@ -78,6 +78,10 @@ export async function verifyJwt(token: string, jwks: Jwks): Promise<ClerkUser> {
         throw unauthorized();
     }
 
+    // PyJWT refuses a future `iat` itself; jose reads `iat` only when maxTokenAge is set, so without this
+    // a token issued from a clock ahead of ours lives past its own exp.
+    if (typeof payload.iat === "number" && payload.iat > Date.now() / 1000 + JWT_LEEWAY_S) throw unauthorized();
+
     // `parse` rather than a literal: a token without `sub` is a 500 here exactly as the Python's
     // `payload["sub"]` KeyError was, and Pydantic's defaults fill the rest.
     return ClerkUser.parse({
