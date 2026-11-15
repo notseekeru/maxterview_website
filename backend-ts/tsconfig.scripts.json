@@ -1,0 +1,8 @@
+{
+    "extends": "./tsconfig.json",
+    "compilerOptions": {
+        // rootDir "." so the emit mirrors the source path: scripts/migrate.ts -> dist/scripts/migrate.js.
+        "rootDir": "."
+    },
+    "include": ["scripts/migrate.ts"]
+}

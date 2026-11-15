@@ -8,8 +8,9 @@ RUN npm ci
 
 FROM deps AS build
 
-COPY tsconfig.json ./
+COPY tsconfig.json tsconfig.scripts.json ./
 COPY src ./src
+COPY scripts/migrate.ts ./scripts/
 
 RUN npm run build
 
@@ -52,6 +53,7 @@ FROM runtime AS prod
 
 COPY --from=prod-deps /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
+COPY migrations ./migrations
 
 USER node
 

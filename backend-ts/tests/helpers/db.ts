@@ -42,7 +42,7 @@ afterAll(async () => {
 });
 if (created) {
     try {
-        execFileSync(process.execPath, [join(ROOT, "node_modules", "tsx", "dist", "cli.mjs"), join(ROOT, "scripts", "migrate.ts"), "apply"], {
+        execFileSync(process.execPath, [join(ROOT, "node_modules", "tsx", "dist", "cli.mjs"), join(ROOT, "scripts", "migrate.ts"), "apply", "--database", TEST_DSN], {
             env: { ...process.env, DATABASE_URL: TEST_DSN, APP_ENV: "test" },
             stdio: ["ignore", "pipe", "pipe"],
         });
