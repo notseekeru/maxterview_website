@@ -123,7 +123,7 @@ function mappedIpv4(host: string): string {
     return `${value >>> 24}.${(value >>> 16) & 255}.${(value >>> 8) & 255}.${value & 255}`;
 }
 
-function offnet(host: string): boolean {
+export function offnet(host: string): boolean {
     const ip = mappedIpv4(host);
     const family = isIP(ip);
     if (family === 0) return false;
