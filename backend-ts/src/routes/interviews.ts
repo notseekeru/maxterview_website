@@ -1,5 +1,5 @@
-import { Hono } from "hono";
 import type { Context } from "hono";
+import { Hono } from "hono";
 import type { Row } from "postgres";
 import { z } from "zod";
 import { getCurrentUser } from "../auth.ts";

@@ -64,9 +64,7 @@ export function ptoDays(performance: number): number {
 }
 
 export function benefits(performance: number): OfferBenefit[] {
-    const cleared: OfferBenefit[] = [
-        { key: PTO_KEY, label: "Paid time off", value: `${ptoDays(performance)} days a year` },
-    ];
+    const cleared: OfferBenefit[] = [{ key: PTO_KEY, label: "Paid time off", value: `${ptoDays(performance)} days a year` }];
     for (const rung of LADDER) {
         if (performance >= rung.threshold) {
             cleared.push({ key: rung.key, label: rung.label, value: rung.value });
@@ -120,17 +118,10 @@ export function performance(scores: Record<string, unknown>, accuracy: number | 
 
 export function title(role: string, level: string): string {
     const prefix = bandRange(level)[2];
-    return prefix !== "" && role.toLowerCase().startsWith(prefix.toLowerCase())
-        ? role
-        : `${prefix} ${role}`.trim();
+    return prefix !== "" && role.toLowerCase().startsWith(prefix.toLowerCase()) ? role : `${prefix} ${role}`.trim();
 }
 
-export function terms(
-    role: string,
-    level: string,
-    scores: Record<string, unknown>,
-    accuracy: number | null,
-): Terms | null {
+export function terms(role: string, level: string, scores: Record<string, unknown>, accuracy: number | null): Terms | null {
     const perf = performance(scores, accuracy);
     if (perf === null) return null;
     const [floor, ceiling] = bandRange(level);
@@ -171,13 +162,6 @@ if ((Object.keys(WEIGHTS) as string[]).some((k) => k !== "accuracy" && !(k in DI
 if (Math.abs(WEIGHTS.communication + WEIGHTS.substance + WEIGHTS.accuracy - 1) > 1e-9) {
     throw new Error("offer: weights do not sum to 1");
 }
-if (
-    roundTo(1250, 500) !== 1000 ||
-    roundTo(1750, 500) !== 2000 ||
-    performance({}, null) !== null ||
-    performance({ clarity: "high" }, null) !== null ||
-    ptoDays(0) !== PTO_MIN ||
-    ptoDays(100) !== PTO_MIN + PTO_SPAN
-) {
+if (roundTo(1250, 500) !== 1000 || roundTo(1750, 500) !== 2000 || performance({}, null) !== null || performance({ clarity: "high" }, null) !== null || ptoDays(0) !== PTO_MIN || ptoDays(100) !== PTO_MIN + PTO_SPAN) {
     throw new Error("offer: rounding, blend or PTO scaling is wrong");
 }

@@ -56,9 +56,7 @@ async function parse(data: Uint8Array): Promise<ResumeExtract> {
             try {
                 const page = await pdf.getPage(index + 1);
                 const content = await page.getTextContent();
-                chunk = content.items
-                    .map((item) => ("str" in item ? item.str + (item.hasEOL ? "\n" : "") : ""))
-                    .join("");
+                chunk = content.items.map((item) => ("str" in item ? item.str + (item.hasEOL ? "\n" : "") : "")).join("");
             } catch {
                 // One unreadable page must not cost the whole import (pdfjs raises many types on
                 // malformed content, and its message is attacker-controlled: log the fact, never it).

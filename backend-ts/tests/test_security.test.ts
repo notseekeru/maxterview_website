@@ -51,10 +51,7 @@ describe("security", () => {
         expect(hops[4]).not.toBe(429);
 
         // No X-Forwarded-For at all: every caller shares one bucket, so the second request is refused.
-        const direct = await withConfig({ rateLimit: "1/minute" }, async () => [
-            (await client.get("/api/interviews")).status,
-            (await client.get("/api/interviews")).status,
-        ]);
+        const direct = await withConfig({ rateLimit: "1/minute" }, async () => [(await client.get("/api/interviews")).status, (await client.get("/api/interviews")).status]);
         expect(direct[0]).not.toBe(429);
         expect(direct[1]).toBe(429);
     });
@@ -81,8 +78,7 @@ describe("security", () => {
             const [{ app: reloaded }, { config: reloadedConfig }] = await Promise.all([import("../src/app.ts"), import("../src/env.ts")]);
             expect(reloadedConfig.corsAllowOrigins).toEqual(["https://app.example", "https://other.example"]);
 
-            const preflight = (origin: string) =>
-                reloaded.request("/api/billing/usage", { method: "OPTIONS", headers: { Origin: origin, "Access-Control-Request-Method": "GET" } });
+            const preflight = (origin: string) => reloaded.request("/api/billing/usage", { method: "OPTIONS", headers: { Origin: origin, "Access-Control-Request-Method": "GET" } });
 
             const allowed = await preflight("https://app.example");
             expect(allowed.headers.get("access-control-allow-origin")).toBe("https://app.example");

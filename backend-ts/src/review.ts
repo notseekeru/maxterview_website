@@ -38,7 +38,12 @@ export function sourceHash(text: string): string {
 
 export function slug(value: unknown): string | null {
     if (typeof value !== "string") return null;
-    return value.trim().toLowerCase().replace(/[\s-]+/g, "_") || null;
+    return (
+        value
+            .trim()
+            .toLowerCase()
+            .replace(/[\s-]+/g, "_") || null
+    );
 }
 
 // The schema enum already carries the slugs; this is the weak-backend path, where a model answers
@@ -88,10 +93,28 @@ const climb = staircase([
     ["senior", "fails"],
     ["staff", "passes"],
 ]);
-if (JSON.stringify(climb) !== JSON.stringify([[["mid", "passes"], ["senior", "fails"], ["staff", "fails"]], true])) {
+if (
+    JSON.stringify(climb) !==
+    JSON.stringify([
+        [
+            ["mid", "passes"],
+            ["senior", "fails"],
+            ["staff", "fails"],
+        ],
+        true,
+    ])
+) {
     throw new Error("review: staircase does not clamp");
 }
-if (readsAt([["junior", "passes"], ["senior", "fails"]]) !== "junior" || readsAt([["junior", "fails"]]) !== null || rung(" Mid-level ") !== "mid" || claim(" a\n\n b ") !== "a b") {
+if (
+    readsAt([
+        ["junior", "passes"],
+        ["senior", "fails"],
+    ]) !== "junior" ||
+    readsAt([["junior", "fails"]]) !== null ||
+    rung(" Mid-level ") !== "mid" ||
+    claim(" a\n\n b ") !== "a b"
+) {
     throw new Error("review: ladder or slug lookup is wrong");
 }
 if ((RUNGS as readonly string[]).includes("any")) throw new Error("review: the ladder grades bars, not dials");

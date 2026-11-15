@@ -1,12 +1,12 @@
-import { config as env } from "./env.ts";
-import { GRADED_PHASES, PLAN_COUNTS, type Cynicism } from "./dials.ts";
+import { type Cynicism, GRADED_PHASES, PLAN_COUNTS } from "./dials.ts";
 import { DIMENSION_AXES, FEEDBACK_DIMS } from "./dimensions.ts";
-import { label, type Level } from "./levels.ts";
+import { config as env } from "./env.ts";
+import { type Level, label } from "./levels.ts";
 import { log } from "./logs.ts";
-import { DECISIONS, Dials, type ChatMessage, type Decision, type FeedbackSummary, type Move, type ResumeReview } from "./models.ts";
+import { type ChatMessage, DECISIONS, type Decision, Dials, type FeedbackSummary, type Move, type ResumeReview } from "./models.ts";
 import { roundHalfEven } from "./offer.ts";
-import { FAIL_CLASSES, MOVE_CLASSES, STUB_MOVE_CYCLE, STUB_MOVE_NOTES, type MoveClass } from "./rating.ts";
-import { CALLS, LINE_CALLS, LINE_MAX, MAX_LINES, MAX_REWRITES, MAX_SECTIONS, NAME_MAX, RUNGS, SECTION_CALLS, VERDICT_MAX, claim, rung, slug, staircase, type Call, type LineCall, type SectionCall } from "./review.ts";
+import { FAIL_CLASSES, MOVE_CLASSES, type MoveClass, STUB_MOVE_CYCLE, STUB_MOVE_NOTES } from "./rating.ts";
+import { CALLS, type Call, claim, LINE_CALLS, LINE_MAX, type LineCall, MAX_LINES, MAX_REWRITES, MAX_SECTIONS, NAME_MAX, RUNGS, rung, SECTION_CALLS, type SectionCall, slug, staircase, VERDICT_MAX } from "./review.ts";
 import { record, startSpan } from "./telemetry.ts";
 
 // Mirrors llm.py's frozen dataclass: grader_* fall back to the chat provider, so a BYOK owner has one
@@ -38,10 +38,7 @@ export const SYSTEM_CONFIG: LLMConfig = llmConfig({
 });
 
 // A premium tier chats on the deployment's own model even when the owner configured BYOK.
-export const PRO_CONFIG: LLMConfig | null =
-    env.llmProModel === ""
-        ? null
-        : llmConfig({ base_url: env.llmProBaseUrl || env.llmBaseUrl, model: env.llmProModel, api_key: env.llmProApiKey || env.llmApiKey });
+export const PRO_CONFIG: LLMConfig | null = env.llmProModel === "" ? null : llmConfig({ base_url: env.llmProBaseUrl || env.llmBaseUrl, model: env.llmProModel, api_key: env.llmProApiKey || env.llmApiKey });
 
 export function graderConfig(config: LLMConfig): LLMConfig {
     const baseUrl = config.grader_base_url || config.base_url;
@@ -126,8 +123,7 @@ function scopeDirective(role: string, topic = ""): string {
 
 // Prompt registry: typed and versioned, never inlined in routers.
 
-export const SYSTEM_PROMPT_V1 =
-    "You are maxterview, an AI mock-interview coach. You conduct a simulated interview one question at a time, in a natural, encouraging tone. Stay in character as an interviewer. Do not answer the candidate's questions on their behalf. After the interview ends, provide detailed feedback.";
+export const SYSTEM_PROMPT_V1 = "You are maxterview, an AI mock-interview coach. You conduct a simulated interview one question at a time, in a natural, encouraging tone. Stay in character as an interviewer. Do not answer the candidate's questions on their behalf. After the interview ends, provide detailed feedback.";
 
 // Candidate text is framed as DATA: the fields are free text and the model has no tools.
 export const INJECTION_GUARD =
@@ -188,12 +184,10 @@ export const PLAIN_MODE_PROMPT =
 
 export const CYNICISM_PROMPTS: Partial<Record<Cynicism, string>> = {
     kind: "Stance - generous: assume a missing detail is something they forgot to say, not something they are hiding. Offer one concrete prompt before moving on, and never imply they are dodging the question.",
-    skeptical:
-        "Stance - skeptical: assume a polished answer may be covering one that was never tested. Ask for the specific, the number, or the part that went wrong, and say plainly when an answer stayed abstract before you move on. Skeptical, never hostile - you are testing the claim, not the person.",
+    skeptical: "Stance - skeptical: assume a polished answer may be covering one that was never tested. Ask for the specific, the number, or the part that went wrong, and say plainly when an answer stayed abstract before you move on. Skeptical, never hostile - you are testing the claim, not the person.",
 };
 
-export const BLUNT_PROMPT =
-    "Blunt mode (the candidate asked for it): name the weakness while you are looking at it - 'that answer stayed at 10,000 feet' - instead of saving it for the feedback. No cushioning and no praise sandwich, and never praise something you don't mean. Blunt, never cruel, never personal.";
+export const BLUNT_PROMPT = "Blunt mode (the candidate asked for it): name the weakness while you are looking at it - 'that answer stayed at 10,000 feet' - instead of saving it for the feedback. No cushioning and no praise sandwich, and never praise something you don't mean. Blunt, never cruel, never personal.";
 
 export const PATH_PROMPT =
     " Ask exactly ONE question this turn - never two, never a multi-part one - and wait for the answer." +
@@ -206,8 +200,7 @@ export const CLOSING_PHASE =
     " Ask NOTHING: no question, no 'anything you would like to add', no follow-up, no topic left hanging - the transcript is closed after this turn." +
     " Three sentences at most, and do not end on a question mark.";
 
-export const CANDIDATE_QUESTIONS_PHASE =
-    "THEIR QUESTIONS - the questions are over and this turn belongs to them: invite them to ask you anything about the role, the team or how the process works, and answer in one or two honest lines, in character. Ask nothing about their experience this turn.";
+export const CANDIDATE_QUESTIONS_PHASE = "THEIR QUESTIONS - the questions are over and this turn belongs to them: invite them to ask you anything about the role, the team or how the process works, and answer in one or two honest lines, in character. Ask nothing about their experience this turn.";
 
 export const BACKGROUND_PHASE =
     "BACKGROUND - the classic opener: ask them to tell you about themselves - what they do now and how they got here, in their own words." +
@@ -215,14 +208,11 @@ export const BACKGROUND_PHASE =
     " Their resume is the facts, not the answer, so ask for the account rather than re-reading it back." +
     " Nothing else this turn - the first interview question comes after their answer.";
 
-export const INTRO_TURN =
-    "This is your FIRST turn: open with one short line saying you will be running their mock interview today. You are the interviewer and they are the candidate - never introduce yourself as the applicant or describe the job as your own day-to-day.";
+export const INTRO_TURN = "This is your FIRST turn: open with one short line saying you will be running their mock interview today. You are the interviewer and they are the candidate - never introduce yourself as the applicant or describe the job as your own day-to-day.";
 
-export const CLOSING_MESSAGE =
-    "Thanks - that's everything I had for you. Take a moment if you want, then hit the ✓ at the top right and you'll get your full feedback: how you communicated, the substance of your answers, your profile as a hire, and where you landed on the hire/reject spectrum.";
+export const CLOSING_MESSAGE = "Thanks - that's everything I had for you. Take a moment if you want, then hit the ✓ at the top right and you'll get your full feedback: how you communicated, the substance of your answers, your profile as a hire, and where you landed on the hire/reject spectrum.";
 
-export const FAIL_MESSAGE =
-    "THAT'S IT. I CALLED THAT ANSWER: {cls}. HARDCORE MODE: ONE VAGUE OR WRONG ANSWER ENDS THE RUN. NO SECOND CHANCES, NO NEXT QUESTION, NO WARM-UP. HIT THE ✓ AT THE TOP RIGHT AND READ WHAT I THOUGHT OF IT.";
+export const FAIL_MESSAGE = "THAT'S IT. I CALLED THAT ANSWER: {cls}. HARDCORE MODE: ONE VAGUE OR WRONG ANSWER ENDS THE RUN. NO SECOND CHANCES, NO NEXT QUESTION, NO WARM-UP. HIT THE ✓ AT THE TOP RIGHT AND READ WHAT I THOUGHT OF IT.";
 
 export const HARDCORE_GRADER_PROMPT = `
 
@@ -455,7 +445,10 @@ const BANDS_PROSE = RUNGS.map((level) => `- ${label(level).toLowerCase()}: ${REV
 // json.dumps separates with ", " and ": "; the prompt bytes are the contract.
 function dumps(value: unknown): string {
     if (Array.isArray(value)) return `[${value.map((item) => dumps(item)).join(", ")}]`;
-    if (isRecord(value)) return `{${Object.entries(value).map(([key, item]) => `${JSON.stringify(key)}: ${dumps(item)}`).join(", ")}}`;
+    if (isRecord(value))
+        return `{${Object.entries(value)
+            .map(([key, item]) => `${JSON.stringify(key)}: ${dumps(item)}`)
+            .join(", ")}}`;
     return JSON.stringify(value) ?? "null";
 }
 
@@ -998,7 +991,10 @@ export function applyEvidenceCap(summary: FeedbackSummary, history: ChatMessage[
 
 export function coerceDecision(value: unknown): Decision | null {
     if (typeof value !== "string") return null;
-    const slugged = value.trim().toLowerCase().replace(/[\s-]+/g, "_");
+    const slugged = value
+        .trim()
+        .toLowerCase()
+        .replace(/[\s-]+/g, "_");
     return (DECISIONS as readonly string[]).includes(slugged) ? (slugged as Decision) : null;
 }
 
@@ -1283,7 +1279,12 @@ export async function failShout(question: string, answer: string, cls: string, c
         stage: "shout",
         temperature: 0.7,
     });
-    const text = clipShout((line ?? "").trim().replace(/^"+|"+$/g, "").trim());
+    const text = clipShout(
+        (line ?? "")
+            .trim()
+            .replace(/^"+|"+$/g, "")
+            .trim(),
+    );
     if (text === "") {
         log.warning("llm.hardcore.shout_unavailable", { cls });
         return FAIL_MESSAGE.replace("{cls}", () => cls.toUpperCase());
@@ -1343,12 +1344,12 @@ export function extractJsonObject(text: string): Record<string, unknown> {
     if (start === -1) return {};
     let depth = 0;
     let inString = false;
-    let escape = false;
+    let escaped = false;
     for (let index = start; index < text.length; index += 1) {
         const ch = text[index];
         if (inString) {
-            if (escape) escape = false;
-            else if (ch === "\\") escape = true;
+            if (escaped) escaped = false;
+            else if (ch === "\\") escaped = true;
             else if (ch === '"') inString = false;
         } else if (ch === '"') inString = true;
         else if (ch === "{") depth += 1;

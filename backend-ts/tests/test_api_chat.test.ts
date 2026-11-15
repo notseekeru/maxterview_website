@@ -102,8 +102,7 @@ function reply(text: string): Response {
 }
 
 const allDimensions = (value: number) => Object.fromEntries(llm.FEEDBACK_DIMS.map((dim) => [dim, value]));
-const feedbackContent = (verdict: string) =>
-    JSON.stringify({ scores: allDimensions(7), verdict, tips: ["Keep going."], decision: "lean_hire", certainty: 60 });
+const feedbackContent = (verdict: string) => JSON.stringify({ scores: allDimensions(7), verdict, tips: ["Keep going."], decision: "lean_hire", certainty: 60 });
 const movesContent = JSON.stringify({ moves: [{ turn: 1, class: "good", comment: "A concrete example." }] });
 
 /** A completions route whose replies the test queues: an empty queue is the model coming back with nothing. */
@@ -128,9 +127,7 @@ const encryptionKey = () => Buffer.alloc(32, 7).toString("base64url");
 
 async function signIn(sub: string): Promise<Record<string, string>> {
     const now = Math.floor(Date.now() / 1000);
-    const token = await new SignJWT({ sub, iss: config.clerkDomain, iat: now, exp: now + 3600 })
-        .setProtectedHeader({ alg: "RS256", kid: "chat-kid" })
-        .sign(privateKey);
+    const token = await new SignJWT({ sub, iss: config.clerkDomain, iat: now, exp: now + 3600 }).setProtectedHeader({ alg: "RS256", kid: "chat-kid" }).sign(privateKey);
     return { authorization: `Bearer ${token}` };
 }
 
@@ -159,9 +156,7 @@ async function insertTurn(interviewId: string, role: string, text: string, moveC
 async function withFailingAssistantWrites<T>(interviewId: string, body: () => Promise<T>): Promise<T> {
     if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(interviewId)) throw new Error(`not an interview id: ${interviewId}`);
     await getPool().unsafe("CREATE FUNCTION chat_turns_fail_assistant() RETURNS trigger LANGUAGE plpgsql AS $fn$ BEGIN RAISE EXCEPTION 'db down'; END $fn$");
-    await getPool().unsafe(
-        `CREATE TRIGGER chat_turns_fail_assistant BEFORE INSERT ON chat_turns FOR EACH ROW WHEN (NEW.role = 'assistant' AND NEW.interview_id = '${interviewId}'::uuid) EXECUTE FUNCTION chat_turns_fail_assistant()`,
-    );
+    await getPool().unsafe(`CREATE TRIGGER chat_turns_fail_assistant BEFORE INSERT ON chat_turns FOR EACH ROW WHEN (NEW.role = 'assistant' AND NEW.interview_id = '${interviewId}'::uuid) EXECUTE FUNCTION chat_turns_fail_assistant()`);
     try {
         return await body();
     } finally {
@@ -594,10 +589,7 @@ describe("hardcore", () => {
 
             await withLlm({ base_url: SYSTEM_URL, model: "unit-model" }, async () => {
                 const stub = stubHttp();
-                stub.post(completions(SYSTEM_URL), [
-                    () => reply("The candidate hedged every answer."),
-                    () => reply(JSON.stringify({ scores: allDimensions(4), verdict: "run over", tips: ["Read it."], decision: "hire", certainty: 90 })),
-                ]);
+                stub.post(completions(SYSTEM_URL), [() => reply("The candidate hedged every answer."), () => reply(JSON.stringify({ scores: allDimensions(4), verdict: "run over", tips: ["Read it."], decision: "hire", certainty: 90 }))]);
                 expect((await client.post(`/api/interviews/${id}/finish`)).status).toBe(200);
             });
             const fb = await (await client.get(`/api/interviews/${id}/feedback`)).json<{ failed_turn: number; failed_class: string; grade: string; decision: string; verdict: string }>();
@@ -616,10 +608,7 @@ describe("hardcore", () => {
         const id = await started({ role: "Hardcore Store", hardcore: true });
         await withLlm({ base_url: SYSTEM_URL, model: "unit-model" }, async () => {
             const stub = stubHttp();
-            stub.post(completions(SYSTEM_URL), [
-                () => reply(JSON.stringify({ class: "mistake", comment: "Named no trade-off: state what you gave up." })),
-                () => reply(""),
-            ]);
+            stub.post(completions(SYSTEM_URL), [() => reply(JSON.stringify({ class: "mistake", comment: "Named no trade-off: state what you gave up." })), () => reply("")]);
             await withFailingAssistantWrites(id, async () => {
                 const body = await (await send(id, "uh, we retried it")).text();
                 expect(body).toContain(llm.FAIL_MESSAGE.replace("{cls}", "MISTAKE")); // still delivered

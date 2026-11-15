@@ -6,25 +6,10 @@ import { COMPANY_SIZES, CYNICISM, DIAL_FIELDS } from "../dials.ts";
 import { config } from "../env.ts";
 import { HttpError, jsonBody as jsonBodyText, validationError } from "../errors.ts";
 import { LEVELS, label as levelLabel } from "../levels.ts";
-import {
-    HIRING_DECISIONS,
-    VoiceText,
-    totalComp,
-    type Analytics,
-    type AnalyticsDial,
-    type Dials,
-    type DashboardDims,
-    type Offer,
-    type OfferBenefit,
-    type OfferBenefitStat,
-    type OfferGroup,
-    type OfferMonth,
-    type OfferSummary,
-    type OffersAnalytics,
-} from "../models.ts";
-import { TIERS, bandRange, ladder, startDate, tier } from "../offer.ts";
-import { MOVE_CLASSES, grade } from "../rating.ts";
-import { VoiceError, capability, speak, transcribe } from "../voice.ts";
+import { type Analytics, type AnalyticsDial, type DashboardDims, type Dials, HIRING_DECISIONS, type Offer, type OfferBenefit, type OfferBenefitStat, type OfferGroup, type OfferMonth, type OfferSummary, type OffersAnalytics, totalComp, VoiceText } from "../models.ts";
+import { bandRange, ladder, startDate, TIERS, tier } from "../offer.ts";
+import { grade, MOVE_CLASSES } from "../rating.ts";
+import { capability, speak, transcribe, VoiceError } from "../voice.ts";
 
 export const voice = new Hono();
 
@@ -466,17 +451,23 @@ function offerActivity(rows: Offer[]): OfferMonth[] {
         if (bases === undefined) months.set(month, [r.base_salary]);
         else bases.push(r.base_salary);
     }
-    return [...months.entries()]
-        .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
-        .map(([month, bases]) => ({ month, offers: bases.length, avg_base: round(fmean(bases)) }));
+    return [...months.entries()].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)).map(([month, bases]) => ({ month, offers: bases.length, avg_base: round(fmean(bases)) }));
 }
 
 function offerBoard(rows: Offer[]): OffersAnalytics {
     return {
         summary: offerSummary(rows),
         offers: rows,
-        by_level: offerGroups(rows, LEVELS.map((slug): [string, string] => [slug, levelLabel(slug)]), (offer) => offer.band),
-        by_tier: offerGroups(rows, TIERS.map(([key, , label]): [string, string] => [key, label]), (offer) => offer.tier),
+        by_level: offerGroups(
+            rows,
+            LEVELS.map((slug): [string, string] => [slug, levelLabel(slug)]),
+            (offer) => offer.band,
+        ),
+        by_tier: offerGroups(
+            rows,
+            TIERS.map(([key, , label]): [string, string] => [key, label]),
+            (offer) => offer.tier,
+        ),
         benefits: offerBenefits(rows),
         activity: offerActivity(rows),
     };

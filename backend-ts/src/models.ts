@@ -409,10 +409,7 @@ export const Offer = z.object({
 export type Offer = z.infer<typeof Offer>;
 
 // What offer.terms() prices: the row's id, dates and review join are filled in by the route, not here.
-export type Terms = Pick<
-    Offer,
-    "title" | "band" | "base_salary" | "signing_bonus" | "equity" | "performance" | "benefits"
->;
+export type Terms = Pick<Offer, "title" | "band" | "base_salary" | "signing_bonus" | "equity" | "performance" | "benefits">;
 
 export function totalComp(offer: Pick<Offer, "base_salary" | "equity">): number {
     return offer.base_salary + offer.equity;

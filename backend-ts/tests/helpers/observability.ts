@@ -1,7 +1,7 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { randomBytes } from "node:crypto";
 import fs from "node:fs";
-import { ROOT_CONTEXT, type Attributes, type Context, type ContextManager, type Meter, type MeterProvider, type Span, type TracerProvider, context, metrics, trace } from "@opentelemetry/api";
+import { type Attributes, type Context, type ContextManager, context, type Meter, type MeterProvider, metrics, ROOT_CONTEXT, type Span, type TracerProvider, trace } from "@opentelemetry/api";
 import { afterEach } from "vitest";
 
 export type LogRecord = { event?: string; [field: string]: unknown };

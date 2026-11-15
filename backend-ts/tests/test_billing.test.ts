@@ -120,9 +120,7 @@ function invoiceEvent(etype: string, options: { status?: string } = {}): Record<
 function paymentEvent(options: { etype?: string; intentId?: string } = {}): Record<string, unknown> {
     const etype = options.etype ?? "payment.paid";
     const intentId = options.intentId ?? "pi_1";
-    const resource = etype.startsWith("payment_intent")
-        ? { id: intentId, type: "payment_intent", attributes: { id: intentId, amount: 9900, status: "succeeded" } }
-        : { id: "pay_1", type: "payment", attributes: { id: "pay_1", amount: 9900, status: "paid", payment_intent_id: intentId } };
+    const resource = etype.startsWith("payment_intent") ? { id: intentId, type: "payment_intent", attributes: { id: intentId, amount: 9900, status: "succeeded" } } : { id: "pay_1", type: "payment", attributes: { id: "pay_1", amount: 9900, status: "paid", payment_intent_id: intentId } };
     return { data: { type: etype, livemode: false, data: resource } };
 }
 
@@ -161,7 +159,10 @@ const SIGNED_BODY = Buffer.from('{"data":{"type":"subscription.activated"}}');
 
 function sign(body: Buffer, options: { stamp?: number; key?: string; secret?: string } = {}): string {
     const stamp = options.stamp ?? Math.floor(Date.now() / 1000);
-    const mac = createHmac("sha256", options.secret ?? SECRET).update(`${stamp}.`).update(body).digest("hex");
+    const mac = createHmac("sha256", options.secret ?? SECRET)
+        .update(`${stamp}.`)
+        .update(body)
+        .digest("hex");
     return `t=${stamp},${options.key ?? "te"}=${mac}`;
 }
 

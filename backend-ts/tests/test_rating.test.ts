@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MOVE_CLASSES, MOVE_POINTS, accuracy, grade } from "../src/rating.ts";
+import { accuracy, grade, MOVE_CLASSES, MOVE_POINTS } from "../src/rating.ts";
 
 describe("rating", () => {
     it("accuracy averages the stored classes and ignores unknown ones", () => {

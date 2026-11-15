@@ -11,8 +11,7 @@ const REAL = llm.llmConfig({ base_url: "http://llm.test", model: "qwen" });
 const STUB = llm.llmConfig({ base_url: "", model: "" });
 const CHAT_URL = "http://llm.test/chat/completions";
 
-const MOVES_JSON =
-    '{"moves": [{"turn": 1, "class": "great", "comment": "Your own decisions were visible in it."}, {"turn": 2, "class": "inaccuracy", "comment": "No evidence behind the claim: name the situation."}]}';
+const MOVES_JSON = '{"moves": [{"turn": 1, "class": "great", "comment": "Your own decisions were visible in it."}, {"turn": 2, "class": "inaccuracy", "comment": "No evidence behind the claim: name the situation."}]}';
 
 // Rapport and background are behind us, so every answer below lands in a graded phase.
 function interview(...answers: string[]): ChatMessage[] {
@@ -79,9 +78,7 @@ describe("llm", () => {
     it("unreachable detail names the endpoint a byok owner can fix", () => {
         const cfg = llm.llmConfig({ base_url: "https://old-llama.example.ts.net/v1", model: "qwen", byok: true });
         // Node reports a dead host as a TypeError carrying the socket error, where httpx raised ConnectError.
-        expect(llm.unreachableDetail(new TypeError("fetch failed", { cause: new Error("boom") }), cfg)).toBe(
-            "Could not reach your provider (old-llama.example.ts.net) - TypeError. Test it in Settings > Interview engine (BYOK).",
-        );
+        expect(llm.unreachableDetail(new TypeError("fetch failed", { cause: new Error("boom") }), cfg)).toBe("Could not reach your provider (old-llama.example.ts.net) - TypeError. Test it in Settings > Interview engine (BYOK).");
         expect(llm.unreachableDetail(new Error("no reply"), cfg)).toBeNull();
     });
 
@@ -151,7 +148,10 @@ describe("llm", () => {
     });
 
     it("closing line is generated but never asks anything", async () => {
-        const history: ChatMessage[] = [{ role: "system", content: llm.systemPrompt("Software Engineer", "mid", {}) }, { role: "user", content: "that's my answer" }];
+        const history: ChatMessage[] = [
+            { role: "system", content: llm.systemPrompt("Software Engineer", "mid", {}) },
+            { role: "user", content: "that's my answer" },
+        ];
         let reply = "Thanks for your time. Is there anything you would like to add?";
         stubCompletions(() => reply);
         expect(await llm.closingLine(history, REAL)).toBe(llm.CLOSING_MESSAGE);
@@ -389,7 +389,12 @@ describe("llm", () => {
         expect(llm.evidenceCap(answers(8), null)).toBe(100);
         expect(llm.evidenceCap(answers(40), null)).toBe(100);
         expect(llm.evidenceCap([], null)).toBe(40);
-        expect(llm.evidenceCap(Array.from({ length: 20 }, () => ({ role: "user", content: "x" })), null)).toBe(40);
+        expect(
+            llm.evidenceCap(
+                Array.from({ length: 20 }, () => ({ role: "user", content: "x" })),
+                null,
+            ),
+        ).toBe(40);
     });
 
     it("evidence cap clamps model certainty", () => {
@@ -435,8 +440,7 @@ describe("llm", () => {
     it("generate feedback keeps scores when decision drifts", async () => {
         stubCompletions((request) => {
             if (request.system === llm.MOVES_PROMPT_V1) return MOVES_JSON;
-            if (request.jsonOutput)
-                return '{"scores": {"clarity": 7, "relevance": 7, "structure": 7, "confidence": 7}, "decision": "Strong Hire", "certainty": 90, "verdict": "Fine.", "tips": ["A", "B"]}';
+            if (request.jsonOutput) return '{"scores": {"clarity": 7, "relevance": 7, "structure": 7, "confidence": 7}, "decision": "Strong Hire", "certainty": 90, "verdict": "Fine.", "tips": ["A", "B"]}';
             return "prose notes";
         });
         const out = (await llm.generateFeedback(interview("hi"), null, REAL)) as FeedbackSummary;
@@ -521,10 +525,7 @@ describe("llm", () => {
 
     it("completion is greedy and downgrades json schema to json object", async () => {
         const stub = stubHttp();
-        stub.post(CHAT_URL, [
-            () => json({ error: { message: "response_format json_schema is not supported" } }, 400),
-            () => json({ choices: [{ message: { content: '{"scores": {}}' } }] }),
-        ]);
+        stub.post(CHAT_URL, [() => json({ error: { message: "response_format json_schema is not supported" } }, 400), () => json({ choices: [{ message: { content: '{"scores": {}}' } }] })]);
         const out = await llm.completion("sys", "notes", { config: REAL, maxTokens: 64, stage: "test", jsonOutput: true, jsonSchema: llm.FEEDBACK_JSON_SCHEMA });
         expect(out).toBe('{"scores": {}}');
         expect(stub.calls).toHaveLength(2); // schema attempt, then the json_object fallback
@@ -556,7 +557,15 @@ describe("llm", () => {
         expect(llm.validMoves([{ turn: 1, class: "good" }], 1)).toEqual({ 1: { cls: "good", comment: null } });
         expect(llm.validMoves([{ turn: 4, class: "good", comment: "x" }], 2)).toBeNull();
         expect(llm.validMoves([{ turn: 0, class: "good" }], 2)).toBeNull(); // turn numbers are 1-based
-        expect(llm.validMoves([{ turn: 1, class: "good" }, { turn: 1, class: "blunder" }], 2)).toEqual({ 1: { cls: "good", comment: null } });
+        expect(
+            llm.validMoves(
+                [
+                    { turn: 1, class: "good" },
+                    { turn: 1, class: "blunder" },
+                ],
+                2,
+            ),
+        ).toEqual({ 1: { cls: "good", comment: null } });
         expect(llm.validMoves([{ turn: 1, class: "best", comment: "a great answer, truly" }], 2)).toBeNull(); // class dropped, note with it
         expect(llm.validMoves({ 2: "mistake" }, 2)).toEqual({ 2: { cls: "mistake", comment: null } }); // bare {turn: class} map
         expect([llm.validMoves("nope", 2), llm.validMoves([], 2)]).toEqual([null, null]);
@@ -612,8 +621,7 @@ describe("llm", () => {
 
     it("hardcore failure prompts for caps and forces reject", async () => {
         const requests = stubCompletions((request) => {
-            if (request.jsonOutput)
-                return '{"scores": {"clarity": 9, "relevance": 9, "structure": 9, "confidence": 9}, "decision": "hire", "certainty": 90, "verdict": "you blew it.", "tips": ["A", "B"]}';
+            if (request.jsonOutput) return '{"scores": {"clarity": 9, "relevance": 9, "structure": 9, "confidence": 9}, "decision": "hire", "certainty": 90, "verdict": "you blew it.", "tips": ["A", "B"]}';
             return "prose notes";
         });
         const out = (await llm.generateFeedback(interview("hi"), null, REAL, { failure: [2, "blunder"], annotate: false })) as FeedbackSummary;

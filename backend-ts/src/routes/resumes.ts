@@ -1,16 +1,16 @@
 import { strict as assert } from "node:assert";
 import { type Context, Hono } from "hono";
 import { getCurrentUser } from "../auth.ts";
-import { type Tier, resolveTier, resumeLimit } from "../billing.ts";
+import { resolveTier, resumeLimit, type Tier } from "../billing.ts";
 import { chatConfig, spendChatTurnOrFail } from "../chatconfig.ts";
 import { fetch, fetchrow, sql } from "../db.ts";
 import { config } from "../env.ts";
 import { HttpError, jsonBody as jsonBodyText, validationError } from "../errors.ts";
 import * as latex from "../latex.ts";
-import { type ReviewDraft, isStub, reviewResume, rewriteLine } from "../llm.ts";
+import { isStub, type ReviewDraft, reviewResume, rewriteLine } from "../llm.ts";
 import { LatexSource, Resume, ResumeCreate, ResumeExtract, ResumeReview, ResumeSummary, ReviewRewriteRequest } from "../models.ts";
-import { LINE_MAX, MAX_REWRITES, claim, readsAt, sourceHash } from "../review.ts";
 import { ExtractError, extractPdf, sanitize } from "../resumes.ts";
+import { claim, LINE_MAX, MAX_REWRITES, readsAt, sourceHash } from "../review.ts";
 
 export const resumes = new Hono();
 

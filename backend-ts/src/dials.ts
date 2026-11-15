@@ -27,12 +27,5 @@ function repeat(count: number, kinds: readonly string[]): string[] {
 // The depth a run was created with fixes its length: main.send_turn reads the closing turn off this length.
 export function planPhases(depth: Depth): string[] {
     const counts = PLAN_COUNTS[depth];
-    return [
-        ...repeat(counts.rapport, ["rapport"]),
-        ...repeat(counts.background, ["background"]),
-        ...repeat(counts.competency, ["competency", "competency_followup"]),
-        ...repeat(counts.technical, ["technical", "technical_followup"]),
-        "questions",
-        "close",
-    ];
+    return [...repeat(counts.rapport, ["rapport"]), ...repeat(counts.background, ["background"]), ...repeat(counts.competency, ["competency", "competency_followup"]), ...repeat(counts.technical, ["technical", "technical_followup"]), "questions", "close"];
 }

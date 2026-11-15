@@ -1,4 +1,4 @@
-import { context, metrics, trace, type Attributes, type Gauge, type Histogram, type Span } from "@opentelemetry/api";
+import { type Attributes, context, type Gauge, type Histogram, metrics, type Span, trace } from "@opentelemetry/api";
 import { OTLPMetricExporter } from "@opentelemetry/exporter-metrics-otlp-http";
 import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-http";
 import { resourceFromAttributes } from "@opentelemetry/resources";

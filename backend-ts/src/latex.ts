@@ -43,9 +43,7 @@ function engine(): string {
         try {
             accessSync(candidate, constants.X_OK);
             return candidate;
-        } catch {
-            continue;
-        }
+        } catch {}
     }
     return "";
 }

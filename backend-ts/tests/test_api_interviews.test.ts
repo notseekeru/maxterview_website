@@ -13,7 +13,7 @@ import { GRADER_PROMPT_V1, type LLMConfig, REVIEW_EXAMPLE, REWRITE_LINE_PROMPT, 
 import { RUNGS } from "../src/review.ts";
 import { client, type RequestOptions } from "./helpers/client.ts";
 import { withConfig } from "./helpers/config.ts";
-import { json, type HttpStub, sse, stubHttp } from "./helpers/http.ts";
+import { type HttpStub, json, sse, stubHttp } from "./helpers/http.ts";
 import { encrypted, miniPdf } from "./helpers/pdf.ts";
 
 const USAGE = "/api/billing/usage";
@@ -607,10 +607,7 @@ describe("interviews", () => {
         const ids: string[] = [];
         try {
             for (const [seq, [role, status, acc, decision, archivedAt]] of seeds.entries()) {
-                const made = (await queryOne<{ id: string }>(
-                    "INSERT INTO interviews (owner_id, role, status, created_at, archived_at) VALUES ('dev-user', $1, $2, now() + make_interval(secs => $3::int), $4::text::timestamptz) RETURNING id::text",
-                    [role, status, seq, archivedAt],
-                ))?.id as string;
+                const made = (await queryOne<{ id: string }>("INSERT INTO interviews (owner_id, role, status, created_at, archived_at) VALUES ('dev-user', $1, $2, now() + make_interval(secs => $3::int), $4::text::timestamptz) RETURNING id::text", [role, status, seq, archivedAt]))?.id as string;
                 ids.push(made);
                 if (acc !== null) {
                     await run("INSERT INTO feedback (interview_id, verdict, scores, accuracy, decision, certainty) VALUES ($1::uuid, 'v', '{}'::jsonb, $2, $3, 60)", [made, acc, decision]);

@@ -149,7 +149,12 @@ async function resolveHost(host: string): Promise<string[]> {
 function origin(raw: string): [string, number] {
     try {
         const url = new URL(raw);
-        const host = mappedIpv4(url.hostname.replace(/^\[|\]$/g, "").toLowerCase().replace(/\.+$/, ""));
+        const host = mappedIpv4(
+            url.hostname
+                .replace(/^\[|\]$/g, "")
+                .toLowerCase()
+                .replace(/\.+$/, ""),
+        );
         return [host, url.port === "" ? (url.protocol === "https:" ? 443 : 80) : Number(url.port)];
     } catch {
         return ["", 0];

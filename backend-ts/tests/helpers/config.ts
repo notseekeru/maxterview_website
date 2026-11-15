@@ -1,4 +1,4 @@
-import { config, type Config } from "../../src/env.ts";
+import { type Config, config } from "../../src/env.ts";
 
 /**
  * The shared config is one mutable object, so a patch has to be undone or the next test inherits it.

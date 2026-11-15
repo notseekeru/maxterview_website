@@ -1,9 +1,9 @@
 import { resolveConfig } from "./byok.ts";
 import { fetch, fetchrow, sql } from "./db.ts";
-import { type LLMConfig, generateFeedback, judgeAnswer } from "./llm.ts";
+import { generateFeedback, judgeAnswer, type LLMConfig } from "./llm.ts";
 import { type ChatMessage, type ClerkUser, Dials, HIRING_DECISIONS, type Move } from "./models.ts";
 import { terms } from "./offer.ts";
-import { FAIL_CLASSES, accuracy, grade } from "./rating.ts";
+import { accuracy, FAIL_CLASSES, grade } from "./rating.ts";
 import { withSpan } from "./telemetry.ts";
 
 const COMPLETE_MAX_FEEDBACK_ATTEMPTS = 3;
@@ -109,7 +109,11 @@ export async function reconcileHardcoreMoves(interviewId: string, historyRows: T
         const cls = move?.cls ?? fill[turn]?.cls ?? null;
         if (cls !== null) merged[String(turn)] = { cls, comment: move?.comment ?? fill[turn]?.comment ?? null };
     });
-    const persisted = await persistMoves(interviewId, candidateRows.map((row) => row.id), merged);
+    const persisted = await persistMoves(
+        interviewId,
+        candidateRows.map((row) => row.id),
+        merged,
+    );
     return persisted.length > 0 ? persisted : judged.flatMap((move) => (move === null ? [] : [move.cls]));
 }
 
@@ -145,7 +149,13 @@ export async function runFeedbackPipeline(interviewId: string, config: LLMConfig
     });
     if (summary === null) return null;
     const candidateRows = historyRows.filter((row) => row.role === "user");
-    const classes = hardcore ? await reconcileHardcoreMoves(interviewId, historyRows, candidateRows, config) : await persistMoves(interviewId, candidateRows.map((row) => row.id), summary.moves);
+    const classes = hardcore
+        ? await reconcileHardcoreMoves(interviewId, historyRows, candidateRows, config)
+        : await persistMoves(
+              interviewId,
+              candidateRows.map((row) => row.id),
+              summary.moves,
+          );
     const acc = accuracy(classes);
     // Safety net: hardcore, no failure recorded (the live judge came back empty on some turn), and this
     // transcript does contain one. Record it, or the review would show F with nothing to shout about.
