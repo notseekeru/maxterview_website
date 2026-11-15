@@ -1,10 +1,13 @@
 import { createHash } from "node:crypto";
+import { existsSync } from "node:fs";
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import postgres, { type Sql } from "postgres";
-import { config } from "../src/env.ts";
 
-const MIGRATIONS_DIR = join(import.meta.dirname, "..", "migrations");
+// The source tree runs from scripts/ and the image from dist/scripts/, both one level short of the package.
+const nearMigrations = [join(import.meta.dirname, "..", "migrations"), join(import.meta.dirname, "..", "..", "migrations")].find((dir) => existsSync(dir));
+if (nearMigrations === undefined) throw new Error(`no migrations directory above ${import.meta.dirname}`);
+const MIGRATIONS_DIR = nearMigrations;
 
 const INTERNAL_SCHEMA = `
 CREATE TABLE IF NOT EXISTS _yoyo_migration (
@@ -71,11 +74,29 @@ async function runFile(db: Sql, id: string, sql: string): Promise<void> {
     });
 }
 
-async function main(mode: string): Promise<void> {
-    if (config.databaseUrl === "") throw new Error("DATABASE_URL is required");
+function parseArgs(argv: string[]): { mode: string; database: string | undefined } {
+    const positional: string[] = [];
+    let database: string | undefined;
+    for (let index = 0; index < argv.length; index += 1) {
+        if (argv[index] === "--database") {
+            database = argv[index + 1];
+            if (database === undefined) throw new Error("--database needs a DSN");
+            index += 1;
+        } else {
+            positional.push(argv[index]);
+        }
+    }
+    return { mode: positional[0] ?? "status", database };
+}
+
+// OWNER_DATABASE_URL is the migration hook's own secret: the app never reads it, so the owner role stays
+// out of the runtime process. DATABASE_URL stays last for the test helper and local `npm run migrate`.
+async function main({ mode, database }: { mode: string; database: string | undefined }): Promise<void> {
+    const dsn = [database, process.env.OWNER_DATABASE_URL, process.env.DATABASE_URL].find((value) => value !== undefined && value !== "");
+    if (dsn === undefined) throw new Error("a DSN is required: --database, OWNER_DATABASE_URL or DATABASE_URL");
     const files = await listFiles();
     const forward = files.filter((file) => !file.rollback);
-    const db = postgres(config.databaseUrl, { max: 1, onnotice: () => {} });
+    const db = postgres(dsn, { max: 1, onnotice: () => {} });
     try {
         await db.unsafe(INTERNAL_SCHEMA);
         const applied = await appliedIds(db);
@@ -120,7 +141,7 @@ async function main(mode: string): Promise<void> {
 }
 
 try {
-    await main(process.argv[2] ?? "status");
+    await main(parseArgs(process.argv.slice(2)));
 } catch (error) {
     console.error(error instanceof Error ? error.message : error);
     process.exitCode = 1;
