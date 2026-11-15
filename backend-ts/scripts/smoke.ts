@@ -178,11 +178,17 @@ async function sse(path: string, sub: string, body?: unknown): Promise<Frame[]> 
 }
 
 function delivered(frames: Frame[], path: string): string {
-    const spoken = frames.filter((frame) => frame.event === "message").map((frame) => frame.data).join("");
+    const spoken = frames
+        .filter((frame) => frame.event === "message")
+        .map((frame) => frame.data)
+        .join("");
     const failed = frames.filter((frame) => frame.event === "error").map((frame) => frame.data);
     assert.ok(failed.length === 0, `${path} sent an error frame: ${failed.join(" | ")}`);
     assert.ok(spoken.trim() !== "", `${path} sent no message frame`);
-    assert.ok(frames.some((frame) => frame.event === "done"), `${path} sent no done frame`);
+    assert.ok(
+        frames.some((frame) => frame.event === "done"),
+        `${path} sent no done frame`,
+    );
     return spoken;
 }
 
@@ -263,8 +269,14 @@ async function runLegs(): Promise<void> {
         assert.equal(offer.status, 200, `GET offer answered ${offer.status}`);
         assert.ok(Number(json(offer).base_salary ?? 0) > 0, "the offer has no base salary");
         const calls = stubCalls.slice(before);
-        assert.ok(calls.some((call) => !call.stream), "the feedback pipeline made no non-streaming model call");
-        assert.ok(calls.some((call) => call.responseFormat !== ""), "no scoring call asked for a JSON response format");
+        assert.ok(
+            calls.some((call) => !call.stream),
+            "the feedback pipeline made no non-streaming model call",
+        );
+        assert.ok(
+            calls.some((call) => call.responseFormat !== ""),
+            "no scoring call asked for a JSON response format",
+        );
         return { status: "PASS", detail: `feedback + offer, ${calls.length} stub calls` };
     });
 
@@ -294,7 +306,13 @@ async function runLegs(): Promise<void> {
         assert.equal(started.status, 200, `POST /interviews/:id/start answered ${started.status}`);
         delivered(await sse(`/interviews/${byokInterview}/chat/opening`, ALICE), "BYOK chat/opening");
         const byokCalls = stubCalls.slice(before).filter((call) => call.authorization === `Bearer ${BYOK_KEY}`);
-        assert.ok(byokCalls.length > 0, `the stub saw no request carrying the saved BYOK key (${stubCalls.slice(before).map((call) => call.authorization).join(", ")})`);
+        assert.ok(
+            byokCalls.length > 0,
+            `the stub saw no request carrying the saved BYOK key (${stubCalls
+                .slice(before)
+                .map((call) => call.authorization)
+                .join(", ")})`,
+        );
         assert.ok(
             byokCalls.some((call) => call.model === BYOK_MODEL),
             `the stub was called with ${byokCalls.map((call) => call.model).join(", ")} instead of ${BYOK_MODEL}`,

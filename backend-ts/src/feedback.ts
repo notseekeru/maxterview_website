@@ -137,7 +137,7 @@ export async function runFeedbackPipeline(interviewId: string, config: LLMConfig
                   hardcore: row.hardcore,
                   depth: row.depth,
               });
-    const failure: [number, string] | null = row !== undefined && row.failed_turn ? [row.failed_turn as number, (row.failed_class as string | null) ?? ""] : null;
+    const failure: [number, string] | null = row?.failed_turn ? [row.failed_turn as number, (row.failed_class as string | null) ?? ""] : null;
     // A hardcore run was already judged turn by turn as it was answered (send_turn), so its
     // annotation pass would only re-litigate verdicts the candidate was told about.
     const hardcore = dials?.hardcore === true;

@@ -3,7 +3,7 @@ import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { type Config, config } from "../src/env.ts";
+import type { Config } from "../src/env.ts";
 import { CompileBusy, CompileError, compilePdf } from "../src/latex.ts";
 import { log } from "../src/logs.ts";
 import { withConfig } from "./helpers/config.ts";

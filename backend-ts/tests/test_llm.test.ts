@@ -670,7 +670,7 @@ describe("llm", () => {
         const judged = [];
         for (let turn = 1; turn <= STUB_MOVE_CYCLE.length; turn += 1) judged.push(await llm.judgeAnswer("", "x", STUB, turn));
         expect(judged.map((move) => move?.cls)).toEqual([...STUB_MOVE_CYCLE]);
-        expect(judged.every((move) => move !== null && move.comment)).toBe(true); // the stub writes the note too
+        expect(judged.every((move) => move?.comment)).toBe(true); // the stub writes the note too
     });
 
     it("judge answer gives up after one retry", async () => {

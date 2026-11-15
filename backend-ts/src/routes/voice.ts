@@ -36,7 +36,7 @@ voice.post("/voice/stt", async (c) => {
     await getCurrentUser(c);
     // A body that is not multipart is the missing upload, as FastAPI read it; it is not a 500.
     const form: Record<string, string | File> = await c.req.parseBody().catch(() => ({}));
-    const upload = form["file"];
+    const upload = form.file;
     if (!(upload instanceof File)) throw new HttpError(422, [{ loc: ["body", "file"], msg: "Field required" }]);
     const data = new Uint8Array(await upload.arrayBuffer());
     if (data.length > config.voiceMaxUploadBytes) {
@@ -142,7 +142,7 @@ voice.get("/stats/analytics", async (c) => {
     const moveClasses: Record<string, number> = Object.fromEntries(MOVE_CLASSES.map((cls) => [cls, 0]));
     let totalTurns = 0;
     let hardcoreFailures = 0;
-    for (const r of row["runs"]) {
+    for (const r of row.runs) {
         for (const cls of MOVE_CLASSES) moveClasses[cls] += r.moves[cls] ?? 0;
         totalTurns += r.turns;
         hardcoreFailures += r.failed_class ? 1 : 0;
@@ -166,13 +166,13 @@ voice.get("/stats/analytics", async (c) => {
 
     const payload: Analytics = {
         runs,
-        activity: row["activity"],
+        activity: row.activity,
         move_classes: moveClasses,
-        dials: dialGroups(row["dials"]),
+        dials: dialGroups(row.dials),
         total_turns: totalTurns,
-        streak_days: Number(row["streak_days"] ?? 0),
+        streak_days: Number(row.streak_days ?? 0),
         hardcore_failures: hardcoreFailures,
-        offers: offerBoard(row["offers"].map((r: OfferRaw) => offerRow(r))),
+        offers: offerBoard(row.offers.map((r: OfferRaw) => offerRow(r))),
     };
     return c.json(payload);
 });
@@ -295,29 +295,29 @@ voice.get("/stats/dashboard", async (c) => {
     // int8 and numeric reach JS as text, and the model that used to read them took ints and floats:
     // a raw row would put digit strings on the charts.
     const dims: DashboardDims = {
-        total: Number(row["total"]),
-        completed: Number(row["completed"]),
-        rated: Number(row["rated"]),
-        avg_accuracy: Number(row["avg_accuracy"]),
-        accuracy_trend: row["accuracy_trend"],
-        decided: Number(row["decided"]),
-        hiring: Number(row["hiring"]),
-        avg_certainty: row["avg_certainty"] === null ? null : Number(row["avg_certainty"]),
-        week_runs: Number(row["week_runs"]),
-        prior_week_runs: Number(row["prior_week_runs"]),
-        week_finished: Number(row["week_finished"]),
-        prior_week_finished: Number(row["prior_week_finished"]),
-        streak: Number(row["streak"]),
-        last_run_days: row["last_run_days"],
-        delta_accuracy: row["delta_accuracy"] === null ? null : Number(row["delta_accuracy"]),
-        delta_hire: row["delta_hire"] === null ? null : Number(row["delta_hire"]),
-        daily_runs: row["daily_runs"],
-        daily_finished: row["daily_finished"],
-        hire_spark: row["hire_spark"],
-        count: Number(row["count"]),
-        recent_n: Number(row["recent_n"]),
-        averages: row["averages"],
-        recent: row["recent"],
+        total: Number(row.total),
+        completed: Number(row.completed),
+        rated: Number(row.rated),
+        avg_accuracy: Number(row.avg_accuracy),
+        accuracy_trend: row.accuracy_trend,
+        decided: Number(row.decided),
+        hiring: Number(row.hiring),
+        avg_certainty: row.avg_certainty === null ? null : Number(row.avg_certainty),
+        week_runs: Number(row.week_runs),
+        prior_week_runs: Number(row.prior_week_runs),
+        week_finished: Number(row.week_finished),
+        prior_week_finished: Number(row.prior_week_finished),
+        streak: Number(row.streak),
+        last_run_days: row.last_run_days,
+        delta_accuracy: row.delta_accuracy === null ? null : Number(row.delta_accuracy),
+        delta_hire: row.delta_hire === null ? null : Number(row.delta_hire),
+        daily_runs: row.daily_runs,
+        daily_finished: row.daily_finished,
+        hire_spark: row.hire_spark,
+        count: Number(row.count),
+        recent_n: Number(row.recent_n),
+        averages: row.averages,
+        recent: row.recent,
     };
     return c.json(dims);
 });

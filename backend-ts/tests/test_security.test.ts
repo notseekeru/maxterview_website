@@ -1,6 +1,5 @@
 import { Hono, type MiddlewareHandler } from "hono";
 import { describe, expect, it, vi } from "vitest";
-import { app } from "../src/app.ts";
 import { config, readConfig } from "../src/env.ts";
 import { ChatTurn } from "../src/models.ts";
 import { rateLimit } from "../src/ratelimit.ts";

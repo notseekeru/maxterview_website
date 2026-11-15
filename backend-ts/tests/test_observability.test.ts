@@ -30,7 +30,7 @@ describe("observability", () => {
     });
 
     it("client error beacon is capped and logged", async () => {
-        const huge = '{"message": "' + "x".repeat(8192) + '", "route": "/"}';
+        const huge = `{"message": "${"x".repeat(8192)}", "route": "/"}`;
         const logs = captureLogs();
         const boom = await client.post("/api/client-errors", { json: { message: "boom", route: "/" } });
         const crashed = await client.post("/api/client-errors", { json: { message: "render", route: "/dashboard", component_stack: "at InterviewCard" } });
