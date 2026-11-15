@@ -18,7 +18,6 @@ const server = serve({ fetch: app.fetch, port: config.port }, (info) => {
 
 async function shutdown(): Promise<void> {
     if (beat !== null) clearInterval(beat);
-    // main.py also closed voice's httpx client; voice.ts fetches per call and holds nothing to close.
     await closePool();
     await telemetry.shutdown();
     server.close(() => process.exit(0));

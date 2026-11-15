@@ -100,7 +100,6 @@ export const Interview = Dials.extend({
     certainty: Int.nullable().default(null),
     // Set = hidden from the history list, NOTHING else: still returned by GET /interviews and still in the dashboard stats.
     archived_at: DateTime.nullable().default(null),
-    // computed_field in Python; callers fill these with rating.grade() and dials.planPhases().
     grade: Grade.nullable(),
     plan: z.array(z.string()),
 });
@@ -200,7 +199,6 @@ export const ResumeReview = z.object({
     // advice is the work the candidate would otherwise lose, and the marks simply stop matching.
     stale: z.boolean().default(false),
     created_at: DateTime,
-    // computed_field in Python; callers fill it with review.readsAt().
     reads_at: Level.nullable(),
 });
 export type ResumeReview = z.infer<typeof ResumeReview>;
@@ -240,7 +238,6 @@ export const Message = z.object({
     content: z.string(),
     // This turn's annotation. None on interviewer/system turns and on ungraded runs.
     move_class: MoveClass.nullable().default(null),
-    // The annotator's note: why it got that class and what to fix. None wherever move_class is None.
     comment: z.string().nullable().default(null),
     created_at: DateTime,
 });
@@ -270,7 +267,6 @@ export const Feedback = z.object({
     // Rebuilds already charged to this run; the tier's allowance is app/billing.py::redo_limit.
     redos: Int.default(0),
     created_at: DateTime,
-    // computed_field in Python; callers fill it with rating.grade().
     grade: Grade.nullable(),
 });
 export type Feedback = z.infer<typeof Feedback>;
@@ -403,7 +399,6 @@ export const Offer = z.object({
     // When the letter was priced, which is also the date on the page.
     created_at: DateTime,
     starts_on: z.iso.date(),
-    // computed_field in Python: base_salary + equity, via totalComp().
     total_comp: Int,
 });
 export type Offer = z.infer<typeof Offer>;

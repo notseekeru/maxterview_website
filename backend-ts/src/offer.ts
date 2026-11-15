@@ -18,8 +18,6 @@ export const BANDS: Record<string, readonly [number, number, string]> = {
 
 export const WEIGHTS = { communication: 0.5, substance: 0.25, accuracy: 0.25 } as const;
 
-// Performance -> what the letter calls it (slug, floor, label). The percentage is the number, this is the
-// sentence a candidate reads next to it.
 export const TIERS: readonly (readonly [string, number, string])[] = [
     ["below", 0, "Below the bar"],
     ["meets", 40, "Meets the bar"],

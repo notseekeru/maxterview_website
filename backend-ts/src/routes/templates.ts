@@ -68,7 +68,6 @@ templates.post("/templates", async (c) => {
         RETURNING id::text, owner_id, name, role, level, topic, resume_id::text, created_at, updated_at, company_size, cynicism, brutally_honest, human_mode, hardcore, depth
         `);
     if (row === undefined) {
-        // Distinguish the two no-row causes: a foreign resume is a 404, the cap is a 409.
         if (body.resume_id !== null && (await fetchrow(sql`SELECT 1 FROM resumes WHERE id = ${body.resume_id} AND owner_id = ${user.sub}`)) === undefined) {
             throw new HttpError(404, "Resume not found");
         }

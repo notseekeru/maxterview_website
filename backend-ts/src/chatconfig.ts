@@ -5,7 +5,6 @@ import { HttpError } from "./errors.ts";
 import { type LLMConfig, PRO_CONFIG } from "./llm.ts";
 import type { ClerkUser } from "./models.ts";
 
-// main.py's _chat_config dependency: a premium tier chats on the deployment's own model, unless the owner brought a key.
 export async function chatConfig(user: ClerkUser, tier: string): Promise<LLMConfig> {
     const base = await resolveConfig(user);
     if (base.byok || PRO_CONFIG === null) return base;

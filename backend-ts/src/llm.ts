@@ -1158,7 +1158,6 @@ function formatTranscript(history: ChatMessage[]): string {
     const lines: string[] = [];
     let turn = 0;
     for (const message of history) {
-        // Interviewer system framing is not grading material.
         if (message.role === "system") continue;
         if (message.role === "user") {
             turn += 1;

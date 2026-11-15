@@ -92,7 +92,6 @@ async function setArchived(interviewId: string, ownerId: string, archived: boole
     return row;
 }
 
-// Distinguish "foreign/not found" (404) from "already started" (409).
 async function startError(interviewId: string, ownerId: string): Promise<HttpError> {
     const row = await fetchrow(unsafe("SELECT status FROM interviews WHERE id = $1 AND owner_id = $2", interviewId, ownerId));
     if (row === undefined) return new HttpError(404, "Interview not found");
@@ -102,7 +101,6 @@ async function startError(interviewId: string, ownerId: string): Promise<HttpErr
 async function finishError(interviewId: string, ownerId: string): Promise<HttpError> {
     const row = await fetchrow(unsafe("SELECT status FROM interviews WHERE id = $1 AND owner_id = $2", interviewId, ownerId));
     if (row === undefined) return new HttpError(404, "Interview not found");
-    // In progress but the UPDATE matched nothing => no gradable turns.
     if (row.status === "in_progress") return new HttpError(409, "Nothing to score yet: send at least one message before completing.");
     return new HttpError(409, "Interview is not in progress");
 }

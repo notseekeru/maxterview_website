@@ -6,7 +6,6 @@ export type MoveClass = (typeof MOVE_CLASSES)[number];
 // (inaccuracy). `book` and above survive: correct-but-recited is a small deduction, not a failure.
 export const FAIL_CLASSES = ["inaccuracy", "mistake", "blunder"] as const;
 
-// What one classed turn is worth out of 1.0: `book` sits just under `good`.
 export const MOVE_POINTS: Record<MoveClass, number> = {
     brilliant: 1.0,
     great: 1.0,

@@ -207,7 +207,6 @@ resumes.post("/resumes/preview", async (c) => {
         pdf = await latex.compilePdf(body.data.text);
     } catch (error) {
         if (error instanceof latex.CompileBusy) return c.json({ detail: "The preview is busy. Try again in a moment." }, 503, { "retry-after": "5" });
-        // The compiler's own first error, which carries the line number the editor points at.
         if (error instanceof latex.CompileError) throw new HttpError(422, error.detail);
         throw error;
     }

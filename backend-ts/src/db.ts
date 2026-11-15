@@ -54,7 +54,6 @@ export function getPool(): Sql {
 // JSON scalar and Postgres stores the string. Callers pass the value, not its text.
 type JsonValue = null | boolean | number | string | readonly JsonValue[] | { readonly [key: string]: JsonValue };
 
-// The Python passes "$1, $2" and its arguments; the tag does the same, and the server sees the same text.
 export function sql<T extends Row[] = Row[]>(template: TemplateStringsArray, ...parameters: readonly (postgres.ParameterOrFragment<postgres.SerializableParameter> | JsonValue)[]): PendingQuery<T> {
     return getPool()<T>(template, ...(parameters as postgres.ParameterOrFragment<postgres.SerializableParameter>[]));
 }
