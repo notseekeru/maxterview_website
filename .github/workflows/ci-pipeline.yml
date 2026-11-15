@@ -8,6 +8,7 @@ on:
     paths:
       - "frontend/**"
       - "backend/**"
+      - "backend-ts/**"
       - ".github/workflows/**"
       - ".gitleaksignore"
       - "compose.yml"
@@ -112,6 +113,57 @@ jobs:
             --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 \
             --ignorefile /.trivyignore.yaml \
             /workspace
+
+  backend-ts:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend-ts
+    services:
+      postgres:
+        image: postgres:18-alpine@sha256:d3e1620b530c944afa6e887d22eb899824da68e19c52024bf98f5220c88a65b2
+        env:
+          POSTGRES_USER: maxterview
+          POSTGRES_PASSWORD: maxterview
+          POSTGRES_DB: maxterview
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U maxterview -d maxterview"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://maxterview:maxterview@localhost:5432/maxterview
+      APP_ENV: test
+      CLERK_ENABLED: "false"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Use Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: 24
+          cache: "npm"
+          cache-dependency-path: backend-ts/package-lock.json
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      - name: Lint (backend-ts)
+        run: npm run lint
+
+      - name: Format gate
+        run: git diff --exit-code
+
+      - name: Typecheck (backend-ts)
+        run: npm run typecheck
+
+      - name: Build (backend-ts)
+        run: npm run build
+
+      - name: Test (backend-ts)
+        run: npx vitest run
 
   config:
     runs-on: ubuntu-latest

@@ -1,0 +1,9 @@
+{
+    "extends": "./tsconfig.json",
+    "compilerOptions": {
+        // rootDir "src" cannot contain tests: this config typechecks the whole tree and emits nothing.
+        "rootDir": ".",
+        "noEmit": true
+    },
+    "include": ["src", "tests", "scripts"]
+}

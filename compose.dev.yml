@@ -4,24 +4,21 @@ services:
   backend:
     container_name: maxterview_backend_dev
     build:
-      context: ./backend
+      context: ./backend-ts
       target: dev
     user: root
     env_file:
       - .env
-      - ./backend/.env
+      - ./backend-ts/.env
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-maxterview}:${POSTGRES_PASSWORD:-maxterview}@postgres:5432/${POSTGRES_DB:-maxterview}
       APP_ENV: ${APP_ENV:-development}
-      PYTHONPYCACHEPREFIX: /tmp/pycache
-      RUFF_CACHE_DIR: /tmp/ruff
-      PYTEST_ADDOPTS: "-p no:cacheprovider"
-    command: uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    command: node --run dev
     ports:
       - "${BACKEND_PORT:-8000}:8000"
     volumes:
-      - ./backend:/app
-      - /app/.venv
+      - ./backend-ts:/app
+      - /app/node_modules
     depends_on:
       postgres:
         condition: service_healthy

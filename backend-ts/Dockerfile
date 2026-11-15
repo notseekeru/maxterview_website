@@ -1,0 +1,63 @@
+FROM node:24-slim@sha256:dc26ae92c9fb15cf6b1d63e20f0944b2efe0f115b20e00be48fb23fceb061c54 AS deps
+
+WORKDIR /app
+
+COPY package.json package-lock.json ./
+
+RUN npm ci
+
+FROM deps AS build
+
+COPY tsconfig.json ./
+COPY src ./src
+
+RUN npm run build
+
+FROM node:24-slim@sha256:dc26ae92c9fb15cf6b1d63e20f0944b2efe0f115b20e00be48fb23fceb061c54 AS prod-deps
+
+WORKDIR /app
+
+COPY package.json package-lock.json ./
+
+RUN npm ci --omit=dev && npm cache clean --force
+
+FROM node:24-slim@sha256:dc26ae92c9fb15cf6b1d63e20f0944b2efe0f115b20e00be48fb23fceb061c54 AS runtime
+
+# The resume preview shells out to pdflatex (src/latex.ts) and 503s without it. Same package set as the
+# Python image: the shipped preamble needs geometry, fontenc, lmodern, enumitem, titlesec and hyperref,
+# all covered by latex-extra. texlive-fonts-extra stays out: its families are never loaded.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends texlive-latex-base texlive-latex-recommended texlive-latex-extra texlive-fonts-recommended lmodern \
+    && rm -rf /usr/share/texlive/texmf-dist/doc /usr/share/texlive/texmf-dist/source /usr/share/doc /usr/share/man \
+    && find /usr/share/texlive/texmf-dist -type d -empty -delete \
+    && mktexlsr \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+COPY package.json ./
+
+FROM runtime AS dev
+
+COPY --from=deps /app/node_modules ./node_modules
+COPY src ./src
+
+USER root
+
+CMD ["node", "--run", "dev"]
+
+# APP_ENV is the deploy's to set: baking one here would decide production vs. development for every cluster.
+FROM runtime AS prod
+
+COPY --from=prod-deps /app/node_modules ./node_modules
+COPY --from=build /app/dist ./dist
+
+USER node
+
+EXPOSE 8000
+
+HEALTHCHECK --interval=10s --timeout=5s --retries=5 --start-period=20s \
+    CMD node -e "fetch('http://127.0.0.1:'+(process.env.PORT||8000)+'/api/health').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"
+
+CMD ["node", "dist/main.js"]

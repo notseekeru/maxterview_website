@@ -3,3 +3,7 @@
 71cf43958730da4f9071082cfc241b1610a5e29c:frontend/.env.staging:generic-api-key:16
 b41a9cd3dbbe98e3d986819da5322c6bcef63806:frontend/.env.production:generic-api-key:16
 a4ed05a58f0a2b7efebf0cb9261bcead7cb5d5ad:backend/tests/test_byok.py:generic-api-key:49
+# The TypeScript port carries the same test fixture key and the byok self-check token, which are
+# Python-written test data, not credentials.
+9998017890e99c584b643c3736b8cda02ec9d508:backend-ts/src/byok.ts:generic-api-key:262
+e4ac309318a2e0ecee218033f38fed393ca0d1db:backend-ts/tests/test_byok.test.ts:generic-api-key:38
