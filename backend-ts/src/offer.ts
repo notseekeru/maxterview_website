@@ -47,7 +47,7 @@ export const LADDER: readonly Rung[] = [
 
 // Python's round() breaks a tie to even and Math.round() breaks it up: on a band boundary (1250/500 = 2.5)
 // the two differ by a full step, which is a wrong offer.
-function roundHalfEven(value: number): number {
+export function roundHalfEven(value: number): number {
     const floor = Math.floor(value);
     const rest = value - floor;
     if (rest > 0.5) return floor + 1;

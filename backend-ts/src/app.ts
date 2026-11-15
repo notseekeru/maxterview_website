@@ -22,13 +22,37 @@ const ClientError = z.object({
 
 export const app = new Hono().basePath("/api");
 
+// Starlette's router, not the handler, answers a known path with the wrong verb: 405 plus every
+// declared method in Allow. Hono has no such path, so the registered routes are matched by hand.
+function allowedMethods(path: string): string[] {
+    const actual = path.split("/");
+    const methods = new Set<string>();
+    for (const route of app.routes) {
+        if (route.method === "ALL") continue;
+        const declared = route.path.split("/");
+        if (declared.length !== actual.length || !declared.every((part, index) => part.startsWith(":") || part === actual[index])) continue;
+        methods.add(route.method);
+    }
+    if (methods.has("GET")) methods.add("HEAD");
+    return [...methods].sort();
+}
+
 app.use("*", requestContext);
 if (config.corsAllowOrigins.length > 0) {
+    // Hono's preflight is a bare 204; the browser sees the status, and Starlette's is 200 "OK".
+    app.use("*", async (c, next) => {
+        await next();
+        if (c.req.method === "OPTIONS" && c.res.status === 204) c.res = new Response("OK", { status: 200, headers: c.res.headers });
+    });
     app.use("*", cors({ origin: config.corsAllowOrigins, credentials: true, allowMethods: ["*"], allowHeaders: ["*"] }));
 }
 app.use("*", rateLimit);
 
-app.notFound((c) => c.json({ detail: "Not Found" }, 404));
+app.notFound((c) => {
+    const allow = allowedMethods(c.req.path);
+    if (allow.length === 0) return c.json({ detail: "Not Found" }, 404);
+    return c.json({ detail: "Method Not Allowed" }, 405, { Allow: allow.join(", ") });
+});
 
 app.onError((err, c) => {
     if (err instanceof HttpError) {

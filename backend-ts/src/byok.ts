@@ -74,8 +74,9 @@ export function enabled(): boolean {
 }
 
 // `not is_global`, not `is_private`: 100.64/10 (CGNAT) is private to no one and global to nobody,
-// and that is where this deployment's own model lives. Anything not routable from the public
-// internet is refused, so a range added here only ever tightens the boundary.
+// and that is where this deployment's own model lives. The tables are CPython 3.13's
+// ipaddress _private_networks plus _public_network, copied verbatim so a base_url check refuses
+// exactly the hosts byok.py refuses; multicast and 192.88.99/24 are global there and so here.
 const SPECIAL = new BlockList();
 for (const [network, prefix] of [
     ["0.0.0.0", 8],
@@ -85,14 +86,14 @@ for (const [network, prefix] of [
     ["169.254.0.0", 16],
     ["172.16.0.0", 12],
     ["192.0.0.0", 24],
+    ["192.0.0.170", 31],
     ["192.0.2.0", 24],
-    ["192.88.99.0", 24],
     ["192.168.0.0", 16],
     ["198.18.0.0", 15],
     ["198.51.100.0", 24],
     ["203.0.113.0", 24],
-    ["224.0.0.0", 4],
     ["240.0.0.0", 4],
+    ["255.255.255.255", 32],
 ] as const) {
     SPECIAL.addSubnet(network, prefix, "ipv4");
 }
@@ -104,9 +105,9 @@ for (const [network, prefix] of [
     ["2001::", 23],
     ["2001:db8::", 32],
     ["2002::", 16],
+    ["3fff::", 20],
     ["fc00::", 7],
     ["fe80::", 10],
-    ["ff00::", 8],
 ] as const) {
     SPECIAL.addSubnet(network, prefix, "ipv6");
 }
@@ -128,6 +129,8 @@ function offnet(host: string): boolean {
     if (family === 0) return false;
     return SPECIAL.check(ip, family === 4 ? "ipv4" : "ipv6");
 }
+
+if (!offnet("100.64.0.1") || offnet("192.88.99.1") || offnet("ff02::1") || !offnet("3fff::1") || !offnet("::ffff:127.0.0.1")) throw new Error("byok address classifier is broken");
 
 // An unresolvable name is not refused: the call fails at use time anyway, and a save must not hinge
 // on this deployment's resolver being up. A timeout lands here too, as OSError did in byok.py.

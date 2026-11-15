@@ -4,6 +4,7 @@ import { DIMENSION_AXES, FEEDBACK_DIMS } from "./dimensions.ts";
 import { label, type Level } from "./levels.ts";
 import { log } from "./logs.ts";
 import { DECISIONS, Dials, type ChatMessage, type Decision, type FeedbackSummary, type Move, type ResumeReview } from "./models.ts";
+import { roundHalfEven } from "./offer.ts";
 import { FAIL_CLASSES, MOVE_CLASSES, STUB_MOVE_CYCLE, STUB_MOVE_NOTES, type MoveClass } from "./rating.ts";
 import { CALLS, LINE_CALLS, LINE_MAX, MAX_LINES, MAX_REWRITES, MAX_SECTIONS, NAME_MAX, RUNGS, SECTION_CALLS, VERDICT_MAX, claim, rung, slug, staircase, type Call, type LineCall, type SectionCall } from "./review.ts";
 import { record, startSpan } from "./telemetry.ts";
@@ -74,7 +75,8 @@ async function post(config: LLMConfig, body: unknown, timeoutMs = TIMEOUT_MS): P
 export function providerHost(config: LLMConfig): string {
     if (config.base_url === "") return "unset base URL";
     try {
-        return new URL(config.base_url).host || config.base_url;
+        // httpx's URL().host drops the port and the IPv6 brackets; WHATWG's .host keeps the port.
+        return new URL(config.base_url).hostname.replace(/^\[(.*)\]$/, "$1") || config.base_url;
     } catch {
         return config.base_url;
     }
@@ -90,6 +92,13 @@ function transportName(error: unknown): string | null {
 
 function errorName(error: unknown): string {
     return error instanceof Error ? error.name : typeof error;
+}
+
+// Python logged the class json.loads and the dict lookup raised; Node raises SyntaxError and TypeError there.
+function failureReason(error: unknown): string {
+    if (error instanceof SyntaxError) return "JSONDecodeError";
+    if (error instanceof TypeError && transportName(error) === null) return "KeyError";
+    return errorName(error);
 }
 
 export function unreachableDetail(error: unknown, config: LLMConfig): string | null {
@@ -443,6 +452,13 @@ const BANDS_PROSE = RUNGS.map((level) => `- ${label(level).toLowerCase()}: ${REV
 
 // Shape only: every string here is an instruction the model cannot mistake for an answer, because an example
 // written in prose gets copied, and a copied example carries facts the page never stated.
+// json.dumps separates with ", " and ": "; the prompt bytes are the contract.
+function dumps(value: unknown): string {
+    if (Array.isArray(value)) return `[${value.map((item) => dumps(item)).join(", ")}]`;
+    if (isRecord(value)) return `{${Object.entries(value).map(([key, item]) => `${JSON.stringify(key)}: ${dumps(item)}`).join(", ")}}`;
+    return JSON.stringify(value) ?? "null";
+}
+
 const REVIEW_EXAMPLE_CALLS: readonly Call[] = ["passes", "passes", "passes", "close", "fails", "fails"];
 export const REVIEW_EXAMPLE = {
     verdict: "2-3 sentences: the band the page reads at and the gap that keeps it there.",
@@ -490,7 +506,7 @@ Then \`verdict\`, 2-3 sentences to the candidate in second person: the band the 
 
 Every line names something on THIS page. Advice that would fit any resume ("be more specific", "add metrics") is a failed line: say which line, and what to put in its place. Plain prose, no markdown, no lists inside a field, no em dashes.
 Return a JSON object ONLY, exactly matching this shape:
-${JSON.stringify(REVIEW_EXAMPLE)}`;
+${dumps(REVIEW_EXAMPLE)}`;
 
 export const REVIEW_JSON_SCHEMA = {
     type: "object",
@@ -796,7 +812,7 @@ export const EXAMPLE_SCORES: Record<string, number | null> = {
 };
 
 export const FEEDBACK_PROMPT_V1 = `Convert the interview grader notes in your user message into a JSON object ONLY, exactly matching this shape:
-${JSON.stringify({ scores: EXAMPLE_SCORES, decision: "lean_hire", certainty: 55, verdict: "Overall assessment in 2-3 sentences.", tips: ["tip one", "tip two"] })}
+${dumps({ scores: EXAMPLE_SCORES, decision: "lean_hire", certainty: 55, verdict: "Overall assessment in 2-3 sentences.", tips: ["tip one", "tip two"] })}
 Rules: scores is an object with exactly these keys - ${FEEDBACK_DIMS.join(", ")} - and each value is an integer 1-10 or null
 (1 is the FLOOR and means nothing usable was said; never emit 0 or any value outside 1-10, even when the notes say the candidate
 failed). null means the notes gave you no evidence for that dimension: copy the grader's not-assessed dims through as null, never
@@ -923,10 +939,17 @@ function shape(value: unknown): string {
             .map((key) => `${key}=${shape(value[key])}`)
             .join(",")}}`;
     }
-    if (typeof value === "number") return String(value);
+    if (typeof value === "number") return Number.isInteger(value) ? `${value}.0` : String(value);
     if (typeof value === "string" || Array.isArray(value)) return `${Array.isArray(value) ? "list" : "str"}[${value.length}]`;
     if (value === null || value === undefined) return "NoneType";
-    return typeof value;
+    return typeof value === "boolean" ? "bool" : typeof value;
+}
+
+// Python's bool(): an empty list or object is false there and true here.
+function truthy(value: unknown): boolean {
+    if (Array.isArray(value)) return value.length > 0;
+    if (isRecord(value)) return Object.keys(value).length > 0;
+    return Boolean(value);
 }
 
 function deterministicSummary(): FeedbackSummary {
@@ -989,7 +1012,7 @@ export function coerceCertainty(value: unknown): number | null {
     if (typeof number !== "number" || !Number.isFinite(number)) return null;
     // 0.85 is a probability, not a certainty of one percent.
     if (number > 0 && number <= 1 && !Number.isInteger(number)) number *= 100;
-    return Math.trunc(Math.min(100, Math.max(0, Math.round(number))));
+    return Math.trunc(Math.min(100, Math.max(0, roundHalfEven(number))));
 }
 
 function coerceScore(value: unknown): number | null {
@@ -1105,7 +1128,7 @@ async function completionCall(system: string, userText: string, options: Complet
             content = parsed.choices[0].message.content;
             break;
         } catch (error) {
-            log.warning("llm.feedback.transport_error", { reason: errorName(error), provider: providerHost(config) });
+            log.warning("llm.feedback.transport_error", { reason: failureReason(error), provider: providerHost(config) });
             return null;
         }
     }
@@ -1170,7 +1193,7 @@ async function requestFormat(notes: string, config: LLMConfig, failure: [number,
         const verdict = typeof object.verdict === "string" ? object.verdict : "";
         const scores = validScores(object.scores);
         if (scores === null) {
-            log.warning("llm.feedback.schema_mismatch", { field: "scores", has_verdict: verdict !== "", shape: shape(object.scores) });
+            log.warning("llm.feedback.schema_mismatch", { field: "scores", has_verdict: truthy(object.verdict), shape: shape(object.scores) });
             continue;
         }
         if (verdict.trim() === "") {

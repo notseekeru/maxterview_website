@@ -174,8 +174,7 @@ export async function generateAndPersistFeedback(interviewId: string, user: Cler
     return await attemptFeedback(interviewId, await resolveConfig(user));
 }
 
-export async function autoGenerateAndPersistFeedback(interviewId: string, user: ClerkUser): Promise<void> {
-    const config = await resolveConfig(user);
+export async function autoGenerateAndPersistFeedback(interviewId: string, config: LLMConfig): Promise<void> {
     for (let attempt = 0; attempt < COMPLETE_MAX_FEEDBACK_ATTEMPTS; attempt += 1) {
         if ((await attemptFeedback(interviewId, config)) !== null) return;
         if (attempt < COMPLETE_MAX_FEEDBACK_ATTEMPTS - 1) await sleep(COMPLETE_FEEDBACK_BACKOFF_MS);

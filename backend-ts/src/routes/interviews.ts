@@ -3,9 +3,10 @@ import type { Context } from "hono";
 import type { Row } from "postgres";
 import { z } from "zod";
 import { getCurrentUser } from "../auth.ts";
+import { resolveConfig } from "../byok.ts";
 import { fetch, fetchrow, getPool } from "../db.ts";
 import { DIAL_FIELDS, planPhases } from "../dials.ts";
-import { HttpError, validationError } from "../errors.ts";
+import { HttpError, jsonBody as jsonBodyText, validationError } from "../errors.ts";
 import { autoGenerateAndPersistFeedback } from "../feedback.ts";
 import { Interview, InterviewCreate } from "../models.ts";
 import { grade } from "../rating.ts";
@@ -82,11 +83,7 @@ const ListQuery = z.object({
 });
 
 async function jsonBody(c: Context): Promise<unknown> {
-    try {
-        return await c.req.json();
-    } catch {
-        throw new HttpError(422, [{ loc: ["body", 0], msg: "JSON decode error" }]);
-    }
+    return jsonBodyText(await c.req.text());
 }
 
 async function setArchived(interviewId: string, ownerId: string, archived: boolean): Promise<Row> {
@@ -172,9 +169,10 @@ interviews.post("/interviews/:interview_id/start", async (c) => {
 interviews.post("/interviews/:interview_id/finish", async (c) => {
     const user = await getCurrentUser(c);
     const interviewId = c.req.param("interview_id");
+    const llmConfig = await resolveConfig(user);
     const row = await fetchrow(unsafe(FINISH, interviewId, user.sub));
     if (row === undefined) throw await finishError(interviewId, user.sub);
     const interview = toInterview(row);
-    await autoGenerateAndPersistFeedback(interviewId, user);
+    await autoGenerateAndPersistFeedback(interviewId, llmConfig);
     return c.json(interview);
 });

@@ -4,7 +4,7 @@ import { getCurrentUser } from "../auth.ts";
 import { fetchrow, sql } from "../db.ts";
 import { COMPANY_SIZES, CYNICISM, DIAL_FIELDS } from "../dials.ts";
 import { config } from "../env.ts";
-import { HttpError, validationError } from "../errors.ts";
+import { HttpError, jsonBody as jsonBodyText, validationError } from "../errors.ts";
 import { LEVELS, label as levelLabel } from "../levels.ts";
 import {
     HIRING_DECISIONS,
@@ -35,7 +35,7 @@ voice.get("/voice", async (c) => {
 
 voice.post("/voice/tts", async (c) => {
     await getCurrentUser(c);
-    const body = VoiceText.safeParse(await c.req.json().catch(() => undefined));
+    const body = VoiceText.safeParse(jsonBodyText(await c.req.text()));
     if (!body.success) throw validationError(body.error);
     try {
         const speech = await speak(body.data.text);

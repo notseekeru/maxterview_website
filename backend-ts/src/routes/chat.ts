@@ -5,7 +5,7 @@ import { redoLimit, resolveTier } from "../billing.ts";
 import { resolveConfig } from "../byok.ts";
 import { chatConfig, spendAndStoreTurn, spendChatTurnOrFail } from "../chatconfig.ts";
 import { fetch, fetchrow, sql } from "../db.ts";
-import { HttpError, validationError } from "../errors.ts";
+import { HttpError, jsonBody as jsonBodyText, validationError } from "../errors.ts";
 import { feedbackCols, feedbackPayload, feedbackRow, generateAndPersistFeedback, syncOffer, upsertFeedback } from "../feedback.ts";
 import { type LLMConfig, closingLine, failShout, isClosingTurn, isInterviewFinished, judgeAnswer, providerHost, streamChat, systemPrompt, unreachableDetail } from "../llm.ts";
 import { log } from "../logs.ts";
@@ -168,7 +168,7 @@ chat.get("/interviews/:interview_id/feedback", async (c) => {
 chat.post("/interviews/:interview_id/feedback", async (c) => {
     const user = await getCurrentUser(c);
     const interviewId = c.req.param("interview_id");
-    const parsed = FeedbackCreate.safeParse(await c.req.json().catch(() => undefined));
+    const parsed = FeedbackCreate.safeParse(jsonBodyText(await c.req.text()));
     if (!parsed.success) throw validationError(parsed.error, "body");
     const owned = await fetchrow(sql`SELECT 1 FROM interviews WHERE id = ${interviewId} AND owner_id = ${user.sub}`);
     if (owned === undefined) throw new HttpError(404, "Interview not found");
@@ -232,7 +232,7 @@ chat.post("/interviews/:interview_id/chat/opening", async (c) => {
 chat.post("/interviews/:interview_id/chat/send", async (c) => {
     const user = await getCurrentUser(c);
     const interviewId = c.req.param("interview_id");
-    const parsed = ChatTurn.safeParse(await c.req.json().catch(() => undefined));
+    const parsed = ChatTurn.safeParse(jsonBodyText(await c.req.text()));
     if (!parsed.success) throw validationError(parsed.error, "body");
     const body = parsed.data;
     const session = await chatSession(interviewId, user.sub);

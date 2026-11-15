@@ -5,18 +5,18 @@ import { gauge, record } from "./telemetry.ts";
 
 if (config.databaseUrl === "") throw new Error("DATABASE_URL is required");
 
-// asyncpg hands a timestamptz back as a UTC datetime and FastAPI writes it as 2024-01-01T12:00:00+00:00.
+// asyncpg hands a timestamptz back as a UTC datetime and pydantic writes it as 2024-01-01T12:00:00.123456Z.
 // The wire format is frozen, and Date only carries milliseconds, so the text is reshaped instead of parsed.
-// A timestamp (1114) arrives without an offset from a session in another zone; it is given a +00:00 the
+// A timestamp (1114) arrives without an offset from a session in another zone; it is given a Z the
 // same way rather than left naive.
 function isoMoment(value: string): string {
     const match = /^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2}(?:\.\d+)?)([+-]\d{2}(?::\d{2}(?::\d{2})?)?)?$/.exec(value);
     if (match === null) return value;
     const [, day, time, offset] = match;
-    if (offset === undefined || offset === "+00" || offset === "-00") return `${day}T${time}+00:00`;
+    if (offset === undefined || offset === "+00" || offset === "-00") return `${day}T${time}Z`;
     // AI HERE: only a session outside UTC reaches Date, and then the sub-millisecond digits are lost.
     // Upgrade path: pin TimeZone=UTC in `connection` once no query depends on the session's zone.
-    return new Date(`${day}T${time}${offset}`).toISOString().replace("Z", "+00:00");
+    return new Date(`${day}T${time}${offset}`).toISOString();
 }
 
 const TYPES: Record<string, PostgresType<string>> = {

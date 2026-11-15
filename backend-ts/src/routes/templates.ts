@@ -1,7 +1,7 @@
 import { Hono, type Context } from "hono";
 import { getCurrentUser } from "../auth.ts";
 import { fetch, fetchrow, sql } from "../db.ts";
-import { HttpError, validationError } from "../errors.ts";
+import { HttpError, jsonBody as jsonBodyText, validationError } from "../errors.ts";
 import { TemplateCreate } from "../models.ts";
 
 export const templates = new Hono();
@@ -39,7 +39,7 @@ function seedDefaults(ownerId: string) {
 }
 
 async function templateBody(c: Context): Promise<TemplateCreate> {
-    const parsed = TemplateCreate.safeParse(await c.req.json().catch(() => undefined));
+    const parsed = TemplateCreate.safeParse(jsonBodyText(await c.req.text()));
     if (!parsed.success) throw validationError(parsed.error, "body");
     return parsed.data;
 }

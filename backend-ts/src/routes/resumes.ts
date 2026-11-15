@@ -5,7 +5,7 @@ import { type Tier, resolveTier, resumeLimit } from "../billing.ts";
 import { chatConfig, spendChatTurnOrFail } from "../chatconfig.ts";
 import { fetch, fetchrow, sql } from "../db.ts";
 import { config } from "../env.ts";
-import { HttpError, validationError } from "../errors.ts";
+import { HttpError, jsonBody as jsonBodyText, validationError } from "../errors.ts";
 import * as latex from "../latex.ts";
 import { type ReviewDraft, isStub, reviewResume, rewriteLine } from "../llm.ts";
 import { LatexSource, Resume, ResumeCreate, ResumeExtract, ResumeReview, ResumeSummary, ReviewRewriteRequest } from "../models.ts";
@@ -21,12 +21,7 @@ function resumeNotFound(): HttpError {
 }
 
 async function jsonBody(c: Context): Promise<unknown> {
-    try {
-        return await c.req.json();
-    } catch {
-        // FastAPI answers an undecodable body with 422 before it looks at a single field.
-        throw new HttpError(422, [{ loc: ["body"], msg: "JSON decode error" }]);
-    }
+    return jsonBodyText(await c.req.text());
 }
 
 function resumeName(raw: string | null, fallback = "Untitled resume"): string {
