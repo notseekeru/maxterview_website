@@ -329,7 +329,12 @@ async function runLegs(): Promise<void> {
         const intent = await sql`SELECT provider_subscription_id FROM subscriptions WHERE owner_id = ${payer}`;
         const intentId = String(intent[0]?.provider_subscription_id ?? "");
         assert.ok(intentId !== "", "the checkout stored no payment intent id");
-        const event = { data: { attributes: { type: "payment.paid", data: { id: `pay_smoke_${randomUUID()}`, type: "payment", attributes: { payment_intent_id: intentId, status: "paid" } } } } };
+        const [before] = await sql`SELECT plan, status, current_period_end FROM subscriptions WHERE owner_id = ${payer}`;
+        assert.equal(before?.status, "incomplete", `the checkout left status ${String(before?.status)}`);
+        assert.equal(before?.plan, "premium", `the checkout left plan ${String(before?.plan)}`);
+        assert.equal(before?.current_period_end, null, `the checkout already wrote a period end ${String(before?.current_period_end)}`);
+        const payment = { id: `pay_smoke_${randomUUID()}`, type: "payment", attributes: { payment_intent_id: intentId, status: "paid" } };
+        const event = { data: { id: `evt_smoke_${randomUUID()}`, type: "event", attributes: { type: "payment.paid", livemode: false, created_at: Math.floor(Date.now() / 1000), data: payment } } };
         const raw = JSON.stringify(event);
         const stamp = String(Math.floor(Date.now() / 1000));
         const signature = createHmac("sha256", webhookSecret).update(`${stamp}.`).update(raw).digest("hex");
@@ -337,7 +342,11 @@ async function runLegs(): Promise<void> {
         assert.equal(deliveredReply.status, 200, `POST /billing/webhook answered ${deliveredReply.status}: ${deliveredReply.text.slice(0, 200)}`);
         const entitled = await sql`SELECT current_period_end FROM subscriptions WHERE owner_id = ${payer} AND plan = 'premium' AND status = ANY(ARRAY['active', 'cancelled']) AND current_period_end > now()`;
         assert.equal(entitled.length, 1, "the signed webhook did not flip the entitlement");
-        return { status: "PASS", detail: "checkout created, signed webhook credited the period" };
+        const [after] = await sql`SELECT plan, status, current_period_end, provider_subscription_id FROM subscriptions WHERE owner_id = ${payer}`;
+        assert.equal(after?.status, "active", `status after the webhook is ${String(after?.status)}`);
+        assert.equal(after?.plan, "premium", `plan after the webhook is ${String(after?.plan)}`);
+        assert.equal(String(after?.provider_subscription_id), intentId, "the credited row is not the intent the checkout stored");
+        return { status: "PASS", detail: `${String(before?.plan)}/${String(before?.status)}/no period -> ${String(after?.plan)}/${String(after?.status)}, until ${new Date(after?.current_period_end as Date).toISOString().slice(0, 10)}` };
     });
 }
 
