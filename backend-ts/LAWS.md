@@ -6,8 +6,8 @@
 
 3. **Raw SQL stays raw.** `postgres.js` tagged templates, no ORM, no query builder.
 
-4. **Migration filenames and bodies stay byte-identical** to `backend/migrations/0022_*.sql`. The runner reads yoyo's existing `_yoyo_migration` history table.
+4. **Migration filenames and bodies stay byte-identical** to the ported tree's `migrations/0022_*.sql`. The runner reads yoyo's existing `_yoyo_migration` history table.
 
 5. **`latex.ts` spawns through `sh -c 'ulimit -v ...; ulimit -t ...; exec pdflatex ...'`.** Plain spawn is forbidden: Node has no `setrlimit` and the memory ceiling is the sandbox boundary.
 
-6. **Config is read through `src/env.ts`** as a mutable object with a `reconfigure()` hook, never as frozen module constants. `backend/tests/test_api.py` swaps `APP_ENV` at runtime and that test must port.
+6. **Config is read through `src/env.ts`** as a mutable object with a `reconfigure()` hook, never as frozen module constants. `tests/scaffold.test.ts` swaps `APP_ENV` at runtime through that hook.

@@ -8,7 +8,7 @@
 #   --drop-customer --id=cus_x                                       delete a customer (--admin-destroy)
 #
 # Reads (never prints): PAYMONGO_SECRET_KEY. Live keys are refused. Amounts are in CENTAVOS
-# (9900 = ₱99). Plan ids belong in backend/.env as PAYMONGO_PLAN_ID.
+# (9900 = ₱99). Plan ids belong in backend-ts/.env as PAYMONGO_PLAN_ID.
 set -euo pipefail
 _ENGINE_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=/dev/null
@@ -61,7 +61,7 @@ case "$MODE" in
   create-plan)
     echo "== creating plan ₱$((AMOUNT / 100))/$INTERVAL ($AMOUNT centavos) =="
     _post /v1/subscriptions/plans "$(printf '{"data":{"attributes":{"name":"%s","amount":%s,"currency":"PHP","interval":"%s","interval_count":1}}}' "$PLAN_NAME" "$AMOUNT" "$INTERVAL")" | _pick
-    echo "  put the plan id in backend/.env as PAYMONGO_PLAN_ID"
+    echo "  put the plan id in backend-ts/.env as PAYMONGO_PLAN_ID"
     ;;
   list-plans)
     echo "== plans =="

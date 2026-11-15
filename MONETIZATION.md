@@ -25,7 +25,7 @@ Decisions: PLAN D10 (owner-scoping is a hard rule).
 - Review redos are **per RUN, not per day** (`feedback.redos`): the allowance belongs to the run it
   rewrites. `POST /interviews/{id}/feedback/generate` charges one **only when it produced a review**, so
   a model outage never spends it, and the first review (`/finish`) is never a redo.
-- Limits are env-overridable (`backend/.env.example`). The **`dev` tier** is for developers only and
+- Limits are env-overridable (`backend-ts/.env.example`). The **`dev` tier** is for developers only and
   never persists in `subscriptions`; it is what the no-Clerk fallback identity resolves to.
 - **One free→premium factor across every metered cap** (turns, resumes, redos). The Pro card on
   `/settings/billing` quotes that factor (`BillingPage`), so a retune that moves one cap alone makes it

@@ -3,7 +3,7 @@ name: repo-operator
 description: >-
   Top-level "infra-hands" skill for the maxterview monorepo. When the user (or an agent) needs to
   operate or debug the running app and its auth/billing infra, load this FIRST. It gives one command
-  surface to bring up and down the dev stack, read frontend/backend logs, reconcile the backend/.env
+  surface to bring up and down the dev stack, read frontend/backend logs, reconcile the backend-ts/.env
   Clerk/PayMongo config (flagging exactly which secret is missing with the single paste step), query
   the database, drive the real test-mode Clerk and PayMongo accounts, run a browser walkthrough, and
   see the repo at a glance. Binds to (does not duplicate) ./.pi/skills/paymongo-operator,
@@ -12,7 +12,7 @@ description: >-
 
 # maxterview repo operator (infra-hands)
 
-You are operating a real app: FastAPI backend + React (Vite) frontend + Postgres, with **Clerk**
+You are operating a real app: Hono on Node backend + React (Vite) frontend + Postgres, with **Clerk**
 auth and **PayMongo** billing. This is the whole-console playbook an AI loads to act — not to
 narrate. Everything here is real infra you can actually reach from this repo, the cluster included
 via one SSH hop that asks first; see below.
@@ -20,12 +20,12 @@ via one SSH hop that asks first; see below.
 ## Key facts (from the repo)
 
 - **Stack (docker compose, root):**
-  - services: `backend` (FastAPI/uvicorn), `frontend` (Vite dev), `postgres`, plus `tools`. Profiles
+  - services: `backend` (Hono on Node, `tsx watch`), `frontend` (Vite dev), `postgres`, plus `tools`. Profiles
     via `compose.yml` + `compose.dev.yml`/`compose.prod.yml`. Project name `maxterview-dev`.
-  - Makefile conveniences: `make up`, `down`, `logs`, `psql`, `shell`, `exec`, `migrate`, `test-llm`.
+  - Makefile conveniences: `make up`, `down`, `logs`, `psql`, `shell`, `exec`, `migrate`.
   - Host ports: backend `8000`, frontend `5173`, postgres `5432`.
 - Config lives in three git-ignored `.env` files, one per consumer: root (POSTGRES*\*, ports, APP_ENV,
-  plus the two MCP tokens `.envrc` exports to the shell), `backend/.env` (runtime config),
+  plus the two MCP tokens `.envrc` exports to the shell), `backend-ts/.env` (runtime config),
   `frontend/.env` (`VITE*\*`). `make env-sync-dev`fills the credential lines in the first two from
 Infisical's dev env at`/consumers/maxterview`, inside a marked block at the end of each file; it is
   the only target that needs the network.
@@ -162,7 +162,7 @@ Do NOT cat secrets or print secret values. Determine _presence_ only. The operat
 
 It reports, for each Clerk/PayMongo/optional var, set / missing / present-but-live — and prints WITH
 placeholders only the paste template for what's actually missing. It never reveals a value. The
-human keeps every secret sealed; you only ever say "please add `X` to `backend/.env`" if a step
+human keeps every secret sealed; you only ever say "please add `X` to `backend-ts/.env`" if a step
 truly needs one and it isn't set.
 
 Remember the two runtime modes:
@@ -179,7 +179,7 @@ Use child skill `paymongo-operator` for real account operations, not hand-rolled
 it refuses `*_live_*`, and anything destructive requires `--admin-destroy`. Representative calls:
 
 ```bash
-# config health + list the fields you need human paste into backend/.env:
+# config health + list the fields you need human paste into backend-ts/.env:
 ./.pi/skills/paymongo-operator/scripts/need-keys.sh
 # mint a throwaway test user + session/testing-token (idempotent-ish; prints user-id):
 ./.pi/skills/paymongo-operator/scripts/clerk-mint.sh --email=qa@example.com
@@ -214,7 +214,7 @@ Never hand-roll a brand-new browser harness: the MCP server and the clerk skill 
 2. If something fails, reproduce smallest: it may not need Clerk at all → use DEV_USER + `make logs`
    - the exact failing request.
 3. Once you see the failing API response/log line, either fix config/env (point the human at the
-   one line to add, or set in backend/.env if it's a non-secret like APP_ENV) or adjust the code,
+   one line to add, or set in backend-ts/.env if it's a non-secret like APP_ENV) or adjust the code,
    then re-verify via the same request/log path.
 4. Only pull in the paymongo-operator skill when the failure truly crosses into account state (e.g.
    webhook signature, tier not flipping, checkout 503, missing plan) — do not touch real accounts
@@ -230,8 +230,8 @@ is down, run `make up` first (containers: `maxterview_frontend_dev`, `maxterview
 
 ```bash
 make up        # ensure the backend + frontend dev containers exist
-make lint      # biome write (frontend) + ruff fix (backend) — auto-fix, then re-inspect diff
-make exec      # full gate: frontend npm ci + biome + typecheck + build; backend sync + ruff + pytest
+make lint      # biome write (frontend) + biome fix (backend) — auto-fix, then re-inspect diff
+make exec      # full gate: frontend npm ci + biome + typecheck + build; backend npm ci + biome + typecheck + build + vitest
 ```
 
 - `make exec` is the closest single command to the repo's local pre-merge gate (mirrors what

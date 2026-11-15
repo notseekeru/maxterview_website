@@ -2,7 +2,7 @@
 
 **Shipped 2026-09-13.** An owner can point their interviews at their own OpenAI-compatible provider
 (OpenAI, DeepSeek, OpenRouter, a self-hosted vLLM…) instead of the deployment's `LLM_*`.
-UI: **`/settings/system`** → "Interview engine (BYOK)". Code: `backend/src/app/byok.py`
+UI: **`/settings/system`** → "Interview engine (BYOK)". Code: `backend-ts/src/byok.ts`
 (policy/storage), `llm.LLMConfig` (transport), `frontend/src/components/LLMProviderCard.tsx`.
 
 Customization is deliberately three fields — **base URL + model + API key** (the key is optional;
@@ -12,9 +12,9 @@ formatter (`llm.grader_config` derives from it), so the two stages of scoring ca
 ## Enable it (one secret)
 
 ```bash
-# backend/.env (dev) or Infisical env prod -> k8s Secret maxterview-secrets (deployed)
-BYOK_ENCRYPTION_KEY=$(docker exec -t maxterview_backend_dev uv run python -c \
-  "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())")
+# backend-ts/.env (dev) or Infisical env prod -> k8s Secret maxterview-secrets (deployed)
+BYOK_ENCRYPTION_KEY=$(docker exec -t maxterview_backend_dev node -e \
+  "console.log(require('node:crypto').randomBytes(32).toString('base64url'))")
 ```
 
 Unset → BYOK is **off**: `GET /settings/llm` reports `enabled: false`, writes answer `503`, and the
