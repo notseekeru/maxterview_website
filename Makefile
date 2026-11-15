@@ -11,31 +11,19 @@ exec:
 	docker exec -t $(FRONTEND_DEV) sh -c "npm ci && npx biome check . && npm run typecheck && npx vite build --outDir /tmp/dist --emptyOutDir && (npm audit --audit-level=moderate || true)"
 
 	@echo "**---------Checking Backend...-----------**"
-	docker exec -t $(BACKEND_DEV) sh -c "uv sync --frozen && uv run ruff check src tests && uv run ruff format --check src tests && uv run pytest -q"
+	docker exec -t $(BACKEND_DEV) sh -c "npm ci && npx biome check . && npm run typecheck && npm run build && npx vitest run"
 
 lint:
 	docker exec -t $(FRONTEND_DEV) sh -c "npx biome check . --write --unsafe"
-	docker exec -t $(BACKEND_DEV) sh -c "uv run ruff check src tests --fix"
-	docker exec -t $(BACKEND_DEV) sh -c "uv run ruff format src tests"
+	docker exec -t $(BACKEND_DEV) sh -c "npm run lint"
 
-seed: ## Artificial dev-user history for the dashboard/history/analytics pages. See scripts/seed-dev-data.py.
-	@nix shell nixpkgs#python3 --command python3 scripts/seed-dev-data.py
-
-seed-wipe: ## Same, replacing this owner's existing rows.
-	@nix shell nixpkgs#python3 --command python3 scripts/seed-dev-data.py --wipe
-
-test-llm: ## End-to-end LLM smoke test (needs live model + running stack). See scripts/llm-smoke.py.
-	@nix shell nixpkgs#python3 --command python3 -u scripts/llm-smoke.py
-probe-llm: ## Measure the LLM_* target: rate-limit cliff, prompt caching, stage latency. See scripts/llm-probe.py.
-	@set -a; . ./backend/.env; set +a; nix shell nixpkgs#python3 --command python3 -u scripts/llm-probe.py
-env-sync-dev: ## Pull the credential lines into .env and backend/.env from Infisical dev, then sync-check both against their templates. The only target that needs the network.
+env-sync-dev: ## Pull the credential lines into .env and backend-ts/.env from Infisical dev, then sync-check both against their templates. The only target that needs the network.
 	@scripts/env-sync-dev.sh
 # DEV
 check-ports:
 	@scripts/port-claimer.sh --self $(DEV_PROJECT) $(PORTS)
 
 up: check-ports
-	@mkdir -p backend/.venv # docker creates this mount point root-owned inside the bind mount
 	$(DEV_CMD) up -d
 build:
 	$(DEV_CMD) build
@@ -55,12 +43,13 @@ psql:
 	$(DEV_CMD) run --rm psql
 
 migrate:
-	docker exec -t $(BACKEND_DEV) bash -c 'uv run yoyo apply --no-config-file --batch --database "$$DATABASE_URL" /app/migrations'
+	docker exec -t $(BACKEND_DEV) npx tsx scripts/migrate.ts apply
 rollback:
-	docker exec -t $(BACKEND_DEV) bash -c 'uv run yoyo rollback --no-config-file --batch --database "$$DATABASE_URL" /app/migrations'
+	docker exec -t $(BACKEND_DEV) npx tsx scripts/migrate.ts rollback
 new-migration:
 	@test -n "$(name)" || (echo "usage: make new-migration name=<name>" && exit 1)
-	touch backend/migrations/$$(date +%s)_$(name).sql
+	@n=$$(ls backend-ts/migrations/*.sql | sed -n 's#.*/\([0-9]\{4\}\)_.*#\1#p' | sort -n | tail -1); \
+		touch backend-ts/migrations/$$(printf '%04d' $$((10#$$n + 1)))_$(name).sql
 
 # PROD
 prod-build:
@@ -76,20 +65,15 @@ prod-down:
 
 prod-scan: prod-build
 	@echo '**--- Trivy image scan: maxterview-prod-<service> ---**'
-	for img in frontend backend; do \
-		echo "== scanning maxterview-prod-$$img =="; \
-		if [ "$$img" = backend ]; then \
-			# Scan shipped python runtime (app/.venv) too; skip build noise only. \
-			skip_dirs="root/.cache,usr/local"; \
-		else \
-			skip_dirs="root/.cache,app/.venv,usr/local"; \
-		fi; \
+	for svc in frontend backend; do \
+		ctx=$$svc; [ "$$svc" = backend ] && ctx=backend-ts; \
+		echo "== scanning maxterview-prod-$$svc =="; \
 		docker run --rm \
 			-v /var/run/docker.sock:/var/run/docker.sock \
-			-v $(CURDIR)/$$img/.trivyignore.yaml:/.trivyignore.yaml \
+			-v $(CURDIR)/$$ctx/.trivyignore.yaml:/.trivyignore.yaml \
 			aquasec/trivy:0.74.0 image \
-			--skip-dirs "$$skip_dirs" \
+			--skip-dirs "root/.cache,usr/local" \
 			--severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 \
 			--ignorefile /.trivyignore.yaml \
-			maxterview-prod-$$img; \
+			maxterview-prod-$$svc; \
 	done
