@@ -205,22 +205,6 @@ Then the ladder starts at the 100 VU level and doubles. Each level passes or fai
 
 Confirm the highest passing level by re-running it 3 times, each measured for 5 minutes, and all three must pass. Since the last recorded pass can move about 10%, so a single pass is not proof.
 
-## Decisions
-
-1. k3s only, no host run. I am keeping k8s, so host-versus-k3s had no decision attached. Rejected: the host run, which answers a question I am no longer asking.
-2. The prod pod patched, not a second Deployment. On a single node a second pod fights the prod pod for the same four cores, so its number is not prod's number. Rejected: a parallel Deployment, which measures a pod no user will hit.
-3. Prod's default branch, not a Neon branch. Every VU is one identity either way, so a branch would isolate rows and change nothing about contention, at the cost of a second compute and a Secret swap.
-4. Use Tailscale instead of Cloudflare due to BFM.
-5. `APP_ENV=test` with Clerk off, and the simulate route left open. Both side effects accepted and recorded above. Rejected: staying on production with minted Clerk tokens, which keeps JWT verification in the measured path but makes Clerk a dependency of the sweep.
-6. A full run per virtual user with a randomized turn count, plus any other endpoint a signed-in user can reach. Rejected: a fixed count, which makes every virtual user do identical work and has to be tuned to sit inside the arc.
-7. Telemetry stays on and gets recorded as cost. Rejected: turning it off, which gives a cleaner app number at the price of the deployed configuration.
-8. The model stubbed for the sweep. Rejected: real generation, where the ceiling is the provider's quota and not this one.
-9. Direct host, not the pooler. A `-pooler` DSN flips `statement_cache_size`, a different code path than prod runs.
-10. The sweep runs under its own identity, named by `DEV_USER_SUB`.
-11. Capacity sweep at a small fixed floor, and the unbounded read on its own N-sweep. N grew inside every window anyway (159 rows at 10 VUs, 415 at 100), because the cleanup runs between levels. The read never surfaced in the slow end, the 100 VU failure was attributed to pool wait without an N-sweep, and pagination shipped on code grounds. The N-sweep is still unrun.
-
-# The runs
-
 ## The first run
 
 The table below is the application before any optimisation, with the pool at 10 and the NodePort path, read from `results/sweep-*.csv`. Latency, rps and errors come from the harness; CPU, memory, pool wait, the per-route and the per-query numbers are Grafana readings over the same windows. The laptop row is docker compose against the stub; the rest are the prod pod, which is read from those latencies because the harness records no target. `max` is the measure window's max latency: k6's summary does not export p(99) for these runs, so the harness recorded the max while the gate evaluated a real p99 inside k6. The harness exports p(99) now, so every sweep after the baseline carries both.
@@ -245,18 +229,11 @@ The part that surprised me is that the machine was pretty much idle while it fai
 
 I skipped the manual smoke that time and went straight to the ladder, which turned a sixteen second check into a five minute failed level. And with that, from here on out we smoke 10 VUs first, so we catch what's wrong before the 100 VU ladder starts.
 
-At 100 VUs the pool was my watch: p50 1.17s, and 0.94s of that was wait for a connection that was not doing anything yet. That is where I got worried.
+So I dropped to 10 VUs, expecting to find something wrong with the k6 harness. It passed, so the harness was clean and the application was the problem. The 100 VU run had already finished 348 iterations with every check passing, which I did not read that way at the time. The next level up failed at 20 VUs with a max of 17.6s.
 
-So I dropped to 10 VUs, expecting to find something wrong with the k6 harness. It passed, so the harness was clean and the application was the problem. The 100 VU run
-had already finished 348 iterations with every check passing, which I did not read that way at the time. The next level up failed at 20 VUs with a max of 17.6s.
+The run also showed two things that are not latency numbers. The endpoint read every run the owner had, with no limit, and the account grew inside every window: 159 rows at 10 VUs, 241 at 20, 415 at 100. That is a code gap rather than a measured slow end and harness gap where I had VUs on a single identity(which I will also fix in bit). It is the read that costed that rises up those numbers.
 
-The run also showed two things that are not latency numbers. The endpoint read every run the owner had,
-with no limit, and the account grew inside every window: 159 rows at 10 VUs, 241 at 20, 415 at 100.
-That is a code gap rather than a measured slow end. It is the read whose cost rises up those numbers.
-
-And so I was already planning at this point what optimization could I apply to my applications.
-I wanted the numbers for the application on the day I planned this, before any of the optimization,
-so that every later state has its own data and the difference is what the optimisation is actually worth.
+And so I was already planning at this point what optimization could I apply to my applications. I wanted the numbers for the application on the day I planned this, before any of the optimization, so that every later state has its own data and the difference is what the optimisation is actually worth.
 
 ## What changed after the first runs
 
@@ -271,11 +248,6 @@ Six changes, all of them on round trips, read size or the pool rather than on th
 | Home counters      | derived in the browser from that full endpoint     | one statement over the full history              |
 | pool               | 10                                                 | 20                                               |
 
-Same workload, same target, the image with the six changes and the analytics fix, pool 20, over the
-NodePort. The smoke passed at a 239ms p95, the ladder failed at its first level, and the search put the
-boundary between 32 and 55. The `probe` row is the 32 VU re-run from the next section, not a window of
-this sweep.
-
 | Phase   | VUs | Window | p50   | p95   | p99   | max   | rps  | errors | verdict | queries/req | wait p50 | wait p95 | query mean | query p95 | CPU (of 4) | memory (of 256Mi) |
 | ------- | --- | ------ | ----- | ----- | ----- | ----- | ---- | ------ | ------- | ----------- | -------- | -------- | ---------- | --------- | ---------- | ----------------- |
 | smoke   | 10  | 10s    | 145ms | 239ms | 750ms | 769ms | 29.5 | 0      | pass    | n/r         | n/r      | n/r      | n/r        | n/r       | n/r        | n/r               |
@@ -288,16 +260,9 @@ this sweep.
 | confirm | 10  | 5m     | 161ms | 800ms | 2.86s | 19.6s | 12.8 | 0      | pass    | n/r         | n/r      | n/r      | n/r        | n/r       | n/r        | n/r               |
 | probe   | 32  | 3m     | 166ms | 558ms | 888ms | 1.75s | 50.1 | 0      | pass    | n/r         | n/r      | n/r      | n/r        | n/r       | n/r        | n/r               |
 
-Against the baseline, 100 VUs now carries 54.9 rps instead of 38.3, with p50 719ms instead of 1.17s and
-p95 1.90s instead of 3.44s. The highest level that passes moved from 10 to 32, and the first level that
-fails moved from 20 to 55. The slow end did not improve: the max at 100 VUs went from 8.54s to 27s, and the
-last 10 VU confirmation saw 19.6s.
-
 ## What is the bottleneck now
 
-The sweep above ran with the pool at 20, and at 20 the pool was the wall. Each row is read as an
-`increase` over the 3 minute measure window: mean query time times queries per second is the number of
-queries in flight, and the wait is the other half of the request.
+The sweep above ran with the pool at 20, and at 20 the pool was the wall.
 
 | Pool 20           | 32 VUs | 55 VUs | 100 VUs |
 | ----------------- | ------ | ------ | ------- |
@@ -317,13 +282,6 @@ queries in flight, and the wait is the other half of the request.
 | memory (of 256Mi) | 48%    | 48%    | 44%     |
 | queries/s         | 114    | 121    | 116     |
 | in flight         | 11.1   | 13.6   | 13.5    |
-
-At 32 VUs nothing waits on the pool, and the latency is the round trips: 2.3 queries per request at about
-100ms each. `/stats/analytics` is still the slowest app-owned route at 1.41s p95.
-
-At 55 VUs every route multiplies: analytics 1.41s to 7.75s, chat 0.7s to 5.08s. That is the pool of 20 running out, not the app work changing. At 100 VUs the wait is most of the request: 505ms of a 719ms p50, and 1.31s of a 1.90s p95. The mean query stays flat, 97 to 116ms across
-
-CPU stays near a tenth of the four cores and memory near half of 256Mi in all three windows, so neither is the ceiling.
 
 ## The pool probes
 
@@ -345,16 +303,6 @@ So I was wondering why I had 1.31s just for waiting a pool queue at p95 at 100 V
 | query p95         | 276ms   | 360ms    | 451ms   | 433ms    | 336ms         | 797ms    |
 | CPU (of 4)        | 0.40    | 0.39     | 0.54    | 0.52     | 0.59          | 0.64     |
 | memory (of 256Mi) | 50%     | 46%      | 52%     | 56%      | 64%           | 74%      |
-
-Raising the pool was the largest single move after the six changes: 40 turned 55 VUs from a failure into
-a pass and cut the wait at 100 VUs from 505ms to 209ms. At 80 the wait all but disappears at 100 VUs,
-6ms at p50 against 209ms, but the queries themselves slow down: the mean query goes from 163ms to 248ms
-and the p95 from 433ms to 797ms. The request p95 ends up worse, 1.87s against 1.64s, and memory goes from
-56% to 74% of the 256Mi limit.
-
-That is why 80 is flat at p50 and slower at p95: no one waits for a connection, but every query runs
-against a busier Neon. A request that pays two or three queries at the p95 lands near two seconds with no
-queue at all. And so I shipped 40 as my pool size.
 
 So currently 55 VUs is the SLO boundary for now but not the actual ceiling of the application or machine. This The app keeps serving past it because machines don't care about your gates it will always still serve request.
 
@@ -404,7 +352,7 @@ I also did some extra stuff like parallel request. Parallel requests are a separ
 
 I changed the measurement window to 2 minutes and the confirmation to two 5-minute runs because the sweep was taking too much of my time, and I am fine losing some of this data for the experiment. The shorter windows also spend less Neon compute, which is the other reason for the change: the full sweep is paused near the free-tier limit. That is a real trade: fewer samples make p95 and p99 noisier, two runs are weaker proof than the old 3/3. But with my usecase and constraints I opted for that tradeoff for my scale.
 
-## The request batch build at 100 VUs
+## The batched build at 100 VUs
 
 | At 100 VUs        | Pre-batching, pool 40 | Batched build | Round-trip build |
 | ----------------- | --------------------- | ------------- | ---------------- |
@@ -425,16 +373,16 @@ I changed the measurement window to 2 minutes and the confirmation to two 5-minu
 
 ### The batched build
 
-| Change      | What changed                             | Counts          | Layer                               |
-| ----------- | ---------------------------------------- | --------------- | ----------------------------------- |
-| turn credit | one atomic upsert                        | 2 -> 1          | Atomic write                        |
-| dashboard   | one statement carries both reads         | 2 requests -> 1 | Request Batching, Aggregate Queries |
-| resume page | usage read beside the resume read        | no change       | Parallel requests                   |
-| chat page   | transcript read beside the start request | no change       | Parallel requests                   |
+| Change                            | What changed                             | Counts          | Layer                               |
+| --------------------------------- | ---------------------------------------- | --------------- | ----------------------------------- |
+| `POST /interviews/{id}/chat/send` | one atomic upsert                        | 2 -> 1          | Atomic write                        |
+| `GET /stats/dashboard`            | one statement carries both reads         | 2 requests -> 1 | Request Batching, Aggregate Queries |
+| `GET /resumes/{resume_id}`        | usage read beside the resume read        | no change       | Parallel requests                   |
+| `POST /interviews/{id}/start`     | transcript read beside the start request | no change       | Parallel requests                   |
 
 ### The round-trip build
 
-| Endpoint                                  | Method                                                                                                         | Counts   | Layer                         |
+| Change                                    | What changed                                                                                                   | Counts   | Layer                         |
 | ----------------------------------------- | -------------------------------------------------------------------------------------------------------------- | -------- | ----------------------------- |
 | `POST /interviews/{id}/chat/send`         | duplicate tier read removed, transcript folded into the interview read, spend and user insert in one statement | 8 -> 5   | Aggregate Queries, Bulk Write |
 | `POST /interviews/{id}/chat/opening`      | duplicate tier read removed, transcript folded into the interview read                                         | 7 -> 5   | Aggregate Queries             |
@@ -449,7 +397,7 @@ This batched build focused on some of the heavy queries and a pararrel request w
 
 ## Per-VU identity
 
-Every VU is the same account, `k6-sweep-testing`, so the two 100 VU windows above left one owner holding 715 and 877 interviews, and two of the rows belong to that owner's size rather than to the load:
+Every VU is the same account that means VUs windows above left one owner holding alot of rows which grew overtime and inturn makes the queries slower and slower. We still have the cleanup window but the windows where VUs are generating writes are still 1 person, which is not really mirroring into how real app and users interact so fixed it and implemented per VU identity.
 
 | Per-VU identity   | 55 VUs | 100 VUs |
 | ----------------- | ------ | ------- |
@@ -469,17 +417,9 @@ Every VU is the same account, `k6-sweep-testing`, so the two 100 VU windows abov
 | memory (of 256Mi) | 40%    | 43%     |
 | rows per account  | 15.7   | 11.7    |
 
-Both predictions held: the scan-heavy routes stop being the wall, and 100 VUs passes, the first 100 VU pass in this
-record, against a whale baseline of 1.49s p95 at 74 rps. The ladder after it puts the wall near 175: 100, 150 and 175
-passed their windows, 187 failed, and 175 then held one 5 minute confirmation at 825ms and lost the second at 1,095ms,
-so the boundary is unconfirmed between 100 and 187. The whale rows above still stand on their own, because one heavy
-owner is a real account.
+Both predictions held: the scan-heavy routes stop being the wall, and we now see we are finally passing the 100 VU benchmark.
 
-## Baseline for the TypeScript migration
-
-The table is the ladder that followed the identity change, on this harness with one account per VU, and the 100 VU row
-is what the rewrite gets measured against: Hono on Node 24, against FastAPI on 3.14-slim, one uvicorn worker, a single
-replica on the Pi. A second 100 VU window the same day measured 439ms p95, so read any single row as one sample.
+The table is the ladder that followed the identity change, on this harness with one account per VU.
 
 | Phase   | VUs | Window | p50   | p95   | p99   | max   | rps   | errors | verdict | wait p50 | wait p95 | query mean | query p95 | CPU (of 4) | memory (of 256Mi) | in flight | queries/s |
 | ------- | --- | ------ | ----- | ----- | ----- | ----- | ----- | ------ | ------- | -------- | -------- | ---------- | --------- | ---------- | ----------------- | --------- | --------- |
@@ -493,7 +433,11 @@ replica on the Pi. A second 100 VU window the same day measured 439ms p95, so re
 | confirm | 175 | 5m     | 474ms | 825ms | 1.09s | 2.27s | 156.2 | 0      | pass    | 338ms    | 793ms    | 93ms       | 236ms     | 0.88       | 48%               | 26.2      | 283       |
 | confirm | 175 | 5m     | 561ms | 1.09s | 1.74s | 6.81s | 127.7 | 0      | fail    | 395ms    | 958ms    | 116ms      | 246ms     | 0.70       | 49%               | 26.4      | 228       |
 
+## Baseline for the TypeScript migration
+
 ### Pool 60
+
+Back with the pool again, but now this time we need more pool because our bottleneck is always moving
 
 | Pool / VUs | Window | p95          | wait p95     | query p95    | in flight  | CPU (of 4) |
 | ---------- | ------ | ------------ | ------------ | ------------ | ---------- | ---------- |
@@ -505,6 +449,8 @@ replica on the Pi. A second 100 VU window the same day measured 439ms p95, so re
 
 ### Workers 3 + 512Mi limit
 
+I just noticed that I needed to see if we have 3 wokers in Uvicorn, since it is different from just 1 worker with 60 connections and 3 workers with 20 connections because they can now distribute work between those 3 workers with just a configuration changes. up also the pod limit so we don't hit OOM on our pods so the 3 workers hold up to the system.
+
 | Phase | VUs | Window | p50   | p95   | p99   | max   | rps   | errors | verdict | wait p50 | wait p95 | query mean | query p95 | CPU (of 4) | memory       | in flight | queries/s |
 | ----- | --- | ------ | ----- | ----- | ----- | ----- | ----- | ------ | ------- | -------- | -------- | ---------- | --------- | ---------- | ------------ | --------- | --------- |
 | only  | 100 | 5m     | 205ms | 420ms | 549ms | 881ms | 153.1 | 0      | pass    | 6ms      | 54ms     | 120ms      | 282ms     | 0.98       | 65% of 512Mi | 31.9      | 267       |
@@ -513,23 +459,31 @@ replica on the Pi. A second 100 VU window the same day measured 439ms p95, so re
 | only  | 250 | 5m     | 632ms | 1.09s | 1.38s | 2.87s | 173.6 | 0      | fail    | 397ms    | 906ms    | 124ms      | 281ms     | 1.18       | 66% of 512Mi | 39.9      | 322       |
 | only  | 300 | 5m     | 998ms | 1.73s | 2.08s | 3.88s | 144.4 | 0      | fail    | 702ms    | 1.80s    | 154ms      | 431ms     | 0.92       | 67% of 512Mi | 39.7      | 259       |
 
-### Neon 2 CU
-
-| Phase | VUs | Window | p50   | p95   | p99   | max   | rps   | errors | verdict | wait p50 | wait p95 | query mean | query p95 | CPU (of 4) | memory       | in flight | queries/s |
-| ----- | --- | ------ | ----- | ----- | ----- | ----- | ----- | ------ | ------- | -------- | -------- | ---------- | --------- | ---------- | ------------ | --------- | --------- |
-| only  | 300 | 5m     | 654ms | 1.30s | 1.94s | 3.84s | 194.3 | 0      | fail    | 462ms    | 1.03s    | 115ms      | 248ms     | 1.17       | 68% of 512Mi | 39.4      | 342       |
-| only  | 300 | 5m     | 650ms | 1.28s | 1.74s | 3.23s | 205.7 | 0      | fail    | 340ms    | 953ms    | 159ms      | 429ms     | 1.51       | 69% of 512Mi | 58.3      | 388       |
-
 ### Estimating Neon from the local postgres
 
-The Pi's postgres is the test database from on.
+Im always running out of usage in Neon so I compared how it compares to Postgres, so I can just proportionate it.
 
-| VUs | Neon | local p95 | Neon p95 | factor | local rps | Neon rps |
-| --- | ---- | --------- | -------- | ------ | --------- | -------- |
-| 100 | 1 CU | 203ms     | 420ms    | 2.07x  | 192.2     | 153.1    |
-| 200 | 1 CU | 550ms     | 763ms    | 1.39x  | 201.3     | 204.6    |
-| 250 | 1 CU | 981ms     | 796ms    | 0.81x  | 202.8     | 220.6    |
-| 300 | 1 CU | 1.42s     | 1.73s    | 1.22x  | 204.0     | 144.4    |
-| 300 | 2 CU | 1.42s     | 1.30s    | 0.91x  | 204.0     | 194.3    |
+| VUs | Neon | local p95 | Neon p95 | factor | local wait p95 | Neon wait p95 | local query p95 | Neon query p95 | local verdict | Neon verdict |
+| --- | ---- | --------- | -------- | ------ | -------------- | ------------- | --------------- | -------------- | ------------- | ------------ |
+| 100 | 1 CU | 203ms     | 420ms    | 2.07x  | 9.5ms          | 54ms          | 48ms            | 282ms          | pass          | pass         |
+| 200 | 1 CU | 550ms     | 763ms    | 1.39x  | 9.8ms          | 528ms         | 100ms           | 241ms          | pass          | pass         |
+| 250 | 1 CU | 981ms     | 796ms    | 0.81x  | 123ms          | 690ms         | 167ms           | 236ms          | fail          | pass         |
+| 300 | 1 CU | 1.42s     | 1.73s    | 1.22x  | 297ms          | 1.80s         | 172ms           | 431ms          | fail          | fail         |
+| 300 | 2 CU | 1.42s     | 1.30s    | 0.91x  | 297ms          | 1.03s         | 172ms           | 248ms          | fail          | fail         |
 
-200 to 300 VUs: Neon ran 0.8x to 1.4x the local p95, from matched pairs at those levels
+## TypeScript + NodeJS backend Migration (local postgres)
+
+Migration went smoothly, nothing really out of the ordinary and felt just like the previous application.
+
+| Phase   | VUs | Window | p50    | p95   | p99   | max   | rps   | errors | verdict | wait p50 | wait p95 | query mean | query p95 | CPU (of 4) | memory |
+| ------- | --- | ------ | ------ | ----- | ----- | ----- | ----- | ------ | ------- | -------- | -------- | ---------- | --------- | ---------- | ------ |
+| ladder  | 100 | 2m     | 12.9ms | 47ms  | 184ms | 2.18s | 316.0 | 0      | pass    | 5ms      | 9.5ms    | 4.6ms      | 30ms      | 0.71       | 82MiB  |
+| ladder  | 200 | 2m     | 72ms   | 138ms | 209ms | 1.15s | 497.2 | 0      | pass    | 5ms      | 9.6ms    | 28ms       | 77ms      | 1.08       | 98MiB  |
+| ladder  | 400 | 2m     | 263ms  | 463ms | 1.22s | 5.64s | 570.3 | 0      | pass    | 10ms     | 148ms    | 91ms       | 226ms     | 1.10       | 114MiB |
+| search  | 600 | 2m     | 384ms  | 525ms | 694ms | 18.4s | 620.7 | 0      | pass    | 170ms    | 253ms    | 99ms       | 228ms     | 0.73       | 233MiB |
+| search  | 650 | 2m     | 424ms  | 700ms | 1.64s | 16.2s | 617.7 | 0      | pass    | 192ms    | 443ms    | 100ms      | 230ms     | 1.11       | 147MiB |
+| search  | 700 | 2m     | 464ms  | 973ms | 2.69s | 17.9s | 605.5 | 0.007% | fail    | 175ms    | 451ms    | 90ms       | 227ms     | 1.15       | 145MiB |
+| confirm | 650 | 5m     | 425ms  | 571ms | 690ms | 17.9s | 630.2 | 0      | pass    | 190ms    | 435ms    | 101ms      | 230ms     | 1.12       | 157MiB |
+| confirm | 650 | 5m     | 454ms  | 632ms | 844ms | 10.9s | 604.1 | 0      | pass    | 199ms    | 456ms    | 105ms      | 232ms     | 1.10       | 169MiB |
+
+When I first saw these numbers I, was really suprised with the results. given we hit 650 thats probably 2-3x from 250 we hit in 250 capacity in our Python app.
