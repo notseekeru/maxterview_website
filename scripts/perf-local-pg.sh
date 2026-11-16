@@ -82,7 +82,13 @@ spec:
           image: $1
           command: ["/bin/sh", "-c"]
           args:
-            - exec /app/.venv/bin/yoyo apply --no-config-file --batch --database "$DSN" /app/migrations
+            - |
+              set -eu
+              if [ -x /app/.venv/bin/yoyo ]; then
+                exec /app/.venv/bin/yoyo apply --no-config-file --batch --database "$DSN" /app/migrations
+              else
+                exec node /app/dist/scripts/migrate.js apply --database "$DSN"
+              fi
 EOF
 }
 
