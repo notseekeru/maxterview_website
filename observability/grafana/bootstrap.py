@@ -3,11 +3,11 @@
 
   ./bootstrap.py <project> [app-label] [--datasource UID] [--prometheus-datasource UID] [--receiver NAME] [--url URL] [--payments] [--dry-run] [--delete]
 
-Creates folder `<project>`, rule group `<project>-logs` and dashboard `<project>-logs`. The group holds
-seven rules: 5xx and liveness counted from the OTLP metrics, and error-level tracebacks, browser
-errors, swallowed model failures and the voice/Clerk dependency failures read from the logs. The
-dashboard covers logs and both metric groups, so a project that only ships logs still gets a usable
-board with five dead metric panels.
+Creates folder `<project>`, rule group `<project>-logs` and dashboard `<project>-logs`. The group counts
+5xx and liveness from the OTLP metrics, and reads error-level tracebacks, browser errors, swallowed
+model failures and the voice/Clerk dependency failures from the logs. The dashboard covers logs and
+both metric groups, so a project that only ships logs still gets a usable board with dead metric
+panels.
 
 The notification tree is written by the same run: one root receiver, and a route per severity so a
 critical repeats hourly and a warning every six. No rule carries a receiver of its own, because a
@@ -26,10 +26,10 @@ progression survive.
 
 The metric panels and every metric rule select `service_name="<app-label>"`, which only matches an
 app whose OTLP `service.name` is the same string as its pod label (the backend sets it in
-telemetry.py).
+`backend/src/observability.ts`).
 
 Provisioning: rules are written without `disable_provenance`, so Grafana marks them provisioned and
-locks them against UI edits. That is deliberate — this repo stays the only writer. Changing a rule
+locks them against UI edits. That is deliberate: this repo stays the only writer. Changing a rule
 means editing `rules/alerting.json` and rerunning, not clicking in Grafana.
 
 Portability boundary: on Grafana Cloud datasources belong to the **stack** and are shared by every
@@ -203,9 +203,9 @@ def install(args, app):
     rows = check["data"]["result"]
     print(f"app label check: {query} -> {rows[0]['value'][1] if rows else 0} in the last 24h")
     if not rows:
-        fail(f'kit installed, but no Loki rows for app="{app}" in the last 24h — nothing was rolled '
+        fail(f'kit installed, but no Loki rows for app="{app}" in the last 24h. Nothing was rolled '
              "back. The log rules have noDataState=OK, so a project whose logger emits different "
-             "field names never fires and never complains — a "
+             "field names never fires and never complains: a "
              "quiet stack and a dead rule look identical. Fix the label or the field names, then rerun.")
 
     # Not a failure: an install that precedes the deploy reports zero. It is printed because a metric
