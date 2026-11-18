@@ -548,7 +548,7 @@
             "uid": "${DS_PROM}"
           },
           "editorMode": "code",
-          "expr": "sum(increase(http_server_request_duration_seconds_count{service_name=\"$app\", http_route=\"/api/interviews/{interview_id}/feedback/generate\"}[$__range])) or vector(0)",
+          "expr": "sum(increase(http_server_request_duration_seconds_count{service_name=\"$app\", http_route=\"/api/interviews/:interview_id/feedback/generate\"}[$__range])) or vector(0)",
           "legendFormat": "feedback runs",
           "refId": "C",
           "instant": true,
