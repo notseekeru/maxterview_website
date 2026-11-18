@@ -5,7 +5,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { config } from "./env.ts";
-import { log } from "./logs.ts";
+import { log } from "./observability.ts";
 
 const MAX_STDOUT = 4000;
 const LOG_TAIL = 1200;

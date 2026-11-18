@@ -2,12 +2,11 @@ import { type Cynicism, GRADED_PHASES, PLAN_COUNTS } from "./dials.ts";
 import { DIMENSION_AXES, FEEDBACK_DIMS } from "./dimensions.ts";
 import { config as env } from "./env.ts";
 import { type Level, label } from "./levels.ts";
-import { log } from "./logs.ts";
 import { type ChatMessage, DECISIONS, type Decision, Dials, type FeedbackSummary, type Move, type ResumeReview } from "./models.ts";
+import { log, record, startSpan } from "./observability.ts";
 import { roundHalfEven } from "./offer.ts";
 import { FAIL_CLASSES, MOVE_CLASSES, type MoveClass, STUB_MOVE_CYCLE, STUB_MOVE_NOTES } from "./rating.ts";
 import { CALLS, type Call, claim, LINE_CALLS, LINE_MAX, type LineCall, MAX_LINES, MAX_REWRITES, MAX_SECTIONS, NAME_MAX, RUNGS, rung, SECTION_CALLS, type SectionCall, slug, staircase, VERDICT_MAX } from "./review.ts";
-import { record, startSpan } from "./telemetry.ts";
 
 // Mirrors llm.py's frozen dataclass: grader_* fall back to the chat provider, so a BYOK owner has one
 // provider for both stages.

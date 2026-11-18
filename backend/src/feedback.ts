@@ -2,9 +2,9 @@ import { resolveConfig } from "./byok.ts";
 import { fetch, fetchrow, sql } from "./db.ts";
 import { generateFeedback, judgeAnswer, type LLMConfig } from "./llm.ts";
 import { type ChatMessage, type ClerkUser, Dials, HIRING_DECISIONS, type Move } from "./models.ts";
+import { withSpan } from "./observability.ts";
 import { terms } from "./offer.ts";
 import { accuracy, FAIL_CLASSES, grade } from "./rating.ts";
-import { withSpan } from "./telemetry.ts";
 
 const COMPLETE_MAX_FEEDBACK_ATTEMPTS = 3;
 const COMPLETE_FEEDBACK_BACKOFF_MS = 800;

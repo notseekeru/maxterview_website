@@ -5,8 +5,8 @@ import { fetchrow, sql } from "./db.ts";
 import { config } from "./env.ts";
 import { HttpError } from "./errors.ts";
 import * as llm from "./llm.ts";
-import { log } from "./logs.ts";
 import type { ClerkUser, LLMProvider } from "./models.ts";
+import { log } from "./observability.ts";
 
 export const DISABLED_DETAIL = "BYOK is not enabled on this deployment: set BYOK_ENCRYPTION_KEY on the backend, then save again.";
 

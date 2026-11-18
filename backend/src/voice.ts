@@ -1,7 +1,7 @@
 import { strict as assert } from "node:assert";
 import { config } from "./env.ts";
-import { log } from "./logs.ts";
 import type { VoiceCapability, VoiceTranscript } from "./models.ts";
+import { log } from "./observability.ts";
 
 export type Speech = { audio: Uint8Array; media_type: string };
 

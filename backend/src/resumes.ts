@@ -1,8 +1,8 @@
 import { strict as assert } from "node:assert";
 import { getDocumentProxy } from "unpdf";
 import { config } from "./env.ts";
-import { log } from "./logs.ts";
 import type { ResumeExtract } from "./models.ts";
+import { log } from "./observability.ts";
 
 export class ExtractError extends Error {
     constructor(detail: string) {

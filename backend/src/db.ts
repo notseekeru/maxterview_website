@@ -1,7 +1,7 @@
 import dc from "node:diagnostics_channel";
 import postgres, { type PendingQuery, type PostgresType, type QueryTrace, type Row, type Sql } from "postgres";
 import { config } from "./env.ts";
-import { gauge, record } from "./telemetry.ts";
+import { gauge, record } from "./observability.ts";
 
 if (config.databaseUrl === "") throw new Error("DATABASE_URL is required");
 

@@ -3,7 +3,7 @@ import { cors } from "hono/cors";
 import { z } from "zod";
 import { config } from "./env.ts";
 import { HttpError } from "./errors.ts";
-import { log, requestContext } from "./logs.ts";
+import { log, requestContext } from "./observability.ts";
 import { rateLimit } from "./ratelimit.ts";
 import { chat } from "./routes/chat.ts";
 import { interviews } from "./routes/interviews.ts";

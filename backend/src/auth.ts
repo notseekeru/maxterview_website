@@ -4,8 +4,8 @@ import { getCookie } from "hono/cookie";
 import { decodeProtectedHeader, importJWK, type JWK, type JWTPayload, jwtVerify, type ProtectedHeaderParameters } from "jose";
 import { config } from "./env.ts";
 import { HttpError } from "./errors.ts";
-import { log } from "./logs.ts";
 import { ClerkUser } from "./models.ts";
+import { log } from "./observability.ts";
 
 declare module "hono" {
     interface ContextVariableMap {
