@@ -3,7 +3,7 @@ import { cors } from "hono/cors";
 import { z } from "zod";
 import { config } from "./env.ts";
 import { HttpError } from "./errors.ts";
-import { log, requestContext } from "./observability.ts";
+import { httpSpan, log, requestContext } from "./observability.ts";
 import { rateLimit } from "./ratelimit.ts";
 import { chat } from "./routes/chat.ts";
 import { interviews } from "./routes/interviews.ts";
@@ -37,6 +37,7 @@ function allowedMethods(path: string): string[] {
     return [...methods].sort();
 }
 
+app.use("*", httpSpan);
 app.use("*", requestContext);
 if (config.corsAllowOrigins.length > 0) {
     // Hono's preflight is a bare 204; the browser sees the status, and Starlette's is 200 "OK".

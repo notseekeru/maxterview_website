@@ -122,13 +122,16 @@ function openSpan(name: string, attributes: Attributes = {}): Span {
         end: () => {
             spans.push(record);
         },
+        setStatus: () => span,
+        recordException: () => {},
     };
     return span as unknown as Span;
 }
 
 const tracer = {
     startSpan: (name: string, options?: { attributes?: Attributes }) => openSpan(name, options?.attributes),
-    startActiveSpan: <T>(name: string, options: { attributes?: Attributes }, body: (current: Span) => T): T => {
+    startActiveSpan: <T>(name: string, options: { attributes?: Attributes }, parentOrBody: Context | ((current: Span) => T), parentedBody?: (current: Span) => T): T => {
+        const body = parentedBody ?? (parentOrBody as (current: Span) => T);
         const current = openSpan(name, options.attributes);
         return context.with(trace.setSpan(context.active(), current), () => body(current));
     },

@@ -1,13 +1,14 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { randomUUID } from "node:crypto";
+import { httpInstrumentationMiddleware } from "@hono/otel";
 import { type Attributes, context, type Gauge, type Histogram, metrics, type Span, trace } from "@opentelemetry/api";
 import { OTLPMetricExporter } from "@opentelemetry/exporter-metrics-otlp-http";
 import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-http";
 import { resourceFromAttributes } from "@opentelemetry/resources";
 import { AggregationType, InstrumentType, PeriodicExportingMetricReader } from "@opentelemetry/sdk-metrics";
 import { NodeSDK } from "@opentelemetry/sdk-node";
-import type { Context, MiddlewareHandler } from "hono";
-import { matchedRoutes } from "hono/route";
+import type { MiddlewareHandler } from "hono";
+import { routePath } from "hono/route";
 import pino from "pino";
 import { config } from "./env.ts";
 
@@ -109,7 +110,16 @@ export async function shutdown(): Promise<void> {
 
 export const activeSpan = (): Span | undefined => trace.getSpan(context.active());
 
+// The probe gets no span, no line and no sample: it measures the kubelet, not the app.
 const SKIP_PATH = "/api/health";
+
+// Constructed before configure() starts the SDK: the library's histogram binds a no-op meter, and record() owns http.server.request.duration.
+const httpOtel = httpInstrumentationMiddleware({ captureActiveRequests: false });
+
+export const httpSpan: MiddlewareHandler = async (c, next) => {
+    if (c.req.path === SKIP_PATH) return next();
+    return httpOtel(c, next);
+};
 
 type RequestContext = { request_id: string };
 
@@ -153,42 +163,22 @@ export const log = { debug: emit("debug"), info: emit("info"), warning: emit("wa
 
 type RequestState = { user_sub?: string };
 
-// FastAPI set `scope["route"]` on a match only. An unmatched path is a scanner, and a metric label per
-// random path is a cardinality bill, so the wildcard middleware label becomes "unmatched".
-function matchedRoute(c: Context): string {
-    const path = matchedRoutes(c).at(-1)?.path;
-    return path === undefined || path === "*" ? "unmatched" : path;
-}
-
 export const requestContext: MiddlewareHandler = async (c, next) => {
     const requestId = randomUUID().replaceAll("-", "");
     const path = c.req.path;
     const method = c.req.method;
     const started = performance.now();
 
-    const trace = async () => {
-        // Probe path gets no line, no sample, no span: all three would measure the kubelet asking whether
-        // the pod is alive.
-        if (path === SKIP_PATH) {
+    await storage.run({ request_id: requestId }, async () => {
+        let status = 500;
+        try {
             await next();
-            return;
-        }
-        await withSpan("http.server", { "http.request.method": method }, async (span) => {
-            let status = 500;
-            try {
-                await next();
-                status = c.res.status;
-            } finally {
-                const route = matchedRoute(c);
+            status = c.res.status;
+        } finally {
+            if (path !== SKIP_PATH) {
                 const elapsed = (performance.now() - started) / 1000;
-                span.updateName(`${method} ${route}`);
-                span.setAttribute("http.route", route);
-                span.setAttribute("http.response.status_code", status);
-                record("http.server.request.duration", elapsed, {
-                    "http.request.method": method,
-                    "http.route": route,
-                    "http.response.status_code": status,
-                });
+                const route = routePath(c);
+                record("http.server.request.duration", elapsed, { "http.request.method": method, "http.route": route, "http.response.status_code": status });
                 log.info("http.request", {
                     method,
                     path,
@@ -198,13 +188,6 @@ export const requestContext: MiddlewareHandler = async (c, next) => {
                     interview_id: c.req.param("interview_id") ?? null,
                 });
             }
-        });
-    };
-
-    await storage.run({ request_id: requestId }, async () => {
-        try {
-            await trace();
-        } finally {
             c.header("X-Request-ID", requestId);
         }
     });

@@ -77,9 +77,9 @@ describe("observability", () => {
         expect(derived?.[1]).toBe(access.trace_id);
 
         const server = captureSpans().spans.filter((span) => span.name.startsWith("GET "));
-        // AI HERE: the Python labelled an unmatched path "unmatched"; observability.ts compares the matched route
-        // to "*" and Hono reports "/api/*", so the wildcard survives into the label and the span name.
-        // Bounded either way: every unmatched path lands on that one value.
+        // AI HERE: the Python labelled an unmatched path "unmatched"; routePath reports "/api/*", so the
+        // wildcard survives into the label and the span name. Bounded either way: every unmatched path
+        // lands on that one value.
         expect(server.map((span) => span.name)).toEqual(["GET /api/*"]);
         expect(server[0].attributes["http.route"]).toBe("/api/*");
         expect(server[0].attributes["http.response.status_code"]).toBe(404);
