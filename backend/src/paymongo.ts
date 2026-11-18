@@ -4,7 +4,7 @@ import * as auth from "./auth.ts";
 import { fetchrow, sql } from "./db.ts";
 import { config } from "./env.ts";
 import { HttpError } from "./errors.ts";
-import { log } from "./logs.ts";
+import { log } from "./observability.ts";
 import type { ClerkUser } from "./models.ts";
 
 const API_BASE = "https://api.paymongo.com";

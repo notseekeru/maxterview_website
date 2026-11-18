@@ -7,7 +7,7 @@ import { config } from "../src/env.ts";
 import * as llm from "../src/llm.ts";
 import { Dials } from "../src/models.ts";
 import { FAIL_CLASSES } from "../src/rating.ts";
-import * as telemetry from "../src/telemetry.ts";
+import * as telemetry from "../src/observability.ts";
 import { client } from "./helpers/client.ts";
 import { withConfig } from "./helpers/config.ts";
 import { type HttpStub, json, sse, stubHttp } from "./helpers/http.ts";

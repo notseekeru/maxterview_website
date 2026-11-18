@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
-import { heartbeat } from "../src/telemetry.ts";
+import { heartbeat } from "../src/observability.ts";
 import { client } from "./helpers/client.ts";
 import { withConfig } from "./helpers/config.ts";
 import type { LogRecord } from "./helpers/observability.ts";
@@ -77,7 +77,7 @@ describe("observability", () => {
         expect(derived?.[1]).toBe(access.trace_id);
 
         const server = captureSpans().spans.filter((span) => span.name.startsWith("GET "));
-        // AI HERE: the Python labelled an unmatched path "unmatched"; logs.ts compares the matched route
+        // AI HERE: the Python labelled an unmatched path "unmatched"; observability.ts compares the matched route
         // to "*" and Hono reports "/api/*", so the wildcard survives into the label and the span name.
         // Bounded either way: every unmatched path lands on that one value.
         expect(server.map((span) => span.name)).toEqual(["GET /api/*"]);

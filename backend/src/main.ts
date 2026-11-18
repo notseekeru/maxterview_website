@@ -2,7 +2,7 @@ import { serve } from "@hono/node-server";
 import { app } from "./app.ts";
 import { closePool, initPool } from "./db.ts";
 import { config } from "./env.ts";
-import * as telemetry from "./telemetry.ts";
+import * as telemetry from "./observability.ts";
 
 if (!config.clerkEnabled && config.appEnv !== "development" && config.appEnv !== "test") {
     throw new Error("CLERK_ENABLED=false is only allowed when APP_ENV is development or test; refusing to boot.");

@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import type { Config } from "../src/env.ts";
 import { CompileBusy, CompileError, compilePdf } from "../src/latex.ts";
-import { log } from "../src/logs.ts";
+import { log } from "../src/observability.ts";
 import { withConfig } from "./helpers/config.ts";
 
 // pdflatex is not installed here, so the engine is a shell script that answers the way pdflatex would:

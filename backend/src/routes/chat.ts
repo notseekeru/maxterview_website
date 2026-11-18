@@ -8,7 +8,7 @@ import { fetch, fetchrow, sql } from "../db.ts";
 import { HttpError, jsonBody as jsonBodyText, validationError } from "../errors.ts";
 import { feedbackCols, feedbackPayload, feedbackRow, generateAndPersistFeedback, syncOffer, upsertFeedback } from "../feedback.ts";
 import { closingLine, failShout, isClosingTurn, isInterviewFinished, judgeAnswer, type LLMConfig, providerHost, streamChat, systemPrompt, unreachableDetail } from "../llm.ts";
-import { log } from "../logs.ts";
+import { log } from "../observability.ts";
 import { type ChatMessage, ChatTurn, Dials, FeedbackCreate, totalComp } from "../models.ts";
 import { bandRange, tier as offerTier, startDate } from "../offer.ts";
 import { FAIL_CLASSES, grade } from "../rating.ts";
