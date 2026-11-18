@@ -575,7 +575,7 @@
           "datasourceUid": "{{DATASOURCE}}",
           "model": {
             "editorMode": "code",
-            "expr": "sum(count_over_time({app=\"{{APP}}\"} | json | event=~\"llm[.](feedback|hardcore|chat)[.](formatter_unavailable|grader_unavailable|moves_unavailable|judge_unavailable|shout_unavailable|transport_error|no_json|schema_mismatch|empty_output|decision_drift|moves_mismatch|judge_mismatch|failed)\" [30m]))",
+            "expr": "sum(count_over_time({app=\"{{APP}}\"} | json | event=~\"llm[.](feedback|hardcore|chat|review|review_rewrite)[.](formatter_unavailable|grader_unavailable|moves_unavailable|judge_unavailable|shout_unavailable|unavailable|transport_error|no_json|schema_mismatch|empty_output|decision_drift|moves_mismatch|judge_mismatch|failed)\" [30m]))",
             "intervalMs": 1000,
             "maxDataPoints": 43200,
             "queryType": "range",
@@ -631,7 +631,7 @@
       "for": "5m",
       "keep_firing_for": "0s",
       "annotations": {
-        "description": "The model failures that cost a user their chat turn, their feedback or their grade, over 30 minutes: a chat turn that died mid-stream, judge, grader, formatter and moves unavailable, transport errors, unparseable JSON, a response that did not match the schema, empty output, and a decision or move set that drifted from the transcript. Left out on purpose: no_material and empty_transcript are what a candidate hears when there was nothing to grade, and stub_deterministic is stub mode. Fires above 1 event. Read from the log lines and not from llm_outcome=\"error\": only the line names the stage that failed, and it counts a retried call once where the metric counted it twice.",
+        "description": "The model failures that cost a user their chat turn, their feedback, their grade or a resume review, over 30 minutes: a chat turn that died mid-stream, judge, grader, formatter, moves, review and review_rewrite unavailable, transport errors, unparseable JSON, a response that did not match the schema, empty output, and a decision or move set that drifted from the transcript. Left out on purpose: no_material and empty_transcript are what a candidate hears when there was nothing to grade, and stub_deterministic is stub mode. Fires above 1 event. Read from the log lines and not from llm_outcome=\"error\": only the line names the stage that failed, and it counts a retried call once where the metric counted it twice.",
         "summary": "{{PROJECT}}: model failures"
       },
       "labels": {
