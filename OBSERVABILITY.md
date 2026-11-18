@@ -6,6 +6,16 @@ tracebacks), no third-party browser error tracker (a beacon posts browser errors
 no RUM (the browser has no trace context to contribute yet), Grafana Cloud free tier, and the app holds
 no telemetry write credential in either pipeline.
 
+## How each signal leaves the app
+
+| Signal  | Direction                                 | App knows the collector   | Alloy down                                         |
+| ------- | ----------------------------------------- | ------------------------- | -------------------------------------------------- |
+| Logs    | stdout write, Alloy pulls through the API | no, it writes to fd 1     | delayed: the lines wait on the node until rotation |
+| Traces  | push, OTLP over HTTP                      | yes, the endpoint env var | the batch queue fills and drops the spans          |
+| Metrics | push, OTLP over HTTP                      | yes, the same env var     | the last interval drops with the queue             |
+
+Only the push paths can lose data. The log path is a local write, so an Alloy outage delays ingest instead of dropping it.
+
 ## Logs in the app
 
 - pino with an `AsyncLocalStorage` mixin, so request lines and unhandled errors are JSON in every env. Hono's own logger is unused: the middleware replaces it.
