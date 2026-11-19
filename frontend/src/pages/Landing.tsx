@@ -22,8 +22,6 @@ const SECTIONS = [
     { id: "questions", label: "Questions" },
 ];
 
-const HERO_FACTS = ["Review and verdict on every run", "Behavioral, technical and case rounds", "No credit card"];
-
 const FEATURES = [
     { title: "AI interviewer", body: "One question at a time, rapport through technical, reacting to the answer you just gave." },
     { title: "Graded, not summarized", body: "Every answer is annotated on its own, and every run ends in a verdict you can act on." },
@@ -233,11 +231,6 @@ export function Landing() {
                                     </Button>
                                 </m.div>
                                 <m.ul variants={{ hidden: { opacity: 0 }, shown: { opacity: 1, transition: { duration: 0.8, delay: 0.56, staggerChildren: 0.07 } } }} className="mt-8 flex flex-wrap gap-2">
-                                    {HERO_FACTS.map((f) => (
-                                        <m.li key={f} variants={{ hidden: { opacity: 0, y: 8 }, shown: { opacity: 1, y: 0, transition: { duration: 0.5, ease: GLIDE } } }} className={cn(LABEL, "rounded-full border px-3 py-1.5")}>
-                                            {f}
-                                        </m.li>
-                                    ))}
                                 </m.ul>
                             </m.div>
 
