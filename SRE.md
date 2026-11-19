@@ -237,8 +237,6 @@ And so I was already planning at this point what optimization could I apply to m
 
 ## What changed after the first runs
 
-Six changes, all of them on round trips, read size or the pool rather than on the queries themselves.
-
 | Change             | Before                                             | After                                            |
 | ------------------ | -------------------------------------------------- | ------------------------------------------------ |
 | `/stats/analytics` | five checkouts                                     | one statement                                    |
@@ -486,4 +484,8 @@ Migration went smoothly, nothing really out of the ordinary and felt just like t
 | confirm | 650 | 5m     | 425ms  | 571ms | 690ms | 17.9s | 630.2 | 0      | pass    | 190ms    | 435ms    | 101ms      | 230ms     | 1.12       | 157MiB |
 | confirm | 650 | 5m     | 454ms  | 632ms | 844ms | 10.9s | 604.1 | 0      | pass    | 199ms    | 456ms    | 105ms      | 232ms     | 1.10       | 169MiB |
 
-When I first saw these numbers I, was really suprised with the results. given we hit 650 thats probably 2-3x from 250 we hit in 250 capacity in our Python app.
+When I first saw these numbers I, was really suprised with the results. given we hit 650 thats probably 2-3x from 200 we hit in our Python app.
+
+## Conclusion
+
+This is probably where I would end it. Neon is hitting my wall on the production database since it caps its compute and stuff, so I'm already having a hard time passing it. So that quite means that my capacity is limited on Free-tier cloud compute. And honestly, I don't have a problem with that since it's quite expected that if you're gonna hit a wall with the cloud, it will probably be the free-tier limits if you're in one. I could've optimized it more on reads and writes and stuff, but I'm quite satisfied with the results, and all I wanted was to see how far my app and benchmarking got me. If I hadn't done this, I wouldn't even know whether the pool was the bottleneck, whether the app was the bottleneck, whether the rewrite actually moved the capacity, or whether the batching actually worked or what. I learned a lot along the way, and that's why I definitely messed up on some parts during the process. But the point was never making it perfect; shaping me into a better engineer was one of the leading goals.
