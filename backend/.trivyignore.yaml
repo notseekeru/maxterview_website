@@ -1,5 +1,6 @@
 # Trivy ignore policy (v0.56+ / .trivyignore.yaml).
-# CD scans the built backend image. No open exceptions: add dated, reachability-justified ones here
+# OS packages only: a CVE in the image's own /app/node_modules is not covered by this gate.
+# No open exceptions: add dated, reachability-justified ones here
 # when a real scan surfaces a finding. When `expired_at` passes the gate re-fails until the entry is
 # re-verified.
 

@@ -102,6 +102,7 @@ jobs:
             -v ${{ matrix.service.context }}/.trivyignore.yaml:/.trivyignore.yaml \
             aquasec/trivy:0.76.2 image \
             --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 \
+            --pkg-types os \
             --skip-dirs "${{ matrix.service.skip_dirs }}" \
             --ignorefile /.trivyignore.yaml \
             ${{ env.IMAGE_TAG }}

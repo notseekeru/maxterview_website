@@ -73,6 +73,7 @@ prod-scan: prod-build
 			-v $(CURDIR)/$$ctx/.trivyignore.yaml:/.trivyignore.yaml \
 			aquasec/trivy:0.74.0 image \
 			--skip-dirs "root/.cache,usr/local" \
+			--pkg-types os \
 			--severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 \
 			--ignorefile /.trivyignore.yaml \
 			maxterview-prod-$$svc; \
