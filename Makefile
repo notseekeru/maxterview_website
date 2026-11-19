@@ -65,7 +65,7 @@ prod-down:
 
 prod-scan: prod-build
 	@echo '**--- Trivy image scan: maxterview-prod-<service> ---**'
-	for svc in frontend backend; do \
+	@fail=0; for svc in frontend backend; do \
 		ctx=$$svc; [ "$$svc" = backend ] && ctx=backend; \
 		echo "== scanning maxterview-prod-$$svc =="; \
 		docker run --rm \
@@ -76,5 +76,5 @@ prod-scan: prod-build
 			--pkg-types os \
 			--severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 \
 			--ignorefile /.trivyignore.yaml \
-			maxterview-prod-$$svc; \
-	done
+			maxterview-prod-$$svc || fail=1; \
+	done; exit $$fail
