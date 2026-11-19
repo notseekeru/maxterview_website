@@ -610,15 +610,15 @@
             "uid": "${DS_PROM}"
           },
           "editorMode": "code",
-          "expr": "sum by (pod) (rate(container_cpu_usage_seconds_total{namespace=\"{{PROJECT}}\", container!=\"\"}[$__rate_interval]))",
-          "legendFormat": "{{pod}}",
+          "expr": "sum by (container) (rate(container_cpu_usage_seconds_total{namespace=\"{{PROJECT}}\", container!=\"\"}[$__rate_interval]))",
+          "legendFormat": "{{container}}",
           "refId": "B",
           "range": true
         }
       ],
-      "title": "CPU: node and pods",
+      "title": "CPU: node and containers",
       "type": "timeseries",
-      "description": "The node against the pods on it, as cores. Both come from cAdvisor's root cgroup and the pod cgroups inside it, so a pod's line can never exceed the node's."
+      "description": "The node against the containers on it, as cores. Both come from cAdvisor's root cgroup and the container cgroups inside it, so a container's line can never exceed the node's."
     },
     {
       "datasource": {
@@ -671,8 +671,8 @@
             "uid": "${DS_PROM}"
           },
           "editorMode": "code",
-          "expr": "max by (pod, container) (container_memory_working_set_bytes{namespace=\"{{PROJECT}}\", container!=\"\"}) / max by (pod, container) (container_spec_memory_limit_bytes{namespace=\"{{PROJECT}}\", container!=\"\"})",
-          "legendFormat": "{{pod}} of its limit",
+          "expr": "max by (container) (container_memory_working_set_bytes{namespace=\"{{PROJECT}}\", container!=\"\"}) / max by (container) (container_spec_memory_limit_bytes{namespace=\"{{PROJECT}}\", container!=\"\"})",
+          "legendFormat": "{{container}} of its limit",
           "refId": "B",
           "range": true
         },
@@ -688,7 +688,7 @@
           "range": true
         }
       ],
-      "title": "Saturation: disk and pod memory",
+      "title": "Saturation: disk and container memory",
       "type": "timeseries",
       "description": "The ceilings a run can hit: free space on the node's filesystems, each container's working set against the limit its cgroup was given, and the node's anonymous memory against its capacity. All from the kubelet; the rules that read these carry their own thresholds."
     }
