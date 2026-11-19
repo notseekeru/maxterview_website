@@ -751,7 +751,7 @@ describe("interviews", () => {
         };
 
         try {
-            await withConfig({ clerkEnabled: true, clerkJwksUrl: JWKS_URL }, async () => {
+            await withConfig({ clerkEnabled: true, clerkJwksUrl: JWKS_URL, byokEncryptionKey: "" }, async () => {
                 const iid = (await (await as.post("/api/interviews", { json: { role: "Round trips" } })).json<{ id: string }>()).id;
                 try {
                     const [, emptyCount] = await statements(() => as.get(`/api/interviews/${iid}/chat`));
@@ -769,11 +769,11 @@ describe("interviews", () => {
 
                     await as.post(`/api/interviews/${iid}/start`);
                     const [turn, turnCount] = await statements(() => as.post(`/api/interviews/${iid}/chat/send`, { json: { interview_id: iid, content: "hi" } }));
-                    expect([turn.status, turnCount]).toEqual([200, 5]);
+                    expect([turn.status, turnCount]).toEqual([200, 4]);
 
                     await as.post(`/api/interviews/${iid}/finish`);
                     const [, generateCount] = await statements(() => as.post(`/api/interviews/${iid}/feedback/generate`));
-                    expect(generateCount).toBe(12);
+                    expect(generateCount).toBe(11);
 
                     const stub = stubHttp();
                     stub.post(LLM_URL, (call) => (systemOf(call) === REWRITE_LINE_PROMPT ? llmReply({ rewrite: "a different line" }) : llmReply(REVIEW_EXAMPLE)));
@@ -781,7 +781,7 @@ describe("interviews", () => {
                     await withLiveConfig(async () => {
                         expect((await as.post(`/api/resumes/${rid}/review`)).status).toBe(201);
                         const [, rewriteCount] = await statements(() => as.post(`/api/resumes/${rid}/review/rewrite`, { json: { source: "line one" } }));
-                        expect(rewriteCount).toBe(5);
+                        expect(rewriteCount).toBe(4);
                     });
                     await as.delete(`/api/resumes/${rid}`);
 
