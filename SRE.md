@@ -53,7 +53,7 @@ flowchart TD
     J -- "any fail" --> L["search below; confirm again; max 3 rounds; loop to confirm"] -- "loop to confirm" --> J
 ```
 
-## Configuration
+## Configuration (Do not touch)
 
 ### Load generator (the machine that runs k6)
 

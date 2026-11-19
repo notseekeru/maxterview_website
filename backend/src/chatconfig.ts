@@ -1,12 +1,10 @@
 import { chatTurnLimit, SPEND_TURN_SQL, spendChatTurn, utcDay } from "./billing.ts";
-import { resolveConfig } from "./byok.ts";
 import { fetchrow, getPool } from "./db.ts";
 import { HttpError } from "./errors.ts";
 import { type LLMConfig, PRO_CONFIG } from "./llm.ts";
 import type { ClerkUser } from "./models.ts";
 
-export async function chatConfig(user: ClerkUser, tier: string): Promise<LLMConfig> {
-    const base = await resolveConfig(user);
+export function chatConfig(base: LLMConfig, tier: string): LLMConfig {
     if (base.byok || PRO_CONFIG === null) return base;
     return tier === "premium" ? PRO_CONFIG : base;
 }

@@ -210,8 +210,8 @@ function dialGroups(rows: DialRow[]): Record<string, AnalyticsDial[]> {
     for (const [key, labels] of ANALYTICS_DIALS) {
         const values = seen.get(key) ?? new Map<string, Omit<AnalyticsDial, "key" | "label">>();
         seen.delete(key);
-        const ordered = [...Object.keys(labels).filter((value) => values.has(value)), ...[...values.keys()].filter((value) => !(value in labels))];
-        groups[key] = ordered.map((value) => ({ key: value, label: labels[value] ?? value, ...values.get(value)! }));
+        const rank = new Map(Object.keys(labels).map((value, index) => [value, index]));
+        groups[key] = [...values].sort(([a], [b]) => (rank.get(a) ?? Infinity) - (rank.get(b) ?? Infinity)).map(([value, meta]) => ({ key: value, label: labels[value] ?? value, ...meta }));
     }
     return groups;
 }

@@ -1,3 +1,4 @@
+import { strict as assert } from "node:assert";
 import { describe, expect, it } from "vitest";
 import { type Depth, planPhases as dialsPlanPhases } from "../src/dials.ts";
 import { config } from "../src/env.ts";
@@ -701,7 +702,8 @@ describe("llm", () => {
     });
 
     it("valid review clamps a ladder that clears a band it failed", () => {
-        const got = llm.validReview(reviewJson(["passes", "fails", "passes", "passes", "close", "fails"]))!;
+        const got = llm.validReview(reviewJson(["passes", "fails", "passes", "passes", "close", "fails"]));
+        assert.ok(got);
         expect(got.levels.map((level) => level.call)).toEqual(["passes", "fails", "fails", "fails", "fails", "fails"]);
         expect(readsAt(got.levels.map((level) => [level.level, level.call]))).toBe("intern");
     });
@@ -727,7 +729,8 @@ describe("llm", () => {
                 levels: ladder(["passes", "passes", "passes", "passes", "passes", "passes"]).map((level) => ({ ...level, level: level.level[0].toUpperCase() + level.level.slice(1) })),
                 sections: [{ name: "Experience", call: "Strong", note: "numbers" }],
             }),
-        )!;
+        );
+        assert.ok(got);
         expect(got.levels.map((level) => level.level)).toEqual(["intern", "junior", "mid", "senior", "staff", "principal"]);
         expect(got.sections[0].call).toBe("strong");
     });
@@ -746,7 +749,8 @@ describe("llm", () => {
                     { text: 7, call: "weak" },
                 ],
             }),
-        )!;
+        );
+        assert.ok(got);
         // `fine` is a section call, not a line call; a non-string quote is not a line.
         expect(got.lines).toEqual([
             { text: "Cut p99 checkout latency from 40s to 900ms.", call: "strong" },
@@ -757,7 +761,8 @@ describe("llm", () => {
     it("review without lines still grades the page", () => {
         // Additive: the overlay is one pass of four, so a model that paraphrased every line must not cost the
         // candidate their ladder, sections and rewrites.
-        const got = llm.validReview(reviewJson(undefined, { lines: [] }))!;
+        const got = llm.validReview(reviewJson(undefined, { lines: [] }));
+        assert.ok(got);
         expect(got.lines).toEqual([]);
         expect(got.rewrites.length).toBeGreaterThan(0);
     });

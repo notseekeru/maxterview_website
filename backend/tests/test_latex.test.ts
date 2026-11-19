@@ -1,4 +1,4 @@
-import { execFileSync } from "node:child_process";
+import { readdirSync, readFileSync } from "node:fs";
 import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -69,9 +69,16 @@ function withFake<T>(patch: Partial<Config>, body: () => Promise<T>): Promise<T>
 }
 
 function engineProcesses(): string[] {
-    return execFileSync("ps", ["-eo", "args"], { encoding: "utf8" })
-        .split("\n")
-        .filter((line) => line.includes(engineDir) && line.includes("pdflatex"));
+    return readdirSync("/proc")
+        .filter((pid) => /^\d+$/.test(pid))
+        .map((pid) => {
+            try {
+                return readFileSync(`/proc/${pid}/cmdline`, "utf8");
+            } catch {
+                return "";
+            }
+        })
+        .filter((cmdline) => cmdline.includes(engineDir) && cmdline.includes("pdflatex"));
 }
 
 describe("compilePdf", () => {

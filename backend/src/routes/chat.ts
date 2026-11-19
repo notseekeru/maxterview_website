@@ -8,8 +8,8 @@ import { fetch, fetchrow, sql } from "../db.ts";
 import { HttpError, jsonBody as jsonBodyText, validationError } from "../errors.ts";
 import { feedbackCols, feedbackPayload, feedbackRow, generateAndPersistFeedback, syncOffer, upsertFeedback } from "../feedback.ts";
 import { closingLine, failShout, isClosingTurn, isInterviewFinished, judgeAnswer, type LLMConfig, providerHost, streamChat, systemPrompt, unreachableDetail } from "../llm.ts";
-import { log } from "../observability.ts";
 import { type ChatMessage, ChatTurn, Dials, FeedbackCreate, totalComp } from "../models.ts";
+import { log } from "../observability.ts";
 import { bandRange, tier as offerTier, startDate } from "../offer.ts";
 import { FAIL_CLASSES, grade } from "../rating.ts";
 
@@ -216,7 +216,7 @@ chat.post("/interviews/:interview_id/chat/opening", async (c) => {
     if (session.asked) throw new HttpError(409, "This interview has already opened.");
     const tier = await resolveTier(user);
     const config = await resolveConfig(user);
-    const chatModel = await chatConfig(user, tier);
+    const chatModel = chatConfig(config, tier);
     await spendChatTurnOrFail(user, config, tier);
     const history = [systemTurn(session)];
     return streamSSE(c, async (stream) => {
@@ -242,7 +242,7 @@ chat.post("/interviews/:interview_id/chat/send", async (c) => {
     const repair = session.prior.length > 0 && session.prior[session.prior.length - 1].role === "user";
     const tier = await resolveTier(user);
     const config = await resolveConfig(user);
-    const chatModel = await chatConfig(user, tier);
+    const chatModel = chatConfig(config, tier);
     const userMsgId = await spendAndStoreTurn(user, config, tier, interviewId, body.content, repair);
     const prior = repair ? session.prior.slice(0, -1) : session.prior;
 
