@@ -230,8 +230,7 @@ export function Landing() {
                                         <a href="#how">See how it works</a>
                                     </Button>
                                 </m.div>
-                                <m.ul variants={{ hidden: { opacity: 0 }, shown: { opacity: 1, transition: { duration: 0.8, delay: 0.56, staggerChildren: 0.07 } } }} className="mt-8 flex flex-wrap gap-2">
-                                </m.ul>
+                                <m.ul variants={{ hidden: { opacity: 0 }, shown: { opacity: 1, transition: { duration: 0.8, delay: 0.56, staggerChildren: 0.07 } } }} className="mt-8 flex flex-wrap gap-2"></m.ul>
                             </m.div>
 
                             {/* Full-bleed separator where the recorded-run card used to be. It escapes the
