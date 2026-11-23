@@ -751,7 +751,7 @@ describe("interviews", () => {
         };
 
         try {
-            await withConfig({ clerkEnabled: true, clerkJwksUrl: JWKS_URL, byokEncryptionKey: "" }, async () => {
+            await withConfig({ clerkEnabled: true, clerkJwksUrl: JWKS_URL }, async () => {
                 const iid = (await (await as.post("/api/interviews", { json: { role: "Round trips" } })).json<{ id: string }>()).id;
                 try {
                     const [, emptyCount] = await statements(() => as.get(`/api/interviews/${iid}/chat`));

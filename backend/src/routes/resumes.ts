@@ -2,7 +2,6 @@ import { strict as assert } from "node:assert";
 import { type Context, Hono } from "hono";
 import { getCurrentUser } from "../auth.ts";
 import { resolveTier, resumeLimit, type Tier } from "../billing.ts";
-import { resolveConfig } from "../byok.ts";
 import { chatConfig, spendChatTurnOrFail } from "../chatconfig.ts";
 import { fetch, fetchrow, sql } from "../db.ts";
 import { config } from "../env.ts";
@@ -147,11 +146,11 @@ resumes.post("/resumes/:resume_id/review", async (c) => {
     const resumeId = c.req.param("resume_id");
     const user = await getCurrentUser(c);
     const tier = await resolveTier(user);
-    const config = chatConfig(await resolveConfig(user), tier);
+    const config = chatConfig(tier);
     const row = await fetchrow(sql`SELECT text FROM resumes WHERE id = ${resumeId} AND owner_id = ${user.sub}`);
     if (row === undefined) throw resumeNotFound();
     if (isStub(config)) throw new HttpError(503, "No scoring engine is configured on this deployment, so a review cannot run.");
-    await spendChatTurnOrFail(user, config, tier);
+    await spendChatTurnOrFail(user, tier);
     const got = await reviewResume(row.text as string, config);
     if (got === null) throw new HttpError(503, "The reviewer could not read this resume right now. Try again in a moment.");
     const saved = await fetchrow(sql`
@@ -169,7 +168,7 @@ resumes.post("/resumes/:resume_id/review/rewrite", async (c) => {
     const body = ReviewRewriteRequest.safeParse(await jsonBody(c));
     if (!body.success) throw validationError(body.error);
     const tier = await resolveTier(user);
-    const config = chatConfig(await resolveConfig(user), tier);
+    const config = chatConfig(tier);
     const row = await fetchrow(sql`
         SELECT r.text, rr.review
         FROM resumes r
@@ -186,7 +185,7 @@ resumes.post("/resumes/:resume_id/review/rewrite", async (c) => {
     const current = row.review as ReviewDraft | null;
     if (current === null) throw new HttpError(409, "Review this resume first: there is no edit to retry.");
     if (isStub(config)) throw new HttpError(503, "No scoring engine is configured on this deployment, so an edit cannot be retried.");
-    await spendChatTurnOrFail(user, config, tier);
+    await spendChatTurnOrFail(user, tier);
     const got = await rewriteLine(text, source, config);
     if (got === null) throw new HttpError(503, "The reviewer could not write a different line right now. Try again in a moment.");
     const stored = { ...current, rewrites: [{ source, rewrite: got }, ...(current.rewrites ?? []).filter((item) => item.source !== source)].slice(0, MAX_REWRITES) };

@@ -5,14 +5,14 @@ import type { ClerkUser } from "./models.ts";
 
 export type Tier = "free" | "premium" | "dev";
 
-type QuotaName = "chat_turns" | "byok_turns" | "resumes" | "redos";
+type QuotaName = "chat_turns" | "resumes" | "redos";
 
 // Daily GLOBAL chat-turn credits PER OWNER, across all interviews in one UTC day.
 function limits(): Record<Tier, Record<QuotaName, number>> {
     return {
-        free: { chat_turns: config.freeChatTurns, byok_turns: config.byokChatTurns, resumes: config.freeResumes, redos: config.freeRedos },
-        premium: { chat_turns: config.premiumChatTurns, byok_turns: config.byokPremiumChatTurns, resumes: config.premiumResumes, redos: config.premiumRedos },
-        dev: { chat_turns: config.devChatTurns, byok_turns: config.byokPremiumChatTurns, resumes: config.devResumes, redos: config.devRedos },
+        free: { chat_turns: config.freeChatTurns, resumes: config.freeResumes, redos: config.freeRedos },
+        premium: { chat_turns: config.premiumChatTurns, resumes: config.premiumResumes, redos: config.premiumRedos },
+        dev: { chat_turns: config.devChatTurns, resumes: config.devResumes, redos: config.devRedos },
     };
 }
 
@@ -43,27 +43,26 @@ export function tierFrom(user: ClerkUser, entitled: boolean): Tier {
     return user.tier === "premium" || entitled ? "premium" : "free";
 }
 
-export type UsageState = { turns: number; byok: boolean; premium_until: string | null };
+export type UsageState = { turns: number; premium_until: string | null };
 
 export async function usageState(user: ClerkUser): Promise<UsageState> {
     const row = await fetchrow(sql`
         SELECT (SELECT turns FROM turn_usage WHERE owner_id = ${user.sub} AND day = ${utcDay()}) AS turns,
-               EXISTS(SELECT 1 FROM llm_credentials WHERE owner_id = ${user.sub}) AS byok,
                (SELECT current_period_end FROM subscriptions
                  WHERE owner_id = ${user.sub} AND plan = 'premium'
                    AND status = ANY(${ENTITLED_STATUSES}::text[])
                    AND (current_period_end IS NULL OR current_period_end > now())) AS premium_until
         `);
     assert(row !== undefined);
-    return { turns: row.turns ?? 0, byok: Boolean(row.byok), premium_until: row.premium_until ?? null };
+    return { turns: row.turns ?? 0, premium_until: row.premium_until ?? null };
 }
 
 export async function premiumUntil(ownerId: string): Promise<string | null> {
     return (await entitledRow(ownerId))?.current_period_end ?? null;
 }
 
-export function chatTurnLimit(tier: string, byok = false): number {
-    return quota(tier, byok ? "byok_turns" : "chat_turns");
+export function chatTurnLimit(tier: string): number {
+    return quota(tier, "chat_turns");
 }
 
 export function redoLimit(tier: string): number {

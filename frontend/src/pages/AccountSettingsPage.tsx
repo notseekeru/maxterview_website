@@ -78,7 +78,6 @@ function planLine(usage: Usage | null, failed: boolean, loading: boolean, tierLa
     if (loading) return "Loading…";
     if (failed || !usage) return "Couldn’t load your plan. Refresh to retry.";
     if (usage.tier === "dev") return "Dev mode: no Clerk key, so runs bill to the backend DEV_USER.";
-    if (usage.byok) return "Your own provider key pays for these turns.";
     return `You are on ${tierLabel}.`;
 }
 

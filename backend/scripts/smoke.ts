@@ -1,6 +1,6 @@
 import { strict as assert } from "node:assert";
 import { execFileSync } from "node:child_process";
-import { createHmac, randomBytes, randomUUID } from "node:crypto";
+import { createHmac, randomUUID } from "node:crypto";
 import dc from "node:diagnostics_channel";
 import { createServer, type Server, type ServerResponse } from "node:http";
 import { join } from "node:path";
@@ -15,8 +15,6 @@ const DSN = `${BASE_DSN.slice(0, BASE_DSN.lastIndexOf("/") + 1)}${DB_NAME}`;
 
 const ALICE = "smoke-alice";
 const BOB = "smoke-bob";
-const BYOK_KEY = "sk-smoke-byok-key-0001";
-const BYOK_MODEL = "byok-smoke-model";
 const LATEX = "\\documentclass{article}\\begin{document}Smoke test.\\end{document}";
 
 const STREAM_DELTAS = ["Tell me about the last system you owned end to end. ", "What broke, and what did you change after it?"];
@@ -40,7 +38,6 @@ type Frame = { event: string; data: string };
 const legs: Leg[] = [];
 let origin = "";
 let queries = 0;
-let stubUrl = "";
 let stubCalls: StubCall[] = [];
 
 function json(reply: Reply): Record<string, unknown> {
@@ -111,8 +108,6 @@ function applyEnv(stubUrl: string): void {
         LLM_PRO_API_KEY: "smoke-system-key",
         LLM_GRADER_BASE_URL: `${stubUrl}/v1`,
         LLM_GRADER_MODEL: "smoke-grader-model",
-        BYOK_ENCRYPTION_KEY: randomBytes(32).toString("base64url"),
-        BYOK_ALLOW_PRIVATE_HOSTS: "true",
     };
     for (const [key, value] of Object.entries(values)) process.env[key] = value;
 }
@@ -294,32 +289,6 @@ async function runLegs(): Promise<void> {
         return { status: "PASS", detail: "text extracted, preview compiled" };
     });
 
-    await runLeg("f BYOK", async () => {
-        const saved = await request("PUT", "/settings/llm", { sub: ALICE, json: { base_url: `${stubUrl}/v1`, model: BYOK_MODEL, api_key: BYOK_KEY } });
-        assert.equal(saved.status, 200, `PUT /settings/llm answered ${saved.status}: ${saved.text.slice(0, 200)}`);
-        assert.equal(json(saved).enabled, true, "BYOK reports disabled after a save");
-        const before = stubCalls.length;
-        const created = await request("POST", "/interviews", { sub: ALICE, json: { role: "Platform Engineer", level: "staff", depth: "standard" } });
-        assert.equal(created.status, 201, `POST /interviews answered ${created.status}`);
-        const byokInterview = String(json(created).id);
-        const started = await request("POST", `/interviews/${byokInterview}/start`, { sub: ALICE });
-        assert.equal(started.status, 200, `POST /interviews/:id/start answered ${started.status}`);
-        delivered(await sse(`/interviews/${byokInterview}/chat/opening`, ALICE), "BYOK chat/opening");
-        const byokCalls = stubCalls.slice(before).filter((call) => call.authorization === `Bearer ${BYOK_KEY}`);
-        assert.ok(
-            byokCalls.length > 0,
-            `the stub saw no request carrying the saved BYOK key (${stubCalls
-                .slice(before)
-                .map((call) => call.authorization)
-                .join(", ")})`,
-        );
-        assert.ok(
-            byokCalls.some((call) => call.model === BYOK_MODEL),
-            `the stub was called with ${byokCalls.map((call) => call.model).join(", ")} instead of ${BYOK_MODEL}`,
-        );
-        return { status: "PASS", detail: `chat went out on ${BYOK_MODEL} with the saved key` };
-    });
-
     await runLeg("g paymongo checkout + webhook", async () => {
         const webhookSecret = process.env.PAYMONGO_WEBHOOK_SECRET ?? "";
         if ((process.env.PAYMONGO_SECRET_KEY ?? "") === "" || webhookSecret === "") return { status: "SKIP", detail: "SKIPPED, no PayMongo keys" };
@@ -352,7 +321,6 @@ async function runLegs(): Promise<void> {
 
 async function main(): Promise<void> {
     const stub = await startStub();
-    stubUrl = stub.url;
     stubCalls = stub.calls;
     applyEnv(stub.url);
     await createDatabase();

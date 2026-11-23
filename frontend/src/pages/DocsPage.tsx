@@ -11,7 +11,7 @@ export function DocsPage() {
                     <li>Interviews: review, reopen or delete past sessions.</li>
                     <li>Resume: keep role-specific resumes so the interviewer asks about your actual background.</li>
                     <li>Analytics: accuracy trend, move breakdown, dial comparisons and your offer letters.</li>
-                    <li>Settings → System: theme and your own model key (BYOK), which raises the daily ceiling.</li>
+                    <li>Settings → System: theme.</li>
                     <li>Settings → Account: your sign-in, plus a plan summary.</li>
                     <li>Settings → Billing: compare Free and {PLANS.premium.name} and upgrade.</li>
                 </ul>

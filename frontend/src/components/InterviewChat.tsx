@@ -20,7 +20,7 @@ interface Props {
 }
 
 const STREAM_FAILED = "The interviewer couldn't answer just now: the model was unreachable. Your turn wasn't saved, so send it again in a moment.";
-const CONNECTION_LOST = "Connection lost while streaming. The model never answered. If this repeats, test your provider in Settings > Interview engine (BYOK).";
+const CONNECTION_LOST = "Connection lost while streaming. The model never answered. If this repeats, try again in a moment.";
 
 const STATUS_LABELS = { loading: "Starting", ready: "In progress", streaming: "Interviewer is replying", completed: "Finished" } as const;
 

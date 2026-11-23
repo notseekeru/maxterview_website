@@ -35,11 +35,6 @@ export function UsageBadge() {
         <div className="flex min-w-0 flex-col gap-1">
             <div className="flex flex-wrap items-center gap-2">
                 {!clerkEnabled && !isDev && <Badge className="bg-muted text-muted-foreground">DEV</Badge>}
-                {usage.byok && (
-                    <Badge variant="secondary" title={`Your own provider key pays for the turns: a higher daily ceiling applies (${today?.limit ?? 0} turns).`}>
-                        BYOK
-                    </Badge>
-                )}
                 {tierBadge}
             </div>
             {today && (
@@ -62,7 +57,7 @@ export function UpgradeNotice() {
     }, []);
 
     const paid = usage?.tier === "premium" || usage?.tier === "dev";
-    const body = !usage ? "Turns come back at 00:00 UTC." : paid ? "Every turn in today's allowance is spent. It comes back at 00:00 UTC." : usage.byok ? "Free runs on a modest ceiling even on your own key. Pro raises it." : "Free runs on a small daily allowance. Pro raises it, and gives you more room for resumes.";
+    const body = !usage ? "Turns come back at 00:00 UTC." : paid ? "Every turn in today's allowance is spent. It comes back at 00:00 UTC." : "Free runs on a small daily allowance. Pro raises it, and gives you more room for resumes.";
 
     return (
         <div className="flex flex-col items-start gap-3 rounded-xl border border-dashed bg-muted/50 p-4 text-sm">

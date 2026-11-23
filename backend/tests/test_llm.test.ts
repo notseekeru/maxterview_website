@@ -76,10 +76,10 @@ function reviewJson(calls: readonly string[] = ["passes", "passes", "passes", "c
 }
 
 describe("llm", () => {
-    it("unreachable detail names the endpoint a byok owner can fix", () => {
-        const cfg = llm.llmConfig({ base_url: "https://old-llama.example.ts.net/v1", model: "qwen", byok: true });
+    it("unreachable detail names the endpoint", () => {
+        const cfg = llm.llmConfig({ base_url: "https://llama.example.ts.net/v1", model: "qwen" });
         // Node reports a dead host as a TypeError carrying the socket error, where httpx raised ConnectError.
-        expect(llm.unreachableDetail(new TypeError("fetch failed", { cause: new Error("boom") }), cfg)).toBe("Could not reach your provider (old-llama.example.ts.net) - TypeError. Test it in Settings > Interview engine (BYOK).");
+        expect(llm.unreachableDetail(new TypeError("fetch failed", { cause: new Error("boom") }), cfg)).toBe("Could not reach the deployment's provider (llama.example.ts.net) - TypeError. Try again in a moment.");
         expect(llm.unreachableDetail(new Error("no reply"), cfg)).toBeNull();
     });
 

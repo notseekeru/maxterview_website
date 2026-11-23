@@ -397,7 +397,7 @@
       "for": "2m",
       "keep_firing_for": "0s",
       "annotations": {
-        "description": "Fires above 3 on error-level lines that are not a model failure: sum(count_over_time({app=\"{{APP}}\"} | json | level=\"error\" | event!~\"llm[.]\" [10m])). What is left there is uvicorn's unhandled tracebacks and a BYOK key that failed to load; the model failures that also log at error level belong to {{PROJECT}}: model failures, so excluding them keeps one failure out of two rules.",
+        "description": "Fires above 3 on error-level lines that are not a model failure: sum(count_over_time({app=\"{{APP}}\"} | json | level=\"error\" | event!~\"llm[.]\" [10m])). What is left there is uvicorn's unhandled tracebacks; the model failures that also log at error level belong to {{PROJECT}}: model failures, so excluding them keeps one failure out of two rules.",
         "summary": "{{PROJECT}}: backend tracebacks"
       },
       "labels": {

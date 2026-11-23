@@ -1,5 +1,4 @@
 import { Icon } from "@/components/AppIcons";
-import { LLMProviderCard } from "@/components/LLMProviderCard";
 import { Page } from "@/components/PagePrimitives";
 import { Card, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { useTheme } from "@/hooks/useTheme";
@@ -36,8 +35,6 @@ export function SystemSettingsPage() {
                     ))}
                 </CardFooter>
             </Card>
-
-            <LLMProviderCard />
         </Page>
     );
 }

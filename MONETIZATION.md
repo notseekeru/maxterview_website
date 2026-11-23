@@ -32,8 +32,7 @@ Decisions: PLAN D10 (owner-scoping is a hard rule).
   a lie.
 - **Feedback is not feature-gated** — same quality across tiers. The turn cap is the cost lever.
   The up-tier is the interview turn only (`LLM_PRO_MODEL`, empty = every tier on `LLM_MODEL`); the
-  grader and formatter stay shared, so a review never depends on what the owner paid. A BYOK row
-  still wins over both (`BYOK.md`).
+  grader and formatter stay shared, so a review never depends on what the owner paid.
 - Billing is **one payment at a time**, single-user: period mode sells 30 days and does not
   auto-renew. PayMongo bills in PHP only; we handle tax (no merchant-of-record).
 
@@ -57,15 +56,13 @@ Decisions: PLAN D10 (owner-scoping is a hard rule).
   credits across ALL their interviews. The review is deliberately NOT metered: `POST /interviews/{id}/finish`
   runs the whole feedback pipeline (grader, formatter, per-turn annotator) without spending a credit.
   Rebuilding it IS metered (`/feedback/generate`, §0 redos).
-- **BYOK swaps the cap, it does not waive it**: contract and rationale are owned by `BYOK.md`
-  (Quota) — one owner, because `billing.py`, `byok.py` and the settings panel all cite it.
 - **Overage → lockout:** block new turns only. **Never delete, truncate, or hide existing user
   data** — reads stay fully available. Hard rule.
 - **No cache-aside** for the counters (DB-backed, per-user, low-frequency). `tier` is cached in the
   JWT; JWKS in `auth.py`.
-- **`GET /billing/usage`** returns `tier`, the EFFECTIVE cap (`chat_turns_per_day_<tier>`, or that tier's
-  BYOK ceiling when the caller brings a key), `chat_turns_used_today` / `chat_turns_remaining_today`,
-  `byok`, plus `billing_mode` and `premium_until` (period mode has no renewal for the UI to infer an
+- **`GET /billing/usage`** returns `tier`, the EFFECTIVE cap (`chat_turns_per_day_<tier>`),
+  `chat_turns_used_today` / `chat_turns_remaining_today`, plus `billing_mode` and `premium_until`
+  (period mode has no renewal for the UI to infer an
   expiry from, so the server states it). The account menu shows the tier and the day's turns via `UsageBadge`, read when it is opened.
 
 ## 3. Provider — PayMongo (period top-up shipped; subscriptions dormant)

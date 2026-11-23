@@ -29,7 +29,7 @@ prod backend writes. There is no cluster access from this workspace; this is the
 
 `backend/migrations/*.sql`. Prod tables worth knowing by name: `interviews`, `messages`
 (transcript), `feedback` (scores, verdict, tips), `subscriptions`, `turn_usage`,
-`llm_credentials`, `offers`, `resumes`, `interview_templates`, `template_seeds`.
+`offers`, `resumes`, `interview_templates`, `template_seeds`.
 
 ## Known prod owners
 

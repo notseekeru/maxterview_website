@@ -450,7 +450,6 @@ export interface Usage {
     chat_turns_per_day_dev?: number;
     chat_turns_used_today?: number;
     chat_turns_remaining_today?: number;
-    byok?: boolean;
     billing_mode?: "period" | "subscription";
     premium_until?: string | null;
     resume_limit?: number;
@@ -538,42 +537,6 @@ export async function startUpgrade(): Promise<Checkout> {
 
 export async function cancelUpgrade(): Promise<void> {
     await api.post("/billing/cancel");
-}
-
-// BYOK: per-user LLM provider, mirrors backend app/byok.py.
-
-export interface LLMProviderStatus {
-    enabled: boolean;
-    byok: boolean;
-    base_url: string;
-    model: string;
-    key_hint: string | null;
-    system: { configured: boolean; base_url: string; model: string };
-}
-
-interface LLMProviderInput {
-    base_url: string;
-    model: string;
-    api_key?: string;
-}
-
-export async function getLLMProvider(): Promise<LLMProviderStatus> {
-    const { data } = await api.get<LLMProviderStatus>("/settings/llm");
-    return data;
-}
-
-export async function saveLLMProvider(input: LLMProviderInput): Promise<LLMProviderStatus> {
-    const { data } = await api.put<LLMProviderStatus>("/settings/llm", input);
-    return data;
-}
-
-export async function clearLLMProvider(): Promise<void> {
-    await api.delete("/settings/llm");
-}
-
-export async function testLLMProvider(): Promise<{ ok: boolean; detail: string }> {
-    const { data } = await api.post<{ ok: boolean; detail: string }>("/settings/llm/test");
-    return data;
 }
 
 // The backend caps a chat turn (models.ChatTurn); the UI enforces the same bound.

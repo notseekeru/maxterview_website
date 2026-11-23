@@ -1,7 +1,6 @@
-import { resolveConfig } from "./byok.ts";
 import { fetch, fetchrow, sql } from "./db.ts";
-import { generateFeedback, judgeAnswer, type LLMConfig } from "./llm.ts";
-import { type ChatMessage, type ClerkUser, Dials, HIRING_DECISIONS, type Move } from "./models.ts";
+import { generateFeedback, judgeAnswer, type LLMConfig, SYSTEM_CONFIG } from "./llm.ts";
+import { type ChatMessage, Dials, HIRING_DECISIONS, type Move } from "./models.ts";
 import { withSpan } from "./observability.ts";
 import { terms } from "./offer.ts";
 import { accuracy, FAIL_CLASSES, grade } from "./rating.ts";
@@ -180,13 +179,13 @@ async function attemptFeedback(interviewId: string, config: LLMConfig): Promise<
     });
 }
 
-export async function generateAndPersistFeedback(interviewId: string, user: ClerkUser): Promise<Record<string, unknown> | null> {
-    return await attemptFeedback(interviewId, await resolveConfig(user));
+export async function generateAndPersistFeedback(interviewId: string): Promise<Record<string, unknown> | null> {
+    return await attemptFeedback(interviewId, SYSTEM_CONFIG);
 }
 
-export async function autoGenerateAndPersistFeedback(interviewId: string, config: LLMConfig): Promise<void> {
+export async function autoGenerateAndPersistFeedback(interviewId: string): Promise<void> {
     for (let attempt = 0; attempt < COMPLETE_MAX_FEEDBACK_ATTEMPTS; attempt += 1) {
-        if ((await attemptFeedback(interviewId, config)) !== null) return;
+        if ((await attemptFeedback(interviewId, SYSTEM_CONFIG)) !== null) return;
         if (attempt < COMPLETE_MAX_FEEDBACK_ATTEMPTS - 1) await sleep(COMPLETE_FEEDBACK_BACKOFF_MS);
     }
 }

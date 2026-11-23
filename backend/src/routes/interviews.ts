@@ -3,7 +3,6 @@ import { Hono } from "hono";
 import type { Row } from "postgres";
 import { z } from "zod";
 import { getCurrentUser } from "../auth.ts";
-import { resolveConfig } from "../byok.ts";
 import { fetch, fetchrow, getPool } from "../db.ts";
 import { DIAL_FIELDS, planPhases } from "../dials.ts";
 import { HttpError, jsonBody as jsonBodyText, validationError } from "../errors.ts";
@@ -167,10 +166,9 @@ interviews.post("/interviews/:interview_id/start", async (c) => {
 interviews.post("/interviews/:interview_id/finish", async (c) => {
     const user = await getCurrentUser(c);
     const interviewId = c.req.param("interview_id");
-    const llmConfig = await resolveConfig(user);
     const row = await fetchrow(unsafe(FINISH, interviewId, user.sub));
     if (row === undefined) throw await finishError(interviewId, user.sub);
     const interview = toInterview(row);
-    await autoGenerateAndPersistFeedback(interviewId, llmConfig);
+    await autoGenerateAndPersistFeedback(interviewId);
     return c.json(interview);
 });

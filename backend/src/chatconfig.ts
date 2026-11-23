@@ -1,24 +1,18 @@
 import { chatTurnLimit, SPEND_TURN_SQL, spendChatTurn, utcDay } from "./billing.ts";
 import { fetchrow, getPool } from "./db.ts";
 import { HttpError } from "./errors.ts";
-import { type LLMConfig, PRO_CONFIG } from "./llm.ts";
+import { type LLMConfig, PRO_CONFIG, SYSTEM_CONFIG } from "./llm.ts";
 import type { ClerkUser } from "./models.ts";
 
-export function chatConfig(base: LLMConfig, tier: string): LLMConfig {
-    if (base.byok || PRO_CONFIG === null) return base;
-    return tier === "premium" ? PRO_CONFIG : base;
+export function chatConfig(tier: string): LLMConfig {
+    return tier === "premium" && PRO_CONFIG !== null ? PRO_CONFIG : SYSTEM_CONFIG;
 }
 
-export function lockoutDetail(tier: string, byok: boolean, limit: number): string {
-    if (!byok) return "Daily chat-turn credits reached. Try again after midnight UTC, or upgrade to Pro.";
-    const pro = chatTurnLimit("premium", true);
-    return `Daily chat-turn limit reached (${limit} turns/day on your own provider). Try again after midnight UTC.${tier === "free" ? ` Pro raises it to ${pro}.` : ""}`;
-}
+const LOCKOUT = "Daily chat-turn credits reached. Try again after midnight UTC, or upgrade to Pro.";
 
 // main.py's _spend_chat_turn: the turn is charged before the call, because a provider timeout is the price of asking.
-export async function spendChatTurnOrFail(user: ClerkUser, config: LLMConfig, tier: string): Promise<void> {
-    const limit = chatTurnLimit(tier, config.byok);
-    if (!(await spendChatTurn(user.sub, limit))) throw new HttpError(402, lockoutDetail(tier, config.byok, limit));
+export async function spendChatTurnOrFail(user: ClerkUser, tier: string): Promise<void> {
+    if (!(await spendChatTurn(user.sub, chatTurnLimit(tier)))) throw new HttpError(402, LOCKOUT);
 }
 
 export const CHAT_TURN_SQL = `
@@ -39,9 +33,8 @@ export const CHAT_TURN_SQL = `
         `;
 
 // main.py's _spend_and_store_turn: one statement, so a spent turn and its stored user turn cannot disagree.
-export async function spendAndStoreTurn(user: ClerkUser, config: LLMConfig, tier: string, interviewId: string, content: string, repair: boolean): Promise<string> {
-    const limit = chatTurnLimit(tier, config.byok);
-    const row = await fetchrow(getPool().unsafe<{ id: string }[]>(CHAT_TURN_SQL, [user.sub, utcDay(), limit, content, interviewId, repair]));
-    if (row === undefined) throw new HttpError(402, lockoutDetail(tier, config.byok, limit));
+export async function spendAndStoreTurn(user: ClerkUser, tier: string, interviewId: string, content: string, repair: boolean): Promise<string> {
+    const row = await fetchrow(getPool().unsafe<{ id: string }[]>(CHAT_TURN_SQL, [user.sub, utcDay(), chatTurnLimit(tier), content, interviewId, repair]));
+    if (row === undefined) throw new HttpError(402, LOCKOUT);
     return row.id;
 }

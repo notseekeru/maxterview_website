@@ -1,10 +1,8 @@
 import { type Context, Hono } from "hono";
 import { getCurrentUser } from "../auth.ts";
 import * as billing from "../billing.ts";
-import * as byok from "../byok.ts";
 import { config } from "../env.ts";
-import { HttpError, jsonBody as jsonBodyText, validationError } from "../errors.ts";
-import { LLMProviderUpdate } from "../models.ts";
+import { HttpError, jsonBody as jsonBodyText } from "../errors.ts";
 import * as paymongo from "../paymongo.ts";
 
 export const settings = new Hono();
@@ -22,15 +20,13 @@ settings.get("/billing/usage", async (c) => {
     const user = await getCurrentUser(c);
     const state = await billing.usageState(user);
     const tier = billing.tierFrom(user, state.premium_until !== null);
-    const byokEnabled = state.byok && byok.enabled();
-    const chat = billing.chatTurnLimit(tier, byokEnabled);
+    const chat = billing.chatTurnLimit(tier);
     const used = state.turns;
     return c.json({
         tier,
         [`chat_turns_per_day_${tier}`]: chat,
         chat_turns_used_today: used,
         chat_turns_remaining_today: Math.max(0, chat - used),
-        byok: byokEnabled,
         resume_limit: billing.resumeLimit(tier),
         billing_mode: config.billingMode,
         premium_until: tier === "premium" ? state.premium_until : null,
@@ -68,31 +64,4 @@ settings.post("/billing/cancel", async (c) => {
     const user = await getCurrentUser(c);
     await paymongo.cancelRenewal(user);
     return c.json({ ok: true });
-});
-
-// publicView carries key_hint (the last four characters); the key itself never leaves byok.ts.
-settings.get("/settings/llm", async (c) => {
-    const user = await getCurrentUser(c);
-    return c.json(await byok.publicView(user));
-});
-
-// byok.save raises the 503 DISABLED_DETAIL when no BYOK_ENCRYPTION_KEY is set; reads stay unguarded so
-// the client can render `enabled: false` instead of an error.
-settings.put("/settings/llm", async (c) => {
-    const user = await getCurrentUser(c);
-    const parsed = LLMProviderUpdate.safeParse(jsonBodyText(await c.req.text()));
-    if (!parsed.success) throw validationError(parsed.error, "body");
-    await byok.save(user.sub, parsed.data.base_url, parsed.data.model, parsed.data.api_key);
-    return c.json(await byok.publicView(user));
-});
-
-settings.delete("/settings/llm", async (c) => {
-    const user = await getCurrentUser(c);
-    await byok.clear(user.sub);
-    return c.body(null, 204);
-});
-
-settings.post("/settings/llm/test", async (c) => {
-    const user = await getCurrentUser(c);
-    return c.json(await byok.test(user));
 });

@@ -174,15 +174,6 @@ describe("billing dials", () => {
         expect(chatTurnLimit("free")).toBe(config.freeChatTurns);
     });
 
-    it("swaps the byok ceiling in for the tier cap", () => {
-        expect(chatTurnLimit("free")).toBe(config.freeChatTurns);
-        expect(chatTurnLimit("free", true)).toBe(config.byokChatTurns);
-        expect(chatTurnLimit("premium", true)).toBe(config.byokPremiumChatTurns);
-        expect(chatTurnLimit("dev", true)).toBe(config.byokPremiumChatTurns);
-        expect(config.byokChatTurns).toBeGreaterThan(config.premiumChatTurns);
-        expect(config.byokPremiumChatTurns).toBeGreaterThan(config.byokChatTurns);
-    });
-
     it("falls back to dev when clerk is off", async () => {
         await withConfig({ clerkEnabled: false }, async () => {
             expect(await resolveTier(ClerkUser.parse({ sub: `${OWNER}-dev`, tier: "free" }))).toBe("dev");

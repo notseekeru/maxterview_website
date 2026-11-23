@@ -20,8 +20,6 @@ export type Config = {
     freeChatTurns: number;
     premiumChatTurns: number;
     devChatTurns: number;
-    byokChatTurns: number;
-    byokPremiumChatTurns: number;
     freeResumes: number;
     premiumResumes: number;
     devResumes: number;
@@ -37,9 +35,6 @@ export type Config = {
     premiumPriceCentavos: number;
     premiumPeriodDays: number;
     frontendBaseUrl: string;
-
-    byokAllowPrivateHosts: boolean;
-    byokEncryptionKey: string;
 
     llmBaseUrl: string;
     llmModel: string;
@@ -133,8 +128,6 @@ export function readConfig(env: Env = process.env): Config {
         freeChatTurns: int(env, "FREE_CHAT_TURNS", 30),
         premiumChatTurns: int(env, "PREMIUM_CHAT_TURNS", 300),
         devChatTurns: int(env, "DEV_CHAT_TURNS", 100000000),
-        byokChatTurns: int(env, "BYOK_CHAT_TURNS", 600),
-        byokPremiumChatTurns: int(env, "BYOK_PREMIUM_CHAT_TURNS", 5000),
         freeResumes: int(env, "FREE_RESUMES", 1),
         premiumResumes: int(env, "PREMIUM_RESUMES", 10),
         devResumes: int(env, "DEV_RESUMES", 10),
@@ -150,9 +143,6 @@ export function readConfig(env: Env = process.env): Config {
         premiumPriceCentavos: int(env, "PREMIUM_PRICE_CENTAVOS", 9900),
         premiumPeriodDays: int(env, "PREMIUM_PERIOD_DAYS", 30),
         frontendBaseUrl: str(env, "FRONTEND_BASE_URL", "http://localhost:5173"),
-
-        byokAllowPrivateHosts: bool(env, "BYOK_ALLOW_PRIVATE_HOSTS", false),
-        byokEncryptionKey: str(env, "BYOK_ENCRYPTION_KEY", "").trim(),
 
         llmBaseUrl,
         llmModel,

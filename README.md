@@ -17,7 +17,6 @@ Docs:
 - `PLAN.md` — binding decisions and open milestones
 - `MONETIZATION.md` — billing spec (quotas + PayMongo period top-up, shipped)
 - `docs/interview-structure.md` — the interview's phases and the research behind each one
-- `BYOK.md` — per-owner LLM provider keys (settings panel → `/settings/system`)
 - `OBSERVABILITY.md` — what telemetry ships, and what is deliberately parked
 - `VOICE.md` — voice: Cloudflare free tier, one engine, TTS + STT shipped and live in prod
 
@@ -80,7 +79,6 @@ only need the vars for the features you actually use. Check which are set (names
 | Headless Clerk ops (mint users/sessions)   | `CLERK_SECRET_KEY=sk_test_…`                                        | —                                                      | `docker exec -e CLERK_SECRET_KEY="$CLERK_SECRET_KEY" maxterview_frontend_dev sh -c 'cd /tmp && npx clerk api users'`                   |
 | PayMongo ₱99 → premium row (30 days)       | `PAYMONGO_SECRET_KEY` (`sk_test_…`), `PAYMONGO_WEBHOOK_SECRET`      | —                                                      | upgrade in the UI → QR Ph code, scanned in any wallet/bank app; dev instead: POST `/api/billing/webhook/simulate` (no tunnel, no keys) |
 | Real AI interviewer chat + auto-feedback   | `LLM_BASE_URL`, `LLM_MODEL`, `LLM_PRO_MODEL`, `LLM_API_KEY`         | —                                                      | empty → deterministic STUB (model-free tests/dev)                                                                                      |
-| BYOK (own provider key)                    | `BYOK_ENCRYPTION_KEY`                                               | —                                                      | `BYOK.md`                                                                                                                              |
 | Observability (logs, metrics, traces)      | `OTEL_EXPORTER_OTLP_ENDPOINT` (empty = logs only, no SDK)           | prod: Loki + Tempo + Prometheus, wired in gitops       | `make logs` in dev; prod is `OBSERVABILITY.md`                                                                                         |
 | Voice: interviewer speaks, answers dictate | `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN` (Workers AI - Read) | —                                                      | `VOICE.md`. Empty → the chat surface disables both controls and says why instead of failing on click                                   |
 | Resume review + LaTeX preview              | _(nothing)_                                                         | —                                                      | pdflatex ships in `backend/Dockerfile`; a `\documentclass` resume renders a live PDF with the audit's weak and strong lines marked, and Open hands it to the browser viewer for zoom and search. Anything else is plain text, one Convert to LaTeX click away. Tunable with `LATEX_*` |

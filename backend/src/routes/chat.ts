@@ -2,12 +2,11 @@ import { Hono } from "hono";
 import { type SSEStreamingApi, streamSSE } from "hono/streaming";
 import { getCurrentUser } from "../auth.ts";
 import { redoLimit, resolveTier } from "../billing.ts";
-import { resolveConfig } from "../byok.ts";
 import { chatConfig, spendAndStoreTurn, spendChatTurnOrFail } from "../chatconfig.ts";
 import { fetch, fetchrow, sql } from "../db.ts";
 import { HttpError, jsonBody as jsonBodyText, validationError } from "../errors.ts";
 import { feedbackCols, feedbackPayload, feedbackRow, generateAndPersistFeedback, syncOffer, upsertFeedback } from "../feedback.ts";
-import { closingLine, failShout, isClosingTurn, isInterviewFinished, judgeAnswer, type LLMConfig, providerHost, streamChat, systemPrompt, unreachableDetail } from "../llm.ts";
+import { closingLine, failShout, isClosingTurn, isInterviewFinished, judgeAnswer, type LLMConfig, providerHost, SYSTEM_CONFIG, streamChat, systemPrompt, unreachableDetail } from "../llm.ts";
 import { type ChatMessage, ChatTurn, Dials, FeedbackCreate, totalComp } from "../models.ts";
 import { log } from "../observability.ts";
 import { bandRange, tier as offerTier, startDate } from "../offer.ts";
@@ -103,7 +102,7 @@ async function replyFrames(stream: SSEStreamingApi, config: LLMConfig, history: 
         if (error instanceof ClientGone) throw error;
         // Model or DB failure while the turn is in flight: whatever the caller wrote first must not
         // outlive it, or the next send duplicates it (see the reply path's trailing-user-turn repair).
-        log.warning("llm.chat.failed", { interview_id: interviewId, model: config.model, byok: config.byok, provider: providerHost(config), asked, reason: errorName(error), latency_ms: elapsed(started) });
+        log.warning("llm.chat.failed", { interview_id: interviewId, model: config.model, provider: providerHost(config), asked, reason: errorName(error), latency_ms: elapsed(started) });
         if (onError !== undefined) await onError();
         // The client shows this verbatim: an unreachable provider is the one failure its owner can
         // fix themselves, and "ConnectError" is not that sentence.
@@ -202,7 +201,7 @@ chat.post("/interviews/:interview_id/feedback/generate", async (c) => {
         const upsell = tier === "free";
         throw new HttpError(upsell ? 402 : 409, upsell ? `${spent} Pro raises that limit.` : spent);
     }
-    if ((await generateAndPersistFeedback(interviewId, user)) === null) {
+    if ((await generateAndPersistFeedback(interviewId)) === null) {
         throw new HttpError(503, "Scoring model could not produce feedback right now; try again later.");
     }
     await fetchrow(sql`UPDATE feedback SET redos = redos + 1 WHERE interview_id = ${interviewId}`);
@@ -215,9 +214,8 @@ chat.post("/interviews/:interview_id/chat/opening", async (c) => {
     const session = await chatSession(interviewId, user.sub);
     if (session.asked) throw new HttpError(409, "This interview has already opened.");
     const tier = await resolveTier(user);
-    const config = await resolveConfig(user);
-    const chatModel = chatConfig(config, tier);
-    await spendChatTurnOrFail(user, config, tier);
+    const chatModel = chatConfig(tier);
+    await spendChatTurnOrFail(user, tier);
     const history = [systemTurn(session)];
     return streamSSE(c, async (stream) => {
         try {
@@ -241,9 +239,8 @@ chat.post("/interviews/:interview_id/chat/send", async (c) => {
     // past the guards only. The stale row leaves the history too, or the model sees the answer twice.
     const repair = session.prior.length > 0 && session.prior[session.prior.length - 1].role === "user";
     const tier = await resolveTier(user);
-    const config = await resolveConfig(user);
-    const chatModel = chatConfig(config, tier);
-    const userMsgId = await spendAndStoreTurn(user, config, tier, interviewId, body.content, repair);
+    const chatModel = chatConfig(tier);
+    const userMsgId = await spendAndStoreTurn(user, tier, interviewId, body.content, repair);
     const prior = repair ? session.prior.slice(0, -1) : session.prior;
 
     const discardTurn = async (): Promise<void> => {
@@ -265,12 +262,12 @@ chat.post("/interviews/:interview_id/chat/send", async (c) => {
             if (session.dials.hardcore) {
                 const turn = history.filter((message) => message.role === "user").length;
                 const question = [...prior].reverse().find((row) => row.role === "assistant")?.content ?? "";
-                const move = await judgeAnswer(question, body.content, config, turn);
+                const move = await judgeAnswer(question, body.content, SYSTEM_CONFIG, turn);
                 if (move !== null) {
                     await fetchrow(sql`UPDATE chat_turns SET move_class = ${move.cls}, comment = ${move.comment} WHERE id = ${userMsgId}`);
                     if (failClass(move.cls)) {
                         await fetchrow(sql`UPDATE interviews SET failed_turn = ${turn}, failed_class = ${move.cls}, updated_at = now() WHERE id = ${interviewId}`);
-                        const shout = await failShout(question, body.content, move.cls, config);
+                        const shout = await failShout(question, body.content, move.cls, SYSTEM_CONFIG);
                         // Persisted like any other reply, or a reload ends on the candidate's own answer with no
                         // callout. Best-effort: a DB hiccup must cost the stored line, not the shout.
                         try {

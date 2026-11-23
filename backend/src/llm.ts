@@ -8,7 +8,7 @@ import { roundHalfEven } from "./offer.ts";
 import { FAIL_CLASSES, MOVE_CLASSES, type MoveClass, STUB_MOVE_CYCLE, STUB_MOVE_NOTES } from "./rating.ts";
 import { CALLS, type Call, claim, LINE_CALLS, LINE_MAX, type LineCall, MAX_LINES, MAX_REWRITES, MAX_SECTIONS, NAME_MAX, RUNGS, rung, SECTION_CALLS, type SectionCall, slug, staircase, VERDICT_MAX } from "./review.ts";
 
-// Mirrors llm.py's frozen dataclass: grader_* fall back to the chat provider, so a BYOK owner has one
+// Mirrors llm.py's frozen dataclass: grader_* fall back to the chat provider, so a caller has one
 // provider for both stages.
 export type LLMConfig = {
     base_url: string;
@@ -16,11 +16,10 @@ export type LLMConfig = {
     api_key: string;
     grader_base_url: string;
     grader_model: string;
-    byok: boolean;
 };
 
 export function llmConfig(init: Pick<LLMConfig, "base_url" | "model"> & Partial<LLMConfig>): LLMConfig {
-    return { api_key: "", grader_base_url: "", grader_model: "", byok: false, ...init };
+    return { api_key: "", grader_base_url: "", grader_model: "", ...init };
 }
 
 // The Python property. No base URL is stub mode: every hop answers deterministically.
@@ -36,7 +35,7 @@ export const SYSTEM_CONFIG: LLMConfig = llmConfig({
     grader_model: env.llmGraderModel,
 });
 
-// A premium tier chats on the deployment's own model even when the owner configured BYOK.
+// A premium tier chats on the deployment's stronger model.
 export const PRO_CONFIG: LLMConfig | null = env.llmProModel === "" ? null : llmConfig({ base_url: env.llmProBaseUrl || env.llmBaseUrl, model: env.llmProModel, api_key: env.llmProApiKey || env.llmApiKey });
 
 export function graderConfig(config: LLMConfig): LLMConfig {
@@ -100,9 +99,7 @@ function failureReason(error: unknown): string {
 export function unreachableDetail(error: unknown, config: LLMConfig): string | null {
     const name = transportName(error);
     if (name === null) return null;
-    const who = config.byok ? "your provider" : "the deployment's provider";
-    const fix = config.byok ? "Test it in Settings > Interview engine (BYOK)." : "Try again in a moment.";
-    return `Could not reach ${who} (${providerHost(config)}) - ${name}. ${fix}`;
+    return `Could not reach the deployment's provider (${providerHost(config)}) - ${name}. Try again in a moment.`;
 }
 
 function coverageDirective(level: string): string {

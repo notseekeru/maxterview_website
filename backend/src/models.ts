@@ -490,20 +490,6 @@ export const ChatTurn = z.object({
 });
 export type ChatTurn = z.infer<typeof ChatTurn>;
 
-export const LLMProviderUpdate = z.object({
-    base_url: z.string().min(1).max(300),
-    model: z.string().min(1).max(200),
-    api_key: z.string().max(500).default(""),
-});
-export type LLMProviderUpdate = z.infer<typeof LLMProviderUpdate>;
-
-export const SystemLLM = z.object({
-    configured: z.boolean(),
-    base_url: z.string().default(""),
-    model: z.string().default(""),
-});
-export type SystemLLM = z.infer<typeof SystemLLM>;
-
 export const ClientError = z.object({
     message: z.string().min(1).max(300),
     route: z.string().max(200).default(""),
@@ -511,13 +497,3 @@ export const ClientError = z.object({
     component_stack: z.string().max(1000).default(""),
 });
 export type ClientError = z.infer<typeof ClientError>;
-
-export const LLMProvider = z.object({
-    enabled: z.boolean(),
-    byok: z.boolean(),
-    base_url: z.string().default(""),
-    model: z.string().default(""),
-    key_hint: z.string().nullable().default(null),
-    system: SystemLLM,
-});
-export type LLMProvider = z.infer<typeof LLMProvider>;

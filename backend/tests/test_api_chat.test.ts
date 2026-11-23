@@ -23,8 +23,6 @@ const PRO = await vi.hoisted(async () => {
 });
 
 const SYSTEM_URL = "https://llm.test/v1";
-const BYOK_URL = "https://api.example.com/v1";
-const BYOK_KEY = "sk-unit-test-key-abcd";
 const completions = (baseUrl: string) => `${baseUrl}/chat/completions`;
 
 const { privateKey, publicKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
@@ -32,7 +30,7 @@ const JWKS = { keys: [{ ...publicKey.export({ format: "jwk" }), alg: "RS256", ki
 const JWKS_URL = "https://clerk.test/jwks";
 
 type Message = { role: string; content: string; move_class: string | null; comment: string | null };
-type Usage = { byok: boolean; chat_turns_used_today: number; chat_turns_per_day_dev: number; chat_turns_remaining_today: number };
+type Usage = { chat_turns_used_today: number; chat_turns_per_day_dev: number; chat_turns_remaining_today: number };
 type DialGroup = { key: string; runs: number; rated: number; avg_accuracy: number | null; hire_rate: number | null };
 type Run = {
     id: string;
@@ -122,8 +120,6 @@ function countAttempts(): { spans: () => number; stop: () => void } {
         stop: () => spy.mockRestore(),
     };
 }
-
-const encryptionKey = () => Buffer.alloc(32, 7).toString("base64url");
 
 async function signIn(sub: string): Promise<Record<string, string>> {
     const now = Math.floor(Date.now() / 1000);
@@ -439,128 +435,6 @@ describe("review redos", () => {
     });
 });
 
-describe("byok", () => {
-    it("skips the tier quota for a byok turn but still meters it", async () => {
-        const tierLimit = 5;
-        await withConfig({ byokEncryptionKey: encryptionKey(), devChatTurns: tierLimit }, async () => {
-            try {
-                await fetchrow(sql`INSERT INTO turn_usage (owner_id, day, turns) VALUES (${config.devUserSub}, ${utcDay()}, ${tierLimit}) ON CONFLICT (owner_id, day) DO UPDATE SET turns = ${tierLimit}`);
-                const stored = await client.put("/api/settings/llm", { json: { base_url: BYOK_URL, model: "m", api_key: BYOK_KEY } });
-                expect(stored.status).toBe(200);
-
-                const stub = stubHttp();
-                stub.post(completions(BYOK_URL), () => sse(["Sure - "]));
-                const id = await started({ role: "BYOK quota" });
-                const sent = await send(id, "hi");
-                expect(sent.status).toBe(200);
-                expect(await sent.text()).toContain("Sure - ");
-                // The owner's target, not the system one: the turn resolved the saved credential.
-                expect(stub.calls[0].headers.get("authorization")).toBe(`Bearer ${BYOK_KEY}`);
-                expect(stub.calls[0].url).toBe(completions(BYOK_URL));
-
-                const state = await usage();
-                expect([state.byok, state.chat_turns_used_today]).toEqual([true, tierLimit + 1]);
-                await remove(id);
-            } finally {
-                await client.delete("/api/settings/llm");
-                await resetUsage(config.devUserSub);
-            }
-        });
-    });
-
-    it("stops turns at the byok ceiling", async () => {
-        const ceiling = 3;
-        await withConfig({ byokEncryptionKey: encryptionKey(), byokPremiumChatTurns: ceiling }, async () => {
-            try {
-                expect((await client.put("/api/settings/llm", { json: { base_url: BYOK_URL, model: "m", api_key: BYOK_KEY } })).status).toBe(200);
-                const id = await started({ role: "BYOK ceiling" });
-                await fetchrow(sql`INSERT INTO turn_usage (owner_id, day, turns) VALUES (${config.devUserSub}, ${utcDay()}, ${ceiling}) ON CONFLICT (owner_id, day) DO UPDATE SET turns = ${ceiling}`);
-                await insertTurn(id, "user", "abandoned answer");
-
-                const state = await usage();
-                expect([state.byok, state.chat_turns_per_day_dev, state.chat_turns_used_today, state.chat_turns_remaining_today]).toEqual([true, ceiling, ceiling, 0]);
-                const refused = await send(id, "hi");
-                expect(refused.status).toBe(402);
-                expect((await refused.json<{ detail: string }>()).detail).toContain("your own provider");
-                expect((await usage()).chat_turns_used_today).toBe(ceiling);
-                expect((await transcript(id)).map((message) => message.content)).toEqual(["abandoned answer"]);
-                await remove(id);
-            } finally {
-                await client.delete("/api/settings/llm");
-                await resetUsage(config.devUserSub);
-            }
-        });
-    });
-
-    it("refuses this deployment's own provider and its network", async () => {
-        await withConfig({ byokEncryptionKey: encryptionKey() }, async () => {
-            const saved = { ...llm.SYSTEM_CONFIG };
-            const put = (url: string, model: string, apiKey: string) => client.put("/api/settings/llm", { json: { base_url: url, model, api_key: apiKey } });
-            try {
-                Object.assign(llm.SYSTEM_CONFIG, { base_url: "http://100.64.0.1:8080/v1", model: "qwen", api_key: "" });
-                const refused = [
-                    "http://100.64.0.1:8080/v1", // the system provider, as written
-                    "http://100.64.0.1:8080/other", // any path on that listener
-                    "https://100.64.0.1:8080", // its https spelling
-                    "http://[::ffff:100.64.0.1]:8080/v1", // and as a mapped IPv6 literal
-                    "http://100.64.0.2:8080/v1", // the next box on the tailnet
-                    "http://10.1.2.3:11434/v1", // the LAN, and the k8s service range
-                    "http://192.168.1.10:11434/v1", // a LAN box
-                    "http://127.0.0.1:11434/v1", // the pod itself
-                    "http://169.254.169.254/v1", // node metadata
-                ];
-                for (const url of refused) {
-                    expect((await put(url, "m", "")).status, url).toBe(422);
-                }
-
-                Object.assign(llm.SYSTEM_CONFIG, { base_url: "http://9.9.9.9:8080/v1", model: "qwen", api_key: "" });
-                expect((await put("http://9.9.9.9:8080/v1", "qwen", "")).status).toBe(422);
-
-                // The moment the origin needs a key, the same host is fine: bringing your own key for the
-                // provider we happen to pay is not abusing anything.
-                Object.assign(llm.SYSTEM_CONFIG, { base_url: "https://9.9.9.9/v1", model: "managed", api_key: "sk-deployment-key" });
-                expect((await put("https://9.9.9.9/v1", "managed", "sk-own-key-1234")).status).toBe(200);
-                expect((await put("http://93.184.216.34:1234/v1", "m", "sk-own-key-1234")).status).toBe(200);
-            } finally {
-                Object.assign(llm.SYSTEM_CONFIG, saved);
-                await client.delete("/api/settings/llm");
-            }
-        });
-    });
-
-    it("round trips settings without ever returning the key", async () => {
-        await withConfig({ byokEncryptionKey: encryptionKey() }, async () => {
-            try {
-                const status = await (await client.get("/api/settings/llm")).json<{ enabled: boolean; byok: boolean; system: Record<string, unknown> }>();
-                expect([status.enabled, status.byok]).toEqual([true, false]);
-                expect(new Set(Object.keys(status.system))).toEqual(new Set(["configured", "base_url", "model"]));
-
-                const written = await client.put("/api/settings/llm", { json: { base_url: "https://api.example.com/v1/", model: "some-model", api_key: BYOK_KEY } });
-                expect(written.status).toBe(200);
-                const body = await written.json<{ byok: boolean; base_url: string; model: string; key_hint: string }>();
-                expect([body.byok, body.base_url, body.model, body.key_hint]).toEqual([true, "https://api.example.com/v1", "some-model", "abcd"]);
-                expect(await written.text()).not.toContain(BYOK_KEY);
-                expect(await (await client.get("/api/settings/llm")).text()).not.toContain(BYOK_KEY);
-
-                expect((await (await client.put("/api/settings/llm", { json: { base_url: "https://api.example.com/v1", model: "another", api_key: "" } })).json<{ model: string }>()).model).toBe("another");
-                expect((await client.delete("/api/settings/llm")).status).toBe(204);
-                expect((await (await client.get("/api/settings/llm")).json<{ byok: boolean }>()).byok).toBe(false);
-            } finally {
-                await client.delete("/api/settings/llm");
-            }
-        });
-    });
-
-    it("refuses a write without the deployment encryption key", async () => {
-        await withConfig({ byokEncryptionKey: "" }, async () => {
-            const refused = await client.put("/api/settings/llm", { json: { base_url: BYOK_URL, model: "m", api_key: BYOK_KEY } });
-            expect(refused.status).toBe(503);
-            expect((await refused.json<{ detail: string }>()).detail).toContain("BYOK_ENCRYPTION_KEY");
-            expect((await (await client.get("/api/settings/llm")).json<{ enabled: boolean }>()).enabled).toBe(false);
-        });
-    });
-});
-
 describe("hardcore", () => {
     for (const cls of FAIL_CLASSES) {
         it(`ends the run on the first failing answer: ${cls}`, async () => {
@@ -658,17 +532,11 @@ describe("pro model", () => {
             if (body.stream === true) return sse(["System reply. "]);
             return reply(sysReplies.shift() ?? "");
         });
-        const byokModels: string[] = [];
-        stub.post(completions(BYOK_URL), (call) => {
-            byokModels.push((JSON.parse(call.body) as { model: string }).model);
-            return sse(["Byok reply. "]);
-        });
 
-        await withConfig({ clerkEnabled: true, clerkJwksUrl: JWKS_URL, byokEncryptionKey: encryptionKey() }, async () => {
+        await withConfig({ clerkEnabled: true, clerkJwksUrl: JWKS_URL }, async () => {
             const headers = await signIn(owner);
             const post = (path: string, json?: unknown) => client.post(path, { json, headers });
             const id = (await (await post("/api/interviews", { role: "Pro model" })).json<{ id: string }>()).id;
-            let byokId: string | null = null;
             try {
                 await withLlm({ base_url: SYSTEM_URL, model: "unit-model" }, async () => {
                     await subscribe(owner);
@@ -690,18 +558,9 @@ describe("pro model", () => {
                     await post(`/api/interviews/${free}/chat/opening`);
                     expect(chatModels[chatModels.length - 1]).toBe(llm.SYSTEM_CONFIG.model);
                     await remove(free);
-
-                    // BYOK still wins, because that owner pays.
-                    expect((await client.put("/api/settings/llm", { json: { base_url: BYOK_URL, model: "byok-unit-test", api_key: BYOK_KEY }, headers })).status).toBe(200);
-                    byokId = (await (await post("/api/interviews", { role: "Pro BYOK model" })).json<{ id: string }>()).id;
-                    await post(`/api/interviews/${byokId}/start`);
-                    await post(`/api/interviews/${byokId}/chat/opening`);
-                    expect(byokModels[byokModels.length - 1]).toBe("byok-unit-test");
                 });
             } finally {
-                await client.delete("/api/settings/llm", { headers });
                 await remove(id);
-                if (byokId !== null) await remove(byokId);
                 await unsubscribe(owner);
             }
         });
