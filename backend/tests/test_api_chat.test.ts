@@ -497,13 +497,13 @@ describe("byok", () => {
             const saved = { ...llm.SYSTEM_CONFIG };
             const put = (url: string, model: string, apiKey: string) => client.put("/api/settings/llm", { json: { base_url: url, model, api_key: apiKey } });
             try {
-                Object.assign(llm.SYSTEM_CONFIG, { base_url: "http://100.64.2.2:8080/v1", model: "qwen", api_key: "" });
+                Object.assign(llm.SYSTEM_CONFIG, { base_url: "http://100.64.0.1:8080/v1", model: "qwen", api_key: "" });
                 const refused = [
-                    "http://100.64.2.2:8080/v1", // the system provider, as written
-                    "http://100.64.2.2:8080/other", // any path on that listener
-                    "https://100.64.2.2:8080", // its https spelling
-                    "http://[::ffff:100.64.2.2]:8080/v1", // and as a mapped IPv6 literal
-                    "http://100.64.2.9:8080/v1", // the next box on the tailnet
+                    "http://100.64.0.1:8080/v1", // the system provider, as written
+                    "http://100.64.0.1:8080/other", // any path on that listener
+                    "https://100.64.0.1:8080", // its https spelling
+                    "http://[::ffff:100.64.0.1]:8080/v1", // and as a mapped IPv6 literal
+                    "http://100.64.0.2:8080/v1", // the next box on the tailnet
                     "http://10.1.2.3:11434/v1", // the LAN, and the k8s service range
                     "http://192.168.1.10:11434/v1", // a LAN box
                     "http://127.0.0.1:11434/v1", // the pod itself

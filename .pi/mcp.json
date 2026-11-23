@@ -29,7 +29,7 @@
         "alerting,dashboard,loki,prometheus,datasource,search,navigation"
       ],
       "env": {
-        "GRAFANA_URL": "https://sturdypoplar3317.grafana.net",
+        "GRAFANA_URL": "!sed -n 's|^GRAFANA_URL=||p' .env | head -1 | xargs",
         "GRAFANA_SERVICE_ACCOUNT_TOKEN": "!sed -n 's|^GRAFANA_SERVICE_ACCOUNT_TOKEN=||p' .env | head -1 | xargs"
       }
     }

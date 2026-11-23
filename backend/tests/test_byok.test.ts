@@ -53,7 +53,7 @@ describe("byok", () => {
     // global to nobody, and that is where this deployment's own model lives. A regressed predicate
     // reopens the free ride and the network probe at once.
     it("offnet predicate covers cgnat and internal ranges", () => {
-        for (const host of ["100.64.2.2", "100.64.2.9", "10.1.2.3", "172.16.5.5", "192.168.1.10", "127.0.0.1", "169.254.169.254", "::1", "fd00::1", "::ffff:100.64.2.2", "0.0.0.0"]) {
+        for (const host of ["100.64.0.1", "100.64.0.2", "10.1.2.3", "172.16.5.5", "192.168.1.10", "127.0.0.1", "169.254.169.254", "::1", "fd00::1", "::ffff:100.64.0.1", "0.0.0.0"]) {
             expect(byok.offnet(host), host).toBe(true);
         }
         for (const host of ["1.1.1.1", "93.184.216.34", "2606:4700:4700::1111", "api.deepseek.com"]) {
@@ -78,10 +78,10 @@ describe("byok", () => {
         });
     });
 
-    // `evil.example A 100.64.2.2` is one DNS record away, so the check has to run on what the name
+    // `evil.example A 100.64.0.1` is one DNS record away, so the check has to run on what the name
     // resolves to and not only on IP literals.
     it("a name pointing into the network is refused", async () => {
-        dns.answers.set("llama.internal", ["100.64.2.2"]);
+        dns.answers.set("llama.internal", ["100.64.0.1"]);
         await withFreshKey(async () => {
             const refused = byok.save("user_byok_named", "http://llama.internal:8080/v1", "qwen", "");
             await expect(refused).rejects.toMatchObject({ status: 422 });

@@ -1,13 +1,13 @@
 ---
 name: grafana-operator
 description: >-
-  Operates the Grafana Cloud stack behind maxterview (sturdypoplar3317) through its HTTP API and the
+  Operates the Grafana Cloud stack behind maxterview through its HTTP API and the
   grafana MCP server, so nothing has to be clicked in grafana.com.
 ---
 
 # Grafana operator (maxterview)
 
-Stack: `https://sturdypoplar3317.grafana.net`, `org_id = 1`. Everything below is measured on it, not
+Stack: `$GRAFANA_URL`, `org_id = 1`, both in `.env`. Everything below is measured on it, not
 read from docs. What owns what: `OBSERVABILITY.md` owns the pipeline (Alloy → Loki, labels, tiers);
 `observability/grafana/bootstrap.py --help` owns kit usage, provisioning semantics and the
 portability boundary; `observability/grafana/rules|dashboards/*.json` own the rule and panel shapes
@@ -23,7 +23,7 @@ handling at all. For raw curl:
 ```sh
 # .env stores the value quoted; xargs strips the quotes (a bare sed read answers 401)
 TOKEN=$(sed -n 's/^GRAFANA_SERVICE_ACCOUNT_TOKEN=//p' .env | head -1 | xargs)   # never echo it
-URL=https://sturdypoplar3317.grafana.net
+URL=$GRAFANA_URL   # set in .env
 ```
 
 ## Where things live

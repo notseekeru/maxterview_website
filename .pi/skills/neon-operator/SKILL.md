@@ -13,8 +13,8 @@ prod backend writes. There is no cluster access from this workspace; this is the
 
 ## Measured facts
 
-- Project `purple-base-79730983` (`neon_maxterview_website`, aws-ap-southeast-1, PG 18), org
-  `org-spring-wind-56300230` ("Stephen"). Default branch `production`, db `neondb`, role
+- Project `$NEON_PROJECT_ID` (`neon_maxterview_website`, PG 18) in `.env`, org
+  `$NEON_ORG_ID` (".env"), display name "Stephen". Default branch `production`, db `neondb`, role
   `neondb_owner`.
 - The Neon MCP is wired in `.pi/mcp.json` as a bare `https://mcp.neon.tech/mcp`, so pi uses OAuth:
   `pi mcp login neon` once, and pi stores and refreshes the token in `~/.pi/agent/mcp-auth.json`. No

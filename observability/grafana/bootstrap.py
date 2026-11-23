@@ -56,7 +56,6 @@ import urllib.request
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-DEFAULT_URL = "https://sturdypoplar3317.grafana.net"
 DEFAULT_DATASOURCE = "grafanacloud-logs"
 DEFAULT_PROMETHEUS_DATASOURCE = "grafanacloud-prom"
 DEFAULT_INFINITY_DATASOURCE = "grafanacloud-infinity"
@@ -67,7 +66,7 @@ def fail(msg):
     sys.exit(f"FAIL: {msg}")
 
 
-def token(name="GRAFANA_SERVICE_ACCOUNT_TOKEN"):
+def env_value(name):
     env = os.environ.get(name)
     if env:
         return env.strip()
@@ -80,7 +79,11 @@ def token(name="GRAFANA_SERVICE_ACCOUNT_TOKEN"):
                         value = line.split("=", 1)[1].strip()
                         if value:
                             return value
-    fail(f"{name} not in the environment or any .env up the tree")
+    return ""
+
+
+def token(name="GRAFANA_SERVICE_ACCOUNT_TOKEN"):
+    return env_value(name) or fail(f"{name} not in the environment or any .env up the tree")
 
 
 def api(url, tok, path, method="GET", body=None):
@@ -236,7 +239,8 @@ def main():
     parser.add_argument("--receiver", default=DEFAULT_RECEIVER,
                         help=f"contact point the notification tree routes to; no rule sets its own "
                              f"or the tree would be bypassed (default {DEFAULT_RECEIVER})")
-    parser.add_argument("--url", default=os.environ.get("GRAFANA_URL") or DEFAULT_URL)
+    parser.add_argument("--url", default=env_value("GRAFANA_URL")
+                        or fail("GRAFANA_URL not in the environment or any .env up the tree"))
     parser.add_argument("--payments", action="store_true",
                         help="add the PayMongo rules (rules/alerting.payments.json) to the group; they "
                              "read event=\"paymongo.*\" rows only this project's app emits")

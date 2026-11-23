@@ -3,8 +3,8 @@ set -euo pipefail
 
 GITOPS=${GITOPS:-$HOME/gitops}
 HERE=$(cd -- "$(dirname -- "$0")" && pwd)
-TARGET=${TARGET:-seeker@100.64.1.1}
-KEY=${KEY:-$HOME/.ssh/piserver}
+TARGET=${TARGET:?set TARGET=<user>@<node-host> in .env}
+KEY=${KEY:?set KEY=<path to the node ssh key> in .env}
 FILE=apps-of-apps/maxterview.yaml
 ENV=apps/maxterview/overlays/perf/env.yaml
 LINE='^([[:space:]]*path: apps/maxterview/overlays/)(prod|perf)([[:space:]]*)$'

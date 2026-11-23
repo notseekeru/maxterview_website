@@ -4,11 +4,11 @@
 
 | Thing            | Value                                                                                                                |
 | ---------------- | -------------------------------------------------------------------------------------------------------------------- |
-| API base         | `http://100.64.1.1:30090/api`, a NodePort created with the perf-val-change and deleted with it                       |
+| API base         | `$API_URL` (`http://<node-host>:30090/api` in `.env`), a NodePort created with the perf-val-change and deleted with it |
 | Host header      | none. The NodePort points at the backend Service, so no name routing is involved                                     |
 | TLS              | none on this hop. It is plain HTTP over Tailscale, and Tailscale does the encryption                                 |
 | Measured latency | single digit ms over the tailnet from the desktop, about 44ms from the laptop, which relays; 54ms on the public path |
-| Server access    | `ssh -i ~/.ssh/piserver seeker@100.64.1.1`; the default identity list does not offer that key                        |
+| Server access    | `ssh -i "$KEY" "$TARGET"`; both come from `.env`, and the default identity list does not offer that key |
 
 The public URL works with k6, but it carries about half a second of Cloudflare and tunnel per request,
 and it answers 403 with Cloudflare code 1010 to any client whose user agent it dislikes. It is the
@@ -25,8 +25,8 @@ direnv allow .
 k6 version                  # k6 v2.2.0, from the flake
 python3 sweep.py --help     # --start, --max-vus, --only, --floor, --smoke, --label, --confirm-runs, --cleanup-only, --identity
 
-cat > .env <<'EOF'
-API_URL=http://100.64.1.1:30090/api
+cat > .env <<EOF
+API_URL=$API_URL
 SWEEP_SUB=k6-sweep-testing
 # The standard perf window's tag. A probe passes its own --label, which wins over this.
 LABEL=pool40-nodeport
@@ -52,7 +52,7 @@ to that commit, and Argo syncs. Opening the perf window before that measures the
 Confirm the backend deployment is on the pushed commit before any load:
 
 ```sh
-ssh -i ~/.ssh/piserver seeker@100.64.1.1 \
+ssh -i "$KEY" "$TARGET" \
   'k3s kubectl -n maxterview get deploy maxterview-backend -o jsonpath="{.spec.template.spec.containers[0].image}"'
 ```
 
@@ -73,7 +73,7 @@ and nothing stays open.
 ## 3. Prove it from the ladder's side
 
 ```sh
-curl -s -o /tmp/u.json -w '%{http_code}\n' http://100.64.1.1:30090/api/billing/usage
+curl -s -o /tmp/u.json -w '%{http_code}\n' "$API_URL/billing/usage"
 cat /tmp/u.json        # want 200 and "tier":"dev". A 401 means the perf-val-change is still closed
 
 python3 sweep.py --cleanup-only

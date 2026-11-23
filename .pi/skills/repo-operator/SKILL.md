@@ -31,11 +31,11 @@ Infisical's dev env at`/consumers/maxterview`, inside a marked block at the end 
   the only target that needs the network.
 - **Cluster reach is one SSH hop, and it asks first.** The k3s kubeconfig (and therefore `kubectl`,
   `argo`, Helm) lives on the node, not here (`~/.kube` holds only caches). The node is
-  `seeker@100.64.1.1` over Tailscale, opened with `~/.ssh/piserver`, a key that logs into the node
-  and nothing else (the CD key is not a node login). **Ask the user before opening a session**, then:
+  `$TARGET` over Tailscale, opened with `$KEY`, a key that logs into the node
+  and nothing else (the CD key is not a node login). Both live in `.env`. **Ask the user before opening a session**, then:
 
   ```bash
-  ssh -i ~/.ssh/piserver seeker@100.64.1.1 'kubectl get pods -A; kubectl top nodes'
+  ssh -i "$KEY" "$TARGET" 'kubectl get pods -A; kubectl top nodes'
   ```
 
   Read-only by default: `apply`, `delete`, `scale`, `rollout restart`, `edit`, `exec` and `sudo` each
