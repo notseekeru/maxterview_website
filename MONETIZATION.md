@@ -7,14 +7,14 @@ Decisions: PLAN D10 (owner-scoping is a hard rule).
 
 ## 0. Limits & model (env-configurable, not hardcoded)
 
-|                                           | Free                       | Premium                              | dev                        |
-| ----------------------------------------- | -------------------------- | ------------------------------------ | -------------------------- |
-| Interviews (creation)                     | **unlimited**              | **unlimited**                        | **unlimited**              |
-| Resumes kept                              | **1** (`FREE_RESUMES`)     | **10** (`PREMIUM_RESUMES`)           | **10** (`DEV_RESUMES`)     |
-| Review redos / run                        | **1** (`FREE_REDOS`)       | **10** (`PREMIUM_REDOS`)             | **10** (`DEV_REDOS`)       |
-| Price                                     | ₱0                         | **₱99 / 30 days** (one payment)      | ₱0                         |
-| Chat turns / day (GLOBAL, all interviews) | **30** (`FREE_CHAT_TURNS`) | **300** (`PREMIUM_CHAT_TURNS`)      | **100000000** (`DEV_CHAT_TURNS`) |
-| Interview turn model                      | `LLM_MODEL`                | `LLM_PRO_MODEL` (`LLM_PRO_*`)        | `LLM_MODEL`                      |
+|                                           | Free                       | Premium                         | dev                              |
+| ----------------------------------------- | -------------------------- | ------------------------------- | -------------------------------- |
+| Interviews (creation)                     | **unlimited**              | **unlimited**                   | **unlimited**                    |
+| Resumes kept                              | **1** (`FREE_RESUMES`)     | **10** (`PREMIUM_RESUMES`)      | **10** (`DEV_RESUMES`)           |
+| Review redos / run                        | **1** (`FREE_REDOS`)       | **10** (`PREMIUM_REDOS`)        | **10** (`DEV_REDOS`)             |
+| Price                                     | ₱0                         | **₱99 / 30 days** (one payment) | ₱0                               |
+| Chat turns / day (GLOBAL, all interviews) | **30** (`FREE_CHAT_TURNS`) | **300** (`PREMIUM_CHAT_TURNS`)  | **100000000** (`DEV_CHAT_TURNS`) |
+| Interview turn model                      | `LLM_MODEL`                | `LLM_PRO_MODEL` (`LLM_PRO_*`)   | `LLM_MODEL`                      |
 
 - The gate is a **global daily credit per owner** spanning ALL their interviews in one UTC day, reset
   at 00:00 UTC. No per-interview cap, no daily-interview cap, no free trial. Count **turns, not
