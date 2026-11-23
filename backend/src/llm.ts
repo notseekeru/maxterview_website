@@ -35,7 +35,7 @@ export const SYSTEM_CONFIG: LLMConfig = llmConfig({
     grader_model: env.llmGraderModel,
 });
 
-// A premium tier chats on the deployment's stronger model.
+// A premium tier chats on the deployment's own model.
 export const PRO_CONFIG: LLMConfig | null = env.llmProModel === "" ? null : llmConfig({ base_url: env.llmProBaseUrl || env.llmBaseUrl, model: env.llmProModel, api_key: env.llmProApiKey || env.llmApiKey });
 
 export function graderConfig(config: LLMConfig): LLMConfig {

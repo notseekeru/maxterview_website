@@ -139,7 +139,7 @@ For routing k6 to my app, I used Tailscale to connect them. For anyone who doesn
 | `GET /interviews/{id}/feedback`                                           |
 | `GET /interviews/{id}/chat`                                               |
 | `GET /interviews`, `/stats/analytics`, `/stats/dashboard`                 |
-| `GET /billing/usage`, `/templates`, `/resumes`, `/settings/llm`, `/voice` |
+| `GET /billing/usage`, `/templates`, `/resumes`, `/voice`                  |
 | `GET /interviews/{id}/offer`                                              |
 | `POST` and `DELETE /interviews/{id}/archive`                              |
 | `POST /resumes`, `POST /templates`, each deleted in the same run          |

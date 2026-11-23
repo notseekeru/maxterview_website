@@ -50,7 +50,7 @@ Infisical's dev env at`/consumers/maxterview`, inside a marked block at the end 
   which lets you drive the whole auth-gated UI against the backend's `DEV_USER`. This is the fastest
   way to reproduce most UI/behaviour issues WITHOUT any Clerk/PayMongo credentials.
 - **Backend surfaces** (all under the app's `/api` prefix): `/api/health`, `/api/interviews`, `/api/interviews/{id}` (+`/start`,`/finish`,`/archive`,
-  `/chat`, `/feedback`, `/feedback/generate`), `/api/billing/usage`, `/api/settings/llm` (+`/test`),
+  `/chat`, `/feedback`, `/feedback/generate`), `/api/billing/usage`,
   `/api/billing/checkout`, `/api/billing/cancel`, `/api/billing/webhook`, `/api/billing/webhook/simulate`,
   `/api/interviews/{id}/chat/send` (SSE).
 - **Auth**: JWT verified against Clerk JWKS when `CLERK_ENABLED=true`; `__session` cookie primary,
