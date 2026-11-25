@@ -1,4 +1,4 @@
-FROM node:24-slim@sha256:dc26ae92c9fb15cf6b1d63e20f0944b2efe0f115b20e00be48fb23fceb061c54 AS deps
+FROM node:24-slim@sha256:873f586f3794f52281bd039bf02c048a0be08fde619338f9941bad1eb6b34530 AS deps
 
 WORKDIR /app
 
@@ -14,7 +14,7 @@ COPY scripts/migrate.ts ./scripts/
 
 RUN npm run build
 
-FROM node:24-slim@sha256:dc26ae92c9fb15cf6b1d63e20f0944b2efe0f115b20e00be48fb23fceb061c54 AS prod-deps
+FROM node:24-slim@sha256:873f586f3794f52281bd039bf02c048a0be08fde619338f9941bad1eb6b34530 AS prod-deps
 
 WORKDIR /app
 
@@ -22,7 +22,7 @@ COPY package.json package-lock.json ./
 
 RUN npm ci --omit=dev && npm cache clean --force
 
-FROM node:24-slim@sha256:dc26ae92c9fb15cf6b1d63e20f0944b2efe0f115b20e00be48fb23fceb061c54 AS runtime
+FROM node:24-slim@sha256:873f586f3794f52281bd039bf02c048a0be08fde619338f9941bad1eb6b34530 AS runtime
 
 # The resume preview shells out to pdflatex (src/latex.ts) and 503s without it. Same package set as the
 # Python image: the shipped preamble needs geometry, fontenc, lmodern, enumitem, titlesec and hyperref,
